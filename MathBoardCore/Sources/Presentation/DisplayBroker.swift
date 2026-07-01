@@ -77,6 +77,7 @@ public final class DisplayBroker {
     public var toolPaletteState = ToolPaletteState()
     public var isToolPaletteExpanded = false
     public var toolPaletteCenter: CGPoint?
+    public var compactToolPaletteCenter: CGPoint?
     public var toolPaletteReferenceSize: CGSize?
 
     public func publishFrame(_ frame: CGImage, sourceRect: CGRect, viewportSourceRect: CGRect) {

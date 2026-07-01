@@ -4,7 +4,34 @@
 >
 > **Reading instruction (Claude):** Read this document top-to-bottom at the start of any working session that follows a break of **one hour or more**, before writing any calculator code. The locked-in design decisions in section 2 and the deferral list in section 6 are the source of truth — do not reopen them without explicit user direction.
 
-**Last updated:** 2026-06-28 — v1 SHIPPED ✅; v2 TI-84 keypad ✅; **dark TV-friendly theme ✅** (charcoal panels, amber accent, white labels). **v3 graphing:** pinch-zoom fixed, multi colored equations, family/Topic keypad (dropdown fixed: full names), 2D plot. **1-Variable redesigned:** number line per equation, reduced keypad (x, `< ≤ > ≥ =`, `and`/`or`, number pad), And/Or toggle + combined 3rd number line (region intersection/union), compound `and`/`or` solving. 167/167 tests, builds clean. **NEXT:** photo-button wiring (needs image-object layer), cursor editing, tangent-root detection. Pending hardware test.
+**Last updated:** 2026-07-01 — Git backup protocol documented. Calculator remains at v1 shipped / v2 TI-84 keypad / v3 graphing status from 2026-06-28.
+
+---
+
+## Git / Backup Protocol
+
+- GitHub remote: `https://github.com/macintodd/MathBoard.git`
+- Stable branch: `main`
+- After every tested working milestone, run a clean Xcode build, then create a Git checkpoint before starting risky new work.
+- AI assistants in this Xcode/Codex environment can inspect Git state, edit project files, stage/check changes, and run builds, but they cannot reliably create commits or push because writes inside `.git` are blocked by the tool sandbox.
+- The user should run this checkpoint sequence in Terminal:
+
+```bash
+cd /Users/macminim4/Documents/Develop/MathBoard
+git status
+git add -A
+git commit -m "Short milestone description"
+git push
+```
+
+- For risky experiments or alternate UI work, use a branch instead of changing `main` directly:
+
+```bash
+git checkout -b feature-name
+git push -u origin feature-name
+```
+
+- Do not commit broken builds to `main`. Keep unfinished experiments on branches until they build and the user has tested the behavior.
 
 ---
 

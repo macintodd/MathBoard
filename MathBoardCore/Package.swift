@@ -23,7 +23,12 @@ let package = Package(
     ],
     products: [
         .library(name: "Documents", targets: ["Documents"]),
-        .library(name: "ToolPalette", targets: ["ToolPalette"])
+        .library(name: "ToolPalette", targets: ["ToolPalette"]),
+
+        // Exposed as a product only so Xcode offers a "WidgetEngine" scheme that
+        // builds this target for SwiftUI previews. Nothing links it — the app
+        // target does not depend on it, so the module stays fully isolated.
+        .library(name: "WidgetEngine", targets: ["WidgetEngine"])
     ],
     targets: [
         .target(name: "Canvas"),
@@ -40,6 +45,12 @@ let package = Package(
         // phased, feature-flagged integration (see ToolPalette_integration.md);
         // still dependency-free itself (pure SwiftUI, no UIKit/PencilKit).
         .target(name: "ToolPalette"),
-        .testTarget(name: "ToolPaletteTests", dependencies: ["ToolPalette"])
+        .testTarget(name: "ToolPaletteTests", dependencies: ["ToolPalette"]),
+
+        // Interactive HTML/JS widget engine (prototype). Fully self-contained:
+        // zero dependencies on MathBoard.app or the other MathBoardCore modules.
+        // Previewed independently in Xcode; wired into the canvas later via a
+        // Coordinator. See WidgetEngine/ and Widget_Engine_status.md.
+        .target(name: "WidgetEngine")
     ]
 )

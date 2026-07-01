@@ -2,7 +2,46 @@
 
 > Living document. Update at the end of every working session. At the start of any session following a break of one hour or more, read this top-to-bottom before writing code.
 
-**Last updated:** 2026-07-01 — Region clone creates sticker image objects
+**Last updated:** 2026-07-01 — Compact palette is primary tool palette direction
+
+---
+
+## Git / Backup Protocol
+
+- GitHub remote: `https://github.com/macintodd/MathBoard.git`
+- Stable branch: `main`
+- After every tested working milestone, run a clean Xcode build, then create a Git checkpoint before starting risky new work.
+- AI assistants in this Xcode/Codex environment can inspect Git state, edit project files, stage/check changes, and run builds, but they cannot reliably create commits or push because writes inside `.git` are blocked by the tool sandbox.
+- The user should run this checkpoint sequence in Terminal:
+
+```bash
+cd /Users/macminim4/Documents/Develop/MathBoard
+git status
+git add -A
+git commit -m "Short milestone description"
+git push
+```
+
+- For risky experiments or alternate UI work, use a branch instead of changing `main` directly:
+
+```bash
+git checkout -b feature-name
+git push -u origin feature-name
+```
+
+- Do not commit broken builds to `main`. Keep unfinished experiments on branches until they build and the user has tested the behavior.
+
+---
+
+## Current UI Test Note
+
+- `CompactToolPaletteView` is now the primary tool palette direction for future development.
+- Open the top-right **Tool Palette** menu and use **Palette Style** to switch between `Radial` and `Compact`.
+- Keep `Radial` in the codebase as an experimental/legacy style and fallback. Do not delete it unless the user explicitly asks.
+- New palette design and tool-polish work should target `Compact` first. Only touch `Radial` when fixing regressions, preserving fallback behavior, or when explicitly requested.
+- Both styles share the same `ToolPaletteState` and command path so testing compares palette UI, not separate tool behavior.
+- Compact palette has a top drag handle and remembers its own position separately from the radial palette.
+- Next palette work should proceed tool-by-tool in Compact: shell/drag/collapse behavior, Pen, Marker, Eraser, Selection, Text/Equation, Geometry, and then future Widget/Image/Sticker tools.
 
 ---
 

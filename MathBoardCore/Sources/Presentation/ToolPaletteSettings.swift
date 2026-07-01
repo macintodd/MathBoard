@@ -11,6 +11,22 @@ import CoreGraphics
 import Foundation
 import Observation
 
+public enum ToolPaletteStyle: String, CaseIterable, Identifiable, Sendable {
+    case radial
+    case compact
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .radial:
+            return "Radial"
+        case .compact:
+            return "Compact"
+        }
+    }
+}
+
 public enum ToolPaletteSize: String, CaseIterable, Identifiable, Sendable {
     case small
     case medium
@@ -52,6 +68,7 @@ public final class ToolPaletteSettings {
 
     private let store: UserDefaults
     private static let enabledKey = "toolPalette.isCustomPaletteEnabled"
+    private static let styleKey = "toolPalette.style"
     private static let sizeKey = "toolPalette.size"
 
     /// When true, `PresentingCanvasView` shows the floating radial palette.
@@ -71,10 +88,23 @@ public final class ToolPaletteSettings {
         }
     }
 
+    public var paletteStyle: ToolPaletteStyle {
+        didSet {
+            guard oldValue != paletteStyle else { return }
+            store.set(paletteStyle.rawValue, forKey: Self.styleKey)
+        }
+    }
+
     /// `init(store:)` accepts an injectable `UserDefaults` for test isolation.
     public init(store: UserDefaults = .standard) {
         self.store = store
         self.isCustomPaletteEnabled = store.bool(forKey: Self.enabledKey)
+        if let rawStyle = store.string(forKey: Self.styleKey),
+           let style = ToolPaletteStyle(rawValue: rawStyle) {
+            self.paletteStyle = style
+        } else {
+            self.paletteStyle = .radial
+        }
         if let rawSize = store.string(forKey: Self.sizeKey),
            let size = ToolPaletteSize(rawValue: rawSize) {
             self.paletteSize = size

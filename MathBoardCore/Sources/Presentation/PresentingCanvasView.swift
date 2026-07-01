@@ -82,18 +82,8 @@ public struct PresentingCanvasView: View {
             }
 
             #if os(iOS)
-            // Phase 1: flagged, visual-only floating palette. Empty areas don't
-            // capture touches, so ink still draws everywhere except under the
-            // puck/dial. Commands are intentionally not yet applied to the canvas.
             if paletteSettings.isCustomPaletteEnabled {
-                FloatingToolPaletteView(
-                    state: toolPaletteStateBinding,
-                    isExpanded: toolPaletteExpandedBinding,
-                    center: toolPaletteCenterBinding,
-                    dialSize: paletteSettings.paletteSize.dialSize,
-                    collapsedSize: paletteSettings.paletteSize.collapsedSize,
-                    onResolvedCommand: handleToolPaletteCommand
-                )
+                activeToolPaletteOverlay
             }
             #endif
         }
@@ -199,11 +189,18 @@ public struct PresentingCanvasView: View {
                         )
                     }
 
+                    Picker("Palette Style", selection: toolPaletteStyleBinding) {
+                        ForEach(ToolPaletteStyle.allCases) { style in
+                            Text(style.displayName).tag(style)
+                        }
+                    }
+
                     Picker("Palette Size", selection: toolPaletteSizeBinding) {
                         ForEach(ToolPaletteSize.allCases) { size in
                             Text(size.displayName).tag(size)
                         }
                     }
+                    .disabled(paletteSettings.paletteStyle != .radial)
                 } label: {
                     Label("Tool Palette", systemImage: "paintpalette")
                 }
@@ -221,7 +218,33 @@ public struct PresentingCanvasView: View {
         .onChange(of: paletteSettings.isCustomPaletteEnabled) { _, _ in
             applyCurrentToolPaletteStateIfNeeded(triggering: .selectTool(broker.toolPaletteState.activeTool))
         }
+        .onChange(of: paletteSettings.paletteStyle) { _, _ in
+            applyCurrentToolPaletteStateIfNeeded(triggering: .selectTool(broker.toolPaletteState.activeTool))
+        }
     }
+
+    #if os(iOS)
+    @ViewBuilder
+    private var activeToolPaletteOverlay: some View {
+        switch paletteSettings.paletteStyle {
+        case .radial:
+            FloatingToolPaletteView(
+                state: toolPaletteStateBinding,
+                isExpanded: toolPaletteExpandedBinding,
+                center: toolPaletteCenterBinding,
+                dialSize: paletteSettings.paletteSize.dialSize,
+                collapsedSize: paletteSettings.paletteSize.collapsedSize,
+                onResolvedCommand: handleToolPaletteCommand
+            )
+        case .compact:
+            FloatingCompactToolPaletteView(
+                state: toolPaletteStateBinding,
+                center: compactToolPaletteCenterBinding,
+                onResolvedCommand: handleToolPaletteCommand
+            )
+        }
+    }
+    #endif
 
     private var zoomLabel: String {
         guard let viewportState = broker.viewportState else { return "100%" }
@@ -259,10 +282,24 @@ public struct PresentingCanvasView: View {
         )
     }
 
+    private var compactToolPaletteCenterBinding: Binding<CGPoint?> {
+        Binding(
+            get: { broker.compactToolPaletteCenter },
+            set: { broker.compactToolPaletteCenter = $0 }
+        )
+    }
+
     private var toolPaletteSizeBinding: Binding<ToolPaletteSize> {
         Binding(
             get: { paletteSettings.paletteSize },
             set: { paletteSettings.paletteSize = $0 }
+        )
+    }
+
+    private var toolPaletteStyleBinding: Binding<ToolPaletteStyle> {
+        Binding(
+            get: { paletteSettings.paletteStyle },
+            set: { paletteSettings.paletteStyle = $0 }
         )
     }
 
@@ -404,6 +441,126 @@ private extension CanvasStrokeColor {
         )
     }
 }
+
+#if os(iOS)
+private struct FloatingCompactToolPaletteView: View {
+    @Binding var state: ToolPaletteState
+    @Binding var center: CGPoint?
+
+    var onResolvedCommand: (ToolPaletteCommand, ToolPaletteState) -> Void
+
+    @State private var measuredSize: CGSize = .zero
+    @State private var dragStartCenter: CGPoint?
+
+    var body: some View {
+        GeometryReader { proxy in
+            let containerSize = proxy.size
+            let paletteSize = measuredSize == .zero ? Self.fallbackSize : measuredSize
+            let resolvedCenter = center ?? Self.defaultCenter(in: containerSize, paletteSize: paletteSize)
+
+            VStack(alignment: .leading, spacing: 0) {
+                dragHandle
+                    .gesture(dragGesture(in: containerSize, currentCenter: resolvedCenter, paletteSize: paletteSize))
+                CompactToolPaletteView(
+                    state: $state,
+                    onResolvedCommand: onResolvedCommand
+                )
+            }
+            .background(
+                GeometryReader { paletteProxy in
+                    Color.clear
+                        .onAppear {
+                            measuredSize = paletteProxy.size
+                        }
+                        .onChange(of: paletteProxy.size) { _, newSize in
+                            measuredSize = newSize
+                            if let center {
+                                self.center = Self.clamp(center, in: containerSize, paletteSize: newSize)
+                            }
+                        }
+                }
+            )
+            .position(resolvedCenter)
+        }
+    }
+
+    private var dragHandle: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 13, weight: .bold))
+            Text("Move")
+                .font(.system(size: 11, weight: .heavy))
+                .textCase(.uppercase)
+                .tracking(1)
+        }
+        .foregroundStyle(Color.white.opacity(0.78))
+        .frame(width: Self.railWidth, height: 30)
+        .background(
+            UnevenRoundedRectangle(
+                topLeadingRadius: 18,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: 18,
+                style: .continuous
+            )
+            .fill(Color(red: 0.08, green: 0.18, blue: 0.30))
+        )
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.white.opacity(0.08))
+                .frame(height: 1)
+        }
+        .contentShape(Rectangle())
+        .accessibilityLabel("Move compact tool palette")
+    }
+
+    private func dragGesture(in containerSize: CGSize, currentCenter: CGPoint, paletteSize: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .global)
+            .onChanged { value in
+                let base = dragStartCenter ?? currentCenter
+                if dragStartCenter == nil {
+                    dragStartCenter = base
+                }
+                center = Self.clamp(
+                    CGPoint(x: base.x + value.translation.width, y: base.y + value.translation.height),
+                    in: containerSize,
+                    paletteSize: paletteSize
+                )
+            }
+            .onEnded { _ in
+                dragStartCenter = nil
+            }
+    }
+
+    private static let fallbackSize = CGSize(width: 360, height: 420)
+    private static let railWidth: CGFloat = 68
+    private static let margin: CGFloat = 16
+
+    private static func defaultCenter(in containerSize: CGSize, paletteSize: CGSize) -> CGPoint {
+        clamp(
+            CGPoint(
+                x: containerSize.width - paletteSize.width / 2 - margin,
+                y: paletteSize.height / 2 + margin
+            ),
+            in: containerSize,
+            paletteSize: paletteSize
+        )
+    }
+
+    private static func clamp(_ point: CGPoint, in containerSize: CGSize, paletteSize: CGSize) -> CGPoint {
+        let halfWidth = max(paletteSize.width / 2, 1)
+        let halfHeight = max(paletteSize.height / 2, 1)
+        let minX = halfWidth + margin
+        let maxX = max(minX, containerSize.width - halfWidth - margin)
+        let minY = halfHeight + margin
+        let maxY = max(minY, containerSize.height - halfHeight - margin)
+        return CGPoint(
+            x: min(max(point.x, minX), maxX),
+            y: min(max(point.y, minY), maxY)
+        )
+    }
+}
+#endif
 
 private extension CanvasToolCommand.EraserMode {
     init(eraserMode: EraserMode) {

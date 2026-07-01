@@ -1,49 +1,88 @@
 # MathBoard Radial Palette — Status
 
-> Living design + progress doc for the custom radial drawing tool palette.
-> Read this document top-to-bottom before starting any radial palette work.
+> Living design + progress doc for the custom palette system: `CompactToolPaletteView` is now the primary direction; `RadialToolPaletteView` is preserved as an experimental/legacy fallback.
+> Read this document top-to-bottom before starting any tool palette work.
 >
-> **Hard rule:** build the radial palette independently first, like the calculator was built. Do **not** touch existing MathBoard app, Canvas, Presentation, Slides, Documents, or PencilKit integration code until the standalone palette component is built, reviewed, and explicitly approved for integration.
+> **Hard rule:** future tool-palette design and polish should target Compact first. Do not spend new design effort on Radial unless the user explicitly asks.
 
-**Last updated:** 2026-06-30 — Pen/Marker/Laser colors separated; app builds clean
+**Last updated:** 2026-07-01 — Compact palette is primary tool palette direction
+
+---
+
+## Git / Backup Protocol
+
+- GitHub remote: `https://github.com/macintodd/MathBoard.git`
+- Stable branch: `main`
+- After every tested working milestone, run a clean Xcode build, then create a Git checkpoint before starting risky new work.
+- AI assistants in this Xcode/Codex environment can inspect Git state, edit project files, stage/check changes, and run builds, but they cannot reliably create commits or push because writes inside `.git` are blocked by the tool sandbox.
+- The user should run this checkpoint sequence in Terminal:
+
+```bash
+cd /Users/macminim4/Documents/Develop/MathBoard
+git status
+git add -A
+git commit -m "Short milestone description"
+git push
+```
+
+- For risky experiments or alternate UI work, use a branch instead of changing `main` directly:
+
+```bash
+git checkout -b feature-name
+git push -u origin feature-name
+```
+
+- Do not commit broken builds to `main`. Keep unfinished experiments on branches until they build and the user has tested the behavior.
+
+---
+
+## Current UI Test Note
+
+- `CompactToolPaletteView` is now the primary tool palette direction for future development.
+- Open the top-right **Tool Palette** menu and use **Palette Style** to switch between `Radial` and `Compact`.
+- Keep `Radial` in the codebase as an experimental/legacy style and fallback. Do not delete it unless the user explicitly asks.
+- New palette design and tool-polish work should target `Compact` first. Only touch `Radial` when fixing regressions, preserving fallback behavior, or when explicitly requested.
+- Both styles share the same `ToolPaletteState` and command path so testing compares palette UI, not separate tool behavior.
+- `Palette Size` only affects the radial palette.
+- Compact palette has a top drag handle and remembers its own position separately from the radial palette.
+- Next palette work should proceed tool-by-tool in Compact: shell/drag/collapse behavior, Pen, Marker, Eraser, Selection, Text/Equation, Geometry, and then future Widget/Image/Sticker tools.
 
 ---
 
 ## 1. One-paragraph summary
 
-The radial palette is MathBoard's planned replacement for Apple's visible PencilKit tool palette on iPad. It should be a teacher-friendly, Apple-Pencil-centered tool surface that keeps common drawing controls near the user's hand instead of requiring screen travel. The palette will eventually control pen, marker, eraser, laser pointer, selection, geometry, and equation tools. The first implementation must be built as an isolated, standalone module/prototype with mock state and mock command output. Integration with the real MathBoard canvas comes later, after the palette's interaction model, layout, animation, and command API are stable.
+The Compact palette is MathBoard's primary planned replacement for Apple's visible PencilKit tool palette on iPad. It should be a teacher-friendly, Apple-Pencil-centered tool surface with streamlined submenus/columns similar in spirit to Explain Everything, while keeping MathBoard's own tool model and visual language. The Radial palette remains in the app as an experimental/legacy fallback selectable from the Tool Palette menu. Future work should refine Compact tool-by-tool; Radial should be preserved, not expanded, unless explicitly requested.
 
 ---
 
 ## 2. Non-negotiable constraints
 
 - **Do not replace PencilKit's drawing engine right now.** MathBoard already has working PencilKit storage, iPad/Mac file compatibility, PDF backgrounds, PDF export, external-display mirroring, live-stroke overlay, undo/redo, and `.mathboard` package persistence. A custom vector drawing engine is a future research project, not the next palette step.
-- **Do not touch MathBoard integration code during standalone palette work.** No edits to `PencilKitCanvas.swift`, `CanvasView.swift`, `PresentingCanvasView.swift`, `DisplayBroker.swift`, or app target files until the standalone palette is complete and the user explicitly asks to integrate it.
-- **Build like the calculator.** The calculator was developed as an isolated feature module first, then wired into the app with small integration edits. The radial palette should follow that pattern.
-- **Keep the palette data-driven.** The radial view should render configuration supplied by active tool definitions. Avoid hardcoding every tool's UI behavior directly into the palette view with large switch statements.
+- **Compact is primary.** Future palette work should start in `CompactToolPaletteView.swift` and shared definitions/reducer files, not in the radial view.
+- **Build like the calculator.** Develop palette changes in isolated, reviewable pieces first, then wire them into the app with small integration edits.
+- **Keep the palette data-driven.** Compact and Radial should render configuration supplied by active tool definitions. Avoid hardcoding every tool's UI behavior directly into palette views with large switch statements.
 - **Prefer PencilKit control for v1.** The first integrated version should set `PKCanvasView.tool`, color, width, eraser mode, and related state rather than owning a new drawing engine.
 - **Selection and object editing are future-dependent.** Full selection, region cutting, stickers, movable PDF objects, graph snapshots, image objects, and geometry editing depend on a future object layer. The palette can reserve UI for these tools, but should not fake deep object support before the object model exists.
 
 ---
 
-## 3. Design objective
+## 3. Current Design Objective
 
-The radial palette should feel fast, spatial, and classroom-friendly:
+The Compact palette should feel fast, streamlined, and classroom-friendly:
 
 - The teacher can change tools, color, width, opacity, eraser mode, and laser mode without leaving the writing area.
-- Common controls appear around the Apple Pencil or near a compact floating palette position.
+- Common controls appear in the main rail and streamlined submenus/columns that can be moved out of the way.
 - The palette should avoid covering instructional content as much as possible.
 - It should fade to low opacity, roughly 10%, during selection-box drawing or other content-focused gestures where visibility matters.
-- It should be visually stable and predictable: bottom arcs configure the active tool; top orbit performs contextual actions.
+- It should be visually stable and predictable: the rail selects tools; the adjacent drawer/columns configure the active tool.
 - It should scale cleanly to more tools without requiring a rewrite of the palette renderer.
-- Visual direction is based on the supplied selection-tool mockup: dark navy circular segmented dial, subtle raised/inset surfaces, cyan active accents, icon-first controls with compact labels, and a center hero button that communicates the active tool.
-- The mockup is for the future selection state. The first implemented state is **Pen**, using the same dial language but replacing selection actions with pen color, width, and opacity controls.
+- Visual direction: compact dark navy dock, subtle raised/inset surfaces, cyan active accents, icon-first controls with compact labels, and streamlined submenus inspired by Explain Everything's tool palette.
 
 ---
 
-## 4. Core UI concept
+## 4. Legacy Radial UI Concept
 
-The palette consists of:
+The radial palette is preserved as an experimental/legacy fallback. Its concept consists of:
 
 - **Scalable circular dial** controlled by `dialSize`.
 - **Center Hero Button** showing the active tool.
@@ -195,7 +234,7 @@ Use a hybrid of the two AI recommendations:
 - Do **not** split the existing MathBoard app into many packages now.
 - Do **not** add a plugin system, event bus, macro recording, or scripting in v1.
 
-The radial palette should be generic UI driven by tool definitions. Tool definitions declare their orbit, arcs, icon, labels, and command behavior.
+The legacy radial palette should remain generic UI driven by tool definitions. Tool definitions declare their orbit, arcs, icon, labels, and command behavior.
 
 Suggested standalone target later:
 
