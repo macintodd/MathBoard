@@ -1,0 +1,24 @@
+{
+  "configurations" : [
+    {
+      "id" : "65706D0D-573D-4E13-9BE3-B5E6B0996D77",
+      "name" : "Default",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:MathBoardCore",
+        "identifier" : "ToolPaletteTests",
+        "name" : "ToolPaletteTests"
+      }
+    }
+  ],
+  "version" : 1
+}

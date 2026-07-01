@@ -1,0 +1,667 @@
+//
+//  ToolPaletteDefinitions.swift
+//  MathBoardCore - ToolPalette module
+//
+
+import Foundation
+
+public protocol ToolDefinition: Sendable {
+    var id: ToolID { get }
+    var iconSystemName: String { get }
+    var label: String { get }
+    func configuration(for state: ToolPaletteState) -> ToolPaletteConfiguration
+}
+
+public enum ToolPaletteDefinitions {
+    public static let orderedToolIDs: [ToolID] = [
+        .selection,
+        .laser,
+        .pen,
+        .marker,
+        .eraser,
+        .geometry,
+        .reserved,
+        .equation
+    ]
+
+    public static let all: [any ToolDefinition] = orderedToolIDs.map { definition(for: $0) }
+
+    public static func definition(for id: ToolID) -> any ToolDefinition {
+        switch id {
+        case .pen:
+            return PenToolDefinition()
+        case .marker:
+            return MarkerToolDefinition()
+        case .eraser:
+            return EraserToolDefinition()
+        case .laser:
+            return LaserToolDefinition()
+        case .selection:
+            return SelectionToolDefinition()
+        case .geometry:
+            return GeometryToolDefinition()
+        case .equation:
+            return TextToolDefinition()
+        case .reserved:
+            return WidgetToolDefinition()
+        }
+    }
+}
+
+public enum ToolPaletteReducer {
+    public static func reduce(_ state: inout ToolPaletteState, command: ToolPaletteCommand) {
+        switch command {
+        case .selectTool(let tool):
+            state.activeTool = tool
+            state.isColorBloomOpen = false
+        case .setStrokeColor(let color):
+            switch state.activeTool {
+            case .pen:
+                state.penColor = color
+            case .marker:
+                state.markerColor = color
+            case .laser:
+                state.laserColor = color
+            case .selection, .reserved, .eraser, .geometry, .equation:
+                state.strokeColor = color
+            }
+        case .setFillColor(let color):
+            state.fillColor = color
+        case .setStrokeWidth(let width):
+            let clampedWidth = min(max(width, 1), 40)
+            state.strokeWidth = clampedWidth
+            switch state.activeTool {
+            case .pen:
+                state.penStrokeWidth = min(max(width, 1), 24)
+            case .marker:
+                state.markerStrokeWidth = min(max(width, 4), 36)
+            case .eraser:
+                state.eraserWidth = min(max(width, 4), 40)
+            case .laser:
+                state.laserDiameter = min(max(width, 3), 56)
+            case .selection, .geometry, .reserved, .equation:
+                break
+            }
+        case .setOpacity(let opacity):
+            let clampedOpacity = min(max(opacity, 0.1), 1)
+            state.opacity = clampedOpacity
+            switch state.activeTool {
+            case .pen:
+                state.penOpacity = clampedOpacity
+            case .marker:
+                state.markerOpacity = clampedOpacity
+            case .selection, .reserved, .eraser, .geometry, .laser, .equation:
+                break
+            }
+        case .setLaserDuration(let duration):
+            state.laserDuration = min(max(duration, 0), 10)
+        case .openColorPicker, .openFillColorPicker, .openColorPaletteChooser:
+            break
+        case .setPalettePreset(let preset):
+            state.palettePreset = preset
+        case .setGeometryType(let geometryType):
+            state.geometryType = geometryType
+        case .setPolygonSides(let sides):
+            state.polygonSides = min(max(sides, 3), 12)
+        case .setGeometryLineArrowMode(let mode):
+            state.geometryLineArrowMode = mode
+        case .setGeometryFillOpacity(let opacity):
+            state.geometryFillOpacity = min(max(opacity, 0), 1)
+        case .setSelectionTarget(let target):
+            state.selectionTarget = target
+        case .setSelectionMode(let mode):
+            state.selectionMode = mode
+        case .setEraserMode(let mode):
+            state.eraserMode = mode
+        case .setLaserMode(let mode):
+            state.laserMode = mode
+        case .setTextBold(let isBold):
+            state.textStyle = isBold ? .bold : .normal
+        case .setTextItalic(let isItalic):
+            state.textIsItalic = isItalic
+        case .setTextUnderlined(let isUnderlined):
+            state.textIsUnderlined = isUnderlined
+        case .setTextSize(let size):
+            state.textSize = min(max(size, 8), 96)
+        case .setTextFontName(let fontName):
+            state.textFontName = fontName
+        case .setLatexSource(let source):
+            state.latexSource = source
+        case .openLatexEditor, .openFontPicker:
+            break
+        case .createWidget, .editWidget, .openWidget, .removeWidget:
+            break
+        case .duplicateSelection, .deleteSelection:
+            state.selectionActionSequence += 1
+        case .undo, .redo, .copySelection,
+             .extractSelectionAsImageSticker, .sendSelectionToNextSlide:
+            break
+        }
+    }
+}
+
+struct PenToolDefinition: ToolDefinition {
+    let id: ToolID = .pen
+    let iconSystemName = ToolID.pen.iconSystemName
+    let label = ToolID.pen.displayName
+
+    func configuration(for state: ToolPaletteState) -> ToolPaletteConfiguration {
+        ToolPaletteConfiguration(
+            topOrbit: colorOrbitItems(for: state.palettePreset, prefix: "pen"),
+            leftArc: .slider(
+                PaletteSliderConfiguration(
+                    id: "pen.width",
+                    label: "Width",
+                    iconSystemName: "lineweight",
+                    value: state.penStrokeWidth,
+                    range: 1...24,
+                    minEndMarker: .thinLine,
+                    maxEndMarker: .thickLine,
+                    trackStyle: .graduatedThickness,
+                    command: { .setStrokeWidth($0) }
+                )
+            ),
+            rightArc: .slider(
+                PaletteSliderConfiguration(
+                    id: "pen.opacity",
+                    label: "Opacity",
+                    iconSystemName: "circle.lefthalf.filled",
+                    value: state.penOpacity,
+                    range: 0.1...1,
+                    minEndMarker: .lightCircle,
+                    maxEndMarker: .darkCircle,
+                    command: { .setOpacity($0) }
+                )
+            )
+        )
+    }
+}
+
+struct MarkerToolDefinition: ToolDefinition {
+    let id: ToolID = .marker
+    let iconSystemName = ToolID.marker.iconSystemName
+    let label = ToolID.marker.displayName
+
+    func configuration(for state: ToolPaletteState) -> ToolPaletteConfiguration {
+        ToolPaletteConfiguration(
+            topOrbit: colorOrbitItems(for: state.palettePreset, prefix: "marker"),
+            leftArc: .slider(
+                PaletteSliderConfiguration(
+                    id: "marker.width",
+                    label: "Width",
+                    iconSystemName: "lineweight",
+                    value: state.markerStrokeWidth,
+                    range: 4...36,
+                    minEndMarker: .thinLine,
+                    maxEndMarker: .thickLine,
+                    trackStyle: .graduatedThickness,
+                    command: { .setStrokeWidth($0) }
+                )
+            ),
+            rightArc: .slider(
+                PaletteSliderConfiguration(
+                    id: "marker.opacity",
+                    label: "Opacity",
+                    iconSystemName: "circle.lefthalf.filled",
+                    value: state.markerOpacity,
+                    range: 0.1...1,
+                    minEndMarker: .lightCircle,
+                    maxEndMarker: .darkCircle,
+                    command: { .setOpacity($0) }
+                )
+            )
+        )
+    }
+}
+
+struct EraserToolDefinition: ToolDefinition {
+    let id: ToolID = .eraser
+    let iconSystemName = ToolID.eraser.iconSystemName
+    let label = ToolID.eraser.displayName
+
+    func configuration(for state: ToolPaletteState) -> ToolPaletteConfiguration {
+        ToolPaletteConfiguration(
+            topOrbit: [],
+            leftArc: .slider(
+                PaletteSliderConfiguration(
+                    id: "eraser.size",
+                    label: "Size",
+                    iconSystemName: "circle.dotted",
+                    value: state.eraserWidth,
+                    range: 4...40,
+                    minEndMarker: .thinLine,
+                    maxEndMarker: .thickLine,
+                    trackStyle: .graduatedThickness,
+                    command: { .setStrokeWidth($0) }
+                )
+            ),
+            rightArc: .segmented(
+                PaletteSegmentedConfiguration(
+                    id: "eraser.mode",
+                    label: "Mode",
+                    segments: [
+                        PaletteSegment(
+                            id: "eraser.mode.pixel",
+                            label: "Pixels",
+                            iconSystemName: "circle.grid.cross",
+                            isSelected: state.eraserMode == .pixel,
+                            command: .setEraserMode(.pixel)
+                        ),
+                        PaletteSegment(
+                            id: "eraser.mode.stroke",
+                            label: "Stroke",
+                            iconSystemName: "scribble.variable",
+                            isSelected: state.eraserMode == .stroke,
+                            command: .setEraserMode(.stroke)
+                        )
+                    ]
+                )
+            )
+        )
+    }
+}
+
+struct LaserToolDefinition: ToolDefinition {
+    let id: ToolID = .laser
+    let iconSystemName = ToolID.laser.iconSystemName
+    let label = ToolID.laser.displayName
+
+    func configuration(for state: ToolPaletteState) -> ToolPaletteConfiguration {
+        ToolPaletteConfiguration(
+            topOrbit: colorOrbitItems(for: state.palettePreset, prefix: "laser"),
+            leftArc: .slider(
+                PaletteSliderConfiguration(
+                    id: "laser.diameter",
+                    label: "Diameter",
+                    iconSystemName: "smallcircle.filled.circle",
+                    value: state.laserDiameter,
+                    range: 3...56,
+                    minEndMarker: .thinLine,
+                    maxEndMarker: .thickLine,
+                    trackStyle: .graduatedThickness,
+                    command: { .setStrokeWidth($0) }
+                )
+            ),
+            rightArc: .slider(
+                PaletteSliderConfiguration(
+                    id: "laser.duration",
+                    label: "Fade",
+                    iconSystemName: "timer",
+                    value: state.laserDuration,
+                    range: 0...10,
+                    command: { .setLaserDuration($0) }
+                )
+            )
+        )
+    }
+}
+
+struct SelectionToolDefinition: ToolDefinition {
+    let id: ToolID = .selection
+    let iconSystemName = ToolID.selection.iconSystemName
+    let label = ToolID.selection.displayName
+
+    func configuration(for state: ToolPaletteState) -> ToolPaletteConfiguration {
+        ToolPaletteConfiguration(
+            topOrbit: [
+                PaletteOrbitItem(
+                    id: "selection.copy",
+                    iconSystemName: "doc.on.doc",
+                    label: "Copy",
+                    command: .copySelection
+                ),
+                PaletteOrbitItem(
+                    id: "selection.duplicate",
+                    iconSystemName: "plus.square.on.square",
+                    label: "Clone",
+                    command: .duplicateSelection
+                ),
+                PaletteOrbitItem(
+                    id: "selection.delete",
+                    iconSystemName: "trash",
+                    label: "Delete",
+                    command: .deleteSelection
+                ),
+                PaletteOrbitItem(
+                    id: "selection.extract",
+                    iconSystemName: "photo.badge.plus",
+                    label: "Sticker",
+                    command: .extractSelectionAsImageSticker
+                ),
+                PaletteOrbitItem(
+                    id: "selection.send",
+                    iconSystemName: "arrow.right.doc.on.clipboard",
+                    label: "Send",
+                    command: .sendSelectionToNextSlide
+                )
+            ],
+            leftArc: .segmented(
+                PaletteSegmentedConfiguration(
+                    id: "selection.target",
+                    label: "Target",
+                    segments: [
+                        PaletteSegment(
+                            id: "selection.target.object",
+                            label: "Object",
+                            iconSystemName: "square.on.circle",
+                            isSelected: state.selectionTarget == .object,
+                            command: .setSelectionTarget(.object)
+                        ),
+                        PaletteSegment(
+                            id: "selection.target.region",
+                            label: "Region",
+                            iconSystemName: "rectangle.dashed",
+                            isSelected: state.selectionTarget == .region,
+                            command: .setSelectionTarget(.region)
+                        )
+                    ]
+                )
+            ),
+            rightArc: .segmented(
+                PaletteSegmentedConfiguration(
+                    id: "selection.mode",
+                    label: "Mode",
+                    segments: [
+                        PaletteSegment(
+                            id: "selection.mode.lasso",
+                            label: "Lasso",
+                            iconSystemName: "lasso",
+                            isSelected: state.selectionMode == .lasso,
+                            command: .setSelectionMode(.lasso)
+                        ),
+                        PaletteSegment(
+                            id: "selection.mode.marquee",
+                            label: "Box",
+                            iconSystemName: "rectangle.dashed",
+                            isSelected: state.selectionMode == .marquee,
+                            command: .setSelectionMode(.marquee)
+                        )
+                    ]
+                )
+            )
+        )
+    }
+}
+
+struct GeometryToolDefinition: ToolDefinition {
+    let id: ToolID = .geometry
+    let iconSystemName = ToolID.geometry.iconSystemName
+    let label = ToolID.geometry.displayName
+
+    func configuration(for state: ToolPaletteState) -> ToolPaletteConfiguration {
+        ToolPaletteConfiguration(
+            topOrbit: geometryOrbitItems(for: state),
+            leftArc: .slider(
+                PaletteSliderConfiguration(
+                    id: "geometry.strokeWidth",
+                    label: "Stroke",
+                    iconSystemName: "lineweight",
+                    value: state.strokeWidth,
+                    range: 1...24,
+                    minEndMarker: .thinLine,
+                    maxEndMarker: .thickLine,
+                    trackStyle: .graduatedThickness,
+                    command: { .setStrokeWidth($0) }
+                )
+            ),
+            rightArc: geometryRightArc(for: state)
+        )
+    }
+
+    private func geometryOrbitItems(for state: ToolPaletteState) -> [PaletteOrbitItem] {
+        [
+            PaletteOrbitItem(
+                id: "geometry.outlineColor",
+                label: "Line",
+                color: state.strokeColor,
+                command: .openColorPicker
+            ),
+            PaletteOrbitItem(
+                id: "geometry.fillColor",
+                label: "Fill",
+                color: state.fillColor,
+                command: .openFillColorPicker
+            )
+        ]
+        + GeometryType.allCases.map { shape in
+            PaletteOrbitItem(
+                id: "geometry.shape.\(shape.rawValue)",
+                iconSystemName: shape.iconSystemName,
+                label: shape.displayName,
+                command: .setGeometryType(shape)
+            )
+        }
+    }
+
+    private func geometryRightArc(for state: ToolPaletteState) -> PaletteArcConfiguration {
+        switch state.geometryType {
+        case .line:
+            return .slider(
+                PaletteSliderConfiguration(
+                    id: "geometry.lineArrows",
+                    label: "Arrows",
+                    iconSystemName: state.geometryLineArrowMode.iconSystemName,
+                    value: Double(state.geometryLineArrowMode.sliderIndex),
+                    range: 0...3,
+                    command: { .setGeometryLineArrowMode(GeometryLineArrowMode(nearestSliderValue: $0)) }
+                )
+            )
+        case .polygon:
+            return .slider(
+                PaletteSliderConfiguration(
+                    id: "geometry.polygonSides",
+                    label: "Sides",
+                    iconSystemName: "number",
+                    value: Double(state.polygonSides),
+                    range: 3...12,
+                    command: { .setPolygonSides(Int($0.rounded())) }
+                )
+            )
+        case .circle, .rightTriangle, .triangle, .rectangle:
+            return .slider(
+                PaletteSliderConfiguration(
+                    id: "geometry.fillOpacity",
+                    label: "Fill",
+                    iconSystemName: "circle.lefthalf.filled",
+                    value: state.geometryFillOpacity,
+                    range: 0...1,
+                    minEndMarker: .lightCircle,
+                    maxEndMarker: .darkCircle,
+                    command: { .setGeometryFillOpacity($0) }
+                )
+            )
+        }
+    }
+}
+
+struct TextToolDefinition: ToolDefinition {
+    let id: ToolID = .equation
+    let iconSystemName = ToolID.equation.iconSystemName
+    let label = ToolID.equation.displayName
+
+    func configuration(for state: ToolPaletteState) -> ToolPaletteConfiguration {
+        ToolPaletteConfiguration(
+            topOrbit: [
+                PaletteOrbitItem(
+                    id: "text.bold",
+                    iconSystemName: "bold",
+                    label: "Bold",
+                    command: .setTextBold(state.textStyle != .bold)
+                ),
+                PaletteOrbitItem(
+                    id: "text.italic",
+                    iconSystemName: "italic",
+                    label: "Italic",
+                    command: .setTextItalic(!state.textIsItalic)
+                ),
+                PaletteOrbitItem(
+                    id: "text.underline",
+                    iconSystemName: "underline",
+                    label: "Under",
+                    command: .setTextUnderlined(!state.textIsUnderlined)
+                ),
+                PaletteOrbitItem(
+                    id: "text.latex",
+                    iconSystemName: "sum",
+                    label: "LaTeX",
+                    command: .openLatexEditor
+                )
+            ],
+            leftArc: .slider(
+                PaletteSliderConfiguration(
+                    id: "text.size",
+                    label: "Size",
+                    iconSystemName: "textformat.size",
+                    value: state.textSize,
+                    range: 8...96,
+                    command: { .setTextSize($0) }
+                )
+            ),
+            rightArc: .segmented(
+                PaletteSegmentedConfiguration(
+                    id: "text.font",
+                    label: "Font",
+                    segments: [
+                        PaletteSegment(
+                            id: "text.font.sample",
+                            label: "Aa",
+                            iconSystemName: nil,
+                            isSelected: false,
+                            command: .openFontPicker
+                        )
+                    ]
+                )
+            )
+        )
+    }
+}
+
+struct WidgetToolDefinition: ToolDefinition {
+    let id: ToolID = .reserved
+    let iconSystemName = ToolID.reserved.iconSystemName
+    let label = ToolID.reserved.displayName
+
+    func configuration(for state: ToolPaletteState) -> ToolPaletteConfiguration {
+        ToolPaletteConfiguration(
+            topOrbit: [
+                PaletteOrbitItem(
+                    id: "widget.create",
+                    iconSystemName: "plus.app",
+                    label: "Create",
+                    command: .createWidget
+                ),
+                PaletteOrbitItem(
+                    id: "widget.edit",
+                    iconSystemName: "square.and.pencil",
+                    label: "Edit",
+                    command: .editWidget
+                ),
+                PaletteOrbitItem(
+                    id: "widget.open",
+                    iconSystemName: "folder",
+                    label: "Open",
+                    command: .openWidget
+                ),
+                PaletteOrbitItem(
+                    id: "widget.remove",
+                    iconSystemName: "trash",
+                    label: "Remove",
+                    command: .removeWidget
+                )
+            ],
+            leftArc: .disabled(label: "HTML"),
+            rightArc: .disabled(label: "One per slide")
+        )
+    }
+}
+
+private extension GeometryLineArrowMode {
+    init(nearestSliderValue value: Double) {
+        let index = min(max(Int(value.rounded()), 0), 3)
+        switch index {
+        case 1:
+            self = .start
+        case 2:
+            self = .end
+        case 3:
+            self = .both
+        default:
+            self = .none
+        }
+    }
+
+    var sliderIndex: Int {
+        switch self {
+        case .none: return 0
+        case .start: return 1
+        case .end: return 2
+        case .both: return 3
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .none: return "None"
+        case .start: return "Left"
+        case .end: return "Right"
+        case .both: return "Both"
+        }
+    }
+
+    var iconSystemName: String {
+        switch self {
+        case .none: return "circle"
+        case .start: return "arrow.left"
+        case .end: return "arrow.right"
+        case .both: return "arrow.left.and.right"
+        }
+    }
+}
+
+private func colorOrbitItems(for preset: PalettePreset, prefix: String) -> [PaletteOrbitItem] {
+    [
+        PaletteOrbitItem(
+            id: "\(prefix).colorPicker",
+            iconSystemName: "eyedropper.full",
+            label: "Pick",
+            command: .openColorPicker
+        )
+    ]
+    + ([PaletteColor.graphite] + preset.colors).map { color in
+        PaletteOrbitItem(
+            id: "\(prefix).color.\(color.name)",
+            label: color.name,
+            color: color,
+            command: .setStrokeColor(color)
+        )
+    }
+    + [
+        PaletteOrbitItem(
+            id: "\(prefix).paletteChooser",
+            iconSystemName: "paintpalette",
+            label: "Palette",
+            command: .openColorPaletteChooser
+        )
+    ]
+}
+
+struct PlaceholderToolDefinition: ToolDefinition {
+    let id: ToolID
+    var iconSystemName: String { id.iconSystemName }
+    var label: String { id.displayName }
+
+    func configuration(for state: ToolPaletteState) -> ToolPaletteConfiguration {
+        ToolPaletteConfiguration(
+            topOrbit: [
+                PaletteOrbitItem(
+                    id: "\(id.rawValue).placeholder",
+                    iconSystemName: id.iconSystemName,
+                    label: "Later",
+                    command: .selectTool(id)
+                )
+            ],
+            leftArc: .disabled(label: "Pending"),
+            rightArc: .disabled(label: "Pending")
+        )
+    }
+}

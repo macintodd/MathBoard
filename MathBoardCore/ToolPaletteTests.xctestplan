@@ -1,0 +1,24 @@
+{
+  "configurations" : [
+    {
+      "id" : "C9A95BE3-9E17-4A7B-B5D2-2876F90F428E",
+      "name" : "Default",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:",
+        "identifier" : "ToolPaletteTests",
+        "name" : "ToolPaletteTests"
+      }
+    }
+  ],
+  "version" : 1
+}

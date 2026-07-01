@@ -1,0 +1,22 @@
+.DS_Store
+
+# Xcode user state
+xcuserdata/
+*.xcuserstate
+
+# Swift Package Manager / build products
+.build/
+.swiftpm/
+DerivedData/
+build/
+
+# App/package archives and local runtime data
+*.xcarchive
+*.ipa
+*.dSYM
+*.dSYM.zip
+
+# Temporary files
+*.tmp
+*.swp
+*.log
