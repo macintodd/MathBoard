@@ -15,9 +15,10 @@ public protocol ToolDefinition: Sendable {
 public enum ToolPaletteDefinitions {
     public static let orderedToolIDs: [ToolID] = [
         .selection,
-        .laser,
+        .extract,
         .pen,
         .marker,
+        .laser,
         .eraser,
         .geometry,
         .reserved,
@@ -38,6 +39,8 @@ public enum ToolPaletteDefinitions {
             return LaserToolDefinition()
         case .selection:
             return SelectionToolDefinition()
+        case .extract:
+            return ExtractToolDefinition()
         case .geometry:
             return GeometryToolDefinition()
         case .equation:
@@ -62,7 +65,7 @@ public enum ToolPaletteReducer {
                 state.markerColor = color
             case .laser:
                 state.laserColor = color
-            case .selection, .reserved, .eraser, .geometry, .equation:
+            case .selection, .extract, .reserved, .eraser, .geometry, .equation:
                 state.strokeColor = color
             }
         case .setFillColor(let color):
@@ -79,7 +82,7 @@ public enum ToolPaletteReducer {
                 state.eraserWidth = min(max(width, 4), 40)
             case .laser:
                 state.laserDiameter = min(max(width, 3), 56)
-            case .selection, .geometry, .reserved, .equation:
+            case .selection, .extract, .geometry, .reserved, .equation:
                 break
             }
         case .setOpacity(let opacity):
@@ -90,7 +93,7 @@ public enum ToolPaletteReducer {
                 state.penOpacity = clampedOpacity
             case .marker:
                 state.markerOpacity = clampedOpacity
-            case .selection, .reserved, .eraser, .geometry, .laser, .equation:
+            case .selection, .extract, .reserved, .eraser, .geometry, .laser, .equation:
                 break
             }
         case .setLaserDuration(let duration):
@@ -99,6 +102,33 @@ public enum ToolPaletteReducer {
             break
         case .setPalettePreset(let preset):
             state.palettePreset = preset
+            switch state.activeTool {
+            case .pen:
+                state.penPalettePreset = preset
+                state.penPaletteColors = ToolPaletteState.paletteColors(for: preset)
+            case .marker:
+                state.markerPalettePreset = preset
+                state.markerPaletteColors = ToolPaletteState.defaultMarkerPaletteColors(for: preset)
+            case .laser:
+                state.laserPalettePreset = preset
+                state.laserPaletteColors = ToolPaletteState.paletteColors(for: preset)
+            case .selection, .extract, .reserved, .eraser, .geometry, .equation:
+                break
+            }
+        case .setPaletteColor(let tool, let index, let color):
+            switch tool {
+            case .pen:
+                replacePaletteColor(&state.penPaletteColors, at: index, with: color)
+                state.penColor = color
+            case .marker:
+                replacePaletteColor(&state.markerPaletteColors, at: index, with: color)
+                state.markerColor = color
+            case .laser:
+                replacePaletteColor(&state.laserPaletteColors, at: index, with: color)
+                state.laserColor = color
+            case .selection, .extract, .reserved, .eraser, .geometry, .equation:
+                break
+            }
         case .setGeometryType(let geometryType):
             state.geometryType = geometryType
         case .setPolygonSides(let sides):
@@ -147,7 +177,7 @@ struct PenToolDefinition: ToolDefinition {
 
     func configuration(for state: ToolPaletteState) -> ToolPaletteConfiguration {
         ToolPaletteConfiguration(
-            topOrbit: colorOrbitItems(for: state.palettePreset, prefix: "pen"),
+            topOrbit: colorOrbitItems(state.penPaletteColors, prefix: "pen"),
             leftArc: .slider(
                 PaletteSliderConfiguration(
                     id: "pen.width",
@@ -184,7 +214,7 @@ struct MarkerToolDefinition: ToolDefinition {
 
     func configuration(for state: ToolPaletteState) -> ToolPaletteConfiguration {
         ToolPaletteConfiguration(
-            topOrbit: colorOrbitItems(for: state.palettePreset, prefix: "marker"),
+            topOrbit: colorOrbitItems(state.markerPaletteColors, prefix: "marker"),
             leftArc: .slider(
                 PaletteSliderConfiguration(
                     id: "marker.width",
@@ -268,7 +298,7 @@ struct LaserToolDefinition: ToolDefinition {
 
     func configuration(for state: ToolPaletteState) -> ToolPaletteConfiguration {
         ToolPaletteConfiguration(
-            topOrbit: colorOrbitItems(for: state.palettePreset, prefix: "laser"),
+            topOrbit: colorOrbitItems(state.laserPaletteColors, prefix: "laser"),
             leftArc: .slider(
                 PaletteSliderConfiguration(
                     id: "laser.diameter",
@@ -303,74 +333,67 @@ struct SelectionToolDefinition: ToolDefinition {
 
     func configuration(for state: ToolPaletteState) -> ToolPaletteConfiguration {
         ToolPaletteConfiguration(
+            topOrbit: [],
+            leftArc: .disabled(label: "Objects"),
+            rightArc: .disabled(label: "HUD actions")
+        )
+    }
+}
+
+struct ExtractToolDefinition: ToolDefinition {
+    let id: ToolID = .extract
+    let iconSystemName = ToolID.extract.iconSystemName
+    let label = ToolID.extract.displayName
+
+    func configuration(for state: ToolPaletteState) -> ToolPaletteConfiguration {
+        ToolPaletteConfiguration(
             topOrbit: [
                 PaletteOrbitItem(
-                    id: "selection.copy",
+                    id: "extract.copy",
                     iconSystemName: "doc.on.doc",
                     label: "Copy",
                     command: .copySelection
                 ),
                 PaletteOrbitItem(
-                    id: "selection.duplicate",
+                    id: "extract.duplicate",
                     iconSystemName: "plus.square.on.square",
                     label: "Clone",
                     command: .duplicateSelection
                 ),
                 PaletteOrbitItem(
-                    id: "selection.delete",
+                    id: "extract.delete",
                     iconSystemName: "trash",
                     label: "Delete",
                     command: .deleteSelection
                 ),
                 PaletteOrbitItem(
-                    id: "selection.extract",
+                    id: "extract.sticker",
                     iconSystemName: "photo.badge.plus",
                     label: "Sticker",
                     command: .extractSelectionAsImageSticker
                 ),
                 PaletteOrbitItem(
-                    id: "selection.send",
+                    id: "extract.send",
                     iconSystemName: "arrow.right.doc.on.clipboard",
                     label: "Send",
                     command: .sendSelectionToNextSlide
                 )
             ],
-            leftArc: .segmented(
-                PaletteSegmentedConfiguration(
-                    id: "selection.target",
-                    label: "Target",
-                    segments: [
-                        PaletteSegment(
-                            id: "selection.target.object",
-                            label: "Object",
-                            iconSystemName: "square.on.circle",
-                            isSelected: state.selectionTarget == .object,
-                            command: .setSelectionTarget(.object)
-                        ),
-                        PaletteSegment(
-                            id: "selection.target.region",
-                            label: "Region",
-                            iconSystemName: "rectangle.dashed",
-                            isSelected: state.selectionTarget == .region,
-                            command: .setSelectionTarget(.region)
-                        )
-                    ]
-                )
-            ),
+            leftArc: .disabled(label: "Region"),
             rightArc: .segmented(
                 PaletteSegmentedConfiguration(
-                    id: "selection.mode",
+                    id: "extract.mode",
                     label: "Mode",
                     segments: [
                         PaletteSegment(
-                            id: "selection.mode.lasso",
+                            id: "extract.mode.lasso",
                             label: "Lasso",
                             iconSystemName: "lasso",
                             isSelected: state.selectionMode == .lasso,
                             command: .setSelectionMode(.lasso)
                         ),
                         PaletteSegment(
-                            id: "selection.mode.marquee",
+                            id: "extract.mode.marquee",
                             label: "Box",
                             iconSystemName: "rectangle.dashed",
                             isSelected: state.selectionMode == .marquee,
@@ -618,24 +641,13 @@ private extension GeometryLineArrowMode {
     }
 }
 
-private func colorOrbitItems(for preset: PalettePreset, prefix: String) -> [PaletteOrbitItem] {
+private func replacePaletteColor(_ colors: inout [PaletteColor], at index: Int, with color: PaletteColor) {
+    guard colors.indices.contains(index) else { return }
+    colors[index] = color
+}
+
+private func colorOrbitItems(_ colors: [PaletteColor], prefix: String) -> [PaletteOrbitItem] {
     [
-        PaletteOrbitItem(
-            id: "\(prefix).colorPicker",
-            iconSystemName: "eyedropper.full",
-            label: "Pick",
-            command: .openColorPicker
-        )
-    ]
-    + ([PaletteColor.graphite] + preset.colors).map { color in
-        PaletteOrbitItem(
-            id: "\(prefix).color.\(color.name)",
-            label: color.name,
-            color: color,
-            command: .setStrokeColor(color)
-        )
-    }
-    + [
         PaletteOrbitItem(
             id: "\(prefix).paletteChooser",
             iconSystemName: "paintpalette",
@@ -643,6 +655,14 @@ private func colorOrbitItems(for preset: PalettePreset, prefix: String) -> [Pale
             command: .openColorPaletteChooser
         )
     ]
+    + colors.enumerated().map { index, color in
+        PaletteOrbitItem(
+            id: "\(prefix).color.\(index)",
+            label: color.name,
+            color: color,
+            command: .setStrokeColor(color)
+        )
+    }
 }
 
 struct PlaceholderToolDefinition: ToolDefinition {

@@ -10,6 +10,7 @@ import Foundation
 
 public enum ToolID: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
     case selection
+    case extract
     case reserved
     case pen
     case marker
@@ -21,6 +22,7 @@ public enum ToolID: String, CaseIterable, Codable, Equatable, Hashable, Sendable
     public var displayName: String {
         switch self {
         case .selection: return "Select"
+        case .extract: return "Extract"
         case .reserved: return "Widget"
         case .pen: return "Pen"
         case .marker: return "Marker"
@@ -34,6 +36,7 @@ public enum ToolID: String, CaseIterable, Codable, Equatable, Hashable, Sendable
     public var iconSystemName: String {
         switch self {
         case .selection: return "cursorarrow.motionlines"
+        case .extract: return "crop"
         case .reserved: return "curlybraces.square"
         case .pen: return "pencil.tip"
         case .marker: return "highlighter"
@@ -127,6 +130,7 @@ public struct PaletteColor: Codable, Equatable, Identifiable, Sendable {
     public static let mint = PaletteColor(name: "Mint", red: 0.12, green: 0.76, blue: 0.52)
     public static let amber = PaletteColor(name: "Amber", red: 0.96, green: 0.64, blue: 0.18)
     public static let coral = PaletteColor(name: "Coral", red: 0.94, green: 0.28, blue: 0.25)
+    public static let yellow = PaletteColor(name: "Yellow", red: 1.0, green: 0.86, blue: 0.18)
 
     public static let penPresets: [PaletteColor] = [.graphite, .sky, .mint, .amber, .coral]
 }
@@ -185,6 +189,12 @@ public struct ToolPaletteState: Equatable, Sendable {
     public var laserColor: PaletteColor
     public var fillColor: PaletteColor
     public var palettePreset: PalettePreset
+    public var penPalettePreset: PalettePreset
+    public var markerPalettePreset: PalettePreset
+    public var laserPalettePreset: PalettePreset
+    public var penPaletteColors: [PaletteColor]
+    public var markerPaletteColors: [PaletteColor]
+    public var laserPaletteColors: [PaletteColor]
     public var strokeWidth: Double
     public var opacity: Double
     public var penStrokeWidth: Double
@@ -216,19 +226,25 @@ public struct ToolPaletteState: Equatable, Sendable {
         activeTool: ToolID = .pen,
         strokeColor: PaletteColor = .graphite,
         penColor: PaletteColor? = nil,
-        markerColor: PaletteColor? = nil,
-        laserColor: PaletteColor? = nil,
+        markerColor: PaletteColor? = .yellow,
+        laserColor: PaletteColor? = .coral,
         fillColor: PaletteColor = .sky,
         palettePreset: PalettePreset = .bright,
-        strokeWidth: Double = 6,
+        penPalettePreset: PalettePreset? = nil,
+        markerPalettePreset: PalettePreset? = nil,
+        laserPalettePreset: PalettePreset? = nil,
+        penPaletteColors: [PaletteColor]? = nil,
+        markerPaletteColors: [PaletteColor]? = nil,
+        laserPaletteColors: [PaletteColor]? = nil,
+        strokeWidth: Double = 10,
         opacity: Double = 1,
         penStrokeWidth: Double? = nil,
         markerStrokeWidth: Double = 18,
         eraserWidth: Double? = nil,
-        laserDiameter: Double? = nil,
+        laserDiameter: Double? = 20,
         penOpacity: Double? = nil,
         markerOpacity: Double = 0.5,
-        laserDuration: Double = 3,
+        laserDuration: Double = 0,
         geometryType: GeometryType = .line,
         polygonSides: Int = 5,
         geometryLineArrowMode: GeometryLineArrowMode = .none,
@@ -236,7 +252,7 @@ public struct ToolPaletteState: Equatable, Sendable {
         selectionTarget: SelectionTarget = .region,
         selectionMode: SelectionMode = .lasso,
         eraserMode: EraserMode = .pixel,
-        laserMode: LaserMode = .trail,
+        laserMode: LaserMode = .dot,
         textStyle: PaletteTextStyle = .normal,
         textIsItalic: Bool = false,
         textIsUnderlined: Bool = false,
@@ -254,6 +270,12 @@ public struct ToolPaletteState: Equatable, Sendable {
         self.laserColor = laserColor ?? strokeColor
         self.fillColor = fillColor
         self.palettePreset = palettePreset
+        self.penPalettePreset = penPalettePreset ?? palettePreset
+        self.markerPalettePreset = markerPalettePreset ?? palettePreset
+        self.laserPalettePreset = laserPalettePreset ?? palettePreset
+        self.penPaletteColors = penPaletteColors ?? Self.paletteColors(for: self.penPalettePreset)
+        self.markerPaletteColors = markerPaletteColors ?? Self.defaultMarkerPaletteColors(for: self.markerPalettePreset)
+        self.laserPaletteColors = laserPaletteColors ?? Self.paletteColors(for: self.laserPalettePreset)
         self.strokeWidth = strokeWidth
         self.opacity = opacity
         self.penStrokeWidth = penStrokeWidth ?? strokeWidth
@@ -290,8 +312,34 @@ public struct ToolPaletteState: Equatable, Sendable {
             return markerColor
         case .laser:
             return laserColor
-        case .selection, .reserved, .eraser, .geometry, .equation:
+        case .selection, .extract, .reserved, .eraser, .geometry, .equation:
             return strokeColor
+        }
+    }
+
+    public var activePalettePreset: PalettePreset {
+        switch activeTool {
+        case .pen:
+            return penPalettePreset
+        case .marker:
+            return markerPalettePreset
+        case .laser:
+            return laserPalettePreset
+        case .selection, .extract, .reserved, .eraser, .geometry, .equation:
+            return palettePreset
+        }
+    }
+
+    public var activePaletteColors: [PaletteColor] {
+        switch activeTool {
+        case .pen:
+            return penPaletteColors
+        case .marker:
+            return markerPaletteColors
+        case .laser:
+            return laserPaletteColors
+        case .selection, .extract, .reserved, .eraser, .geometry, .equation:
+            return Self.paletteColors(for: palettePreset)
         }
     }
 
@@ -305,7 +353,7 @@ public struct ToolPaletteState: Equatable, Sendable {
             return eraserWidth
         case .laser:
             return laserDiameter
-        case .selection, .geometry, .reserved, .equation:
+        case .selection, .extract, .geometry, .reserved, .equation:
             return strokeWidth
         }
     }
@@ -316,9 +364,21 @@ public struct ToolPaletteState: Equatable, Sendable {
             return penOpacity
         case .marker:
             return markerOpacity
-        case .selection, .reserved, .eraser, .geometry, .laser, .equation:
+        case .selection, .extract, .reserved, .eraser, .geometry, .laser, .equation:
             return opacity
         }
+    }
+
+    public static func paletteColors(for preset: PalettePreset) -> [PaletteColor] {
+        [.graphite] + preset.colors
+    }
+
+    public static func defaultMarkerPaletteColors(for preset: PalettePreset) -> [PaletteColor] {
+        var colors = paletteColors(for: preset)
+        if colors.indices.contains(1) {
+            colors[1] = .yellow
+        }
+        return colors
     }
 }
 
@@ -333,6 +393,7 @@ public enum ToolPaletteCommand: Equatable, Sendable {
     case openFillColorPicker
     case openColorPaletteChooser
     case setPalettePreset(PalettePreset)
+    case setPaletteColor(ToolID, Int, PaletteColor)
     case setGeometryType(GeometryType)
     case setPolygonSides(Int)
     case setGeometryLineArrowMode(GeometryLineArrowMode)

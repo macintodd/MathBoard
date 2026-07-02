@@ -118,6 +118,8 @@ private extension ToolPaletteCommand {
             return "openColorPaletteChooser"
         case .setPalettePreset(let preset):
             return "setPalettePreset(\(preset.rawValue))"
+        case .setPaletteColor(let tool, let index, let color):
+            return "setPaletteColor(\(tool.rawValue), \(index), \(color.name))"
         case .setGeometryType(let type):
             return "setGeometryType(\(type.rawValue))"
         case .setPolygonSides(let sides):

@@ -26,8 +26,9 @@ enum CalculatorTheme {
     /// Inset surface (display area, equation cells).
     static let surface = Color(red: 0.13, green: 0.13, blue: 0.145)
 
-    /// Graph / number-line background.
-    static let graphBackground = Color(red: 0.09, green: 0.09, blue: 0.10)
+    /// Graph / number-line background — white "paper" so plotted curves read
+    /// like a classroom graph, with black axes and gray gridlines below.
+    static let graphBackground = Color.white
 
     // MARK: - Text (all white per design)
 
@@ -42,9 +43,18 @@ enum CalculatorTheme {
 
     // MARK: - Graph elements
 
-    static let gridline = Color.white.opacity(0.13)
-    static let axis = Color.white.opacity(0.5)
-    static let graphLabel = Color.white.opacity(0.7)
+    static let gridline = Color.black.opacity(0.15)
+    static let axis = Color.black
+    static let graphLabel = Color.black.opacity(0.7)
+
+    /// Blue used for the TI-style "2nd function" labels above keys on the
+    /// full keypad.
+    static let secondFunction = Color(red: 0.38, green: 0.66, blue: 0.98)
+
+    /// Fill for the full keypad's `2nd` key (TI blue) and `alpha` key (TI
+    /// green). White labels sit on top.
+    static let keypadBlue = Color(red: 0.13, green: 0.42, blue: 0.85)
+    static let keypadGreen = Color(red: 0.24, green: 0.55, blue: 0.30)
 
     // MARK: - Key fills by category (dark; differentiated by warmth/tone)
 

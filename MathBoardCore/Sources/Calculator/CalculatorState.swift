@@ -51,6 +51,30 @@ public final class CalculatorState {
     /// expressions can reference the previous answer (TI-style). Ephemeral.
     public var lastAnswer: Double?
 
+    /// Whether the full slide-out keypad is showing (it replaces the compact
+    /// graph keypad and slides out beside the palette). Ephemeral — resets
+    /// when the calculator closes.
+    public var showFullKeypad: Bool = false
+
+    /// The graph equation the keypads currently edit. Shared state (rather
+    /// than view-local) so both the compact keypad and the slide-out full
+    /// keypad target the same row. Ephemeral.
+    public var selectedGraphEquationID: UUID?
+
+    /// Apply a keypad action to the selected graph equation (falling back to
+    /// the first). Shared by the compact and full keypads so their editing
+    /// behaves identically.
+    public func applyGraphKey(_ action: CalculatorKeyAction) {
+        let targetID = selectedGraphEquationID ?? graphEquations.first?.id
+        guard let id = targetID,
+              let index = graphEquations.firstIndex(where: { $0.id == id }) else { return }
+        graphEquations[index].expression = CalculatorExpressionReducer.reduce(
+            expression: graphEquations[index].expression,
+            action: action
+        )
+        if selectedGraphEquationID == nil { selectedGraphEquationID = id }
+    }
+
     // MARK: - Persisted preferences
 
     public var mode: CalculatorMode {
@@ -64,6 +88,21 @@ public final class CalculatorState {
         didSet {
             guard oldValue != angleMode else { return }
             store.set(angleMode.rawValue, forKey: Keys.angleMode)
+        }
+    }
+
+    /// Default palette dimensions used on first launch and by the "reset"
+    /// affordance. The view clamps the live size between
+    /// `CalculatorPaletteLayout.minSize`/`maxSize`.
+    public static let defaultPaletteSize = CGSize(width: 360, height: 540)
+
+    /// User-adjustable palette dimensions (points). Persisted so a resized
+    /// calculator reopens at the same size; the TV overlay mirrors it.
+    public var paletteSize: CGSize {
+        didSet {
+            guard oldValue != paletteSize else { return }
+            store.set(Double(paletteSize.width), forKey: Keys.paletteWidth)
+            store.set(Double(paletteSize.height), forKey: Keys.paletteHeight)
         }
     }
 
@@ -185,6 +224,14 @@ public final class CalculatorState {
             self.position = nil
         }
 
+        // Restore palette size (default: 360×540)
+        if let w = store.object(forKey: Keys.paletteWidth) as? Double,
+           let h = store.object(forKey: Keys.paletteHeight) as? Double {
+            self.paletteSize = CGSize(width: w, height: h)
+        } else {
+            self.paletteSize = Self.defaultPaletteSize
+        }
+
         // Restore compute expression (default: empty)
         self.computeExpression = store.string(forKey: Keys.computeExpression) ?? ""
 
@@ -230,6 +277,8 @@ public final class CalculatorState {
         static let positionX = "calculator.position.x"
         static let positionY = "calculator.position.y"
         static let computeExpression = "calculator.expression.compute"
+        static let paletteWidth = "calculator.palette.width"
+        static let paletteHeight = "calculator.palette.height"
         static let graphExpression = "calculator.expression.graph" // legacy (migrated)
         static let graphEquations = "calculator.graph.equations"
         static let graphWindow = "calculator.graph.window"

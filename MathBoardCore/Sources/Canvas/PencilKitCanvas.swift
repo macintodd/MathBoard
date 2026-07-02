@@ -1267,6 +1267,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         context.coordinator.installLaserStrokeRecognizer(on: hostView.laserOverlayView, canvas: canvas)
         context.coordinator.installTextPlacementRecognizer(on: hostView.textPlacementOverlayView, canvas: canvas)
         context.coordinator.installTextSelectionRecognizers(on: canvas)
+        context.coordinator.installTextEditorDismissRecognizer(on: hostView)
         context.coordinator.installRegionSelectionRecognizer(on: hostView)
         hostView.updateBackground(background, using: canvas)
         hostView.updateImageObjects(
@@ -1391,6 +1392,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private var textSelectionTapRecognizer: UITapGestureRecognizer?
         private var textSelectionDoubleTapRecognizer: UITapGestureRecognizer?
         private var textSelectionPanRecognizer: UIPanGestureRecognizer?
+        private var textEditorDismissRecognizer: UITapGestureRecognizer?
         private var regionSelectionRecognizer: PencilLiveStrokeGestureRecognizer?
         private var appliedViewportCommandID: CanvasViewportCommand.ID?
         private var appliedToolCommandID: CanvasToolCommand.ID?
@@ -2052,6 +2054,19 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             textSelectionPanRecognizer = pan
         }
 
+        func installTextEditorDismissRecognizer(on hostView: PencilKitCanvasHostView) {
+            guard textEditorDismissRecognizer == nil else { return }
+
+            let recognizer = UITapGestureRecognizer(target: self, action: #selector(handleTextEditorDismissTap(_:)))
+            recognizer.numberOfTouchesRequired = 1
+            recognizer.cancelsTouchesInView = false
+            recognizer.delaysTouchesBegan = false
+            recognizer.delaysTouchesEnded = false
+            recognizer.delegate = self
+            hostView.addGestureRecognizer(recognizer)
+            textEditorDismissRecognizer = recognizer
+        }
+
         func installRegionSelectionRecognizer(on hostView: PencilKitCanvasHostView) {
             guard regionSelectionRecognizer == nil else { return }
 
@@ -2070,13 +2085,26 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         @objc private func handleTextSelectionTap(_ recognizer: UITapGestureRecognizer) {
             guard recognizer.state == .ended,
                   isTextSelectionEnabled,
-                  activeTextEditor == nil,
                   let canvas else {
                 return
             }
 
             clearRegionSelection()
             let location = recognizer.location(in: canvas)
+            if activeTextEditor != nil {
+                handleActiveTextEditorTap(atCanvasPoint: location, on: canvas)
+                return
+            }
+            if let id = hitTextResizeHandleID(at: location, on: canvas) {
+                setSelectedTextObjectID(id)
+                updateHostTextObjects(using: canvas)
+                return
+            }
+            if let id = hitSelectedTextObjectID(at: location, on: canvas) {
+                setSelectedTextObjectID(id)
+                updateHostTextObjects(using: canvas)
+                return
+            }
             if let id = hitTextObjectID(at: location, on: canvas) {
                 setSelectedTextObjectID(id)
             } else {
@@ -2084,6 +2112,16 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             }
             updateHostTextObjects(using: canvas)
             updateHostImageObjects(using: canvas)
+        }
+
+        @objc private func handleTextEditorDismissTap(_ recognizer: UITapGestureRecognizer) {
+            guard recognizer.state == .ended,
+                  activeTextEditor != nil,
+                  let hostView else {
+                return
+            }
+
+            handleActiveTextEditorTap(atHostPoint: recognizer.location(in: hostView))
         }
 
         @objc private func handleTextSelectionDoubleTap(_ recognizer: UITapGestureRecognizer) {
@@ -2399,22 +2437,37 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         }
 
         private func hitTextResizeHandleID(at canvasPoint: CGPoint, on canvas: PKCanvasView) -> UUID? {
-            guard let selectedTextObjectID,
+            let sourcePoint = sourcePoint(forCanvasPoint: canvasPoint, on: canvas)
+            let selectedID = selectedTextObjectID ?? selectedTextObjectIDFromSharedState
+
+            if let selectedID,
+               let object = parent.textObjects.first(where: { $0.id == selectedID }),
+               textResizeHandleRect(for: object, on: canvas).contains(sourcePoint) {
+                return object.id
+            }
+
+            return parent.textObjects.reversed().first { object in
+                !object.text.isEmpty && textResizeHandleRect(for: object, on: canvas).contains(sourcePoint)
+            }?.id
+        }
+
+        private func hitSelectedTextObjectID(at canvasPoint: CGPoint, on canvas: PKCanvasView) -> UUID? {
+            guard let selectedTextObjectID = selectedTextObjectID ?? selectedTextObjectIDFromSharedState,
                   let object = parent.textObjects.first(where: { $0.id == selectedTextObjectID }),
                   !object.text.isEmpty else {
                 return nil
             }
 
             let sourcePoint = sourcePoint(forCanvasPoint: canvasPoint, on: canvas)
-            let hitRadius = max(28 / max(canvas.zoomScale, 0.001), 10)
-            let handleCenter = CGPoint(x: object.frame.maxX, y: object.frame.maxY)
-            let handleHitRect = CGRect(
-                x: handleCenter.x - hitRadius,
-                y: handleCenter.y - hitRadius,
-                width: hitRadius * 2,
-                height: hitRadius * 2
-            )
-            return handleHitRect.contains(sourcePoint) ? object.id : nil
+            let hitMargin = max(28 / max(canvas.zoomScale, 0.001), 8)
+            return object.frame.insetBy(dx: -hitMargin, dy: -hitMargin).contains(sourcePoint) ? object.id : nil
+        }
+
+        private var selectedTextObjectIDFromSharedState: UUID? {
+            guard case .text(let id) = parent.selectionState.selectedObject else {
+                return nil
+            }
+            return id
         }
 
         private func hitTextObjectID(at canvasPoint: CGPoint, on canvas: PKCanvasView) -> UUID? {
@@ -2423,6 +2476,16 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             return parent.textObjects.reversed().first { object in
                 !object.text.isEmpty && object.frame.insetBy(dx: -hitMargin, dy: -hitMargin).contains(sourcePoint)
             }?.id
+        }
+
+        private func textResizeHandleRect(for object: CanvasTextObject, on canvas: PKCanvasView) -> CGRect {
+            let handleSize = max(44 / max(canvas.zoomScale, 0.001), 18)
+            return CGRect(
+                x: object.frame.maxX - handleSize,
+                y: object.frame.maxY - handleSize,
+                width: handleSize * 1.75,
+                height: handleSize * 1.75
+            )
         }
 
         private func hitImageObjectID(at canvasPoint: CGPoint, on canvas: PKCanvasView) -> UUID? {
@@ -3005,6 +3068,31 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             }
         }
 
+        private func handleActiveTextEditorTap(atCanvasPoint canvasPoint: CGPoint, on canvas: PKCanvasView) {
+            guard let hostView else {
+                finishTextEditing()
+                publishImageFromModel()
+                return
+            }
+
+            handleActiveTextEditorTap(atHostPoint: hostView.convert(canvasPoint, from: canvas))
+        }
+
+        private func handleActiveTextEditorTap(atHostPoint hostPoint: CGPoint) {
+            guard let textView = activeTextEditor else {
+                finishTextEditing()
+                publishImageFromModel()
+                return
+            }
+
+            guard !textView.frame.insetBy(dx: -12, dy: -12).contains(hostPoint) else {
+                return
+            }
+
+            finishTextEditing()
+            publishImageFromModel()
+        }
+
         func textViewDidChange(_ textView: UITextView) {
             guard !isApplyingTextEditorUpdate else { return }
             guard let activeTextObjectID,
@@ -3370,6 +3458,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         // MARK: - UIGestureRecognizerDelegate
 
         func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            if gestureRecognizer === textEditorDismissRecognizer {
+                return activeTextEditor != nil
+            }
             if gestureRecognizer === regionSelectionRecognizer {
                 if activeSelectionTarget == .object,
                    let canvas,
@@ -3405,6 +3496,10 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
+            if gestureRecognizer === textEditorDismissRecognizer
+                || otherGestureRecognizer === textEditorDismissRecognizer {
+                return true
+            }
             if gestureRecognizer === regionSelectionRecognizer
                 || otherGestureRecognizer === regionSelectionRecognizer {
                 return false

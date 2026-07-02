@@ -44,7 +44,11 @@ git push -u origin feature-name
 - New palette design and tool-polish work should target `Compact` first. Only touch `Radial` when fixing regressions, preserving fallback behavior, or when explicitly requested.
 - Both styles share the same `ToolPaletteState` and command path so testing compares palette UI, not separate tool behavior.
 - `Palette Size` only affects the radial palette.
-- Compact palette has a top drag handle and remembers its own position separately from the radial palette.
+- Compact palette owns its floating shell/drag handle inside the ToolPalette module, remembers its own position separately from the radial palette, and is edge-aware so the drawer opens toward the canvas.
+- Compact drawer animation is rail-anchored: opening/closing the drawer should not displace the main tool rail.
+- Compact rail uses segmented neumorphic tool groups; pen/marker/laser icons always show their selected tool color.
+- Compact ink tools now use a two-step interaction: first tap selects Pen/Marker/Laser and shows that tool's quick five-color strip; second tap on the selected ink tool toggles the full drawer for width/opacity/details. Each ink tool remembers its own palette preset.
+- Compact previews use the floating shell so the Move handle is visible during preview testing.
 - Next palette work should proceed tool-by-tool in Compact: shell/drag/collapse behavior, Pen, Marker, Eraser, Selection, Text/Equation, Geometry, and then future Widget/Image/Sticker tools.
 
 ---

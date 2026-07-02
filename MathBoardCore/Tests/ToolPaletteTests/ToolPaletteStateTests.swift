@@ -18,9 +18,9 @@ struct ToolPaletteStateTests {
         #expect(state.laserColor == .graphite)
         #expect(state.activeStrokeColor == .graphite)
         #expect(state.palettePreset == .bright)
-        #expect(state.strokeWidth == 6)
+        #expect(state.strokeWidth == 10)
         #expect(state.opacity == 1)
-        #expect(state.penStrokeWidth == 6)
+        #expect(state.penStrokeWidth == 10)
         #expect(state.penOpacity == 1)
         #expect(state.markerStrokeWidth == 18)
         #expect(state.markerOpacity == 0.5)
@@ -32,6 +32,20 @@ struct ToolPaletteStateTests {
         #expect(state.textIsUnderlined == false)
         #expect(state.textSize == 28)
         #expect(state.textFontName == "System")
+    }
+
+    @Test func toolOrderMatchesCompactPaletteReviewOrder() {
+        #expect(ToolPaletteDefinitions.orderedToolIDs == [
+            .selection,
+            .extract,
+            .pen,
+            .marker,
+            .laser,
+            .eraser,
+            .geometry,
+            .reserved,
+            .equation
+        ])
     }
 
     @Test func strokeColorChangesOnlyAffectTheActiveColorTool() {
@@ -71,7 +85,7 @@ struct ToolPaletteStateTests {
             return
         }
         #expect(width.id == "pen.width")
-        #expect(width.value == 6)
+        #expect(width.value == 10)
 
         guard case .slider(let opacity) = configuration.rightArc else {
             Issue.record("Expected pen right arc to be opacity slider")
@@ -154,29 +168,48 @@ struct ToolPaletteStateTests {
         #expect(duration.range == 0...10)
     }
 
-    @Test func selectionDefinitionExposesActionsTargetAndModeSegments() throws {
+    @Test func selectionDefinitionDefersActionsToHUD() throws {
         let state = ToolPaletteState(activeTool: .selection, selectionTarget: .object, selectionMode: .marquee)
         let definition = ToolPaletteDefinitions.definition(for: .selection)
         let configuration = definition.configuration(for: state)
 
+        #expect(configuration.topOrbit.isEmpty)
+
+        guard case .disabled(let target) = configuration.leftArc else {
+            Issue.record("Expected selection left arc to describe object selection")
+            return
+        }
+        #expect(target == "Objects")
+
+        guard case .disabled(let behavior) = configuration.rightArc else {
+            Issue.record("Expected selection right arc to describe object behavior")
+            return
+        }
+        #expect(behavior == "HUD actions")
+    }
+
+    @Test func extractDefinitionExposesRegionActionsAndModeSegments() throws {
+        let state = ToolPaletteState(activeTool: .extract, selectionMode: .marquee)
+        let definition = ToolPaletteDefinitions.definition(for: .extract)
+        let configuration = definition.configuration(for: state)
+
+        #expect(ToolID.extract.displayName == "Extract")
         #expect(configuration.topOrbit.count == 5)
         #expect(configuration.topOrbit.map(\.command).contains(.copySelection))
         #expect(configuration.topOrbit.map(\.command).contains(.deleteSelection))
-        #expect(configuration.topOrbit.map(\.command).contains(.sendSelectionToNextSlide))
+        #expect(configuration.topOrbit.map(\.command).contains(.extractSelectionAsImageSticker))
 
-        guard case .segmented(let target) = configuration.leftArc else {
-            Issue.record("Expected selection left arc to be target segments")
+        guard case .disabled(let target) = configuration.leftArc else {
+            Issue.record("Expected extract left arc to describe region selection")
             return
         }
-        #expect(target.id == "selection.target")
-        #expect(target.segments.count == 2)
-        #expect(target.segments[0].isSelected)
+        #expect(target == "Region")
 
         guard case .segmented(let mode) = configuration.rightArc else {
-            Issue.record("Expected selection right arc to be mode segments")
+            Issue.record("Expected extract right arc to be mode segments")
             return
         }
-        #expect(mode.id == "selection.mode")
+        #expect(mode.id == "extract.mode")
         #expect(mode.segments.count == 2)
         #expect(mode.segments[1].isSelected)
     }

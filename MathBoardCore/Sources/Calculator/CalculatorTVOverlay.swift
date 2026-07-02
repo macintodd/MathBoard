@@ -37,12 +37,12 @@ public struct CalculatorTVOverlay: View {
             if state.isVisible {
                 let placement = CalculatorTVLayout.placement(
                     position: state.position,
-                    paletteSize: CalculatorView.paletteSize,
+                    paletteSize: state.paletteSize,
                     referenceSize: referenceSize,
                     tvSize: proxy.size
                 )
                 card
-                    .frame(width: CalculatorView.paletteSize.width, height: CalculatorView.paletteSize.height)
+                    .frame(width: state.paletteSize.width, height: state.paletteSize.height)
                     .scaleEffect(placement.scale)
                     .position(placement.center)
                     .allowsHitTesting(false)

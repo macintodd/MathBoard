@@ -23,8 +23,12 @@ struct CalculatorGraphView: View {
 
     @State private var zoomStartWindow: GraphWindow?
     @State private var lastPanTranslation: CGSize = .zero
-    @State private var selectedEquationID: UUID?
     @State private var showKeypad = true
+
+    /// The compact keypad shows only when it's toggled on AND the full
+    /// slide-out keypad isn't taking over. When the full keypad is out, the
+    /// graph gets the extra room the compact keypad would have used.
+    private var keypadVisible: Bool { showKeypad && !state.showFullKeypad }
 
     var body: some View {
         VStack(spacing: 6) {
@@ -36,11 +40,14 @@ struct CalculatorGraphView: View {
                 actionRow
             }
             topicRow
-            if showKeypad { keypad }
+            if keypadVisible { keypad }
         }
-        .padding(8)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 8)
         .onAppear {
-            if selectedEquationID == nil { selectedEquationID = state.graphEquations.first?.id }
+            if state.selectedGraphEquationID == nil {
+                state.selectedGraphEquationID = state.graphEquations.first?.id
+            }
         }
     }
 
@@ -70,7 +77,7 @@ struct CalculatorGraphView: View {
             .gesture(panGesture(size: size))
             .simultaneousGesture(zoomGesture(size: size))
         }
-        .frame(height: showKeypad ? 110 : 220)
+        .frame(height: keypadVisible ? 110 : 220)
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.quaternary, lineWidth: 0.5))
 
@@ -99,7 +106,7 @@ struct CalculatorGraphView: View {
 
     private func equationCell(index: Int, trailing: AnyView) -> some View {
         let equation = index < state.graphEquations.count ? state.graphEquations[index] : nil
-        let isSelected = equation?.id == selectedEquationID
+        let isSelected = equation?.id == state.selectedGraphEquationID
         let color = equation.map(color(for:)) ?? .secondary
         return HStack(spacing: 8) {
             Circle().fill(color).frame(width: 14, height: 14)
@@ -116,7 +123,7 @@ struct CalculatorGraphView: View {
         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(isSelected ? color : .clear, lineWidth: 1.5))
         .contentShape(Rectangle())
         .onTapGesture {
-            if let id = equation?.id { selectedEquationID = id; showKeypad = true }
+            if let id = equation?.id { state.selectedGraphEquationID = id; showKeypad = true }
         }
     }
 
@@ -189,28 +196,65 @@ struct CalculatorGraphView: View {
             .gesture(panGesture(size: size))
             .simultaneousGesture(zoomGesture(size: size))
         }
-        .frame(minHeight: showKeypad ? 150 : 280)
+        .frame(minHeight: keypadVisible ? 150 : 280)
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.quaternary, lineWidth: 0.5))
+        .overlay(alignment: .topTrailing) { zoomControls }
+    }
+
+    /// Vertical zoom in / out stack floating over the plot's right edge.
+    private var zoomControls: some View {
+        VStack(spacing: 8) {
+            zoomButton("plus.magnifyingglass") { zoomBy(1.4) }
+            zoomButton("minus.magnifyingglass") { zoomBy(1 / 1.4) }
+        }
+        .padding(8)
+    }
+
+    private func zoomButton(_ systemName: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 14, weight: .semibold))
+                .frame(width: 30, height: 30)
+                .background(.ultraThinMaterial, in: Circle())
+                .overlay(Circle().strokeBorder(.white.opacity(0.15), lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(CalculatorTheme.label)
     }
 
     // MARK: - Equation list
 
+    /// Approximate height of a single equation row (circle/text + vertical
+    /// padding) and the inter-row spacing — used to size the entry section so
+    /// it grows one row at a time as equations are added.
+    private static let equationRowHeight: CGFloat = 34
+    private static let equationRowSpacing: CGFloat = 4
+
     private var equationList: some View {
-        ScrollView {
-            VStack(spacing: 4) {
+        // Start at one equation's height and expand per added equation. Only
+        // once the list would crowd the plot/keypad does it cap and scroll.
+        let maxVisibleRows = keypadVisible ? 3 : 5
+        let count = max(state.graphEquations.count, 1)
+        let visibleRows = min(count, maxVisibleRows)
+        let height = CGFloat(visibleRows) * Self.equationRowHeight
+            + CGFloat(visibleRows - 1) * Self.equationRowSpacing
+        return ScrollView {
+            VStack(spacing: Self.equationRowSpacing) {
                 ForEach(state.graphEquations) { equation in
                     equationRow(equation)
                 }
             }
         }
-        .frame(maxHeight: showKeypad ? 64 : 130)
+        .frame(height: height)
+        .scrollDisabled(count <= maxVisibleRows)
+        .animation(.easeInOut(duration: 0.2), value: count)
     }
 
     private func equationRow(_ equation: GraphEquation) -> some View {
         let rgb = GraphPalette.rgb(for: equation.colorIndex)
         let color = Color(red: rgb.red, green: rgb.green, blue: rgb.blue)
-        let isSelected = equation.id == selectedEquationID
+        let isSelected = equation.id == state.selectedGraphEquationID
         let prefix = state.graphKeypadFamily.isOneVariable ? "" : "y = "
         let placeholder = state.graphKeypadFamily.isOneVariable ? "tap to enter equation" : "tap to enter f(x)"
         return HStack(spacing: 8) {
@@ -222,7 +266,9 @@ struct CalculatorGraphView: View {
             Spacer(minLength: 4)
             Button {
                 state.removeEquation(id: equation.id)
-                if selectedEquationID == equation.id { selectedEquationID = state.graphEquations.first?.id }
+                if state.selectedGraphEquationID == equation.id {
+                    state.selectedGraphEquationID = state.graphEquations.first?.id
+                }
             } label: {
                 Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
             }
@@ -234,7 +280,7 @@ struct CalculatorGraphView: View {
         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(isSelected ? color : .clear, lineWidth: 1.5))
         .contentShape(Rectangle())
         .onTapGesture {
-            selectedEquationID = equation.id
+            state.selectedGraphEquationID = equation.id
             showKeypad = true
         }
     }
@@ -275,7 +321,7 @@ struct CalculatorGraphView: View {
 
     private var actionRow: some View {
         HStack(spacing: 8) {
-            Button { state.addEquation(); selectedEquationID = state.graphEquations.last?.id } label: {
+            Button { state.addEquation(); state.selectedGraphEquationID = state.graphEquations.last?.id } label: {
                 Image(systemName: "plus")
             }
             Button { onSnapshot?() } label: { Image(systemName: "camera") }
@@ -284,11 +330,17 @@ struct CalculatorGraphView: View {
             Button { showKeypad.toggle() } label: {
                 Image(systemName: showKeypad ? "keyboard.chevron.compact.down" : "keyboard")
             }
+            .disabled(state.showFullKeypad)
+            Button {
+                withAnimation(.easeInOut(duration: 0.28)) { state.showFullKeypad.toggle() }
+            } label: {
+                Image(systemName: state.showFullKeypad ? "square.grid.3x3.fill" : "square.grid.3x3")
+            }
+            .help("Full slide-out keypad")
 
             Spacer()
 
-            Button { zoomBy(1 / 1.4) } label: { Image(systemName: "minus.magnifyingglass") }
-            Button { zoomBy(1.4) } label: { Image(systemName: "plus.magnifyingglass") }
+            // Zoom lives on the plot's right edge now; only reset stays here.
             Button { state.graphWindow = .default } label: { Image(systemName: "arrow.counterclockwise") }
 
             if state.graphKeypadFamily.showsAngleToggle {
@@ -310,7 +362,7 @@ struct CalculatorGraphView: View {
             ForEach(Array(GraphKeypadLayout.keys(for: state.graphKeypadFamily).enumerated()), id: \.offset) { _, row in
                 HStack(spacing: 4) {
                     ForEach(row) { key in
-                        Button { applyKey(key.action) } label: {
+                        Button { state.applyGraphKey(key.action) } label: {
                             Text(key.label).font(.callout.weight(.medium))
                         }
                         .buttonStyle(CalculatorKeyButtonStyle(fill: CalculatorTheme.keyFill(for: key.style), minHeight: 30))
@@ -348,19 +400,6 @@ struct CalculatorGraphView: View {
         return SolutionRegion
             .combine(a, b, mode: state.graphCombineMode, domain: domain)
             .asSolutionSet(domain: domain)
-    }
-
-    // MARK: - Editing
-
-    private func applyKey(_ action: CalculatorKeyAction) {
-        let targetID = selectedEquationID ?? state.graphEquations.first?.id
-        guard let id = targetID,
-              let index = state.graphEquations.firstIndex(where: { $0.id == id }) else { return }
-        state.graphEquations[index].expression = CalculatorExpressionReducer.reduce(
-            expression: state.graphEquations[index].expression,
-            action: action
-        )
-        if selectedEquationID == nil { selectedEquationID = id }
     }
 
     // MARK: - Gestures

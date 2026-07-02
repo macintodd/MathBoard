@@ -23,10 +23,177 @@
 
 import SwiftUI
 
+public enum CompactPaletteDockEdge: Equatable, Sendable {
+    case left
+    case right
+}
+
+public struct FloatingCompactToolPaletteView: View {
+    @Binding private var state: ToolPaletteState
+    @Binding private var center: CGPoint?
+    private let onCommand: (ToolPaletteCommand) -> Void
+    private let onResolvedCommand: (ToolPaletteCommand, ToolPaletteState) -> Void
+
+    @State private var measuredSize: CGSize = .zero
+    @State private var dragStartCenter: CGPoint?
+
+    public init(
+        state: Binding<ToolPaletteState>,
+        center: Binding<CGPoint?>,
+        onCommand: @escaping (ToolPaletteCommand) -> Void = { _ in },
+        onResolvedCommand: @escaping (ToolPaletteCommand, ToolPaletteState) -> Void = { _, _ in }
+    ) {
+        self._state = state
+        self._center = center
+        self.onCommand = onCommand
+        self.onResolvedCommand = onResolvedCommand
+    }
+
+    public var body: some View {
+        GeometryReader { proxy in
+            let containerSize = proxy.size
+            let measuredHeight = measuredSize == .zero ? Self.fallbackSize.height : measuredSize.height
+            let paletteSize = CGSize(width: Self.expandedWidth, height: measuredHeight)
+            let railCenter = center ?? Self.defaultRailCenter(in: containerSize, paletteSize: paletteSize)
+            let dockEdge = railCenter.x <= containerSize.width / 2 ? CompactPaletteDockEdge.left : .right
+            let paletteCenter = Self.paletteCenter(forRailCenter: railCenter, paletteSize: paletteSize, edge: dockEdge)
+
+            VStack(alignment: dockEdge == .left ? .leading : .trailing, spacing: 0) {
+                CompactToolPaletteView(
+                    state: $state,
+                    dockEdge: dockEdge,
+                    dragHandle: AnyView(
+                        dragHandle(edge: dockEdge)
+                            .gesture(dragGesture(in: containerSize, currentRailCenter: railCenter, paletteSize: paletteSize))
+                    ),
+                    onCommand: onCommand,
+                    onResolvedCommand: onResolvedCommand
+                )
+            }
+            .frame(width: Self.expandedWidth, alignment: dockEdge == .left ? .leading : .trailing)
+            .background(
+                GeometryReader { paletteProxy in
+                    Color.clear
+                        .onAppear {
+                            measuredSize = paletteProxy.size
+                        }
+                        .onChange(of: paletteProxy.size) { _, newSize in
+                            measuredSize = newSize
+                            if let center {
+                                let edge = center.x <= containerSize.width / 2 ? CompactPaletteDockEdge.left : .right
+                                self.center = Self.clampRailCenter(center, in: containerSize, paletteSize: newSize, edge: edge)
+                            }
+                        }
+                }
+            )
+            .position(paletteCenter)
+        }
+    }
+
+    private func dragHandle(edge: CompactPaletteDockEdge) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 13, weight: .bold))
+        }
+        .foregroundStyle(Color(red: 0.05, green: 0.11, blue: 0.18).opacity(0.86))
+        .frame(width: Self.railWidth, height: 30)
+        .background(
+            UnevenRoundedRectangle(
+                topLeadingRadius: edge == .left ? 22 : 12,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: edge == .right ? 22 : 12,
+                style: .continuous
+            )
+            .fill(
+                LinearGradient(
+                    colors: [Color.white.opacity(0.98), Color(red: 0.84, green: 0.90, blue: 0.96)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .shadow(color: .white.opacity(0.4), radius: 3, x: -1, y: -1)
+            .shadow(color: .black.opacity(0.12), radius: 4, x: 2, y: 2)
+        )
+        .contentShape(Rectangle())
+        .accessibilityLabel("Move compact tool palette")
+    }
+
+    private func dragGesture(in containerSize: CGSize, currentRailCenter: CGPoint, paletteSize: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .global)
+            .onChanged { value in
+                let base = dragStartCenter ?? currentRailCenter
+                if dragStartCenter == nil {
+                    dragStartCenter = base
+                }
+                let proposed = CGPoint(x: base.x + value.translation.width, y: base.y + value.translation.height)
+                let edge = proposed.x <= containerSize.width / 2 ? CompactPaletteDockEdge.left : .right
+                center = Self.clampRailCenter(
+                    proposed,
+                    in: containerSize,
+                    paletteSize: paletteSize,
+                    edge: edge
+                )
+            }
+            .onEnded { _ in
+                dragStartCenter = nil
+            }
+    }
+
+    private static let expandedWidth: CGFloat = 396
+    private static let fallbackSize = CGSize(width: expandedWidth, height: 420)
+    private static let railWidth: CGFloat = 68
+    private static let margin: CGFloat = 16
+
+    private static func defaultRailCenter(in containerSize: CGSize, paletteSize: CGSize) -> CGPoint {
+        clampRailCenter(
+            CGPoint(
+                x: railWidth / 2 + margin,
+                y: paletteSize.height / 2 + margin
+            ),
+            in: containerSize,
+            paletteSize: paletteSize,
+            edge: .left
+        )
+    }
+
+    private static func paletteCenter(forRailCenter railCenter: CGPoint, paletteSize: CGSize, edge: CompactPaletteDockEdge) -> CGPoint {
+        let horizontalOffset = max((paletteSize.width - railWidth) / 2, 0)
+        switch edge {
+        case .left:
+            return CGPoint(x: railCenter.x + horizontalOffset, y: railCenter.y)
+        case .right:
+            return CGPoint(x: railCenter.x - horizontalOffset, y: railCenter.y)
+        }
+    }
+
+    private static func clampRailCenter(_ point: CGPoint, in containerSize: CGSize, paletteSize: CGSize, edge: CompactPaletteDockEdge) -> CGPoint {
+        let halfHeight = max(paletteSize.height / 2, 1)
+        let minX: CGFloat
+        let maxX: CGFloat
+        switch edge {
+        case .left:
+            minX = railWidth / 2 + margin
+            maxX = max(minX, containerSize.width - paletteSize.width + railWidth / 2 - margin)
+        case .right:
+            minX = max(railWidth / 2 + margin, paletteSize.width - railWidth / 2 + margin)
+            maxX = max(minX, containerSize.width - railWidth / 2 - margin)
+        }
+        let minY = halfHeight + margin
+        let maxY = max(minY, containerSize.height - halfHeight - margin)
+        return CGPoint(
+            x: min(max(point.x, minX), maxX),
+            y: min(max(point.y, minY), maxY)
+        )
+    }
+}
+
 public struct CompactToolPaletteView: View {
     @Binding private var state: ToolPaletteState
     private let onCommand: (ToolPaletteCommand) -> Void
     private let onResolvedCommand: (ToolPaletteCommand, ToolPaletteState) -> Void
+    private let dockEdge: CompactPaletteDockEdge
+    private let dragHandle: AnyView?
 
     // Contextual drawer visibility. Collapsing leaves only the slim tool rail so
     // the palette shrinks to almost nothing while teaching.
@@ -38,39 +205,50 @@ public struct CompactToolPaletteView: View {
     @State private var isLatexEditorPresented = false
     @State private var isFontPickerPresented = false
     @State private var colorPickerTarget: CompactColorTarget = .stroke
+    @State private var editingColorSlot: Int?
+    @State private var editingColorTool: ToolID?
     @State private var latexDraft = ""
 
     public init(
         state: Binding<ToolPaletteState>,
+        dockEdge: CompactPaletteDockEdge = .left,
+        dragHandle: AnyView? = nil,
         onCommand: @escaping (ToolPaletteCommand) -> Void = { _ in },
         onResolvedCommand: @escaping (ToolPaletteCommand, ToolPaletteState) -> Void = { _, _ in }
     ) {
         self._state = state
+        self.dockEdge = dockEdge
+        self.dragHandle = dragHandle
         self.onCommand = onCommand
         self.onResolvedCommand = onResolvedCommand
     }
 
     public var body: some View {
         let configuration = ToolPaletteDefinitions.definition(for: state.activeTool).configuration(for: state)
+        let isDrawerVisible = isDrawerOpen && state.activeTool.hasCompactDrawer
 
         HStack(alignment: .top, spacing: 0) {
+            if dockEdge == .right, isDrawerVisible {
+                drawerPanel(configuration)
+                    .transition(drawerTransition)
+            }
+            if dockEdge == .right, isQuickColorStripVisible {
+                quickColorStrip
+                    .transition(drawerTransition)
+            }
             toolRail
-            if isDrawerOpen {
-                contextDrawer(configuration)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
+                .zIndex(1)
+            if dockEdge == .left, isDrawerVisible {
+                drawerPanel(configuration)
+                    .transition(drawerTransition)
+            }
+            if dockEdge == .left, isQuickColorStripVisible {
+                quickColorStrip
+                    .transition(drawerTransition)
             }
         }
-        .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(ToolPaletteTheme.shell)
-                .shadow(color: .black.opacity(0.42), radius: 14, x: 0, y: 8)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .strokeBorder(.white.opacity(0.08), lineWidth: 1)
-        )
-        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isDrawerOpen)
-        .animation(.snappy(duration: 0.2), value: state.activeTool)
+        .animation(Self.drawerAnimation, value: isDrawerOpen)
+        .animation(Self.drawerAnimation, value: isQuickColorStripVisible)
         .environment(\.colorScheme, .dark)
         // Popovers reuse the shared reducer via `send`, just like the radial dial.
         .popover(isPresented: $isColorPickerPresented) {
@@ -84,8 +262,10 @@ public struct CompactToolPaletteView: View {
             .presentationCompactAdaptation(.popover)
         }
         .popover(isPresented: $isPaletteChooserPresented) {
-            CompactPaletteChooser(selectedPreset: state.palettePreset) { preset in
+            CompactPaletteChooser(selectedPreset: state.activePalettePreset) { preset in
                 send(.setPalettePreset(preset))
+                editingColorSlot = activeColorSlotIndex
+                editingColorTool = state.activeTool
                 isPaletteChooserPresented = false
             }
             .padding(14)
@@ -109,40 +289,62 @@ public struct CompactToolPaletteView: View {
         }
     }
 
+    private var drawerTransition: AnyTransition {
+        .asymmetric(
+            insertion: .offset(x: dockEdge == .left ? -28 : 28).combined(with: .opacity),
+            removal: .offset(x: dockEdge == .left ? -28 : 28).combined(with: .opacity)
+        )
+    }
+
+    private static let drawerAnimation = Animation.easeInOut(duration: 0.16)
+    private static let dragHandleHeight: CGFloat = 30
+    private static let railSectionSpacing: CGFloat = 8
+    private static let railSectionPadding: CGFloat = 4
+    private static let toolButtonHeight: CGFloat = 46
+    private static let toolButtonSpacing: CGFloat = 4
+
     // MARK: - Tool rail
 
     private var toolRail: some View {
-        VStack(spacing: 6) {
-            ForEach(ToolPaletteDefinitions.orderedToolIDs, id: \.self) { toolID in
-                CompactToolButton(
-                    toolID: toolID,
-                    isActive: toolID == state.activeTool,
-                    accentColor: railAccentColor(for: toolID),
-                    outlineColor: state.strokeColor.swiftUIColor,
-                    fillColor: state.fillColor.swiftUIColor.opacity(state.geometryFillOpacity)
-                ) {
-                    send(.selectTool(toolID))
-                    // Re-selecting the already-active tool toggles the drawer, so
-                    // the palette can shrink to just the rail with one more tap.
-                    if state.activeTool == toolID {
-                        withAnimation { isDrawerOpen.toggle() }
-                    } else {
-                        isDrawerOpen = true
+        VStack(spacing: Self.railSectionSpacing) {
+            if let dragHandle {
+                dragHandle
+            }
+
+            ForEach(toolSections.indices, id: \.self) { sectionIndex in
+                VStack(spacing: Self.toolButtonSpacing) {
+                    ForEach(toolSections[sectionIndex], id: \.self) { toolID in
+                        CompactToolButton(
+                            toolID: toolID,
+                            isActive: toolID == state.activeTool,
+                            accentColor: railAccentColor(for: toolID),
+                            outlineColor: state.strokeColor.swiftUIColor,
+                            fillColor: state.fillColor.swiftUIColor.opacity(state.geometryFillOpacity)
+                        ) {
+                            handleToolTap(toolID)
+                        }
                     }
                 }
+                .padding(Self.railSectionPadding)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color.white.opacity(0.28))
+                        .shadow(color: .white.opacity(0.35), radius: 3, x: -1, y: -1)
+                        .shadow(color: .black.opacity(0.14), radius: 4, x: 2, y: 2)
+                )
             }
 
             Divider()
-                .overlay(Color.white.opacity(0.12))
+                .overlay(Color.black.opacity(0.12))
                 .padding(.horizontal, 10)
 
             // Explicit drawer toggle for discoverability.
             Button {
-                withAnimation { isDrawerOpen.toggle() }
+                withAnimation(Self.drawerAnimation) { isDrawerOpen.toggle() }
             } label: {
                 Image(systemName: isDrawerOpen ? "chevron.left" : "chevron.right")
                     .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(ToolPaletteTheme.mutedLabel.opacity(0.8))
+                    .foregroundStyle(Color(red: 0.05, green: 0.11, blue: 0.18).opacity(0.82))
                     .frame(width: 44, height: 32)
                     .contentShape(Rectangle())
             }
@@ -152,6 +354,114 @@ public struct CompactToolPaletteView: View {
         .padding(.vertical, 10)
         .padding(.horizontal, 8)
         .frame(width: 68)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.98), Color(red: 0.86, green: 0.92, blue: 0.98)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .shadow(color: .white.opacity(0.4), radius: 3, x: -1, y: -1)
+                .shadow(color: .black.opacity(0.18), radius: 10, x: 3, y: 4)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.62), lineWidth: 1)
+        )
+    }
+
+    private func handleToolTap(_ toolID: ToolID) {
+        let wasActive = state.activeTool == toolID
+        send(.selectTool(toolID))
+
+        if !toolID.hasCompactDrawer {
+            withAnimation(Self.drawerAnimation) {
+                isDrawerOpen = false
+            }
+        } else if toolID.isCompactInkTool {
+            withAnimation(Self.drawerAnimation) {
+                isDrawerOpen = wasActive ? !isDrawerOpen : false
+            }
+        } else if wasActive {
+            withAnimation(Self.drawerAnimation) { isDrawerOpen.toggle() }
+        } else {
+            isDrawerOpen = true
+        }
+    }
+
+    private var toolSections: [[ToolID]] {
+        [
+            [.selection, .extract],
+            [.pen, .marker, .laser, .eraser],
+            [.geometry, .reserved, .equation]
+        ]
+    }
+
+    private var isQuickColorStripVisible: Bool {
+        state.activeTool.isCompactInkTool && !isDrawerOpen
+    }
+
+    private var quickColorStrip: some View {
+        VStack(spacing: 10) {
+            ForEach(Array(quickPaletteColors.enumerated()), id: \.offset) { index, color in
+                CompactQuickColorButton(
+                    color: color,
+                    isSelected: isQuickColorSelected(index)
+                ) {
+                    selectQuickColor(color, at: index)
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.white.opacity(0.78))
+                .shadow(color: .white.opacity(0.3), radius: 3, x: -1, y: -1)
+                .shadow(color: .black.opacity(0.16), radius: 8, x: 3, y: 3)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.62), lineWidth: 1)
+        )
+        .padding(.top, drawerTopOffset)
+        .padding(.horizontal, 8)
+    }
+
+    private func selectQuickColor(_ color: PaletteColor, at index: Int) {
+        if isQuickColorSelected(index) {
+            colorPickerTarget = .stroke
+            editingColorSlot = index
+            editingColorTool = state.activeTool
+            isColorPickerPresented = true
+        } else {
+            editingColorSlot = index
+            editingColorTool = state.activeTool
+            send(.setStrokeColor(color))
+        }
+    }
+
+    private func selectDrawerColor(_ color: PaletteColor, at index: Int) {
+        if isQuickColorSelected(index) {
+            colorPickerTarget = .stroke
+            editingColorSlot = index
+            editingColorTool = state.activeTool
+            isColorPickerPresented = true
+        } else {
+            editingColorSlot = index
+            editingColorTool = state.activeTool
+            send(.setStrokeColor(color))
+        }
+    }
+
+    private func isQuickColorSelected(_ index: Int) -> Bool {
+        editingColorSlot == index && editingColorTool == state.activeTool
+    }
+
+    private var quickPaletteColors: [PaletteColor] {
+        state.activePaletteColors
     }
 
     private func railAccentColor(for toolID: ToolID) -> Color {
@@ -159,12 +469,62 @@ public struct CompactToolPaletteView: View {
         case .pen: return state.penColor.swiftUIColor
         case .marker: return state.markerColor.swiftUIColor
         case .laser: return state.laserColor.swiftUIColor
-        case .selection, .reserved, .eraser, .geometry, .equation:
+        case .selection, .extract, .reserved, .eraser, .geometry, .equation:
             return ToolPaletteTheme.cyan
         }
     }
 
     // MARK: - Contextual drawer
+
+    private func drawerPanel(_ configuration: ToolPaletteConfiguration) -> some View {
+        contextDrawer(configuration)
+            .background(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(drawerFill)
+                    .shadow(color: .black.opacity(0.28), radius: 14, x: 0, y: 8)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.1), lineWidth: 1)
+            )
+            .padding(.top, drawerTopOffset)
+            .padding(.horizontal, 8)
+    }
+
+    private var drawerFill: LinearGradient {
+        let white = Color.white.opacity(0.9)
+        let blue = ToolPaletteTheme.shell
+        return LinearGradient(
+            colors: dockEdge == .left ? [white, blue] : [blue, white],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+    }
+
+    private var drawerTopOffset: CGFloat {
+        max(10, activeToolTopOffset - 10)
+    }
+
+    private var activeToolTopOffset: CGFloat {
+        var y: CGFloat = 10
+        if dragHandle != nil {
+            y += Self.dragHandleHeight + Self.railSectionSpacing
+        }
+
+        for section in toolSections {
+            let sectionTop = y
+            if let index = section.firstIndex(of: state.activeTool) {
+                return sectionTop + Self.railSectionPadding + CGFloat(index) * (Self.toolButtonHeight + Self.toolButtonSpacing)
+            }
+
+            y += Self.railSectionPadding * 2
+            y += CGFloat(section.count) * Self.toolButtonHeight
+            y += CGFloat(max(section.count - 1, 0)) * Self.toolButtonSpacing
+            y += Self.railSectionSpacing
+        }
+
+        return y
+    }
 
     private func contextDrawer(_ configuration: ToolPaletteConfiguration) -> some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -199,9 +559,13 @@ public struct CompactToolPaletteView: View {
         VStack(alignment: .leading, spacing: 10) {
             if !colorItems.isEmpty {
                 CompactFlowRow(spacing: 8) {
-                    ForEach(colorItems) { item in
+                    ForEach(Array(colorItems.enumerated()), id: \.element.id) { index, item in
                         CompactOrbitChip(item: item, isSelected: isOrbitItemSelected(item)) {
-                            send(item.command)
+                            if let color = item.color {
+                                selectDrawerColor(color, at: index)
+                            } else {
+                                send(item.command)
+                            }
                         }
                     }
                 }
@@ -247,9 +611,15 @@ public struct CompactToolPaletteView: View {
         switch command {
         case .openColorPicker:
             colorPickerTarget = .stroke
+            if editingColorTool != state.activeTool {
+                editingColorTool = state.activeTool
+                editingColorSlot = activeColorSlotIndex
+            }
             isColorPickerPresented = true
         case .openFillColorPicker:
             colorPickerTarget = .fill
+            editingColorSlot = nil
+            editingColorTool = nil
             isColorPickerPresented = true
         case .openColorPaletteChooser:
             isPaletteChooserPresented = true
@@ -291,19 +661,64 @@ public struct CompactToolPaletteView: View {
         Binding(
             get: {
                 switch colorPickerTarget {
-                case .stroke: return state.activeStrokeColor.swiftUIColor
+                case .stroke:
+                    if let editingColor = editingPaletteColor {
+                        return editingColor.swiftUIColor
+                    }
+                    return state.activeStrokeColor.swiftUIColor
                 case .fill: return state.fillColor.swiftUIColor
                 }
             },
             set: { color in
-                if let paletteColor = PaletteColor(name: "Custom", color: color) {
+                if let paletteColor = PaletteColor(name: customColorName, color: color) {
                     switch colorPickerTarget {
-                    case .stroke: send(.setStrokeColor(paletteColor))
+                    case .stroke:
+                        if let editingColorTool, let editingColorSlot, editingColorTool.isCompactInkTool {
+                            send(.setPaletteColor(editingColorTool, editingColorSlot, paletteColor))
+                        } else {
+                            send(.setStrokeColor(paletteColor))
+                        }
                     case .fill: send(.setFillColor(paletteColor))
                     }
                 }
             }
         )
+    }
+
+    private var editingPaletteColor: PaletteColor? {
+        guard let editingColorTool, let editingColorSlot else { return nil }
+        let colors: [PaletteColor]
+        switch editingColorTool {
+        case .pen:
+            colors = state.penPaletteColors
+        case .marker:
+            colors = state.markerPaletteColors
+        case .laser:
+            colors = state.laserPaletteColors
+        case .selection, .extract, .reserved, .eraser, .geometry, .equation:
+            return nil
+        }
+        guard colors.indices.contains(editingColorSlot) else { return nil }
+        return colors[editingColorSlot]
+    }
+
+    private var activeColorSlotIndex: Int? {
+        state.activePaletteColors.firstIndex(of: state.activeStrokeColor) ?? 0
+    }
+
+    private var customColorName: String {
+        guard let editingColorSlot else { return "Custom" }
+        return "Custom \(editingColorSlot + 1)"
+    }
+}
+
+private extension ToolID {
+    var isCompactInkTool: Bool {
+        self == .pen || self == .marker || self == .laser
+    }
+
+    var hasCompactDrawer: Bool {
+        self != .selection
     }
 }
 
@@ -333,10 +748,12 @@ private struct CompactToolButton: View {
         Button(action: action) {
             ZStack {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(isActive ? ToolPaletteTheme.segmentRaised : Color.clear)
+                    .fill(buttonFill)
+                    .shadow(color: isActive ? .black.opacity(0.18) : .white.opacity(0.42), radius: isActive ? 2 : 3, x: isActive ? 1 : -1, y: isActive ? 1 : -1)
+                    .shadow(color: isActive ? .white.opacity(0.18) : .black.opacity(0.14), radius: isActive ? 1 : 4, x: isActive ? -1 : 2, y: isActive ? -1 : 2)
                     .overlay(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .strokeBorder(isActive ? ToolPaletteTheme.cyan.opacity(0.9) : .clear, lineWidth: 2)
+                            .strokeBorder(isActive ? ToolPaletteTheme.cyan.opacity(0.92) : Color.white.opacity(0.42), lineWidth: isActive ? 2 : 1)
                     )
 
                 icon
@@ -364,9 +781,9 @@ private struct CompactToolButton: View {
     @ViewBuilder
     private var icon: some View {
         if toolID == .geometry {
-            GeometrySymbolView(
-                outlineColor: isActive ? outlineColor : ToolPaletteTheme.label,
-                fillColor: isActive ? fillColor : ToolPaletteTheme.label.opacity(0.22),
+            CompactGeometryIcon(
+                outlineColor: isActive ? outlineColor : Color(red: 0.05, green: 0.11, blue: 0.18),
+                fillColor: isActive ? fillColor : Color(red: 0.05, green: 0.11, blue: 0.18).opacity(0.18),
                 lineWidth: 1.4
             )
         } else {
@@ -379,14 +796,96 @@ private struct CompactToolButton: View {
     private var iconColor: Color {
         switch toolID {
         case .pen, .marker, .laser:
-            return isActive ? accentColor : ToolPaletteTheme.label
-        case .selection, .reserved, .eraser, .geometry, .equation:
-            return ToolPaletteTheme.label
+            return accentColor
+        case .selection, .extract, .reserved, .eraser, .geometry, .equation:
+            return isActive ? Color.white : Color(red: 0.05, green: 0.11, blue: 0.18)
+        }
+    }
+
+    private var buttonFill: Color {
+        isActive ? ToolPaletteTheme.segmentRaised.opacity(0.96) : Color.white.opacity(0.24)
+    }
+}
+
+private struct CompactQuickColorButton: View {
+    var color: PaletteColor
+    var isSelected: Bool
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(slotFill)
+                    .shadow(color: color.swiftUIColor.opacity(isSelected ? 0.28 : 0), radius: 5)
+
+                Circle()
+                    .fill(color.swiftUIColor)
+                    .frame(width: 26, height: 26)
+                    .overlay(Circle().strokeBorder(circleBorder, lineWidth: isSelected ? 2.5 : 1.5))
+            }
+            .frame(width: 42, height: 40)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(isSelected ? Color.white.opacity(0.72) : Color.white.opacity(0.32), lineWidth: isSelected ? 1.5 : 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(color.name)
+    }
+
+    private var slotFill: Color {
+        isSelected ? color.swiftUIColor.opacity(0.92) : Color.white.opacity(0.34)
+    }
+
+    private var circleBorder: Color {
+        if isSelected {
+            return color == .graphite ? Color.white.opacity(0.88) : Color.black.opacity(0.3)
+        }
+        return Color.black.opacity(color == .graphite ? 0.32 : 0.18)
+    }
+}
+
+private struct CompactGeometryIcon: View {
+    var outlineColor: Color
+    var fillColor: Color
+    var lineWidth: CGFloat
+
+    var body: some View {
+        GeometryReader { proxy in
+            let size = min(proxy.size.width, proxy.size.height)
+            ZStack {
+                Circle()
+                    .fill(fillColor)
+                    .overlay(Circle().stroke(outlineColor, lineWidth: lineWidth))
+                    .frame(width: size * 0.78, height: size * 0.78)
+                    .offset(x: -size * 0.10, y: -size * 0.06)
+
+                CompactTriangleShape()
+                    .fill(fillColor)
+                    .overlay(CompactTriangleShape().stroke(outlineColor, lineWidth: lineWidth))
+                    .frame(width: size * 0.74, height: size * 0.66)
+                    .offset(x: size * 0.10, y: size * 0.08)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
     }
 }
 
+private struct CompactTriangleShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.closeSubpath()
+        return path
+    }
+}
+
 // MARK: - Orbit chip (color swatch or icon/action button)
+
 
 private struct CompactOrbitChip: View {
     var item: PaletteOrbitItem
@@ -396,32 +895,54 @@ private struct CompactOrbitChip: View {
     var body: some View {
         Button(action: action) {
             if let color = item.color {
-                Circle()
-                    .fill(color.swiftUIColor)
-                    .frame(width: 30, height: 30)
-                    .overlay(Circle().strokeBorder(.white.opacity(isSelected ? 0.95 : 0.35), lineWidth: isSelected ? 3 : 1.5))
-                    .shadow(color: color.swiftUIColor.opacity(isSelected ? 0.55 : 0), radius: 5)
-                    .accessibilityLabel(item.label)
+                CompactOrbitColorSwatch(color: color, isSelected: isSelected, label: item.label)
             } else {
-                HStack(spacing: 6) {
-                    if let iconSystemName = item.iconSystemName {
-                        Image(systemName: iconSystemName)
-                            .font(.system(size: 14, weight: .semibold))
-                    }
-                    Text(item.label)
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .lineLimit(1)
-                }
-                .foregroundStyle(isSelected ? Color(red: 0.05, green: 0.11, blue: 0.18) : ToolPaletteTheme.label)
-                .padding(.horizontal, 11)
-                .padding(.vertical, 8)
-                .background(
-                    Capsule().fill(isSelected ? ToolPaletteTheme.cyan.opacity(0.92) : ToolPaletteTheme.segment)
+                CompactOrbitActionChip(
+                    iconSystemName: item.iconSystemName,
+                    label: item.label,
+                    isSelected: isSelected
                 )
-                .overlay(Capsule().strokeBorder(.white.opacity(0.08), lineWidth: 1))
             }
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct CompactOrbitColorSwatch: View {
+    var color: PaletteColor
+    var isSelected: Bool
+    var label: String
+
+    var body: some View {
+        Circle()
+            .fill(color.swiftUIColor)
+            .frame(width: 30, height: 30)
+            .overlay(Circle().strokeBorder(.white.opacity(isSelected ? 0.95 : 0.35), lineWidth: isSelected ? 3 : 1.5))
+            .shadow(color: color.swiftUIColor.opacity(isSelected ? 0.55 : 0), radius: 5)
+            .accessibilityLabel(label)
+    }
+}
+
+private struct CompactOrbitActionChip: View {
+    var iconSystemName: String?
+    var label: String
+    var isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if let iconSystemName {
+                Image(systemName: iconSystemName)
+                    .font(.system(size: 14, weight: .semibold))
+            }
+            Text(label)
+                .font(.system(size: 12.5, weight: .semibold))
+                .lineLimit(1)
+        }
+        .foregroundStyle(isSelected ? Color(red: 0.05, green: 0.11, blue: 0.18) : ToolPaletteTheme.label)
+        .padding(.horizontal, 11)
+        .padding(.vertical, 8)
+        .background(Capsule().fill(isSelected ? ToolPaletteTheme.cyan.opacity(0.92) : ToolPaletteTheme.segment))
+        .overlay(Capsule().strokeBorder(.white.opacity(0.08), lineWidth: 1))
     }
 }
 
@@ -600,7 +1121,7 @@ private struct CompactPaletteChooser: View {
                 } label: {
                     HStack(spacing: 10) {
                         HStack(spacing: 4) {
-                            ForEach(preset.colors) { color in
+                            ForEach(preset.colors, id: \.id) { color in
                                 Circle()
                                     .fill(color.swiftUIColor)
                                     .frame(width: 18, height: 18)
@@ -709,6 +1230,7 @@ private struct CompactFontChooser: View {
 /// `ToolPalettePrototypeView`, for side-by-side comparison with the radial dial.
 public struct CompactToolPalettePrototypeView: View {
     @State private var state = ToolPaletteState()
+    @State private var paletteCenter: CGPoint?
     @State private var commandLog: [ToolPaletteCommand] = []
 
     public init() {}
@@ -717,15 +1239,14 @@ public struct CompactToolPalettePrototypeView: View {
         ZStack(alignment: .topLeading) {
             CompactMockCanvasBackground()
 
-            CompactToolPaletteView(
+            FloatingCompactToolPaletteView(
                 state: $state,
+                center: $paletteCenter,
                 onCommand: { command in
                     commandLog.insert(command, at: 0)
                     if commandLog.count > 8 { commandLog.removeLast() }
                 }
             )
-            .padding(.leading, 20)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("Command Log").font(.headline)
@@ -805,6 +1326,7 @@ private extension ToolPaletteCommand {
         case .openFillColorPicker: return "openFillColorPicker"
         case .openColorPaletteChooser: return "openColorPaletteChooser"
         case .setPalettePreset(let preset): return "setPalettePreset(\(preset.rawValue))"
+        case .setPaletteColor(let tool, let index, let color): return "setPaletteColor(\(tool.rawValue), \(index), \(color.name))"
         case .setGeometryType(let type): return "setGeometryType(\(type.rawValue))"
         case .setPolygonSides(let sides): return "setPolygonSides(\(sides))"
         case .setGeometryLineArrowMode(let mode): return "setGeometryLineArrowMode(\(mode.rawValue))"
@@ -844,6 +1366,7 @@ private extension ToolPaletteCommand {
 
 private struct CompactPalettePreviewHost: View {
     @State private var state: ToolPaletteState
+    @State private var paletteCenter: CGPoint?
 
     init(tool: ToolID) {
         _state = State(initialValue: ToolPaletteState(activeTool: tool))
@@ -852,9 +1375,10 @@ private struct CompactPalettePreviewHost: View {
     var body: some View {
         ZStack {
             Color(red: 0.94, green: 0.96, blue: 0.98)
-            CompactToolPaletteView(state: $state)
-                .padding(.leading, 24)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            FloatingCompactToolPaletteView(
+                state: $state,
+                center: $paletteCenter
+            )
         }
         .ignoresSafeArea()
     }
