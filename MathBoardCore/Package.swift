@@ -28,7 +28,18 @@ let package = Package(
         // Exposed as a product only so Xcode offers a "WidgetEngine" scheme that
         // builds this target for SwiftUI previews. Nothing links it — the app
         // target does not depend on it, so the module stays fully isolated.
-        .library(name: "WidgetEngine", targets: ["WidgetEngine"])
+        .library(name: "WidgetEngine", targets: ["WidgetEngine"]),
+
+        // Same pattern as WidgetEngine: exposed only so Xcode offers a
+        // "TextEngine" scheme for SwiftUI previews. Nothing links it. See
+        // TextEngine/ and TextEngine_status.md.
+        .library(name: "TextEngine", targets: ["TextEngine"])
+    ],
+    dependencies: [
+        // Native, offline SwiftUI LaTeX renderer used only by TextEngine's
+        // LaTeXPreviewView. No WebView / no network. Isolated behind a single
+        // renderer seam so it can be swapped later. See TextEngine_status.md.
+        .package(url: "https://github.com/gonzalezreal/swiftui-math", from: "0.1.0")
     ],
     targets: [
         .target(name: "Canvas"),
@@ -51,6 +62,19 @@ let package = Package(
         // zero dependencies on MathBoard.app or the other MathBoardCore modules.
         // Previewed independently in Xcode; wired into the canvas later via a
         // Coordinator. See WidgetEngine/ and Widget_Engine_status.md.
-        .target(name: "WidgetEngine")
+        .target(name: "WidgetEngine"),
+
+        // Standalone, previewable rich-text/LaTeX editor. Self-contained apart
+        // from the SwiftUIMath renderer (used only for LaTeX preview); zero
+        // dependencies on MathBoard.app or the other MathBoardCore modules.
+        // Previewed independently in Xcode; wired into the canvas later via a
+        // Coordinator (which will translate TextEditorResult into the app's text
+        // object). See TextEngine/ and TextEngine_status.md.
+        .target(
+            name: "TextEngine",
+            dependencies: [
+                .product(name: "SwiftUIMath", package: "swiftui-math")
+            ]
+        )
     ]
 )
