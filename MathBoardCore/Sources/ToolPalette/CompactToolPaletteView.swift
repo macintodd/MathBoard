@@ -232,8 +232,8 @@ public struct CompactToolPaletteView: View {
                 drawerPanel(configuration)
                     .transition(drawerTransition)
             }
-            if dockEdge == .right, isQuickColorStripVisible {
-                quickColorStrip
+            if dockEdge == .right, isQuickStripVisible {
+                quickStrip
                     .transition(drawerTransition)
             }
             toolRail
@@ -242,13 +242,13 @@ public struct CompactToolPaletteView: View {
                 drawerPanel(configuration)
                     .transition(drawerTransition)
             }
-            if dockEdge == .left, isQuickColorStripVisible {
-                quickColorStrip
+            if dockEdge == .left, isQuickStripVisible {
+                quickStrip
                     .transition(drawerTransition)
             }
         }
         .animation(Self.drawerAnimation, value: isDrawerOpen)
-        .animation(Self.drawerAnimation, value: isQuickColorStripVisible)
+        .animation(Self.drawerAnimation, value: isQuickStripVisible)
         .environment(\.colorScheme, .dark)
         // Popovers reuse the shared reducer via `send`, just like the radial dial.
         .popover(isPresented: $isColorPickerPresented) {
@@ -328,9 +328,9 @@ public struct CompactToolPaletteView: View {
                 .padding(Self.railSectionPadding)
                 .background(
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(Color.white.opacity(0.28))
-                        .shadow(color: .white.opacity(0.35), radius: 3, x: -1, y: -1)
-                        .shadow(color: .black.opacity(0.14), radius: 4, x: 2, y: 2)
+                        .fill(Color.white.opacity(0.42))
+                        .shadow(color: .white.opacity(0.45), radius: 3, x: -1, y: -1)
+                        .shadow(color: .black.opacity(0.22), radius: 5, x: 2, y: 2)
                 )
             }
 
@@ -358,17 +358,20 @@ public struct CompactToolPaletteView: View {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(
                     LinearGradient(
-                        colors: [Color.white.opacity(0.98), Color(red: 0.86, green: 0.92, blue: 0.98)],
+                        colors: [
+                            Color(red: 0.92, green: 0.97, blue: 1.0),
+                            Color(red: 0.68, green: 0.79, blue: 0.90)
+                        ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
                 )
-                .shadow(color: .white.opacity(0.4), radius: 3, x: -1, y: -1)
-                .shadow(color: .black.opacity(0.18), radius: 10, x: 3, y: 4)
+                .shadow(color: .white.opacity(0.48), radius: 3, x: -1, y: -1)
+                .shadow(color: .black.opacity(0.26), radius: 12, x: 3, y: 4)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.62), lineWidth: 1)
+                .strokeBorder(Color.white.opacity(0.74), lineWidth: 1.2)
         )
     }
 
@@ -380,7 +383,7 @@ public struct CompactToolPaletteView: View {
             withAnimation(Self.drawerAnimation) {
                 isDrawerOpen = false
             }
-        } else if toolID.isCompactInkTool {
+        } else if toolID.hasCompactQuickStrip {
             withAnimation(Self.drawerAnimation) {
                 isDrawerOpen = wasActive ? !isDrawerOpen : false
             }
@@ -399,8 +402,17 @@ public struct CompactToolPaletteView: View {
         ]
     }
 
-    private var isQuickColorStripVisible: Bool {
-        state.activeTool.isCompactInkTool && !isDrawerOpen
+    private var isQuickStripVisible: Bool {
+        state.activeTool.hasCompactQuickStrip && !isDrawerOpen
+    }
+
+    @ViewBuilder
+    private var quickStrip: some View {
+        if state.activeTool.isCompactInkTool {
+            quickColorStrip
+        } else if state.activeTool == .extract || state.activeTool == .eraser {
+            quickModeStrip
+        }
     }
 
     private var quickColorStrip: some View {
@@ -428,6 +440,75 @@ public struct CompactToolPaletteView: View {
         )
         .padding(.top, drawerTopOffset)
         .padding(.horizontal, 8)
+    }
+
+    private var quickModeStrip: some View {
+        VStack(spacing: 10) {
+            ForEach(quickModeItems) { item in
+                CompactQuickModeButton(
+                    iconSystemName: item.iconSystemName,
+                    label: item.label,
+                    isSelected: item.isSelected
+                ) {
+                    send(item.command)
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.white.opacity(0.78))
+                .shadow(color: .white.opacity(0.3), radius: 3, x: -1, y: -1)
+                .shadow(color: .black.opacity(0.16), radius: 8, x: 3, y: 3)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.62), lineWidth: 1)
+        )
+        .padding(.top, drawerTopOffset)
+        .padding(.horizontal, 8)
+    }
+
+    private var quickModeItems: [CompactQuickModeItem] {
+        switch state.activeTool {
+        case .extract:
+            return [
+                CompactQuickModeItem(
+                    id: "extract.quick.lasso",
+                    iconSystemName: "lasso",
+                    label: "Lasso",
+                    isSelected: state.selectionMode == .lasso,
+                    command: .setSelectionMode(.lasso)
+                ),
+                CompactQuickModeItem(
+                    id: "extract.quick.marquee",
+                    iconSystemName: "rectangle.dashed",
+                    label: "Box",
+                    isSelected: state.selectionMode == .marquee,
+                    command: .setSelectionMode(.marquee)
+                )
+            ]
+        case .eraser:
+            return [
+                CompactQuickModeItem(
+                    id: "eraser.quick.pixel",
+                    iconSystemName: "circle.grid.cross",
+                    label: "Pixels",
+                    isSelected: state.eraserMode == .pixel,
+                    command: .setEraserMode(.pixel)
+                ),
+                CompactQuickModeItem(
+                    id: "eraser.quick.stroke",
+                    iconSystemName: "scribble.variable",
+                    label: "Stroke",
+                    isSelected: state.eraserMode == .stroke,
+                    command: .setEraserMode(.stroke)
+                )
+            ]
+        case .selection, .reserved, .pen, .marker, .geometry, .laser, .equation:
+            return []
+        }
     }
 
     private func selectQuickColor(_ color: PaletteColor, at index: Int) {
@@ -717,6 +798,10 @@ private extension ToolID {
         self == .pen || self == .marker || self == .laser
     }
 
+    var hasCompactQuickStrip: Bool {
+        isCompactInkTool || self == .extract || self == .eraser
+    }
+
     var hasCompactDrawer: Bool {
         self != .selection
     }
@@ -734,6 +819,14 @@ private enum CompactColorTarget {
     }
 }
 
+private struct CompactQuickModeItem: Identifiable {
+    var id: String
+    var iconSystemName: String
+    var label: String
+    var isSelected: Bool
+    var command: ToolPaletteCommand
+}
+
 // MARK: - Tool button
 
 private struct CompactToolButton: View {
@@ -749,11 +842,14 @@ private struct CompactToolButton: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(buttonFill)
-                    .shadow(color: isActive ? .black.opacity(0.18) : .white.opacity(0.42), radius: isActive ? 2 : 3, x: isActive ? 1 : -1, y: isActive ? 1 : -1)
-                    .shadow(color: isActive ? .white.opacity(0.18) : .black.opacity(0.14), radius: isActive ? 1 : 4, x: isActive ? -1 : 2, y: isActive ? -1 : 2)
+                    .shadow(color: isActive ? .black.opacity(0.30) : .white.opacity(0.55), radius: isActive ? 3 : 4, x: isActive ? 1 : -1, y: isActive ? 1 : -1)
+                    .shadow(color: isActive ? .white.opacity(0.16) : .black.opacity(0.24), radius: isActive ? 1 : 5, x: isActive ? -1 : 2, y: isActive ? -1 : 2)
                     .overlay(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .strokeBorder(isActive ? ToolPaletteTheme.cyan.opacity(0.92) : Color.white.opacity(0.42), lineWidth: isActive ? 2 : 1)
+                            .strokeBorder(
+                                isActive ? ToolPaletteTheme.cyan.opacity(0.98) : Color(red: 0.04, green: 0.11, blue: 0.18).opacity(0.32),
+                                lineWidth: isActive ? 2.5 : 1.3
+                            )
                     )
 
                 icon
@@ -798,12 +894,12 @@ private struct CompactToolButton: View {
         case .pen, .marker, .laser:
             return accentColor
         case .selection, .extract, .reserved, .eraser, .geometry, .equation:
-            return isActive ? Color.white : Color(red: 0.05, green: 0.11, blue: 0.18)
+            return isActive ? Color.white : Color(red: 0.02, green: 0.06, blue: 0.10)
         }
     }
 
     private var buttonFill: Color {
-        isActive ? ToolPaletteTheme.segmentRaised.opacity(0.96) : Color.white.opacity(0.24)
+        isActive ? ToolPaletteTheme.segmentRaised.opacity(0.98) : Color.white.opacity(0.64)
     }
 }
 
@@ -844,6 +940,40 @@ private struct CompactQuickColorButton: View {
             return color == .graphite ? Color.white.opacity(0.88) : Color.black.opacity(0.3)
         }
         return Color.black.opacity(color == .graphite ? 0.32 : 0.18)
+    }
+}
+
+private struct CompactQuickModeButton: View {
+    var iconSystemName: String
+    var label: String
+    var isSelected: Bool
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(slotFill)
+                    .shadow(color: ToolPaletteTheme.cyan.opacity(isSelected ? 0.24 : 0), radius: 5)
+
+                Image(systemName: iconSystemName)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Color.black.opacity(0.9))
+            }
+            .frame(width: 42, height: 40)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(isSelected ? Color.white.opacity(0.72) : Color.white.opacity(0.32), lineWidth: isSelected ? 1.5 : 1)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private var slotFill: Color {
+        isSelected ? ToolPaletteTheme.cyan.opacity(0.92) : Color.white.opacity(0.62)
     }
 }
 

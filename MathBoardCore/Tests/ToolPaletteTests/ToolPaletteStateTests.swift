@@ -24,6 +24,7 @@ struct ToolPaletteStateTests {
         #expect(state.penOpacity == 1)
         #expect(state.markerStrokeWidth == 18)
         #expect(state.markerOpacity == 0.5)
+        #expect(state.eraserWidth == 24)
         #expect(state.laserDuration == 3)
         #expect(state.geometryLineArrowMode == .none)
         #expect(state.geometryFillOpacity == 0.35)
@@ -132,7 +133,7 @@ struct ToolPaletteStateTests {
             return
         }
         #expect(size.id == "eraser.size")
-        #expect(size.range == 4...40)
+        #expect(size.range == 16...80)
 
         guard case .segmented(let mode) = configuration.rightArc else {
             Issue.record("Expected eraser right arc to be mode segments")

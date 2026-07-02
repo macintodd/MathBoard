@@ -120,7 +120,7 @@ private extension CanvasToolCommand.EraserMode {
     var pencilKitType: PKEraserTool.EraserType {
         switch self {
         case .pixel:
-            return .bitmap
+            return .fixedWidthBitmap
         case .stroke:
             return .vector
         }
@@ -1685,7 +1685,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 activeLaserDuration = min(max(duration, 0), 10)
                 activeLaserMode = mode
                 liveStrokeRecognizer?.isEnabled = false
-                liveStrokeRecognizer?.cancelsTouchesInView = true
+                liveStrokeRecognizer?.cancelsTouchesInView = false
                 canvas.drawingGestureRecognizer.isEnabled = false
                 canvas.panGestureRecognizer.minimumNumberOfTouches = 2
                 hostView?.laserOverlayView.acceptsLaserInput = true
@@ -1998,7 +1998,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 let convertedSamples = self.canvasSamples(from: samples, overlayView: overlayView, canvas: canvas)
                 self.publishLiveStroke(samples: convertedSamples, phase: phase)
             }
-            recognizer.cancelsTouchesInView = true
+            recognizer.cancelsTouchesInView = false
             recognizer.delaysTouchesBegan = false
             recognizer.delaysTouchesEnded = false
             recognizer.delegate = self
@@ -2076,7 +2076,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 guard let self, let hostView else { return }
                 self.handleRegionSelectionSamples(samples, phase: phase, hostView: hostView)
             }
-            recognizer.cancelsTouchesInView = true
+            recognizer.cancelsTouchesInView = false
             recognizer.delegate = self
             hostView.addGestureRecognizer(recognizer)
             regionSelectionRecognizer = recognizer
@@ -3496,6 +3496,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
+            if isCanvasViewportGesture(gestureRecognizer) || isCanvasViewportGesture(otherGestureRecognizer) {
+                return true
+            }
             if gestureRecognizer === textEditorDismissRecognizer
                 || otherGestureRecognizer === textEditorDismissRecognizer {
                 return true
@@ -3505,6 +3508,12 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 return false
             }
             return true
+        }
+
+        private func isCanvasViewportGesture(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let canvas else { return false }
+            return gestureRecognizer === canvas.panGestureRecognizer
+                || gestureRecognizer === canvas.pinchGestureRecognizer
         }
 
         // MARK: - UIScrollViewDelegate
@@ -3889,7 +3898,12 @@ private final class PencilLiveStrokeGestureRecognizer: UIGestureRecognizer {
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-        guard activeTouch == nil,
+        if activeTouch != nil {
+            cancelActiveStroke()
+            return
+        }
+
+        guard touches.count == 1,
               let touch = touches.first(where: { permittedTouchTypes.contains($0.type) }),
               let view else {
             state = .failed
@@ -3904,6 +3918,11 @@ private final class PencilLiveStrokeGestureRecognizer: UIGestureRecognizer {
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
         guard let activeTouch, touches.contains(activeTouch), let view else { return }
+
+        if let allTouches = event.allTouches, allTouches.count > 1 {
+            cancelActiveStroke()
+            return
+        }
 
         let coalescedTouches = event.coalescedTouches(for: activeTouch) ?? [activeTouch]
         samples.append(contentsOf: coalescedTouches.map { sample(for: $0, in: view) })
@@ -3945,6 +3964,14 @@ private final class PencilLiveStrokeGestureRecognizer: UIGestureRecognizer {
     private func resetStroke() {
         activeTouch = nil
         samples.removeAll(keepingCapacity: true)
+    }
+
+    private func cancelActiveStroke() {
+        if activeTouch != nil {
+            onUpdate(samples, .cancelled)
+        }
+        resetStroke()
+        state = .cancelled
     }
 }
 

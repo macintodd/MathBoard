@@ -79,7 +79,7 @@ public enum ToolPaletteReducer {
             case .marker:
                 state.markerStrokeWidth = min(max(width, 4), 36)
             case .eraser:
-                state.eraserWidth = min(max(width, 4), 40)
+                state.eraserWidth = min(max(width, 16), 80)
             case .laser:
                 state.laserDiameter = min(max(width, 3), 56)
             case .selection, .extract, .geometry, .reserved, .equation:
@@ -258,7 +258,7 @@ struct EraserToolDefinition: ToolDefinition {
                     label: "Size",
                     iconSystemName: "circle.dotted",
                     value: state.eraserWidth,
-                    range: 4...40,
+                    range: 16...80,
                     minEndMarker: .thinLine,
                     maxEndMarker: .thickLine,
                     trackStyle: .graduatedThickness,

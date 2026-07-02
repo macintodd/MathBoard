@@ -280,7 +280,7 @@ public struct ToolPaletteState: Equatable, Sendable {
         self.opacity = opacity
         self.penStrokeWidth = penStrokeWidth ?? strokeWidth
         self.markerStrokeWidth = markerStrokeWidth
-        self.eraserWidth = eraserWidth ?? strokeWidth
+        self.eraserWidth = eraserWidth ?? 24
         self.laserDiameter = laserDiameter ?? strokeWidth
         self.penOpacity = penOpacity ?? opacity
         self.markerOpacity = markerOpacity
