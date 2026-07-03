@@ -38,14 +38,24 @@ public struct CanvasSelectionState: Sendable, Equatable {
     }
 
     public var selectedObject: Object?
+    public var selectedTextObject: CanvasTextObject?
+    public var viewportFrame: CGRect?
 
-    public init(selectedObject: Object? = nil) {
+    public init(
+        selectedObject: Object? = nil,
+        selectedTextObject: CanvasTextObject? = nil,
+        viewportFrame: CGRect? = nil
+    ) {
         self.selectedObject = selectedObject
+        self.selectedTextObject = selectedTextObject
+        self.viewportFrame = viewportFrame
     }
 }
 
 public struct CanvasObjectCommand: Sendable, Equatable, Identifiable {
     public enum Action: Sendable, Equatable {
+        case insertText(CanvasTextInsertion)
+        case updateText(CanvasTextUpdate)
         case duplicate(CanvasSelectionState.Object)
         case delete(CanvasSelectionState.Object)
     }
@@ -56,6 +66,68 @@ public struct CanvasObjectCommand: Sendable, Equatable, Identifiable {
     public init(_ action: Action) {
         self.id = UUID()
         self.action = action
+    }
+}
+
+public struct CanvasTextInsertion: Sendable, Equatable {
+    public var text: String
+    public var sourcePoint: CGPoint
+    public var fontSize: CGFloat
+    public var color: CanvasStrokeColor
+    public var isBold: Bool
+    public var isItalic: Bool
+    public var isUnderlined: Bool
+    public var fontName: String?
+
+    public init(
+        text: String,
+        sourcePoint: CGPoint,
+        fontSize: CGFloat,
+        color: CanvasStrokeColor,
+        isBold: Bool = false,
+        isItalic: Bool = false,
+        isUnderlined: Bool = false,
+        fontName: String? = nil
+    ) {
+        self.text = text
+        self.sourcePoint = sourcePoint
+        self.fontSize = fontSize
+        self.color = color
+        self.isBold = isBold
+        self.isItalic = isItalic
+        self.isUnderlined = isUnderlined
+        self.fontName = fontName
+    }
+}
+
+public struct CanvasTextUpdate: Sendable, Equatable {
+    public var id: UUID
+    public var text: String
+    public var fontSize: CGFloat
+    public var isBold: Bool
+    public var isItalic: Bool
+    public var isUnderlined: Bool
+    public var fontName: String?
+    public var expandsToFitContent: Bool
+
+    public init(
+        id: UUID,
+        text: String,
+        fontSize: CGFloat,
+        isBold: Bool = false,
+        isItalic: Bool = false,
+        isUnderlined: Bool = false,
+        fontName: String? = nil,
+        expandsToFitContent: Bool = true
+    ) {
+        self.id = id
+        self.text = text
+        self.fontSize = fontSize
+        self.isBold = isBold
+        self.isItalic = isItalic
+        self.isUnderlined = isUnderlined
+        self.fontName = fontName
+        self.expandsToFitContent = expandsToFitContent
     }
 }
 

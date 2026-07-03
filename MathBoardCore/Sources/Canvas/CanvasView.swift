@@ -31,6 +31,9 @@ public struct CanvasView: View {
     private let onViewportStateChange: (@MainActor (CanvasViewportState) -> Void)?
     private let onEditStateChange: (@MainActor (CanvasEditState) -> Void)?
     private let onInteractionBegan: (@MainActor () -> Void)?
+    private let onTextEditingBegan: (@MainActor () -> Void)?
+    private let onTextEditingEnded: (@MainActor () -> Void)?
+    private let onTextPlacementRequested: (@MainActor (CGPoint) -> Void)?
 
     public init(
         drawingURL: URL,
@@ -48,7 +51,10 @@ public struct CanvasView: View {
         onLiveStrokeUpdate: (@MainActor (CanvasLiveStroke?) -> Void)? = nil,
         onViewportStateChange: (@MainActor (CanvasViewportState) -> Void)? = nil,
         onEditStateChange: (@MainActor (CanvasEditState) -> Void)? = nil,
-        onInteractionBegan: (@MainActor () -> Void)? = nil
+        onInteractionBegan: (@MainActor () -> Void)? = nil,
+        onTextEditingBegan: (@MainActor () -> Void)? = nil,
+        onTextEditingEnded: (@MainActor () -> Void)? = nil,
+        onTextPlacementRequested: (@MainActor (CGPoint) -> Void)? = nil
     ) {
         self.drawingURL = drawingURL
         self.background = background
@@ -66,6 +72,9 @@ public struct CanvasView: View {
         self.onViewportStateChange = onViewportStateChange
         self.onEditStateChange = onEditStateChange
         self.onInteractionBegan = onInteractionBegan
+        self.onTextEditingBegan = onTextEditingBegan
+        self.onTextEditingEnded = onTextEditingEnded
+        self.onTextPlacementRequested = onTextPlacementRequested
     }
 
     public var body: some View {
@@ -86,7 +95,10 @@ public struct CanvasView: View {
             onLiveStrokeUpdate: onLiveStrokeUpdate,
             onViewportStateChange: onViewportStateChange,
             onEditStateChange: onEditStateChange,
-            onInteractionBegan: onInteractionBegan
+            onInteractionBegan: onInteractionBegan,
+            onTextEditingBegan: onTextEditingBegan,
+            onTextEditingEnded: onTextEditingEnded,
+            onTextPlacementRequested: onTextPlacementRequested
         )
         #else
         MacCanvasPlaceholder(

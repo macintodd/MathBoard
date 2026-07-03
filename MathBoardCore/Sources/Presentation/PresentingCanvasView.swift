@@ -17,6 +17,7 @@
 import SwiftUI
 import Canvas
 import Calculator
+import TextEngine
 import ToolPalette
 
 public typealias PresentationViewportState = CanvasViewportState
@@ -39,6 +40,8 @@ public struct PresentingCanvasView: View {
     @State private var objectCommand: CanvasObjectCommand?
     @State private var selectionState = CanvasSelectionState()
     @State private var editState = CanvasEditState()
+    @State private var pendingTextPlacement: PendingTextPlacement?
+    @State private var pendingTextEdit: PendingTextEdit?
 
     public init(
         drawingURL: URL,
@@ -72,7 +75,10 @@ public struct PresentingCanvasView: View {
                 onLiveStrokeUpdate: Self.publishLiveStroke,
                 onViewportStateChange: publishViewportState,
                 onEditStateChange: publishEditState,
-                onInteractionBegan: onInteractionBegan
+                onInteractionBegan: onInteractionBegan,
+                onTextEditingBegan: activateTextToolForExistingEditor,
+                onTextEditingEnded: activateSelectTool,
+                onTextPlacementRequested: requestTextPlacement
             )
             ViewfinderOverlay()
                 .opacity(broker.mode == .present ? 1 : 0)
@@ -80,6 +86,8 @@ public struct PresentingCanvasView: View {
             if calculator.isVisible {
                 CalculatorView(state: calculator)
             }
+
+            selectedTextActionHUD
 
             #if os(iOS)
             if paletteSettings.isCustomPaletteEnabled {
@@ -221,6 +229,52 @@ public struct PresentingCanvasView: View {
         .onChange(of: paletteSettings.paletteStyle) { _, _ in
             applyCurrentToolPaletteStateIfNeeded(triggering: .selectTool(broker.toolPaletteState.activeTool))
         }
+        .fullScreenCover(item: $pendingTextPlacement) { placement in
+            TextEditorModalView { result in
+                insertText(result, at: placement.sourcePoint)
+                pendingTextPlacement = nil
+                activateSelectTool()
+            } onCancel: {
+                pendingTextPlacement = nil
+                activateSelectTool()
+            }
+        }
+        .fullScreenCover(item: $pendingTextEdit) { edit in
+            TextEditorModalView(
+                viewModel: TextEditorViewModel(
+                    text: edit.object.text,
+                    isBold: edit.object.isBold,
+                    isItalic: edit.object.isItalic,
+                    isUnderline: edit.object.isUnderlined,
+                    fontSize: edit.object.fontSize,
+                    fontName: edit.object.fontName ?? "System"
+                )
+            ) { result in
+                updateText(result, object: edit.object)
+                pendingTextEdit = nil
+                activateSelectTool()
+            } onCancel: {
+                pendingTextEdit = nil
+                activateSelectTool()
+            }
+        }
+    }
+
+    private var selectedTextActionHUD: some View {
+        GeometryReader { proxy in
+            if let object = selectionState.selectedTextObject,
+               let viewportFrame = selectionState.viewportFrame,
+               pendingTextEdit == nil,
+               pendingTextPlacement == nil {
+                FloatingActionHUD(
+                    onEdit: { pendingTextEdit = PendingTextEdit(object: object) },
+                    onClone: { objectCommand = CanvasObjectCommand(.duplicate(.text(object.id))) },
+                    onDelete: { objectCommand = CanvasObjectCommand(.delete(.text(object.id))) }
+                )
+                .position(hudPosition(for: viewportFrame, in: proxy.size))
+            }
+        }
+        .ignoresSafeArea()
     }
 
     #if os(iOS)
@@ -323,6 +377,64 @@ public struct PresentingCanvasView: View {
         toolCommand = canvasToolCommand
     }
 
+    private func activateTextToolForExistingEditor() {
+        var state = broker.toolPaletteState
+        ToolPaletteReducer.reduce(&state, command: .selectTool(.equation))
+        broker.toolPaletteState = state
+        applyToolPaletteState(state, triggering: .selectTool(.equation))
+    }
+
+    private func requestTextPlacement(at sourcePoint: CGPoint) {
+        pendingTextPlacement = PendingTextPlacement(sourcePoint: sourcePoint)
+    }
+
+    private func insertText(_ result: TextEditorResult, at sourcePoint: CGPoint) {
+        let state = broker.toolPaletteState
+        objectCommand = CanvasObjectCommand(.insertText(CanvasTextInsertion(
+            text: result.sourceText,
+            sourcePoint: sourcePoint,
+            fontSize: result.fontSize,
+            color: CanvasStrokeColor(color: state.strokeColor, opacity: state.opacity),
+            isBold: result.isBold,
+            isItalic: result.isItalic,
+            isUnderlined: result.isUnderline,
+            fontName: result.fontName
+        )))
+    }
+
+    private func updateText(_ result: TextEditorResult, object: CanvasTextObject) {
+        objectCommand = CanvasObjectCommand(.updateText(CanvasTextUpdate(
+            id: object.id,
+            text: result.sourceText,
+            fontSize: result.fontSize,
+            isBold: result.isBold,
+            isItalic: result.isItalic,
+            isUnderlined: result.isUnderline,
+            fontName: result.fontName
+        )))
+    }
+
+    private func activateSelectTool() {
+        var state = broker.toolPaletteState
+        ToolPaletteReducer.reduce(&state, command: .selectTool(.selection))
+        broker.toolPaletteState = state
+        applyToolPaletteState(state, triggering: .selectTool(.selection))
+    }
+
+    private func hudPosition(for frame: CGRect, in size: CGSize) -> CGPoint {
+        let hudWidth: CGFloat = 148
+        let hudHeight: CGFloat = 44
+        let margin: CGFloat = 14
+        let requestedDownwardOffset: CGFloat = 90
+        let aboveY = frame.minY - hudHeight / 2 - 4
+        let belowY = frame.maxY + hudHeight / 2 + 12
+        let proposedY = (aboveY >= margin + hudHeight / 2 ? aboveY : belowY) + requestedDownwardOffset
+        return CGPoint(
+            x: min(max(frame.midX, margin + hudWidth / 2), size.width - margin - hudWidth / 2),
+            y: min(max(proposedY, margin + hudHeight / 2), size.height - margin - hudHeight / 2)
+        )
+    }
+
     @MainActor
     private static func publishFrame(_ frame: CGImage, sourceRect: CGRect, viewportSourceRect: CGRect) {
         DisplayBroker.shared.publishFrame(
@@ -351,6 +463,62 @@ public struct PresentingCanvasView: View {
     @MainActor
     private func publishEditState(_ state: CanvasEditState) {
         editState = state
+    }
+}
+
+private struct PendingTextPlacement: Identifiable {
+    let id = UUID()
+    var sourcePoint: CGPoint
+}
+
+private struct PendingTextEdit: Identifiable {
+    var object: CanvasTextObject
+
+    var id: UUID {
+        object.id
+    }
+}
+
+private struct FloatingActionHUD: View {
+    let onEdit: () -> Void
+    let onClone: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            hudButton("Edit", systemImage: "pencil", action: onEdit)
+            hudButton("Clone", systemImage: "plus.square.on.square", action: onClone)
+            hudButton("Delete", systemImage: "trash", role: .destructive, action: onDelete)
+        }
+        .padding(6)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(
+            Capsule()
+                .stroke(Color.primary.opacity(0.18), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.22), radius: 10, x: 0, y: 4)
+    }
+
+    private func hudButton(
+        _ title: String,
+        systemImage: String,
+        role: ButtonRole? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(role: role, action: action) {
+            Label(title, systemImage: systemImage)
+                .labelStyle(.iconOnly)
+                .font(.system(size: 16, weight: .semibold))
+                .frame(width: 34, height: 34)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(role == .destructive ? .red : .primary)
+        .background(Color.white.opacity(0.86), in: Circle())
+        .overlay(
+            Circle()
+                .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+        )
+        .help(title)
     }
 }
 

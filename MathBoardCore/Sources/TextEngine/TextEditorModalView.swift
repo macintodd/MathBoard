@@ -145,8 +145,14 @@ public struct TextEditorModalView: View {
             fontMenu
 
             Button {
-                viewModel.insertMathMode(in: currentRange)
-                resetSelection()
+                if let inner = viewModel.insertMathMode(in: currentRange) {
+                    // Highlight the placeholder / wrapped content so the user can
+                    // immediately type over it.
+                    selection = TextSelection(range: inner)
+                    editorFocused = true
+                } else {
+                    resetSelection()
+                }
             } label: {
                 Label("Math", systemImage: "function")
             }

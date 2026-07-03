@@ -250,6 +250,15 @@ public struct CompactToolPaletteView: View {
         .animation(Self.drawerAnimation, value: isDrawerOpen)
         .animation(Self.drawerAnimation, value: isQuickStripVisible)
         .environment(\.colorScheme, .dark)
+        .onChange(of: state.activeTool) { _, newTool in
+            guard newTool.hasCompactDrawer else {
+                isDrawerOpen = false
+                return
+            }
+            if !newTool.hasCompactQuickStrip || newTool == .equation {
+                isDrawerOpen = true
+            }
+        }
         // Popovers reuse the shared reducer via `send`, just like the radial dial.
         .popover(isPresented: $isColorPickerPresented) {
             VStack(alignment: .leading, spacing: 12) {

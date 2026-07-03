@@ -25,6 +25,7 @@ import SwiftUI
 import PencilKit
 import PDFKit
 import UIKit
+@_spi(Textual) import SwiftUIMath
 
 private enum PencilKitCanvasGeometry {
     static let drawingOriginOffset = CGPoint(x: 3000, y: 3000)
@@ -166,6 +167,9 @@ struct PencilKitCanvasContainer: View {
     let onViewportStateChange: (@MainActor (CanvasViewportState) -> Void)?
     let onEditStateChange: (@MainActor (CanvasEditState) -> Void)?
     let onInteractionBegan: (@MainActor () -> Void)?
+    let onTextEditingBegan: (@MainActor () -> Void)?
+    let onTextEditingEnded: (@MainActor () -> Void)?
+    let onTextPlacementRequested: (@MainActor (CGPoint) -> Void)?
 
     @State private var drawing: PKDrawing = PKDrawing()
     @State private var textObjects: [CanvasTextObject] = []
@@ -204,7 +208,10 @@ struct PencilKitCanvasContainer: View {
             onViewportSourceRectChange: onViewportSourceRectChange,
             onLiveStrokeUpdate: onLiveStrokeUpdate,
             onViewportStateChange: onViewportStateChange,
-            onInteractionBegan: onInteractionBegan
+            onInteractionBegan: onInteractionBegan,
+            onTextEditingBegan: onTextEditingBegan,
+            onTextEditingEnded: onTextEditingEnded,
+            onTextPlacementRequested: onTextPlacementRequested
         )
             .background(Color.white)
             .task(id: drawingURL) {
@@ -1178,10 +1185,7 @@ private final class CanvasTextObjectsView: UIView {
                 width: object.width * zoomScale,
                 height: object.height * zoomScale
             )
-            object.text.draw(
-                in: frame,
-                withAttributes: object.textAttributes(size: object.fontSize * zoomScale)
-            )
+            CanvasMathTextRenderer.draw(object, in: frame, scale: zoomScale)
             if object.id == selectedTextObjectID {
                 drawSelectionFrame(frame)
             }
@@ -1212,6 +1216,227 @@ private final class CanvasTextObjectsView: UIView {
         let handlePath = UIBezierPath(roundedRect: resizeHandleRect, cornerRadius: 4)
         handlePath.lineWidth = 2
         handlePath.stroke()
+    }
+}
+
+private enum CanvasMathTextRenderer {
+    private static let mathBlockSpacing: CGFloat = 8
+    private static let fallbackPadding: CGFloat = 6
+    private static let textInset: CGFloat = 8
+
+    static func draw(_ object: CanvasTextObject, in frame: CGRect, scale: CGFloat) {
+        let resolvedScale = max(scale, 0.001)
+        let attributes = object.textAttributes(size: object.fontSize * resolvedScale)
+        let segments = CanvasMathTextParser.segments(in: object.text)
+        guard segments.contains(where: \.isMath) else {
+            object.text.draw(in: frame, withAttributes: attributes)
+            return
+        }
+
+        let contentFrame = frame.insetBy(
+            dx: textInset * resolvedScale,
+            dy: max(object.fontSize * resolvedScale * 0.25, fallbackPadding)
+        )
+        var cursorY = contentFrame.minY
+        for segment in segments {
+            guard cursorY < contentFrame.maxY else { break }
+
+            switch segment {
+            case .text(let text):
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { continue }
+                let height = measuredTextHeight(trimmed, width: contentFrame.width, attributes: attributes)
+                let drawRect = CGRect(
+                    x: contentFrame.minX,
+                    y: cursorY,
+                    width: contentFrame.width,
+                    height: min(height, contentFrame.maxY - cursorY)
+                )
+                trimmed.draw(in: drawRect, withAttributes: attributes)
+                cursorY = drawRect.maxY + mathBlockSpacing
+            case .math(let latex):
+                let image = mathImage(for: latex, object: object, scale: resolvedScale)
+                let imageSize = image?.size ?? fallbackSize(for: latex, width: contentFrame.width, attributes: attributes)
+                let fittedSize = fittedMathSize(imageSize, maxWidth: contentFrame.width)
+                let drawRect = CGRect(
+                    x: contentFrame.minX,
+                    y: cursorY,
+                    width: fittedSize.width,
+                    height: min(fittedSize.height, contentFrame.maxY - cursorY)
+                )
+                if let image {
+                    image.draw(in: drawRect)
+                } else {
+                    fallbackText(for: latex).draw(in: drawRect, withAttributes: attributes)
+                }
+                cursorY = drawRect.maxY + mathBlockSpacing
+            }
+        }
+    }
+
+    private static func measuredTextHeight(
+        _ text: String,
+        width: CGFloat,
+        attributes: [NSAttributedString.Key: Any]
+    ) -> CGFloat {
+        let bounds = (text as NSString).boundingRect(
+            with: CGSize(width: max(width, 1), height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: attributes,
+            context: nil
+        ).integral
+        return max(bounds.height, 1)
+    }
+
+    static func fittingSize(for object: CanvasTextObject, maxWidth: CGFloat) -> CGSize? {
+        let segments = CanvasMathTextParser.segments(in: object.text)
+        guard segments.contains(where: \.isMath) else { return nil }
+
+        let fontSize = min(max(object.fontSize, 8), 96)
+        let attributes = object.textAttributes(size: fontSize)
+        let contentWidth = max(maxWidth - textInset * 2, 1)
+        let verticalInset = max(fontSize * 0.25, fallbackPadding)
+        var width: CGFloat = 0
+        var height: CGFloat = verticalInset * 2
+
+        for segment in segments {
+            switch segment {
+            case .text(let text):
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { continue }
+                let textHeight = measuredTextHeight(trimmed, width: contentWidth, attributes: attributes)
+                let textWidth = measuredTextWidth(trimmed, attributes: attributes)
+                width = max(width, min(textWidth, contentWidth))
+                height += textHeight + mathBlockSpacing
+            case .math(let latex):
+                let mathSize = mathImageSize(for: latex, fontSize: fontSize)
+                let fittedSize = fittedMathSize(mathSize, maxWidth: contentWidth)
+                width = max(width, fittedSize.width)
+                height += fittedSize.height + mathBlockSpacing
+            }
+        }
+
+        return CGSize(
+            width: min(max(width + textInset * 2, max(fontSize * 5, 160)), maxWidth),
+            height: max(height - mathBlockSpacing, max(fontSize * 1.9, 56))
+        )
+    }
+
+    private static func measuredTextWidth(
+        _ text: String,
+        attributes: [NSAttributedString.Key: Any]
+    ) -> CGFloat {
+        let bounds = (text as NSString).boundingRect(
+            with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: attributes,
+            context: nil
+        ).integral
+        return max(bounds.width, 1)
+    }
+
+    private static func mathImage(for latex: String, object: CanvasTextObject, scale: CGFloat) -> UIImage? {
+        let fontSize = max(object.fontSize * scale, 8)
+        let size = mathImageSize(for: latex, fontSize: fontSize)
+        guard size.width > 0, size.height > 0 else {
+            return nil
+        }
+
+        return MainActor.assumeIsolated {
+            let mathFont = Math.Font(name: .latinModern, size: fontSize)
+            let content = Math(latex)
+                .mathTypesettingStyle(.display)
+                .mathFont(mathFont)
+                .foregroundStyle(Color(uiColor: object.uiColor))
+                .fixedSize()
+                .padding(.horizontal, max(fontSize * 1.4, fallbackPadding * 3))
+                .padding(.vertical, max(fontSize * 0.9, fallbackPadding * 3))
+            let renderer = ImageRenderer(content: content)
+            renderer.proposedSize = ProposedViewSize(size)
+            renderer.scale = UIScreen.main.scale
+            return renderer.uiImage
+        }
+    }
+
+    private static func mathImageSize(for latex: String, fontSize: CGFloat) -> CGSize {
+        let mathFont = Math.Font(name: .latinModern, size: fontSize)
+        let bounds = Math.typographicBounds(
+            for: latex,
+            fitting: ProposedViewSize(width: 100_000, height: 100_000),
+            font: mathFont,
+            style: .display
+        )
+        let horizontalPadding = max(fallbackPadding * 6, fontSize * 2.8)
+        let verticalPadding = max(fallbackPadding * 6, fontSize * 1.8)
+        return CGSize(
+            width: ceil(bounds.size.width + horizontalPadding),
+            height: ceil(bounds.size.height + verticalPadding)
+        )
+    }
+
+    private static func fittedMathSize(_ size: CGSize, maxWidth: CGFloat) -> CGSize {
+        guard size.width > maxWidth, size.width > 0 else { return size }
+        let scale = maxWidth / size.width
+        return CGSize(width: maxWidth, height: size.height * scale)
+    }
+
+    private static func fallbackText(for latex: String) -> String {
+        "$$\(latex)$$"
+    }
+
+    private static func fallbackSize(
+        for latex: String,
+        width: CGFloat,
+        attributes: [NSAttributedString.Key: Any]
+    ) -> CGSize {
+        let text = fallbackText(for: latex)
+        return CGSize(
+            width: width,
+            height: measuredTextHeight(text, width: width, attributes: attributes)
+        )
+    }
+}
+
+private enum CanvasMathTextSegment: Equatable {
+    case text(String)
+    case math(String)
+
+    var isMath: Bool {
+        if case .math = self { return true }
+        return false
+    }
+}
+
+private enum CanvasMathTextParser {
+    static func segments(in text: String) -> [CanvasMathTextSegment] {
+        var segments: [CanvasMathTextSegment] = []
+        var searchStart = text.startIndex
+
+        while let openingRange = text.range(of: "$$", range: searchStart..<text.endIndex) {
+            if openingRange.lowerBound > searchStart {
+                segments.append(.text(String(text[searchStart..<openingRange.lowerBound])))
+            }
+
+            let bodyStart = openingRange.upperBound
+            guard let closingRange = text.range(of: "$$", range: bodyStart..<text.endIndex) else {
+                segments.append(.text(String(text[openingRange.lowerBound..<text.endIndex])))
+                return segments
+            }
+
+            let latex = String(text[bodyStart..<closingRange.lowerBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if latex.isEmpty {
+                segments.append(.text(String(text[openingRange.lowerBound..<closingRange.upperBound])))
+            } else {
+                segments.append(.math(latex))
+            }
+            searchStart = closingRange.upperBound
+        }
+
+        if searchStart < text.endIndex {
+            segments.append(.text(String(text[searchStart..<text.endIndex])))
+        }
+        return segments
     }
 }
 
@@ -1249,6 +1474,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
     let onLiveStrokeUpdate: (@MainActor (CanvasLiveStroke?) -> Void)?
     let onViewportStateChange: (@MainActor (CanvasViewportState) -> Void)?
     let onInteractionBegan: (@MainActor () -> Void)?
+    let onTextEditingBegan: (@MainActor () -> Void)?
+    let onTextEditingEnded: (@MainActor () -> Void)?
+    let onTextPlacementRequested: (@MainActor (CGPoint) -> Void)?
 
     func makeUIView(context: Context) -> PencilKitCanvasHostView {
         let hostView = PencilKitCanvasHostView()
@@ -1391,7 +1619,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private var textPlacementRecognizer: UITapGestureRecognizer?
         private var textSelectionTapRecognizer: UITapGestureRecognizer?
         private var textSelectionDoubleTapRecognizer: UITapGestureRecognizer?
-        private var textSelectionPanRecognizer: UIPanGestureRecognizer?
+        private var textSelectionPanRecognizer: CanvasObjectDragGestureRecognizer?
         private var textEditorDismissRecognizer: UITapGestureRecognizer?
         private var regionSelectionRecognizer: PencilLiveStrokeGestureRecognizer?
         private var appliedViewportCommandID: CanvasViewportCommand.ID?
@@ -1727,6 +1955,16 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             appliedObjectCommandID = command.id
 
             switch command.action {
+            case .insertText(let insertion):
+                Task { @MainActor [weak self, weak canvas] in
+                    guard let self, let canvas else { return }
+                    self.insertTextObject(insertion, using: canvas)
+                }
+            case .updateText(let update):
+                Task { @MainActor [weak self, weak canvas] in
+                    guard let self, let canvas else { return }
+                    self.updateTextObject(update, using: canvas)
+                }
             case .duplicate(.text(let id)):
                 Task { @MainActor [weak self, weak canvas] in
                     guard let self, let canvas else { return }
@@ -2040,14 +2278,17 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             tap.require(toFail: doubleTap)
             canvas.addGestureRecognizer(tap)
 
-            let pan = UIPanGestureRecognizer(target: self, action: #selector(handleTextSelectionPan(_:)))
-            pan.minimumNumberOfTouches = 1
-            pan.maximumNumberOfTouches = 1
-            pan.cancelsTouchesInView = false
+            let pan = CanvasObjectDragGestureRecognizer(
+                allowedTouchTypes: [.direct, .pencil],
+                target: self,
+                action: #selector(handleTextSelectionPan(_:))
+            )
+            pan.cancelsTouchesInView = true
             pan.delaysTouchesBegan = false
             pan.delaysTouchesEnded = false
             pan.delegate = self
             canvas.addGestureRecognizer(pan)
+            canvas.panGestureRecognizer.require(toFail: pan)
 
             textSelectionTapRecognizer = tap
             textSelectionDoubleTapRecognizer = doubleTap
@@ -2064,6 +2305,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             recognizer.delaysTouchesEnded = false
             recognizer.delegate = self
             hostView.addGestureRecognizer(recognizer)
+            textPlacementRecognizer?.require(toFail: recognizer)
             textEditorDismissRecognizer = recognizer
         }
 
@@ -2146,7 +2388,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             updateHostTextObjects(using: canvas)
         }
 
-        @objc private func handleTextSelectionPan(_ recognizer: UIPanGestureRecognizer) {
+        @objc private func handleTextSelectionPan(_ recognizer: CanvasObjectDragGestureRecognizer) {
             guard isTextSelectionEnabled,
                   activeTextEditor == nil,
                   let canvas else {
@@ -2155,8 +2397,8 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
 
             switch recognizer.state {
             case .began:
-                let location = recognizer.location(in: canvas)
-                if let id = hitTextResizeHandleID(at: location, on: canvas),
+                let startLocation = recognizer.location(in: canvas)
+                if let id = hitTextResizeHandleID(at: startLocation, on: canvas),
                    let object = parent.textObjects.first(where: { $0.id == id }) {
                     parent.onInteractionBegan?()
                     clearRegionSelection()
@@ -2165,14 +2407,18 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     movingImageObjectID = nil
                     resizingTextObjectID = id
                     resizingTextObjectStartSize = CGSize(width: object.width, height: object.height)
-                    resizingTextStartSourcePoint = sourcePoint(forCanvasPoint: location, on: canvas)
+                    resizingTextStartSourcePoint = sourcePoint(forCanvasPoint: startLocation, on: canvas)
                     updateHostTextObjects(using: canvas)
                     return
                 }
 
-                guard let id = hitTextObjectID(at: location, on: canvas),
+                let textObjectHitID = hitSelectedTextObjectID(at: startLocation, on: canvas)
+                    ?? hitTextObjectID(at: startLocation, on: canvas)
+                guard let id = textObjectHitID,
                       let object = parent.textObjects.first(where: { $0.id == id }) else {
-                    if let id = hitImageObjectID(at: location, on: canvas),
+                    let imageObjectHitID = hitSelectedImageObjectID(at: startLocation, on: canvas)
+                        ?? hitImageObjectID(at: startLocation, on: canvas)
+                    if let id = imageObjectHitID,
                        let object = parent.imageObjects.first(where: { $0.id == id }) {
                         parent.onInteractionBegan?()
                         clearRegionSelection()
@@ -2181,7 +2427,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                         resizingTextObjectID = nil
                         movingImageObjectID = id
                         movingImageObjectStartOrigin = CGPoint(x: object.x, y: object.y)
-                        movingImageStartSourcePoint = sourcePoint(forCanvasPoint: location, on: canvas)
+                        movingImageStartSourcePoint = sourcePoint(forCanvasPoint: startLocation, on: canvas)
                         updateHostImageObjects(using: canvas)
                         return
                     }
@@ -2197,7 +2443,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 movingImageObjectID = nil
                 resizingTextObjectID = nil
                 movingTextObjectStartOrigin = CGPoint(x: object.x, y: object.y)
-                movingTextStartSourcePoint = sourcePoint(forCanvasPoint: location, on: canvas)
+                movingTextStartSourcePoint = sourcePoint(forCanvasPoint: startLocation, on: canvas)
                 updateHostTextObjects(using: canvas)
             case .changed:
                 if let resizingTextObjectID,
@@ -2459,7 +2705,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             }
 
             let sourcePoint = sourcePoint(forCanvasPoint: canvasPoint, on: canvas)
-            let hitMargin = max(28 / max(canvas.zoomScale, 0.001), 8)
+            let hitMargin = selectedObjectDragHitMargin(on: canvas)
             return object.frame.insetBy(dx: -hitMargin, dy: -hitMargin).contains(sourcePoint) ? object.id : nil
         }
 
@@ -2476,6 +2722,21 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             return parent.textObjects.reversed().first { object in
                 !object.text.isEmpty && object.frame.insetBy(dx: -hitMargin, dy: -hitMargin).contains(sourcePoint)
             }?.id
+        }
+
+        private func hitSelectedImageObjectID(at canvasPoint: CGPoint, on canvas: PKCanvasView) -> UUID? {
+            guard let selectedImageObjectID,
+                  let object = parent.imageObjects.first(where: { $0.id == selectedImageObjectID }) else {
+                return nil
+            }
+
+            let sourcePoint = sourcePoint(forCanvasPoint: canvasPoint, on: canvas)
+            let hitMargin = selectedObjectDragHitMargin(on: canvas)
+            return object.frame.insetBy(dx: -hitMargin, dy: -hitMargin).contains(sourcePoint) ? object.id : nil
+        }
+
+        private func selectedObjectDragHitMargin(on canvas: PKCanvasView) -> CGFloat {
+            max(72 / max(canvas.zoomScale, 0.001), 24)
         }
 
         private func textResizeHandleRect(for object: CanvasTextObject, on canvas: PKCanvasView) -> CGRect {
@@ -2497,10 +2758,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         }
 
         private func setSelectedTextObjectID(_ id: UUID?) {
-            let nextSelectedObject = id.map(CanvasSelectionState.Object.text)
             guard selectedTextObjectID != id
                     || selectedImageObjectID != nil
-                    || parent.selectionState.selectedObject != nextSelectedObject else {
+                    || parent.selectionState.selectedObject != id.map(CanvasSelectionState.Object.text) else {
                 return
             }
             selectedTextObjectID = id
@@ -2508,14 +2768,13 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             if let id {
                 lastSelectedTextObjectID = id
             }
-            parent.selectionState.selectedObject = nextSelectedObject
+            updateSharedSelectionState()
         }
 
         private func setSelectedImageObjectID(_ id: UUID?) {
-            let nextSelectedObject = id.map(CanvasSelectionState.Object.image)
             guard selectedImageObjectID != id
                     || selectedTextObjectID != nil
-                    || parent.selectionState.selectedObject != nextSelectedObject else {
+                    || parent.selectionState.selectedObject != id.map(CanvasSelectionState.Object.image) else {
                 return
             }
             selectedImageObjectID = id
@@ -2523,7 +2782,26 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             if let id {
                 lastSelectedImageObjectID = id
             }
-            parent.selectionState.selectedObject = nextSelectedObject
+            updateSharedSelectionState()
+        }
+
+        private func updateSharedSelectionState() {
+            if let selectedTextObjectID,
+               let object = parent.textObjects.first(where: { $0.id == selectedTextObjectID }) {
+                parent.selectionState = CanvasSelectionState(
+                    selectedObject: .text(object.id),
+                    selectedTextObject: object,
+                    viewportFrame: canvas.map { viewportFrame(for: object, on: $0) }
+                )
+            } else if let selectedImageObjectID,
+                      let object = parent.imageObjects.first(where: { $0.id == selectedImageObjectID }) {
+                parent.selectionState = CanvasSelectionState(
+                    selectedObject: .image(object.id),
+                    viewportFrame: canvas.map { overlayRect(forSourceRect: object.frame, on: $0) }
+                )
+            } else {
+                parent.selectionState = CanvasSelectionState()
+            }
         }
 
         private func duplicateSelectedTextObject(using canvas: PKCanvasView) {
@@ -2892,32 +3170,128 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             }
 
             let canvasPoint = recognizer.location(in: canvas)
+            if activeTextEditor != nil {
+                handleActiveTextEditorTap(atCanvasPoint: canvasPoint, on: canvas)
+                return
+            }
+
             let sourcePoint = sourcePoint(forCanvasPoint: canvasPoint, on: canvas)
-            let fontSize = activeTextFontSize
-            let textObject = CanvasTextObject(
-                text: "Text",
-                x: sourcePoint.x,
-                y: sourcePoint.y,
-                width: max(fontSize * 5, 160),
-                height: max(fontSize * 1.6, 44),
-                fontSize: fontSize,
-                red: activeTextColor.red,
-                green: activeTextColor.green,
-                blue: activeTextColor.blue,
-                alpha: activeTextColor.alpha,
-                isBold: activeTextIsBold,
-                isItalic: activeTextIsItalic,
-                isUnderlined: activeTextIsUnderlined,
-                fontName: activeTextFontName
-            )
+            parent.onInteractionBegan?()
+            parent.onTextPlacementRequested?(sourcePoint)
+        }
+
+        private func insertTextObject(_ insertion: CanvasTextInsertion, using canvas: PKCanvasView) {
+            let text = insertion.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return }
 
             parent.onInteractionBegan?()
+            let size = measuredTextObjectSize(for: insertion)
+            let textObject = CanvasTextObject(
+                text: text,
+                x: insertion.sourcePoint.x,
+                y: insertion.sourcePoint.y,
+                width: size.width,
+                height: size.height,
+                fontSize: insertion.fontSize,
+                red: insertion.color.red,
+                green: insertion.color.green,
+                blue: insertion.color.blue,
+                alpha: insertion.color.alpha,
+                isBold: insertion.isBold,
+                isItalic: insertion.isItalic,
+                isUnderlined: insertion.isUnderlined,
+                fontName: insertion.fontName
+            )
+
             var textObjects = parent.textObjects
             textObjects.append(textObject)
             parent.textObjects = textObjects
-            beginEditingTextObject(textObject.id, on: canvas, selectAll: true)
+            setSelectedTextObjectID(textObject.id)
             updateHostTextObjects(using: canvas)
             publishImageFromModel()
+        }
+
+        private func updateTextObject(_ update: CanvasTextUpdate, using canvas: PKCanvasView) {
+            let text = update.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty,
+                  let index = parent.textObjects.firstIndex(where: { $0.id == update.id }) else {
+                return
+            }
+
+            parent.onInteractionBegan?()
+            commitTextObjectUpdate(at: index, using: canvas) { object in
+                object.text = text
+                object.fontSize = update.fontSize
+                object.isBold = update.isBold
+                object.isItalic = update.isItalic
+                object.isUnderlined = update.isUnderlined
+                object.fontName = update.fontName
+
+                if update.expandsToFitContent {
+                    let fittedSize = measuredTextObjectSize(for: object)
+                    object.width = max(object.width, fittedSize.width)
+                    object.height = max(object.height, fittedSize.height)
+                }
+            }
+            setSelectedTextObjectID(update.id)
+            updateHostTextObjects(using: canvas)
+            publishImageFromModel()
+        }
+
+        private func measuredTextObjectSize(for insertion: CanvasTextInsertion) -> CGSize {
+            let fontSize = min(max(insertion.fontSize, 8), 96)
+            let sizingObject = CanvasTextObject(
+                text: insertion.text,
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
+                fontSize: fontSize,
+                red: insertion.color.red,
+                green: insertion.color.green,
+                blue: insertion.color.blue,
+                alpha: insertion.color.alpha,
+                isBold: insertion.isBold,
+                isItalic: insertion.isItalic,
+                isUnderlined: insertion.isUnderlined,
+                fontName: insertion.fontName
+            )
+            let attributes = sizingObject.textAttributes(size: fontSize)
+            let maximumWidth: CGFloat = 900
+            if let mathSize = CanvasMathTextRenderer.fittingSize(for: sizingObject, maxWidth: maximumWidth) {
+                return mathSize
+            }
+            let boundingSize = CGSize(width: maximumWidth, height: .greatestFiniteMagnitude)
+            let bounds = (insertion.text as NSString).boundingRect(
+                with: boundingSize,
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: attributes,
+                context: nil
+            ).integral
+            return CGSize(
+                width: min(max(bounds.width + 28, max(fontSize * 5, 160)), maximumWidth),
+                height: max(bounds.height + 20, max(fontSize * 1.6, 44))
+            )
+        }
+
+        private func measuredTextObjectSize(for object: CanvasTextObject) -> CGSize {
+            let fontSize = min(max(object.fontSize, 8), 96)
+            let attributes = object.textAttributes(size: fontSize)
+            let maximumWidth: CGFloat = 900
+            if let mathSize = CanvasMathTextRenderer.fittingSize(for: object, maxWidth: maximumWidth) {
+                return mathSize
+            }
+            let boundingSize = CGSize(width: maximumWidth, height: .greatestFiniteMagnitude)
+            let bounds = (object.text as NSString).boundingRect(
+                with: boundingSize,
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: attributes,
+                context: nil
+            ).integral
+            return CGSize(
+                width: min(max(bounds.width + 28, max(fontSize * 5, 160)), maximumWidth),
+                height: max(bounds.height + 20, max(fontSize * 1.6, 44))
+            )
         }
 
         private func applyActiveTextStyleToSelectedObject(using canvas: PKCanvasView) {
@@ -3005,6 +3379,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             updateActiveTextEditorContent(from: object, on: canvas)
             updateActiveTextEditorFrame(on: canvas)
             textView.becomeFirstResponder()
+            parent.onTextEditingBegan?()
             if selectAll {
                 textView.selectedRange = NSRange(location: 0, length: (textView.text as NSString).length)
             }
@@ -3091,6 +3466,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
 
             finishTextEditing()
             publishImageFromModel()
+            parent.onTextEditingEnded?()
         }
 
         func textViewDidChange(_ textView: UITextView) {
@@ -3134,6 +3510,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             update(&textObjects[index])
             let updatedObject = textObjects[index]
             parent.textObjects = textObjects
+            if selectedTextObjectID == updatedObject.id {
+                updateSharedSelectionState()
+            }
             return updatedObject
         }
 
@@ -3461,6 +3840,10 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             if gestureRecognizer === textEditorDismissRecognizer {
                 return activeTextEditor != nil
             }
+            if gestureRecognizer === textPlacementRecognizer {
+                return hostView?.textPlacementOverlayView.acceptsTextPlacement == true
+                    && activeTextEditor == nil
+            }
             if gestureRecognizer === regionSelectionRecognizer {
                 if activeSelectionTarget == .object,
                    let canvas,
@@ -3480,14 +3863,15 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             }
             if gestureRecognizer === textSelectionPanRecognizer {
                 guard isTextSelectionEnabled,
-                      let canvas,
-                      let pan = gestureRecognizer as? UIPanGestureRecognizer else {
+                      let canvas else {
                     return false
                 }
-                let location = pan.location(in: canvas)
-                return hitTextResizeHandleID(at: location, on: canvas) != nil
-                    || hitTextObjectID(at: location, on: canvas) != nil
-                    || hitImageObjectID(at: location, on: canvas) != nil
+                let startLocation = gestureRecognizer.location(in: canvas)
+                return hitTextResizeHandleID(at: startLocation, on: canvas) != nil
+                    || hitSelectedTextObjectID(at: startLocation, on: canvas) != nil
+                    || hitTextObjectID(at: startLocation, on: canvas) != nil
+                    || hitSelectedImageObjectID(at: startLocation, on: canvas) != nil
+                    || hitImageObjectID(at: startLocation, on: canvas) != nil
             }
             return true
         }
@@ -3496,6 +3880,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
+            if gestureRecognizer === textSelectionPanRecognizer || otherGestureRecognizer === textSelectionPanRecognizer {
+                return !isCanvasViewportGesture(gestureRecognizer) && !isCanvasViewportGesture(otherGestureRecognizer)
+            }
             if isCanvasViewportGesture(gestureRecognizer) || isCanvasViewportGesture(otherGestureRecognizer) {
                 return true
             }
@@ -3526,6 +3913,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             hostView?.updateTextObjectFrame(using: canvas)
             updateActiveTextEditorFrame(on: canvas)
             updateRegionSelectionHighlight(on: canvas)
+            updateSharedSelectionState()
             publishViewportState(from: canvas)
             publishViewportSourceRect(from: canvas)
             scheduleViewportFramePublish()
@@ -3546,6 +3934,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             hostView?.updateTextObjectFrame(using: canvas)
             updateActiveTextEditorFrame(on: canvas)
             updateRegionSelectionHighlight(on: canvas)
+            updateSharedSelectionState()
             publishViewportState(from: canvas)
             publishViewportSourceRect(from: canvas)
             scheduleViewportFramePublish()
@@ -3557,6 +3946,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             hostView?.updateImageObjectFrame(using: canvas)
             hostView?.updateTextObjectFrame(using: canvas)
             updateActiveTextEditorFrame(on: canvas)
+            updateSharedSelectionState()
             publishViewportState(from: canvas)
             publishViewportSourceRect(from: canvas)
             publishViewportFrameNow()
@@ -3774,10 +4164,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     width: object.width * scaleX,
                     height: object.height * scaleY
                 )
-                object.text.draw(
-                    in: textFrame,
-                    withAttributes: object.textAttributes(size: object.fontSize * scaleY)
-                )
+                CanvasMathTextRenderer.draw(object, in: textFrame, scale: scaleY)
             }
 
             context.restoreGState()
@@ -3972,6 +4359,65 @@ private final class PencilLiveStrokeGestureRecognizer: UIGestureRecognizer {
         }
         resetStroke()
         state = .cancelled
+    }
+}
+
+private final class CanvasObjectDragGestureRecognizer: UIGestureRecognizer {
+    private let permittedTouchTypes: Set<UITouch.TouchType>
+    private var activeTouch: UITouch?
+
+    init(
+        allowedTouchTypes: Set<UITouch.TouchType>,
+        target: Any?,
+        action: Selector?
+    ) {
+        self.permittedTouchTypes = allowedTouchTypes
+        super.init(target: target, action: action)
+        self.allowedTouchTypes = allowedTouchTypes.map { NSNumber(value: $0.rawValue) }
+        cancelsTouchesInView = true
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard activeTouch == nil,
+              touches.count == 1,
+              let touch = touches.first(where: { permittedTouchTypes.contains($0.type) }) else {
+            state = .failed
+            return
+        }
+
+        activeTouch = touch
+        state = .began
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let activeTouch, touches.contains(activeTouch) else { return }
+        if let allTouches = event.allTouches, allTouches.count > 1 {
+            state = .cancelled
+            return
+        }
+        state = .changed
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let activeTouch, touches.contains(activeTouch) else { return }
+        resetDrag()
+        state = .ended
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let activeTouch, touches.contains(activeTouch) else { return }
+        resetDrag()
+        state = .cancelled
+    }
+
+    override func reset() {
+        resetDrag()
+    }
+
+    private func resetDrag() {
+        activeTouch = nil
     }
 }
 

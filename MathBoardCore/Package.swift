@@ -30,9 +30,9 @@ let package = Package(
         // target does not depend on it, so the module stays fully isolated.
         .library(name: "WidgetEngine", targets: ["WidgetEngine"]),
 
-        // Same pattern as WidgetEngine: exposed only so Xcode offers a
-        // "TextEngine" scheme for SwiftUI previews. Nothing links it. See
-        // TextEngine/ and TextEngine_status.md.
+        // Exposed so Xcode offers a "TextEngine" scheme for SwiftUI previews.
+        // Presentation links this target as an adapter client; TextEngine itself
+        // stays independent of Canvas and app-specific models.
         .library(name: "TextEngine", targets: ["TextEngine"])
     ],
     dependencies: [
@@ -42,8 +42,13 @@ let package = Package(
         .package(url: "https://github.com/gonzalezreal/swiftui-math", from: "0.1.0")
     ],
     targets: [
-        .target(name: "Canvas"),
-        .target(name: "Presentation", dependencies: ["Canvas", "Calculator", "ToolPalette"]),
+        .target(
+            name: "Canvas",
+            dependencies: [
+                .product(name: "SwiftUIMath", package: "swiftui-math")
+            ]
+        ),
+        .target(name: "Presentation", dependencies: ["Canvas", "Calculator", "TextEngine", "ToolPalette"]),
         .target(name: "Slides", dependencies: ["Presentation"]),
         .target(name: "Documents", dependencies: ["Slides"]),
 
@@ -67,9 +72,8 @@ let package = Package(
         // Standalone, previewable rich-text/LaTeX editor. Self-contained apart
         // from the SwiftUIMath renderer (used only for LaTeX preview); zero
         // dependencies on MathBoard.app or the other MathBoardCore modules.
-        // Previewed independently in Xcode; wired into the canvas later via a
-        // Coordinator (which will translate TextEditorResult into the app's text
-        // object). See TextEngine/ and TextEngine_status.md.
+        // Presentation translates TextEditorResult into Canvas text commands,
+        // keeping the editor reusable and previewable. See TextEngine/.
         .target(
             name: "TextEngine",
             dependencies: [

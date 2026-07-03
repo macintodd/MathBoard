@@ -120,10 +120,46 @@ public final class TextEditorViewModel {
         wrapOrInsert(prefix: "<u>", suffix: "</u>", placeholder: "underlined text", in: selection)
     }
 
-    /// Wrap/insert a `$$ ... $$` LaTeX region (Math Mode). Does not change any
-    /// toolbar toggle — math is a region, not a block-level style.
-    public func insertMathMode(in selection: Range<String.Index>?) {
-        wrapOrInsert(prefix: "$$", suffix: "$$", placeholder: "x = y", in: selection)
+    /// Wrap/insert a `$$ … $$` LaTeX region (Math Mode) and return the range of
+    /// the region's inner content — the wrapped selection, or the `x = y`
+    /// placeholder — so the caller can highlight it for immediate typing. Does not
+    /// change any toolbar toggle — math is a region, not a block-level style.
+    @discardableResult
+    public func insertMathMode(in selection: Range<String.Index>?) -> Range<String.Index>? {
+        let prefix = "$$"
+        let suffix = "$$"
+        let placeholder = "x = y"
+
+        // Splice the region in, tracking where its inner content lands as a
+        // character offset (indices are recomputed afterward, since mutating the
+        // string invalidates the old ones).
+        let contentOffset: Int
+        let contentLength: Int
+
+        if let selection, !selection.isEmpty {
+            let selected = String(text[selection])
+            let startOffset = text.distance(from: text.startIndex, to: selection.lowerBound)
+            text.replaceSubrange(selection, with: prefix + selected + suffix)
+            contentOffset = startOffset + prefix.count
+            contentLength = selected.count
+        } else if let caret = selection?.lowerBound {
+            let caretOffset = text.distance(from: text.startIndex, to: caret)
+            text.insert(contentsOf: prefix + placeholder + suffix, at: caret)
+            contentOffset = caretOffset + prefix.count
+            contentLength = placeholder.count
+        } else {
+            if let last = text.last, last != "\n", last != " " {
+                text.append(" ")
+            }
+            let baseOffset = text.count
+            text.append(prefix + placeholder + suffix)
+            contentOffset = baseOffset + prefix.count
+            contentLength = placeholder.count
+        }
+
+        let start = text.index(text.startIndex, offsetBy: contentOffset)
+        let end = text.index(start, offsetBy: contentLength)
+        return start..<end
     }
 
     // MARK: Private
