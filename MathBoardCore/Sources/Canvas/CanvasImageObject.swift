@@ -13,6 +13,7 @@ public struct CanvasImageObject: Identifiable, Codable, Hashable, Sendable {
     public var y: CGFloat
     public var width: CGFloat
     public var height: CGFloat
+    public var isLocked: Bool?
 
     public init(
         id: UUID = UUID(),
@@ -20,7 +21,8 @@ public struct CanvasImageObject: Identifiable, Codable, Hashable, Sendable {
         x: CGFloat,
         y: CGFloat,
         width: CGFloat,
-        height: CGFloat
+        height: CGFloat,
+        isLocked: Bool? = nil
     ) {
         self.id = id
         self.imageFileName = imageFileName
@@ -28,6 +30,7 @@ public struct CanvasImageObject: Identifiable, Codable, Hashable, Sendable {
         self.y = y
         self.width = width
         self.height = height
+        self.isLocked = isLocked
     }
 
     public var frame: CGRect {

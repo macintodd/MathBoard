@@ -100,6 +100,16 @@ public struct CanvasTextInsertion: Sendable, Equatable {
     }
 }
 
+public struct CanvasExtractedRegion: Sendable, Equatable {
+    public var pngData: Data
+    public var sourceBounds: CGRect
+
+    public init(pngData: Data, sourceBounds: CGRect) {
+        self.pngData = pngData
+        self.sourceBounds = sourceBounds
+    }
+}
+
 public struct CanvasTextUpdate: Sendable, Equatable {
     public var id: UUID
     public var text: String
@@ -135,8 +145,11 @@ public struct CanvasToolCommand: Sendable, Equatable, Identifiable {
     public enum Action: Sendable, Equatable {
         case idle
         case select(target: SelectionTarget, mode: SelectionMode)
+        case copySelection
         case duplicateSelection
         case deleteSelection
+        case extractSelectionAsImageSticker
+        case sendSelectionToNextSlide
         case pen(color: CanvasStrokeColor, width: CGFloat)
         case marker(color: CanvasStrokeColor, width: CGFloat)
         case eraser(mode: EraserMode, width: CGFloat)

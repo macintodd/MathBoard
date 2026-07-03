@@ -80,88 +80,241 @@ enum WidgetSampleCode {
     <!DOCTYPE html>
     <html lang="en">
     <head>
-        <meta charset="UTF-8">
-        <title>Factoring Trinomials</title>
-        <style>
-            body { font-family: sans-serif; text-align: center; padding: 20px; }
-            #problem { font-size: 2em; margin: 20px; }
-            .slot { 
-                display: inline-block; width: 60px; height: 50px; border: 2px solid #333; 
-                vertical-align: middle; line-height: 50px; font-weight: bold; cursor: pointer;
-                background: #fff; margin: 0 5px; border-radius: 5px;
-            }
-            .block { 
-                display: inline-block; width: 40px; height: 40px; margin: 5px; cursor: pointer; 
-                color: white; font-weight: bold; line-height: 40px; border-radius: 4px;
-            }
-        </style>
+    <meta charset="UTF-8">
+    <title>Math Word Search</title>
+    <style>
+    body{
+        font-family:Arial,Helvetica,sans-serif;
+        background:#f4f8fc;
+        text-align:center;
+        margin:20px;
+    }
+
+    h2{
+        margin-bottom:5px;
+    }
+
+    #definition{
+        font-size:22px;
+        font-weight:bold;
+        color:#0b4f9c;
+        margin:15px;
+    }
+
+    table{
+        border-collapse:collapse;
+        margin:auto;
+        touch-action:none;
+        user-select:none;
+    }
+
+    td{
+        width:42px;
+        height:42px;
+        border:1px solid #888;
+        font-size:24px;
+        font-weight:bold;
+        text-align:center;
+        cursor:pointer;
+        background:white;
+    }
+
+    .selected{
+        background:#ffd54f;
+    }
+
+    .correct{
+        background:#6fcf97 !important;
+        color:white;
+    }
+
+    #message{
+        margin-top:20px;
+        font-size:22px;
+        font-weight:bold;
+        color:green;
+    }
+    </style>
     </head>
+
     <body>
 
-        <h2>Fill in the factors:</h2>
-        <div id="problem">x² + <span id="b"></span>x + <span id="c"></span></div>
-        
-        <div>(x + <div class="slot" id="s1" onclick="removeFromSlot(0)"></div>)(x + <div class="slot" id="s2" onclick="removeFromSlot(1)"></div>)</div>
-        
-        <div id="blocks-container" style="margin-top: 20px;"></div>
-        <br>
-        <button onclick="checkAnswer()">Check Answer</button>
-        <button onclick="initGame()">New Problem</button>
-        <p>Score: <span id="score">0</span></p>
+    <h2>Math Vocabulary Word Search</h2>
 
-        <script>
-            let b, c, score = 0;
-            let selected = [null, null];
+    <p>Find the word that matches the definition.</p>
 
-            function initGame() {
-                const p = (Math.floor(Math.random() * 9) + 1) * (Math.random() > 0.5 ? 1 : -1);
-                const q = (Math.floor(Math.random() * 9) + 1) * (Math.random() > 0.5 ? 1 : -1);
-                b = p + q; c = p * q;
-                document.getElementById('b').innerText = b;
-                document.getElementById('c').innerText = c;
-                selected = [null, null];
-                updateDisplay();
-                
-                const container = document.getElementById('blocks-container');
-                container.innerHTML = '';
-                for (let i = -9; i <= 9; i++) {
-                    if (i === 0) continue;
-                    const div = document.createElement('div');
-                    div.className = 'block';
-                    div.innerText = i;
-                    div.style.backgroundColor = i > 0 ? '#4a90e2' : '#e74c3c';
-                    div.onclick = () => addToSlot(i);
-                    container.appendChild(div);
-                }
-            }
+    <div id="definition"></div>
 
-            function addToSlot(val) {
-                if (selected[0] === null) selected[0] = val;
-                else if (selected[1] === null) selected[1] = val;
-                updateDisplay();
-            }
+    <table id="grid"></table>
 
-            function removeFromSlot(idx) {
-                selected[idx] = null;
-                updateDisplay();
-            }
+    <div id="message"></div>
 
-            function updateDisplay() {
-                document.getElementById('s1').innerText = selected[0] !== null ? selected[0] : '';
-                document.getElementById('s2').innerText = selected[1] !== null ? selected[1] : '';
-            }
+    <script>
 
-            function checkAnswer() {
-                if (selected[0] === null || selected[1] === null) return alert("Fill both slots!");
-                if ((selected[0] + selected[1] === b) && (selected[0] * selected[1] === c)) {
-                    score++; alert("Correct!"); initGame();
-                } else {
-                    score = Math.max(0, score - 1); alert("Try again!");
-                }
-                document.getElementById('score').innerText = score;
-            }
-            initGame();
-        </script>
+    const grid = [
+    ['L','I','N','E','Q','R','T','Y','U','P'],
+    ['A','D','F','G','H','J','K','L','M','N'],
+    ['S','L','O','P','E','B','V','C','X','Z'],
+    ['R','T','Y','U','I','O','P','A','S','D'],
+    ['F','G','H','J','K','L','Q','W','E','R'],
+    ['Y','I','N','T','E','R','C','E','P','T'],
+    ['T','Y','U','I','O','P','A','S','D','F'],
+    ['G','H','J','K','L','Z','X','C','V','B'],
+    ['N','M','Q','W','E','R','T','Y','U','I'],
+    ['O','P','L','K','J','H','G','F','D','S']
+    ];
+
+    const words = [
+    {
+    word:"LINE",
+    definition:"A straight path that extends forever in both directions."
+    },
+    {
+    word:"SLOPE",
+    definition:"The steepness of a line. It tells how much the line rises or falls."
+    },
+    {
+    word:"YINTERCEPT",
+    definition:"The point where a line crosses the y-axis."
+    }
+    ];
+
+    let current = 0;
+    let selecting = false;
+    let selectedCells = [];
+
+    const table = document.getElementById("grid");
+
+    function buildGrid(){
+
+    for(let r=0;r<10;r++){
+
+        const row=document.createElement("tr");
+
+        for(let c=0;c<10;c++){
+
+            const cell=document.createElement("td");
+            cell.textContent=grid[r][c];
+            cell.dataset.row=r;
+            cell.dataset.col=c;
+
+            cell.addEventListener("pointerdown",startSelection);
+            cell.addEventListener("pointerenter",extendSelection);
+
+            row.appendChild(cell);
+
+        }
+
+        table.appendChild(row);
+
+    }
+
+    document.addEventListener("pointerup",finishSelection);
+
+    }
+
+    function updateDefinition(){
+
+    if(current>=words.length){
+        document.getElementById("definition").innerHTML="🎉 You found every word!";
+        return;
+    }
+
+    document.getElementById("definition").textContent=
+    words[current].definition;
+
+    }
+
+    function startSelection(e){
+
+    clearSelection();
+
+    selecting=true;
+    addCell(e.target);
+
+    }
+
+    function extendSelection(e){
+
+    if(!selecting) return;
+    addCell(e.target);
+
+    }
+
+    function addCell(cell){
+
+    if(selectedCells.includes(cell)) return;
+
+    selectedCells.push(cell);
+    cell.classList.add("selected");
+
+    }
+
+    function finishSelection(){
+
+    if(!selecting) return;
+
+    selecting=false;
+
+    let guess="";
+
+    selectedCells.forEach(c=>{
+    guess+=c.textContent;
+    });
+
+    const answer=words[current].word;
+
+    if(guess===answer || guess.split("").reverse().join("")===answer){
+
+    selectedCells.forEach(c=>{
+    c.classList.remove("selected");
+    c.classList.add("correct");
+    });
+
+    current++;
+
+    if(current<words.length){
+
+    setTimeout(()=>{
+    updateDefinition();
+    },400);
+
+    }else{
+
+    document.getElementById("message").textContent=
+    "Excellent! You found all of the vocabulary words.";
+
+    updateDefinition();
+
+    }
+
+    }else{
+
+    selectedCells.forEach(c=>{
+    c.classList.remove("selected");
+    });
+
+    }
+
+    selectedCells=[];
+
+    }
+
+    function clearSelection(){
+
+    selectedCells.forEach(c=>{
+    c.classList.remove("selected");
+    });
+
+    selectedCells=[];
+
+    }
+
+    buildGrid();
+    updateDefinition();
+
+    </script>
+
     </body>
     </html>
     """

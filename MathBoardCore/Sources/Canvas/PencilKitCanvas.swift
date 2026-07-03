@@ -170,6 +170,7 @@ struct PencilKitCanvasContainer: View {
     let onTextEditingBegan: (@MainActor () -> Void)?
     let onTextEditingEnded: (@MainActor () -> Void)?
     let onTextPlacementRequested: (@MainActor (CGPoint) -> Void)?
+    let onExtractedRegionSend: (@MainActor (CanvasExtractedRegion) -> Void)?
 
     @State private var drawing: PKDrawing = PKDrawing()
     @State private var textObjects: [CanvasTextObject] = []
@@ -211,7 +212,8 @@ struct PencilKitCanvasContainer: View {
             onInteractionBegan: onInteractionBegan,
             onTextEditingBegan: onTextEditingBegan,
             onTextEditingEnded: onTextEditingEnded,
-            onTextPlacementRequested: onTextPlacementRequested
+            onTextPlacementRequested: onTextPlacementRequested,
+            onExtractedRegionSend: onExtractedRegionSend
         )
             .background(Color.white)
             .task(id: drawingURL) {
@@ -1477,6 +1479,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
     let onTextEditingBegan: (@MainActor () -> Void)?
     let onTextEditingEnded: (@MainActor () -> Void)?
     let onTextPlacementRequested: (@MainActor (CGPoint) -> Void)?
+    let onExtractedRegionSend: (@MainActor (CanvasExtractedRegion) -> Void)?
 
     func makeUIView(context: Context) -> PencilKitCanvasHostView {
         let hostView = PencilKitCanvasHostView()
@@ -1817,6 +1820,11 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 hostView?.regionSelectionOverlayView.acceptsRegionSelectionInput = false
                 updateHostTextObjects(using: canvas)
                 clearLaserOverlay()
+            case .copySelection:
+                Task { @MainActor [weak self, weak canvas] in
+                    guard let self, let canvas else { return }
+                    self.copySelectedRegionToPasteboard(using: canvas)
+                }
             case .duplicateSelection:
                 Task { @MainActor [weak self, weak canvas] in
                     guard let self, let canvas else { return }
@@ -1826,6 +1834,16 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 Task { @MainActor [weak self, weak canvas] in
                     guard let self, let canvas else { return }
                     self.deleteSelectedTextObject(using: canvas)
+                }
+            case .extractSelectionAsImageSticker:
+                Task { @MainActor [weak self, weak canvas] in
+                    guard let self, let canvas else { return }
+                    self.extractSelectedRegionAsImageSticker(using: canvas)
+                }
+            case .sendSelectionToNextSlide:
+                Task { @MainActor [weak self, weak canvas] in
+                    guard let self, let canvas else { return }
+                    self.sendSelectedRegionToNextSlide(using: canvas)
                 }
             case .pen(let color, let width):
                 finishTextEditing()
@@ -2664,7 +2682,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 !object.text.isEmpty && activeRegionSelection.intersects(object.frame) ? object.id : nil
             })
             activeRegionSelectedImageObjectIDs = Set(parent.imageObjects.compactMap { object in
-                activeRegionSelection.intersects(object.frame) ? object.id : nil
+                object.isLocked == true ? nil : (activeRegionSelection.intersects(object.frame) ? object.id : nil)
             })
             activeRegionSelectedStrokeIndexes = []
             updateRegionSelectionHighlight(on: canvas)
@@ -2726,7 +2744,8 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
 
         private func hitSelectedImageObjectID(at canvasPoint: CGPoint, on canvas: PKCanvasView) -> UUID? {
             guard let selectedImageObjectID,
-                  let object = parent.imageObjects.first(where: { $0.id == selectedImageObjectID }) else {
+                  let object = parent.imageObjects.first(where: { $0.id == selectedImageObjectID }),
+                  object.isLocked != true else {
                 return nil
             }
 
@@ -2753,7 +2772,8 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             let sourcePoint = sourcePoint(forCanvasPoint: canvasPoint, on: canvas)
             let hitMargin = max(16 / max(canvas.zoomScale, 0.001), 4)
             return parent.imageObjects.reversed().first { object in
-                object.frame.insetBy(dx: -hitMargin, dy: -hitMargin).contains(sourcePoint)
+                object.isLocked != true
+                    && object.frame.insetBy(dx: -hitMargin, dy: -hitMargin).contains(sourcePoint)
             }?.id
         }
 
@@ -2859,8 +2879,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private func deleteSelectedTextObject(using canvas: PKCanvasView) {
             finishTextEditing()
             if activeSelectionTarget == .region {
-                clearRegionSelection()
-                publishImageFromModel()
+                _ = fillSelectedRegionWithBackground(using: canvas)
                 return
             }
             if deleteSelectedRegion(using: canvas) {
@@ -2921,6 +2940,114 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             movingImageObjectID = nil
             updateHostImageObjects(using: canvas)
             publishImageFromModel()
+        }
+
+        private func copySelectedRegionToPasteboard(using canvas: PKCanvasView) {
+            guard let snapshot = makeRegionSnapshot() else { return }
+            UIPasteboard.general.image = snapshot.image
+        }
+
+        private func extractSelectedRegionAsImageSticker(using canvas: PKCanvasView) {
+            _ = duplicateSelectedRegionAsImageObject(using: canvas)
+        }
+
+        private func sendSelectedRegionToNextSlide(using canvas: PKCanvasView) {
+            guard let snapshot = makeRegionSnapshot() else { return }
+            parent.onExtractedRegionSend?(CanvasExtractedRegion(
+                pngData: snapshot.pngData,
+                sourceBounds: snapshot.sourceBounds
+            ))
+            clearRegionSelection()
+            publishImageFromModel()
+        }
+
+        private func fillSelectedRegionWithBackground(using canvas: PKCanvasView) -> Bool {
+            guard let activeRegionSelection else { return false }
+            let sourceBounds = normalizedRegionBounds(activeRegionSelection.bounds)
+            guard sourceBounds.width >= 2, sourceBounds.height >= 2 else { return false }
+
+            let destinationSize = CGSize(
+                width: max(sourceBounds.width, 1),
+                height: max(sourceBounds.height, 1)
+            )
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 2
+            format.opaque = false
+            let image = UIGraphicsImageRenderer(size: destinationSize, format: format).image { rendererContext in
+                let context = rendererContext.cgContext
+                context.clear(CGRect(origin: .zero, size: destinationSize))
+                context.saveGState()
+                applyRegionClip(activeRegionSelection, sourceBounds: sourceBounds, in: context)
+                context.setFillColor(UIColor.white.cgColor)
+                context.fill(CGRect(origin: .zero, size: destinationSize))
+                context.restoreGState()
+            }
+            guard let pngData = image.pngData() else { return false }
+            guard saveRegionImageObject(
+                pngData: pngData,
+                sourceBounds: sourceBounds,
+                offset: .zero,
+                selectAfterInsert: false,
+                isLocked: true,
+                using: canvas
+            ) else {
+                return false
+            }
+            clearRegionSelection()
+            publishImageFromModel()
+            return true
+        }
+
+        private func makeRegionSnapshot() -> (image: UIImage, pngData: Data, sourceBounds: CGRect)? {
+            guard let activeRegionSelection else { return nil }
+            let sourceBounds = normalizedRegionBounds(activeRegionSelection.bounds)
+            guard sourceBounds.width >= 2, sourceBounds.height >= 2 else { return nil }
+            let image = renderRegionSnapshot(selection: activeRegionSelection, sourceBounds: sourceBounds)
+            guard let pngData = image.pngData() else { return nil }
+            return (image, pngData, sourceBounds)
+        }
+
+        private func normalizedRegionBounds(_ bounds: CGRect) -> CGRect {
+            bounds.integral.insetBy(dx: -2, dy: -2)
+        }
+
+        private func saveRegionImageObject(
+            pngData: Data,
+            sourceBounds: CGRect,
+            offset: CGPoint,
+            selectAfterInsert: Bool,
+            isLocked: Bool = false,
+            using canvas: PKCanvasView
+        ) -> Bool {
+            let fileName = "\(UUID().uuidString).png"
+            let assetDirectoryURL = CanvasImageObject.assetDirectoryURL(forDrawingURL: parent.drawingURL)
+            let assetURL = assetDirectoryURL.appendingPathComponent(fileName)
+            do {
+                try FileManager.default.createDirectory(
+                    at: assetDirectoryURL,
+                    withIntermediateDirectories: true
+                )
+                try pngData.write(to: assetURL, options: .atomic)
+            } catch {
+                print("[Canvas] region snapshot save error: \(error)")
+                return false
+            }
+
+            parent.onInteractionBegan?()
+            let imageObject = CanvasImageObject(
+                imageFileName: fileName,
+                x: sourceBounds.minX + offset.x,
+                y: sourceBounds.minY + offset.y,
+                width: sourceBounds.width,
+                height: sourceBounds.height,
+                isLocked: isLocked ? true : nil
+            )
+            parent.imageObjects.append(imageObject)
+            if selectAfterInsert {
+                setSelectedImageObjectID(imageObject.id)
+            }
+            updateHostImageObjects(using: canvas)
+            return true
         }
 
         private func duplicateSelectedRegion(using canvas: PKCanvasView) -> Bool {
@@ -3021,40 +3148,18 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         }
 
         private func duplicateSelectedRegionAsImageObject(using canvas: PKCanvasView) -> Bool {
-            guard let activeRegionSelection else { return false }
-            let sourceBounds = activeRegionSelection.bounds.integral.insetBy(dx: -2, dy: -2)
-            guard sourceBounds.width >= 2, sourceBounds.height >= 2 else { return false }
-
-            let image = renderRegionSnapshot(selection: activeRegionSelection, sourceBounds: sourceBounds)
-            guard let pngData = image.pngData() else { return false }
-
-            let fileName = "\(UUID().uuidString).png"
-            let assetDirectoryURL = CanvasImageObject.assetDirectoryURL(forDrawingURL: parent.drawingURL)
-            let assetURL = assetDirectoryURL.appendingPathComponent(fileName)
-            do {
-                try FileManager.default.createDirectory(
-                    at: assetDirectoryURL,
-                    withIntermediateDirectories: true
-                )
-                try pngData.write(to: assetURL, options: .atomic)
-            } catch {
-                print("[Canvas] region snapshot save error: \(error)")
+            guard let snapshot = makeRegionSnapshot() else { return false }
+            let offset = max(24 / max(canvas.zoomScale, 0.001), 12)
+            guard saveRegionImageObject(
+                pngData: snapshot.pngData,
+                sourceBounds: snapshot.sourceBounds,
+                offset: CGPoint(x: offset, y: offset),
+                selectAfterInsert: true,
+                using: canvas
+            ) else {
                 return false
             }
-
-            parent.onInteractionBegan?()
-            let offset = max(24 / max(canvas.zoomScale, 0.001), 12)
-            let imageObject = CanvasImageObject(
-                imageFileName: fileName,
-                x: sourceBounds.minX + offset,
-                y: sourceBounds.minY + offset,
-                width: sourceBounds.width,
-                height: sourceBounds.height
-            )
-            parent.imageObjects.append(imageObject)
             clearRegionSelection()
-            setSelectedImageObjectID(imageObject.id)
-            updateHostImageObjects(using: canvas)
             publishImageFromModel()
             return true
         }

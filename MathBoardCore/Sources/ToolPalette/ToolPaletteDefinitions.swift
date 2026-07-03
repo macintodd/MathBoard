@@ -161,10 +161,10 @@ public enum ToolPaletteReducer {
             break
         case .createWidget, .editWidget, .openWidget, .removeWidget:
             break
-        case .duplicateSelection, .deleteSelection:
-            state.selectionActionSequence += 1
-        case .undo, .redo, .copySelection,
+        case .copySelection, .duplicateSelection, .deleteSelection,
              .extractSelectionAsImageSticker, .sendSelectionToNextSlide:
+            state.selectionActionSequence += 1
+        case .undo, .redo:
             break
         }
     }

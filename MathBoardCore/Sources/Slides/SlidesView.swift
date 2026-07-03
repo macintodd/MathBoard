@@ -45,7 +45,8 @@ public struct SlidesView: View {
                     onViewportStateChange: { state in
                         scheduleViewportSave(state, for: slide.id)
                     },
-                    onInteractionBegan: handleCanvasInteractionBegan
+                    onInteractionBegan: handleCanvasInteractionBegan,
+                    onExtractedRegionSend: sendExtractedRegionToNextEmptySlide
                 )
                     .id(slide.id)
             }
@@ -200,6 +201,57 @@ public struct SlidesView: View {
         flushPendingViewportSave()
         store.addSlide()
         activeIndex = store.slides.count - 1
+    }
+
+    private func sendExtractedRegionToNextEmptySlide(_ region: PresentationExtractedRegion) {
+        flushPendingViewportSave()
+        do {
+            let targetSlide: SlideMetadata
+            if let emptyIndex = store.slides.indices.first(where: { index in
+                index > activeIndex && isEmptyForExtractSend(store.slides[index])
+            }) {
+                targetSlide = store.slides[emptyIndex]
+            } else {
+                targetSlide = store.addSlide()
+            }
+            try placeExtractedRegion(region, on: targetSlide)
+        } catch {
+            slideErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func isEmptyForExtractSend(_ slide: SlideMetadata) -> Bool {
+        guard slide.background == nil else { return false }
+        let drawingURL = store.drawingURL(for: slide)
+        if FileManager.default.fileExists(atPath: drawingURL.path) {
+            return false
+        }
+        let textObjects = PresentationCanvasTextObject.load(from: PresentationCanvasTextObject.sidecarURL(forDrawingURL: drawingURL))
+        let imageObjects = PresentationCanvasImageObject.load(from: PresentationCanvasImageObject.sidecarURL(forDrawingURL: drawingURL))
+        return textObjects.isEmpty && imageObjects.isEmpty
+    }
+
+    private func placeExtractedRegion(_ region: PresentationExtractedRegion, on slide: SlideMetadata) throws {
+        let drawingURL = store.drawingURL(for: slide)
+        let assetDirectoryURL = PresentationCanvasImageObject.assetDirectoryURL(forDrawingURL: drawingURL)
+        try FileManager.default.createDirectory(at: assetDirectoryURL, withIntermediateDirectories: true)
+
+        let fileName = "\(UUID().uuidString).png"
+        let assetURL = assetDirectoryURL.appendingPathComponent(fileName)
+        try region.pngData.write(to: assetURL, options: .atomic)
+
+        var imageObjects = PresentationCanvasImageObject.load(from: PresentationCanvasImageObject.sidecarURL(forDrawingURL: drawingURL))
+        imageObjects.append(PresentationCanvasImageObject(
+            imageFileName: fileName,
+            x: region.sourceBounds.minX,
+            y: region.sourceBounds.minY,
+            width: region.sourceBounds.width,
+            height: region.sourceBounds.height
+        ))
+        try PresentationCanvasImageObject.save(
+            imageObjects,
+            to: PresentationCanvasImageObject.sidecarURL(forDrawingURL: drawingURL)
+        )
     }
 
     private func handlePDFImport(_ result: Result<[URL], any Error>) {

@@ -34,6 +34,7 @@ public struct CanvasView: View {
     private let onTextEditingBegan: (@MainActor () -> Void)?
     private let onTextEditingEnded: (@MainActor () -> Void)?
     private let onTextPlacementRequested: (@MainActor (CGPoint) -> Void)?
+    private let onExtractedRegionSend: (@MainActor (CanvasExtractedRegion) -> Void)?
 
     public init(
         drawingURL: URL,
@@ -54,7 +55,8 @@ public struct CanvasView: View {
         onInteractionBegan: (@MainActor () -> Void)? = nil,
         onTextEditingBegan: (@MainActor () -> Void)? = nil,
         onTextEditingEnded: (@MainActor () -> Void)? = nil,
-        onTextPlacementRequested: (@MainActor (CGPoint) -> Void)? = nil
+        onTextPlacementRequested: (@MainActor (CGPoint) -> Void)? = nil,
+        onExtractedRegionSend: (@MainActor (CanvasExtractedRegion) -> Void)? = nil
     ) {
         self.drawingURL = drawingURL
         self.background = background
@@ -75,6 +77,7 @@ public struct CanvasView: View {
         self.onTextEditingBegan = onTextEditingBegan
         self.onTextEditingEnded = onTextEditingEnded
         self.onTextPlacementRequested = onTextPlacementRequested
+        self.onExtractedRegionSend = onExtractedRegionSend
     }
 
     public var body: some View {
@@ -98,7 +101,8 @@ public struct CanvasView: View {
             onInteractionBegan: onInteractionBegan,
             onTextEditingBegan: onTextEditingBegan,
             onTextEditingEnded: onTextEditingEnded,
-            onTextPlacementRequested: onTextPlacementRequested
+            onTextPlacementRequested: onTextPlacementRequested,
+            onExtractedRegionSend: onExtractedRegionSend
         )
         #else
         MacCanvasPlaceholder(

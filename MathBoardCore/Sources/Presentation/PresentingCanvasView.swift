@@ -23,6 +23,8 @@ import ToolPalette
 public typealias PresentationViewportState = CanvasViewportState
 public typealias PresentationCanvasBackground = CanvasBackground
 public typealias PresentationCanvasTextObject = CanvasTextObject
+public typealias PresentationCanvasImageObject = CanvasImageObject
+public typealias PresentationExtractedRegion = CanvasExtractedRegion
 
 public struct PresentingCanvasView: View {
     private let drawingURL: URL
@@ -30,6 +32,7 @@ public struct PresentingCanvasView: View {
     private let initialViewportState: PresentationViewportState?
     private let onViewportStateChange: (@MainActor (PresentationViewportState) -> Void)?
     private let onInteractionBegan: (@MainActor () -> Void)?
+    private let onExtractedRegionSend: (@MainActor (PresentationExtractedRegion) -> Void)?
     private let broker = DisplayBroker.shared
     private let calculator = CalculatorState.shared
     private let paletteSettings = ToolPaletteSettings.shared
@@ -48,13 +51,15 @@ public struct PresentingCanvasView: View {
         background: PresentationCanvasBackground? = nil,
         initialViewportState: PresentationViewportState? = nil,
         onViewportStateChange: (@MainActor (PresentationViewportState) -> Void)? = nil,
-        onInteractionBegan: (@MainActor () -> Void)? = nil
+        onInteractionBegan: (@MainActor () -> Void)? = nil,
+        onExtractedRegionSend: (@MainActor (PresentationExtractedRegion) -> Void)? = nil
     ) {
         self.drawingURL = drawingURL
         self.background = background
         self.initialViewportState = initialViewportState
         self.onViewportStateChange = onViewportStateChange
         self.onInteractionBegan = onInteractionBegan
+        self.onExtractedRegionSend = onExtractedRegionSend
     }
 
     public var body: some View {
@@ -78,7 +83,8 @@ public struct PresentingCanvasView: View {
                 onInteractionBegan: onInteractionBegan,
                 onTextEditingBegan: activateTextToolForExistingEditor,
                 onTextEditingEnded: activateSelectTool,
-                onTextPlacementRequested: requestTextPlacement
+                onTextPlacementRequested: requestTextPlacement,
+                onExtractedRegionSend: onExtractedRegionSend
             )
             ViewfinderOverlay()
                 .opacity(broker.mode == .present ? 1 : 0)
@@ -527,11 +533,20 @@ private extension CanvasToolCommand {
         guard Self.shouldApply(command, activeTool: state.activeTool) else { return nil }
 
         switch command {
+        case .copySelection:
+            self.init(.copySelection)
+            return
         case .duplicateSelection:
             self.init(.duplicateSelection)
             return
         case .deleteSelection:
             self.init(.deleteSelection)
+            return
+        case .extractSelectionAsImageSticker:
+            self.init(.extractSelectionAsImageSticker)
+            return
+        case .sendSelectionToNextSlide:
+            self.init(.sendSelectionToNextSlide)
             return
         default:
             break
@@ -600,7 +615,8 @@ private extension CanvasToolCommand {
             return activeTool == .selection || activeTool == .extract
         case .setSelectionMode:
             return activeTool == .extract
-        case .duplicateSelection, .deleteSelection:
+        case .copySelection, .duplicateSelection, .deleteSelection,
+             .extractSelectionAsImageSticker, .sendSelectionToNextSlide:
             return activeTool == .selection || activeTool == .extract
         default:
             return false
