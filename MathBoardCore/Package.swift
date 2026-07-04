@@ -33,7 +33,13 @@ let package = Package(
         // Exposed so Xcode offers a "TextEngine" scheme for SwiftUI previews.
         // Presentation links this target as an adapter client; TextEngine itself
         // stays independent of Canvas and app-specific models.
-        .library(name: "TextEngine", targets: ["TextEngine"])
+        .library(name: "TextEngine", targets: ["TextEngine"]),
+
+        // Exposed only so Xcode offers a "Library" scheme that builds the
+        // Library drawer PROTOTYPE for SwiftUI previews. Nothing links it — the
+        // app target does not depend on it, so the module stays fully isolated
+        // and is trivial to delete. See MathBoard/LibraryDrawer_status.md.
+        .library(name: "Library", targets: ["Library"])
     ],
     dependencies: [
         // Native, offline SwiftUI LaTeX renderer used only by TextEngine's
@@ -79,6 +85,12 @@ let package = Package(
             dependencies: [
                 .product(name: "SwiftUIMath", package: "swiftui-math")
             ]
-        )
+        ),
+
+        // Library drawer PROTOTYPE (UI-only). Fully self-contained: zero
+        // dependencies on MathBoard.app or the other MathBoardCore modules, and
+        // no persistence / canvas wiring. Previewed independently in Xcode via
+        // the "Library" scheme. See MathBoard/LibraryDrawer_status.md.
+        .target(name: "Library")
     ]
 )
