@@ -152,14 +152,8 @@ private extension ToolPaletteCommand {
             return "setLatexSource(\(source))"
         case .openFontPicker:
             return "openFontPicker"
-        case .createWidget:
-            return "createWidget"
-        case .editWidget:
-            return "editWidget"
-        case .openWidget:
-            return "openWidget"
-        case .removeWidget:
-            return "removeWidget"
+        case .addItem(let kind):
+            return "addItem(\(kind.rawValue))"
         case .undo:
             return "undo"
         case .redo:

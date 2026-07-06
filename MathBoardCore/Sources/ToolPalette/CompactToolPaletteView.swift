@@ -1482,10 +1482,7 @@ private extension ToolPaletteCommand {
         case .openLatexEditor: return "openLatexEditor"
         case .setLatexSource(let source): return "setLatexSource(\(source))"
         case .openFontPicker: return "openFontPicker"
-        case .createWidget: return "createWidget"
-        case .editWidget: return "editWidget"
-        case .openWidget: return "openWidget"
-        case .removeWidget: return "removeWidget"
+        case .addItem(let kind): return "addItem(\(kind.rawValue))"
         case .undo: return "undo"
         case .redo: return "redo"
         case .copySelection: return "copySelection"
@@ -1530,4 +1527,4 @@ private struct CompactPalettePreviewHost: View {
 #Preview("Compact — Geometry") { CompactPalettePreviewHost(tool: .geometry) }
 #Preview("Compact — Selection") { CompactPalettePreviewHost(tool: .selection) }
 #Preview("Compact — Text") { CompactPalettePreviewHost(tool: .equation) }
-#Preview("Compact — Widget") { CompactPalettePreviewHost(tool: .reserved) }
+#Preview("Compact — Add") { CompactPalettePreviewHost(tool: .reserved) }

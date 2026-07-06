@@ -291,29 +291,29 @@ struct ToolPaletteStateTests {
         #expect(font.segments[0].command == .openFontPicker)
     }
 
-    @Test func widgetDefinitionExposesWidgetActions() throws {
+    @Test func addToolExposesInsertOptions() throws {
         let state = ToolPaletteState(activeTool: .reserved)
         let definition = ToolPaletteDefinitions.definition(for: .reserved)
         let configuration = definition.configuration(for: state)
 
-        #expect(ToolID.reserved.displayName == "Widget")
+        #expect(ToolID.reserved.displayName == "Add")
         #expect(configuration.topOrbit.count == 4)
-        #expect(configuration.topOrbit.map(\.command).contains(.createWidget))
-        #expect(configuration.topOrbit.map(\.command).contains(.editWidget))
-        #expect(configuration.topOrbit.map(\.command).contains(.openWidget))
-        #expect(configuration.topOrbit.map(\.command).contains(.removeWidget))
+        #expect(configuration.topOrbit.map(\.command).contains(.addItem(.file)))
+        #expect(configuration.topOrbit.map(\.command).contains(.addItem(.widget)))
+        #expect(configuration.topOrbit.map(\.command).contains(.addItem(.sticker)))
+        #expect(configuration.topOrbit.map(\.command).contains(.addItem(.axis)))
 
         guard case .disabled(let leftLabel) = configuration.leftArc else {
-            Issue.record("Expected widget left arc to describe HTML")
+            Issue.record("Expected add tool left arc to be disabled")
             return
         }
-        #expect(leftLabel == "HTML")
+        #expect(leftLabel == "Insert")
 
         guard case .disabled(let rightLabel) = configuration.rightArc else {
-            Issue.record("Expected widget right arc to describe slide limit")
+            Issue.record("Expected add tool right arc to be disabled")
             return
         }
-        #expect(rightLabel == "One per slide")
+        #expect(rightLabel == "Tap to add")
     }
 
     @Test func reducerUpdatesPenState() {

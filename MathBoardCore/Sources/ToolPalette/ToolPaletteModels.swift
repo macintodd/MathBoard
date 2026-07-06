@@ -23,7 +23,7 @@ public enum ToolID: String, CaseIterable, Codable, Equatable, Hashable, Sendable
         switch self {
         case .selection: return "Select"
         case .extract: return "Extract"
-        case .reserved: return "Widget"
+        case .reserved: return "Add"
         case .pen: return "Pen"
         case .marker: return "Marker"
         case .eraser: return "Eraser"
@@ -37,13 +37,47 @@ public enum ToolID: String, CaseIterable, Codable, Equatable, Hashable, Sendable
         switch self {
         case .selection: return "cursorarrow.motionlines"
         case .extract: return "crop"
-        case .reserved: return "curlybraces.square"
+        case .reserved: return "plus"
         case .pen: return "pencil.tip"
         case .marker: return "highlighter"
         case .eraser: return "eraser"
         case .geometry: return "ruler"
         case .laser: return "laser.burst"
         case .equation: return "textformat"
+        }
+    }
+}
+
+/// Kinds of content the "Add" tool (`.reserved`) can insert. Selecting the Add
+/// tool opens a mini strip of these options in the contextual drawer; picking
+/// one later triggers the matching insertion flow (file import, widget config,
+/// sticker placement, or the coordinate-axis creator). Wiring is added later —
+/// for now the command is a no-op in the reducer.
+public enum AddItemKind: String, CaseIterable, Codable, Equatable, Sendable {
+    /// Images, PDFs, and GIFs imported from the file system / photo library.
+    case file
+    /// An interactive/configurable widget (timer, RNG, table, HTML, …).
+    case widget
+    /// A reusable sticker from the Library.
+    case sticker
+    /// The coordinate-axis creator.
+    case axis
+
+    public var displayName: String {
+        switch self {
+        case .file: return "File"
+        case .widget: return "Widget"
+        case .sticker: return "Sticker"
+        case .axis: return "Axis"
+        }
+    }
+
+    public var iconSystemName: String {
+        switch self {
+        case .file: return "doc.badge.plus"
+        case .widget: return "square.grid.2x2"
+        case .sticker: return "sparkles.rectangle.stack"
+        case .axis: return "chart.xyaxis.line"
         }
     }
 }
@@ -410,10 +444,8 @@ public enum ToolPaletteCommand: Equatable, Sendable {
     case openLatexEditor
     case setLatexSource(String)
     case openFontPicker
-    case createWidget
-    case editWidget
-    case openWidget
-    case removeWidget
+    /// Insert a piece of content via the "Add" tool's mini strip.
+    case addItem(AddItemKind)
     case undo
     case redo
     case copySelection

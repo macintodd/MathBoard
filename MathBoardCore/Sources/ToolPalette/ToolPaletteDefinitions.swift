@@ -46,7 +46,7 @@ public enum ToolPaletteDefinitions {
         case .equation:
             return TextToolDefinition()
         case .reserved:
-            return WidgetToolDefinition()
+            return AddToolDefinition()
         }
     }
 }
@@ -159,7 +159,9 @@ public enum ToolPaletteReducer {
             state.latexSource = source
         case .openLatexEditor, .openFontPicker:
             break
-        case .createWidget, .editWidget, .openWidget, .removeWidget:
+        case .addItem:
+            // Insertion is wired later (file import, widget config, sticker
+            // placement, axis creator); selecting an option is a no-op for now.
             break
         case .copySelection, .duplicateSelection, .deleteSelection,
              .extractSelectionAsImageSticker, .sendSelectionToNextSlide:
@@ -559,41 +561,27 @@ struct TextToolDefinition: ToolDefinition {
     }
 }
 
-struct WidgetToolDefinition: ToolDefinition {
+/// The "Add" tool (`.reserved`). Selecting it opens a mini strip of insert
+/// options — File (images/PDFs/GIFs), Widget, Sticker, and the Axis creator —
+/// rendered as the contextual drawer's orbit chips. Each chip emits
+/// `.addItem(kind)`; the actual insertion flow is wired later.
+struct AddToolDefinition: ToolDefinition {
     let id: ToolID = .reserved
     let iconSystemName = ToolID.reserved.iconSystemName
     let label = ToolID.reserved.displayName
 
     func configuration(for state: ToolPaletteState) -> ToolPaletteConfiguration {
         ToolPaletteConfiguration(
-            topOrbit: [
+            topOrbit: AddItemKind.allCases.map { kind in
                 PaletteOrbitItem(
-                    id: "widget.create",
-                    iconSystemName: "plus.app",
-                    label: "Create",
-                    command: .createWidget
-                ),
-                PaletteOrbitItem(
-                    id: "widget.edit",
-                    iconSystemName: "square.and.pencil",
-                    label: "Edit",
-                    command: .editWidget
-                ),
-                PaletteOrbitItem(
-                    id: "widget.open",
-                    iconSystemName: "folder",
-                    label: "Open",
-                    command: .openWidget
-                ),
-                PaletteOrbitItem(
-                    id: "widget.remove",
-                    iconSystemName: "trash",
-                    label: "Remove",
-                    command: .removeWidget
+                    id: "add.\(kind.rawValue)",
+                    iconSystemName: kind.iconSystemName,
+                    label: kind.displayName,
+                    command: .addItem(kind)
                 )
-            ],
-            leftArc: .disabled(label: "HTML"),
-            rightArc: .disabled(label: "One per slide")
+            },
+            leftArc: .disabled(label: "Insert"),
+            rightArc: .disabled(label: "Tap to add")
         )
     }
 }
