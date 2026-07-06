@@ -47,6 +47,7 @@ struct WidgetEditorView: View {
 
             TextEditor(text: .constant(boilerplatePrompt))
                 .font(.callout.monospaced())
+            #imageLiteral(resourceName: "Screenshot 2026-07-04 at 6.40.31 AM.png")
                 .scrollContentBackground(.hidden)
                 .padding(8)
                 .frame(height: 96)

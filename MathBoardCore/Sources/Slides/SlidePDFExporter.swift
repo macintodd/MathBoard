@@ -42,13 +42,22 @@ struct SlidePDFExporter {
             let slideDrawingURL = drawingURL(slide)
             let drawing = loadDrawing(at: slideDrawingURL)
             let textObjects = loadTextObjects(forDrawingURL: slideDrawingURL)
+            let imageObjects = loadImageObjects(forDrawingURL: slideDrawingURL)
             let pageInfo = pageInfo(
                 for: slide,
                 drawing: drawing,
                 textObjects: textObjects,
+                imageObjects: imageObjects,
                 backgroundURL: backgroundURL
             )
-            drawPage(pageInfo, drawing: drawing, textObjects: textObjects, in: context)
+            drawPage(
+                pageInfo,
+                drawing: drawing,
+                textObjects: textObjects,
+                imageObjects: imageObjects,
+                drawingURL: slideDrawingURL,
+                in: context
+            )
         }
 
         context.closePDF()
@@ -77,10 +86,17 @@ struct SlidePDFExporter {
         )
     }
 
+    private static func loadImageObjects(forDrawingURL drawingURL: URL) -> [PresentationCanvasImageObject] {
+        PresentationCanvasImageObject.load(
+            from: PresentationCanvasImageObject.sidecarURL(forDrawingURL: drawingURL)
+        )
+    }
+
     private static func pageInfo(
         for slide: SlideMetadata,
         drawing: PKDrawing,
         textObjects: [PresentationCanvasTextObject],
+        imageObjects: [PresentationCanvasImageObject],
         backgroundURL: (SlideBackground) -> URL
     ) -> SlidePDFPageInfo {
         if let background = slide.background,
@@ -94,7 +110,11 @@ struct SlidePDFExporter {
             )
         }
 
-        let contentBounds = combinedContentBounds(drawing: drawing, textObjects: textObjects)
+        let contentBounds = combinedContentBounds(
+            drawing: drawing,
+            textObjects: textObjects,
+            imageObjects: imageObjects
+        )
         if !contentBounds.isEmpty {
             let paddedBounds = contentBounds.insetBy(dx: -48, dy: -48)
             return SlidePDFPageInfo(
@@ -114,10 +134,18 @@ struct SlidePDFExporter {
 
     private static func combinedContentBounds(
         drawing: PKDrawing,
-        textObjects: [PresentationCanvasTextObject]
+        textObjects: [PresentationCanvasTextObject],
+        imageObjects: [PresentationCanvasImageObject]
     ) -> CGRect {
         var bounds = drawing.bounds
         for object in textObjects where !object.text.isEmpty {
+            if bounds.isEmpty || bounds.isNull {
+                bounds = object.frame
+            } else {
+                bounds = bounds.union(object.frame)
+            }
+        }
+        for object in imageObjects {
             if bounds.isEmpty || bounds.isNull {
                 bounds = object.frame
             } else {
@@ -131,6 +159,8 @@ struct SlidePDFExporter {
         _ pageInfo: SlidePDFPageInfo,
         drawing: PKDrawing,
         textObjects: [PresentationCanvasTextObject],
+        imageObjects: [PresentationCanvasImageObject],
+        drawingURL: URL,
         in context: CGContext
     ) {
         let mediaBox = pageInfo.pageRect
@@ -156,6 +186,13 @@ struct SlidePDFExporter {
         }
 
         drawInk(drawing, from: pageInfo.sourceRect, into: pageInfo.pageRect, in: context)
+        drawImageObjects(
+            imageObjects,
+            assetDirectoryURL: PresentationCanvasImageObject.assetDirectoryURL(forDrawingURL: drawingURL),
+            from: pageInfo.sourceRect,
+            into: pageInfo.pageRect,
+            in: context
+        )
         drawTextObjects(
             textObjects,
             from: pageInfo.sourceRect,
@@ -239,6 +276,35 @@ struct SlidePDFExporter {
         context.restoreGState()
     }
 
+    private static func drawImageObjects(
+        _ imageObjects: [PresentationCanvasImageObject],
+        assetDirectoryURL: URL,
+        from sourceRect: CGRect,
+        into destinationRect: CGRect,
+        in context: CGContext
+    ) {
+        guard !imageObjects.isEmpty else { return }
+
+        let scaleX = destinationRect.width / max(sourceRect.width, 0.001)
+        let scaleY = destinationRect.height / max(sourceRect.height, 0.001)
+        context.saveGState()
+        context.clip(to: destinationRect)
+
+        for object in imageObjects {
+            let imageURL = assetDirectoryURL.appendingPathComponent(object.imageFileName)
+            guard let cgImage = cgImage(fromImageAt: imageURL) else { continue }
+            let imageRect = CGRect(
+                x: destinationRect.minX + (object.x - sourceRect.minX) * scaleX,
+                y: destinationRect.maxY - (object.y - sourceRect.minY + object.height) * scaleY,
+                width: object.width * scaleX,
+                height: object.height * scaleY
+            )
+            context.draw(cgImage, in: imageRect)
+        }
+
+        context.restoreGState()
+    }
+
     private static func exportPoint(
         _ point: CGPoint,
         sourceRect: CGRect,
@@ -303,6 +369,10 @@ struct SlidePDFExporter {
         image.cgImage
     }
 
+    private static func cgImage(fromImageAt url: URL) -> CGImage? {
+        UIImage(contentsOfFile: url.path)?.cgImage
+    }
+
     private static func isBlackStroke(_ stroke: PKStroke) -> Bool {
         var red: CGFloat = 0
         var green: CGFloat = 0
@@ -315,6 +385,12 @@ struct SlidePDFExporter {
     }
     #elseif canImport(AppKit)
     private static func cgImage(from image: NSImage) -> CGImage? {
+        var rect = CGRect(origin: .zero, size: image.size)
+        return image.cgImage(forProposedRect: &rect, context: nil, hints: nil)
+    }
+
+    private static func cgImage(fromImageAt url: URL) -> CGImage? {
+        guard let image = NSImage(contentsOf: url) else { return nil }
         var rect = CGRect(origin: .zero, size: image.size)
         return image.cgImage(forProposedRect: &rect, context: nil, hints: nil)
     }
