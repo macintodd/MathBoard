@@ -21,6 +21,7 @@ import Foundation
 import CoreGraphics
 import Observation
 import Canvas
+import GraphCalculator
 import ToolPalette
 
 @MainActor
@@ -70,6 +71,11 @@ public final class DisplayBroker {
     /// measured in. Published by PresentingCanvasView; read by the external
     /// scene to place CalculatorTVOverlay at the matching relative spot.
     public var calculatorReferenceSize: CGSize?
+
+    /// Shared state for the Desmos-style graphCalc test mount. The iPad owns
+    /// interaction; the external display renders this same state read-only.
+    public var graphCalculator = GraphCalculatorState()
+    public var isGraphCalculatorVisible = false
 
     /// Visual state for the custom radial palette while Phase 1 integration is
     /// still display-only. The iPad owns interaction; the external display reads

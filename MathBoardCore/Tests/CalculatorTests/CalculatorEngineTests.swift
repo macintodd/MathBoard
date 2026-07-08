@@ -214,6 +214,38 @@ final class MiscFunctionTests: XCTestCase {
         XCTAssertEqual(try engine.evaluate("max(3, 7)"), 7)
         XCTAssertEqual(try engine.evaluate("mod(10, 3)"), 1)
     }
+
+    func testRootGcdAndLcm() throws {
+        XCTAssertEqual(try engine.evaluate("root(27, 3)"), 3, accuracy: 1e-12)
+        XCTAssertEqual(try engine.evaluate("gcd(18, 24)"), 6)
+        XCTAssertEqual(try engine.evaluate("lcm(6, 8)"), 24)
+    }
+}
+
+final class RegressionTests: XCTestCase {
+    func testLinearRegression() {
+        let result = CalculatorStatistics.regression(
+            model: .linear,
+            xValues: [1, 2, 3, 4],
+            yValues: [2, 4, 6, 8]
+        )
+
+        XCTAssertEqual(result?.coefficients[0] ?? .nan, 2, accuracy: 1e-10)
+        XCTAssertEqual(result?.coefficients[1] ?? .nan, 0, accuracy: 1e-10)
+        XCTAssertEqual(result?.rSquared ?? .nan, 1, accuracy: 1e-10)
+    }
+
+    func testQuadraticRegression() {
+        let result = CalculatorStatistics.regression(
+            model: .quadratic,
+            xValues: [-2, -1, 0, 1, 2],
+            yValues: [7, 4, 3, 4, 7]
+        )
+
+        XCTAssertEqual(result?.coefficients[0] ?? .nan, 1, accuracy: 1e-10)
+        XCTAssertEqual(result?.coefficients[1] ?? .nan, 0, accuracy: 1e-10)
+        XCTAssertEqual(result?.coefficients[2] ?? .nan, 3, accuracy: 1e-10)
+    }
 }
 
 final class FactorialTests: XCTestCase {

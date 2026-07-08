@@ -21,6 +21,7 @@
 //  MathBoard/LibraryDrawer_status.md.
 //
 
+import Foundation
 import SwiftUI
 
 // MARK: - Design tokens
@@ -79,6 +80,16 @@ enum LibraryMode: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
     var title: String { rawValue }
+}
+
+/// Grid (cards) vs. compact list presentation for the Libraries browser — a
+/// list scales better once a teacher has dozens of libraries.
+enum LibraryLayout: String {
+    case grid
+    case list
+
+    /// SF Symbol for the toggle button, which shows the *other* mode.
+    var toggleIcon: String { self == .grid ? "list.bullet" : "square.grid.2x2" }
 }
 
 // MARK: - Object type badge
@@ -170,6 +181,22 @@ struct LibraryFolder: Identifiable, Hashable {
     let symbol: String
     let itemCount: Int
     let tint: Color
+    /// Extra searchable terms (shapes/widgets/topics the library contains) so
+    /// smart search surfaces a library even when its *name* doesn't match the
+    /// query — e.g. searching "triangle" finds a "Geometry" library.
+    var keywords: [String] = []
+    /// Pinned libraries float to the top of the browser (distinct from the
+    /// Recent-item ⭐ star: this is a 📌 pin on a whole library).
+    var isPinned: Bool = false
+
+    /// Matches the query against the name and keywords (case-insensitive).
+    /// Empty query matches everything.
+    func matches(_ query: String) -> Bool {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return true }
+        if name.localizedCaseInsensitiveContains(q) { return true }
+        return keywords.contains { $0.localizedCaseInsensitiveContains(q) }
+    }
 }
 
 // MARK: - Mock content
@@ -191,15 +218,54 @@ enum LibraryMock {
         .init(id: "r.triangle", title: "Right triangle", badge: .ink, thumbnail: .rightTriangle)
     ]
 
-    /// The reusable libraries shown in the Libraries grid.
-    static let folders: [LibraryFolder] = [
-        .init(name: "Math Tools", symbol: "sum", itemCount: 24, tint: Color(red: 0.42, green: 0.55, blue: 0.90)),
-        .init(name: "Quadratics", symbol: "chart.line.uptrend.xyaxis", itemCount: 12, tint: Color(red: 0.35, green: 0.70, blue: 0.48)),
-        .init(name: "Geometry", symbol: "compass.drawing", itemCount: 18, tint: Color(red: 0.90, green: 0.62, blue: 0.35)),
-        .init(name: "Physics", symbol: "atom", itemCount: 9, tint: Color(red: 0.88, green: 0.45, blue: 0.45)),
-        .init(name: "Chemistry", symbol: "flask", itemCount: 15, tint: Color(red: 0.66, green: 0.48, blue: 0.86)),
-        .init(name: "Graphs", symbol: "chart.pie", itemCount: 7, tint: Color(red: 0.35, green: 0.66, blue: 0.68))
+    // A small tint palette cycled across the (deliberately large) library set.
+    private static let tints: [Color] = [
+        Color(red: 0.42, green: 0.55, blue: 0.90),
+        Color(red: 0.35, green: 0.70, blue: 0.48),
+        Color(red: 0.90, green: 0.62, blue: 0.35),
+        Color(red: 0.88, green: 0.45, blue: 0.45),
+        Color(red: 0.66, green: 0.48, blue: 0.86),
+        Color(red: 0.35, green: 0.66, blue: 0.68)
     ]
+
+    /// The reusable libraries (intentionally many, to exercise scale/clutter).
+    /// A couple start pinned so the "Pinned" section is visible in previews.
+    static let folders: [LibraryFolder] = {
+        let specs: [(String, String, Int, [String], Bool)] = [
+            ("Quadratics", "chart.line.uptrend.xyaxis", 12, ["parabola", "vertex", "factoring", "roots", "bar chart"], true),
+            ("Algebra 1", "x.squareroot", 20, ["equation", "slope", "line", "inequality"], true),
+            ("Math Tools", "sum", 24, ["axis", "grid", "number line", "protractor", "ruler", "timer"], false),
+            ("Geometry", "compass.drawing", 18, ["triangle", "circle", "angle", "proof", "polygon"], false),
+            ("Physics", "atom", 9, ["vector", "force", "motion", "graph"], false),
+            ("Chemistry", "flask", 15, ["molecule", "reaction", "periodic table"], false),
+            ("Graphs", "chart.pie", 7, ["pie", "bar chart", "line graph", "scatter"], false),
+            ("Trig Identities", "angle", 11, ["sine", "cosine", "unit circle", "triangle"], false),
+            ("Linear Equations", "chart.xyaxis.line", 14, ["slope", "line", "y-intercept", "coordinate grid"], false),
+            ("Statistics", "chart.bar", 9, ["mean", "median", "histogram", "bar chart", "box plot"], false),
+            ("Probability", "dice", 6, ["dice", "spinner", "tree diagram"], false),
+            ("Vectors", "arrow.up.right", 8, ["arrow", "magnitude", "direction", "component"], false),
+            ("Matrices", "tablecells", 5, ["table", "grid", "determinant"], false),
+            ("Sequences", "list.number", 7, ["arithmetic", "geometric", "series"], false),
+            ("Logarithms", "function", 6, ["log", "exponential", "curve"], false),
+            ("Exponentials", "function", 6, ["growth", "decay", "curve"], false),
+            ("Conic Sections", "circle.circle", 10, ["circle", "ellipse", "parabola", "hyperbola"], false),
+            ("Polynomials", "x.squareroot", 12, ["degree", "roots", "factoring", "curve"], false),
+            ("Limits", "function", 8, ["asymptote", "approach", "curve"], false),
+            ("Derivatives", "function", 9, ["slope", "tangent", "rate"], false),
+            ("AP Precalc Unit 1", "books.vertical", 16, ["functions", "transformations", "graph"], false),
+            ("Number Lines", "ruler", 5, ["number line", "integer", "fraction"], false)
+        ]
+        return specs.enumerated().map { index, spec in
+            LibraryFolder(
+                name: spec.0,
+                symbol: spec.1,
+                itemCount: spec.2,
+                tint: tints[index % tints.count],
+                keywords: spec.3,
+                isPinned: spec.4
+            )
+        }
+    }()
 
     /// The default star destination shown in the Recent banner until the user
     /// opens a different library.

@@ -17,6 +17,7 @@
 import SwiftUI
 import Canvas
 import Calculator
+import GraphCalculator
 import TextEngine
 import ToolPalette
 
@@ -91,6 +92,11 @@ public struct PresentingCanvasView: View {
 
             if calculator.isVisible {
                 CalculatorView(state: calculator)
+            }
+
+            if broker.isGraphCalculatorVisible {
+                GraphCalculatorView(state: broker.graphCalculator)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
             selectedTextActionHUD
@@ -194,6 +200,15 @@ public struct PresentingCanvasView: View {
             #if os(iOS)
             ToolbarItem(placement: .secondaryAction) {
                 Menu {
+                    Button {
+                        broker.isGraphCalculatorVisible.toggle()
+                    } label: {
+                        Label(
+                            broker.isGraphCalculatorVisible ? "Hide graphCalc" : "Show graphCalc",
+                            systemImage: "chart.xyaxis.line"
+                        )
+                    }
+
                     Button {
                         paletteSettings.isCustomPaletteEnabled.toggle()
                     } label: {

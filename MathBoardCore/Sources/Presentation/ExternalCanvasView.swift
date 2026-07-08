@@ -18,6 +18,7 @@
 import SwiftUI
 import Canvas
 import Calculator
+import GraphCalculator
 import ToolPalette
 
 public struct ExternalCanvasView: View {
@@ -61,6 +62,23 @@ public struct ExternalCanvasView: View {
                             referenceSize: broker.calculatorReferenceSize ?? fitted
                         )
                         .allowsHitTesting(false)
+
+                        if broker.isGraphCalculatorVisible {
+                            let referenceSize = broker.calculatorReferenceSize ?? fitted
+                            let visibleReferenceRect = Self.graphCalculatorVisibleReferenceRect(
+                                mode: broker.mode,
+                                referenceSize: referenceSize
+                            )
+                            let graphCalcScale = Self.graphCalculatorScale(
+                                fittedSize: fitted,
+                                visibleReferenceSize: Self.graphCalculatorSafeReferenceSize(visibleReferenceRect.size)
+                            )
+                            GraphCalculatorView(state: broker.graphCalculator)
+                                .frame(width: referenceSize.width, height: referenceSize.height)
+                                .offset(x: -visibleReferenceRect.minX, y: -visibleReferenceRect.minY)
+                                .scaleEffect(graphCalcScale, anchor: .topLeading)
+                                .allowsHitTesting(false)
+                        }
 
                         if broker.mode == .mirror, paletteSettings.isCustomPaletteEnabled {
                             let referenceSize = broker.toolPaletteReferenceSize ?? fitted
@@ -140,6 +158,49 @@ public struct ExternalCanvasView: View {
               referenceSize.width > 0,
               referenceSize.height > 0 else { return 1 }
         return min(fittedSize.width / referenceSize.width, fittedSize.height / referenceSize.height)
+    }
+
+    private static func graphCalculatorScale(fittedSize: CGSize, visibleReferenceSize: CGSize) -> CGFloat {
+        guard fittedSize.width > 0,
+              fittedSize.height > 0,
+              visibleReferenceSize.width > 0,
+              visibleReferenceSize.height > 0 else { return 1 }
+        return min(fittedSize.width / visibleReferenceSize.width, fittedSize.height / visibleReferenceSize.height)
+    }
+
+    private static let graphCalculatorTVSafeInset: CGFloat = 24
+
+    private static func graphCalculatorSafeReferenceSize(_ size: CGSize) -> CGSize {
+        CGSize(
+            width: size.width + graphCalculatorTVSafeInset,
+            height: size.height + graphCalculatorTVSafeInset
+        )
+    }
+
+    private static func graphCalculatorVisibleReferenceRect(mode: CanvasPresentationMode, referenceSize: CGSize) -> CGRect {
+        guard referenceSize.width > 0, referenceSize.height > 0 else {
+            return CGRect(origin: .zero, size: referenceSize)
+        }
+
+        switch mode {
+        case .mirror:
+            return CGRect(origin: .zero, size: referenceSize)
+        case .present:
+            let targetAspect: CGFloat = 16.0 / 9.0
+            let referenceAspect = referenceSize.width / referenceSize.height
+            let visibleSize: CGSize
+            if referenceAspect > targetAspect {
+                visibleSize = CGSize(width: referenceSize.height * targetAspect, height: referenceSize.height)
+            } else {
+                visibleSize = CGSize(width: referenceSize.width, height: referenceSize.width / targetAspect)
+            }
+            return CGRect(
+                x: (referenceSize.width - visibleSize.width) / 2,
+                y: (referenceSize.height - visibleSize.height) / 2,
+                width: visibleSize.width,
+                height: visibleSize.height
+            )
+        }
     }
 
     private func scaledToolPaletteCenterBinding(fittedSize: CGSize, referenceSize: CGSize) -> Binding<CGPoint?> {

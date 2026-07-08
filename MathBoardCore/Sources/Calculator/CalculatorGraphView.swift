@@ -18,6 +18,8 @@ struct CalculatorGraphView: View {
     @Bindable var state: CalculatorState
 
     var onSnapshot: (@MainActor () -> Void)?
+    var showsKeypad = true
+    var showsFullKeypadButton = true
 
     private let engine = CalculatorEngine()
 
@@ -28,7 +30,7 @@ struct CalculatorGraphView: View {
     /// The compact keypad shows only when it's toggled on AND the full
     /// slide-out keypad isn't taking over. When the full keypad is out, the
     /// graph gets the extra room the compact keypad would have used.
-    private var keypadVisible: Bool { showKeypad && !state.showFullKeypad }
+    private var keypadVisible: Bool { showsKeypad && showKeypad && !state.showFullKeypad }
 
     var body: some View {
         VStack(spacing: 6) {
@@ -327,16 +329,20 @@ struct CalculatorGraphView: View {
             Button { onSnapshot?() } label: { Image(systemName: "camera") }
                 .disabled(onSnapshot == nil)
                 .help("Place graph on whiteboard")
-            Button { showKeypad.toggle() } label: {
-                Image(systemName: showKeypad ? "keyboard.chevron.compact.down" : "keyboard")
+            if showsKeypad {
+                Button { showKeypad.toggle() } label: {
+                    Image(systemName: showKeypad ? "keyboard.chevron.compact.down" : "keyboard")
+                }
+                .disabled(state.showFullKeypad)
             }
-            .disabled(state.showFullKeypad)
-            Button {
-                withAnimation(.easeInOut(duration: 0.28)) { state.showFullKeypad.toggle() }
-            } label: {
-                Image(systemName: state.showFullKeypad ? "square.grid.3x3.fill" : "square.grid.3x3")
+            if showsFullKeypadButton {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.28)) { state.showFullKeypad.toggle() }
+                } label: {
+                    Image(systemName: state.showFullKeypad ? "square.grid.3x3.fill" : "square.grid.3x3")
+                }
+                .help("Full slide-out keypad")
             }
-            .help("Full slide-out keypad")
 
             Spacer()
 

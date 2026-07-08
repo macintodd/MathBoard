@@ -41,7 +41,7 @@ public struct CalculatorTVOverlay: View {
                     referenceSize: referenceSize,
                     tvSize: proxy.size
                 )
-                card
+                CalculatorView(state: state)
                     .frame(width: state.paletteSize.width, height: state.paletteSize.height)
                     .scaleEffect(placement.scale)
                     .position(placement.center)

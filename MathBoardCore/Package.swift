@@ -25,6 +25,15 @@ let package = Package(
         .library(name: "Documents", targets: ["Documents"]),
         .library(name: "ToolPalette", targets: ["ToolPalette"]),
 
+        // Exposed so Xcode offers a "Calculator" scheme for SwiftUI previews.
+        // Presentation already links the target for integration; this product
+        // only makes the calculator module directly buildable in Xcode.
+        .library(name: "Calculator", targets: ["Calculator"]),
+
+        // Isolated Desmos-style teaching calculator prototype. Exposed so Xcode
+        // offers a "GraphCalculator" scheme for SwiftUI previews.
+        .library(name: "GraphCalculator", targets: ["GraphCalculator"]),
+
         // Exposed as a product only so Xcode offers a "WidgetEngine" scheme that
         // builds this target for SwiftUI previews. Nothing links it — the app
         // target does not depend on it, so the module stays fully isolated.
@@ -54,7 +63,7 @@ let package = Package(
                 .product(name: "SwiftUIMath", package: "swiftui-math")
             ]
         ),
-        .target(name: "Presentation", dependencies: ["Canvas", "Calculator", "TextEngine", "ToolPalette"]),
+        .target(name: "Presentation", dependencies: ["Canvas", "Calculator", "GraphCalculator", "TextEngine", "ToolPalette"]),
         .target(name: "Slides", dependencies: ["Presentation"]),
         .target(name: "Documents", dependencies: ["Slides"]),
 
@@ -62,6 +71,11 @@ let package = Package(
         // nothing else in MathBoardCore depends on it. See Calculator_status.md.
         .target(name: "Calculator"),
         .testTarget(name: "CalculatorTests", dependencies: ["Calculator"]),
+
+        // Self-contained Desmos-style graph calculator prototype. It reuses the
+        // Calculator target's expression engine and graph geometry, but remains
+        // isolated from the MathBoard app until explicitly integrated.
+        .target(name: "GraphCalculator", dependencies: ["Calculator"]),
 
         // Radial drawing palette. Now linked into `Presentation` for the
         // phased, feature-flagged integration (see ToolPalette_integration.md);

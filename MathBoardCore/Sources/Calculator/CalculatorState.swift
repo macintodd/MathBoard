@@ -47,14 +47,77 @@ public final class CalculatorState {
     /// Ephemeral (not persisted).
     public var computeIsError: Bool = false
 
+    /// Which TI-style calculator screen is visible while the Calc tab is active.
+    public var calculatorScreenMode: CalculatorHomeScreenMode = .home
+
+    /// Active tab in the `math` menu.
+    public var mathMenuTab: CalculatorMathMenuTab = .math
+
+    /// Active highlighted row in the current `math` menu tab.
+    public var mathMenuSelection: Int = 0
+
+    /// Active tab in the `stat` menu.
+    public var statMenuTab: CalculatorStatMenuTab = .edit
+
+    /// Active highlighted row in the current `stat` menu tab.
+    public var statMenuSelection: Int = 0
+
+    /// Modifier flags matching TI-style keystrokes. These are one-shot flags
+    /// consumed by the next eligible key.
+    public var isSecondActive: Bool = false
+    public var isAlphaActive: Bool = false
+
+    /// Simple L1/L2 editor state for class regression workflows.
+    public var statLists: [[Double]] = [
+        [1, 2, 3, 4],
+        [2, 4, 6, 8]
+    ]
+    public var statEditingColumn: Int = 0
+    public var statEditingRow: Int = 0
+    public var statEntryText: String = ""
+    public var regressionResult: CalculatorRegressionResult?
+    public var calculatorMessage: String = ""
+
     /// Last successful numeric result, injected as the `ans` variable so
     /// expressions can reference the previous answer (TI-style). Ephemeral.
     public var lastAnswer: Double?
 
-    /// Whether the full slide-out keypad is showing (it replaces the compact
-    /// graph keypad and slides out beside the palette). Ephemeral — resets
-    /// when the calculator closes.
+    /// Kept for compatibility with older graph UI paths. The full keypad is
+    /// now always part of the calculator body.
     public var showFullKeypad: Bool = false
+
+    /// Whether the keypad half of the calculator is visible. When the screen
+    /// is detached, the keypad can be closed while the graph/screen remains.
+    public var isKeypadVisible: Bool = true
+
+    /// Whether the calculator screen is detached from the keypad. When
+    /// detached, it remains driven by the same keypad but can be dragged and
+    /// resized independently.
+    public var isScreenDetached: Bool = false
+
+    /// Whether the detached screen object is currently visible. The docked
+    /// screen is always visible as part of the keypad card.
+    public var isDetachedScreenVisible: Bool = true
+
+    /// True after the detached screen has been sized by the user at least once.
+    /// Until then, first eject derives the screen size from the docked screen.
+    public var hasDetachedScreenSizeMemory: Bool = false
+
+    /// Which graph-related calculator screen is currently shown. `y=` opens
+    /// the equation editor; `graph` opens the plot.
+    public var graphScreenMode: CalculatorGraphScreenMode = .plot
+
+    /// Scroll offset for the Zoom menu. The TI menu shows 1-9 first, then the
+    /// down arrow reveals 0:ZoomFit.
+    public var zoomMenuOffset: Int = 0
+
+    /// Last detached screen center in viewport-space points. `nil` means the
+    /// view should choose a default spot near the keypad.
+    public var screenPosition: CGPoint?
+
+    /// User-adjustable detached screen content size. The view preserves the
+    /// calculator display's 4:3 aspect ratio when resizing.
+    public var screenSize: CGSize = CGSize(width: 292, height: 219)
 
     /// The graph equation the keypads currently edit. Shared state (rather
     /// than view-local) so both the compact keypad and the slide-out full
@@ -94,7 +157,7 @@ public final class CalculatorState {
     /// Default palette dimensions used on first launch and by the "reset"
     /// affordance. The view clamps the live size between
     /// `CalculatorPaletteLayout.minSize`/`maxSize`.
-    public static let defaultPaletteSize = CGSize(width: 360, height: 540)
+    public static let defaultPaletteSize = CGSize(width: 320, height: 790)
 
     /// User-adjustable palette dimensions (points). Persisted so a resized
     /// calculator reopens at the same size; the TV overlay mirrors it.
@@ -208,9 +271,9 @@ public final class CalculatorState {
     public init(store: UserDefaults = .standard) {
         self.store = store
 
-        // Restore mode (default: graph)
+        // Restore mode (default: compute)
         let modeRaw = store.string(forKey: Keys.mode)
-        self.mode = modeRaw.flatMap { CalculatorMode(rawValue: $0) } ?? .graph
+        self.mode = modeRaw.flatMap { CalculatorMode(rawValue: $0) } ?? .compute
 
         // Restore angle mode (default: degrees)
         let angleRaw = store.string(forKey: Keys.angleMode)
@@ -315,6 +378,34 @@ public enum CalculatorMode: String, Codable, Sendable, CaseIterable, Equatable {
     }
 }
 
+public enum CalculatorGraphScreenMode: String, Sendable, Equatable {
+    case equationEditor
+    case zoomMenu
+    case plot
+}
+
+public enum CalculatorHomeScreenMode: String, Sendable, Equatable {
+    case home
+    case mathMenu
+    case statMenu
+    case statEditor
+    case regressionResult
+}
+
+public enum CalculatorMathMenuTab: String, CaseIterable, Sendable, Equatable {
+    case math = "MATH"
+    case num = "NUM"
+    case cmplx = "CMPLX"
+    case prob = "PROB"
+    case frac = "FRAC"
+}
+
+public enum CalculatorStatMenuTab: String, CaseIterable, Sendable, Equatable {
+    case edit = "EDIT"
+    case calc = "CALC"
+    case tests = "TESTS"
+}
+
 // MARK: - Graph window
 
 public struct GraphWindow: Codable, Sendable, Equatable {
@@ -358,6 +449,10 @@ public struct GraphEquation: Identifiable, Codable, Hashable, Sendable {
     public var expression: String
     /// Index into `GraphPalette.colors` (wraps).
     public var colorIndex: Int
+    /// Optional custom hue for teaching graph style controls.
+    public var lineHue: Double?
+    /// Optional custom plotted line width.
+    public var lineWidth: Double?
     /// Whether this equation is currently plotted.
     public var isEnabled: Bool
 
@@ -365,11 +460,15 @@ public struct GraphEquation: Identifiable, Codable, Hashable, Sendable {
         id: UUID = UUID(),
         expression: String = "",
         colorIndex: Int = 0,
+        lineHue: Double? = nil,
+        lineWidth: Double? = nil,
         isEnabled: Bool = true
     ) {
         self.id = id
         self.expression = expression
         self.colorIndex = colorIndex
+        self.lineHue = lineHue
+        self.lineWidth = lineWidth
         self.isEnabled = isEnabled
     }
 }

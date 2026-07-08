@@ -36,7 +36,7 @@ final class CalculatorStateTests: XCTestCase {
     func testDefaultsOnFirstLaunch() {
         let state = CalculatorState(store: store)
         XCTAssertFalse(state.isVisible)
-        XCTAssertEqual(state.mode, .graph)
+        XCTAssertEqual(state.mode, .compute)
         XCTAssertEqual(state.angleMode, .degrees)
         XCTAssertNil(state.position)
         XCTAssertEqual(state.computeExpression, "")

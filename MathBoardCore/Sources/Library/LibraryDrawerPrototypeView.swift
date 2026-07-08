@@ -32,6 +32,12 @@ public struct LibraryDrawerPrototypeView: View {
     @State private var destination: LibraryFolder = LibraryMock.defaultDestination
     /// Local, mutable copy of Recent so stars can toggle in the prototype.
     @State private var recentItems: [LibraryObject] = LibraryMock.recent
+    /// Local, mutable copy of the libraries so pinning can toggle.
+    @State private var folders: [LibraryFolder] = LibraryMock.folders
+    /// Grid vs. list presentation for the Libraries browser.
+    @State private var libraryLayout: LibraryLayout = .grid
+    /// Smart-search query for the Libraries browser (matches name + keywords).
+    @State private var librarySearch: String = ""
     /// Transient footer feedback (e.g. "Added … to Quadratics").
     @State private var feedback: String?
 
@@ -305,15 +311,191 @@ public struct LibraryDrawerPrototypeView: View {
     // MARK: Libraries — grid
 
     private var libraryGridContent: some View {
-        ScrollView {
-            LazyVGrid(columns: gridColumns, spacing: 14) {
-                ForEach(LibraryMock.folders) { folder in
-                    folderCard(folder)
+        VStack(spacing: 0) {
+            librariesToolbar
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    let results = filteredFolders()
+                    if !librarySearch.isEmpty {
+                        if results.isEmpty {
+                            emptyLibrariesState
+                        } else {
+                            librarySection("\(results.count) result\(results.count == 1 ? "" : "s")",
+                                           results, showNewCard: false)
+                        }
+                    } else {
+                        let pinned = results.filter(\.isPinned)
+                        if !pinned.isEmpty {
+                            librarySection("Pinned", pinned, showNewCard: false)
+                        }
+                        librarySection("All Libraries", results.filter { !$0.isPinned }, showNewCard: true)
+                    }
                 }
-                newLibraryCard
+                .padding(.horizontal, 18)
+                .padding(.bottom, 18)
             }
-            .padding(18)
         }
+    }
+
+    /// Search field + grid/list toggle above the Libraries browser.
+    private var librariesToolbar: some View {
+        HStack(spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(LibraryTheme.muted)
+                TextField("Search libraries & contents", text: $librarySearch)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 14))
+                    .foregroundStyle(LibraryTheme.ink)
+                if !librarySearch.isEmpty {
+                    Button { librarySearch = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 14))
+                            .foregroundStyle(LibraryTheme.muted)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 36)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(LibraryTheme.recessed))
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    libraryLayout = (libraryLayout == .grid ? .list : .grid)
+                }
+            } label: {
+                Image(systemName: libraryLayout.toggleIcon)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(LibraryTheme.accent)
+                    .frame(width: 36, height: 36)
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(LibraryTheme.recessed))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 18)
+        .padding(.top, 4)
+        .padding(.bottom, 12)
+    }
+
+    @ViewBuilder
+    private func librarySection(_ title: String, _ items: [LibraryFolder], showNewCard: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title.uppercased())
+                .font(.system(size: 11, weight: .heavy))
+                .tracking(0.5)
+                .foregroundStyle(LibraryTheme.muted)
+
+            if libraryLayout == .grid {
+                LazyVGrid(columns: gridColumns, spacing: 14) {
+                    ForEach(items) { folderCard($0) }
+                    if showNewCard { newLibraryCard }
+                }
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(items) { folderRow($0) }
+                    if showNewCard { newLibraryRow }
+                }
+            }
+        }
+    }
+
+    private var emptyLibrariesState: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 22))
+                .foregroundStyle(LibraryTheme.hairline)
+            Text("No libraries match “\(librarySearch)”")
+                .font(.system(size: 12))
+                .foregroundStyle(LibraryTheme.muted)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
+    }
+
+    private func filteredFolders() -> [LibraryFolder] {
+        folders.filter { $0.matches(librarySearch) }
+    }
+
+    private func togglePin(_ folder: LibraryFolder) {
+        guard let index = folders.firstIndex(where: { $0.id == folder.id }) else { return }
+        folders[index].isPinned.toggle()
+        feedback = folders[index].isPinned ? "Pinned \(folder.name)" : "Unpinned \(folder.name)"
+    }
+
+    /// 📌 pin toggle used on both the grid card and the list row.
+    private func pinButton(_ folder: LibraryFolder) -> some View {
+        Button {
+            togglePin(folder)
+        } label: {
+            Image(systemName: folder.isPinned ? "pin.fill" : "pin")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(folder.isPinned ? LibraryTheme.accent : LibraryTheme.muted)
+                .frame(width: 26, height: 26)
+                .background(Circle().fill(.white.opacity(0.92)))
+                .overlay(Circle().strokeBorder(LibraryTheme.hairline, lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Compact list row used in List layout.
+    private func folderRow(_ folder: LibraryFolder) -> some View {
+        Button {
+            open(folder)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: folder.symbol)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(folder.tint)
+                    .frame(width: 36, height: 36)
+                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(folder.tint.opacity(0.16)))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(folder.name)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(LibraryTheme.ink)
+                        .lineLimit(1)
+                    Text("\(folder.itemCount) items")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(LibraryTheme.muted)
+                }
+                Spacer(minLength: 6)
+                pinButton(folder)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(LibraryTheme.muted)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: LibraryTheme.cardCornerRadius, style: .continuous).fill(LibraryTheme.card))
+            .overlay(RoundedRectangle(cornerRadius: LibraryTheme.cardCornerRadius, style: .continuous).strokeBorder(LibraryTheme.hairline, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var newLibraryRow: some View {
+        Button {
+            feedback = "New library (mock — not created)"
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "plus")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(LibraryTheme.muted)
+                    .frame(width: 36, height: 36)
+                Text("New library")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(LibraryTheme.muted)
+                Spacer()
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: LibraryTheme.cardCornerRadius, style: .continuous)
+                    .strokeBorder(LibraryTheme.hairline, style: .init(lineWidth: 1.5, dash: [6, 4]))
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     private func folderCard(_ folder: LibraryFolder) -> some View {

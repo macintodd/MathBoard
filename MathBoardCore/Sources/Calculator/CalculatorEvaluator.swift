@@ -211,6 +211,15 @@ public struct CalculatorEvaluator: Sendable {
                 return sqrt(value)
             }
         case "cbrt": return try one { cbrt($0) }
+        case "root":
+            return try two { value, index in
+                guard index != 0 else { throw CalculatorError.domain(function: raw, value: index) }
+                if value < 0 && index.rounded() == index && Int(index) % 2 != 0 {
+                    return -pow(abs(value), 1 / index)
+                }
+                guard value >= 0 else { throw CalculatorError.domain(function: raw, value: value) }
+                return pow(value, 1 / index)
+            }
 
         // Misc numerics
         case "abs": return try one { abs($0) }
@@ -231,9 +240,38 @@ public struct CalculatorEvaluator: Sendable {
                 guard divisor != 0 else { throw CalculatorError.divisionByZero }
                 return dividend.truncatingRemainder(dividingBy: divisor)
             }
+        case "gcd":
+            return try two { left, right in
+                try Double(gcd(integer(from: left, function: raw), integer(from: right, function: raw)))
+            }
+        case "lcm":
+            return try two { left, right in
+                let a = try integer(from: left, function: raw)
+                let b = try integer(from: right, function: raw)
+                guard a != 0 && b != 0 else { return 0 }
+                return Double(abs(a / gcd(a, b) * b))
+            }
 
         default:
             throw CalculatorError.unknownFunction(raw)
         }
+    }
+
+    private static func integer(from value: Double, function: String) throws -> Int {
+        guard value.isFinite, value.rounded() == value, abs(value) <= Double(Int.max) else {
+            throw CalculatorError.domain(function: function, value: value)
+        }
+        return Int(value)
+    }
+
+    private static func gcd(_ left: Int, _ right: Int) -> Int {
+        var a = abs(left)
+        var b = abs(right)
+        while b != 0 {
+            let remainder = a % b
+            a = b
+            b = remainder
+        }
+        return a
     }
 }
