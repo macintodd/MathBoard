@@ -2,7 +2,7 @@
 
 > Living document. Update at the end of every working session. New AI sessions: read **Section 0 (AI Orientation)** first and start from there; only read further sections or source files when a task needs the detail. For a full deep-dive after a long break, read top-to-bottom.
 
-**Last updated:** 2026-07-09 — Geometry resize-to-flip now covers right triangles and regular triangles. Right triangles flip the right-angle corner from signed width/height; regular triangles flip vertically by moving the apex below the base when height is negative. `GeometryTool_status.md` updated. Xcode build clean; pending device retest.
+**Last updated:** 2026-07-09 — Canvas layer order changed so **handwriting ink paints on top of the content object layers** (images/geometry/text) while the **laser pointer stays topmost**. New paint order (bottom→top): PDF paper → images → geometry → text → handwriting ink → region/text-placement overlays → laser. Applied consistently in the on-canvas subview stack (`PencilKitCanvasHostView`), the mirrored committed-frame composite (`publishImageFromModel`), and PDF export (`SlidePDFExporter.drawPage`). Also: equal-sided snap + prominent resize-guide diagonal for circle/square and isosceles right triangle. Discussed (not built) a future "tape/reveal" cover tool and coarse per-object layering. Xcode build clean; pending device retest.
 
 ---
 

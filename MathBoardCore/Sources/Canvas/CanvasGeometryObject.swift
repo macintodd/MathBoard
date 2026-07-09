@@ -46,6 +46,10 @@ public struct CanvasGeometryObject: Identifiable, Codable, Hashable, Sendable {
     public var fillOpacity: CGFloat
     public var polygonSides: Int
     public var arrow: CanvasGeometryArrow
+    /// Horizontal apex position for `.triangle`, relative to the base frame.
+    /// 0.5 is centered, 0/1 create right-triangle-like edges, values outside
+    /// that range create obtuse triangles.
+    public var apexOffset: CGFloat
     /// Rotation in radians, applied about `pivot`.
     public var rotation: CGFloat
     /// Rotation pivot in canvas source coordinates. Nil means the center of the
@@ -72,6 +76,7 @@ public struct CanvasGeometryObject: Identifiable, Codable, Hashable, Sendable {
         fillOpacity: CGFloat = 0,
         polygonSides: Int = 5,
         arrow: CanvasGeometryArrow = .none,
+        apexOffset: CGFloat = 0.5,
         rotation: CGFloat = 0,
         pivotX: CGFloat? = nil,
         pivotY: CGFloat? = nil,
@@ -94,6 +99,7 @@ public struct CanvasGeometryObject: Identifiable, Codable, Hashable, Sendable {
         self.fillOpacity = fillOpacity
         self.polygonSides = polygonSides
         self.arrow = arrow
+        self.apexOffset = apexOffset
         self.rotation = rotation
         self.pivotX = pivotX
         self.pivotY = pivotY
@@ -110,6 +116,22 @@ public struct CanvasGeometryObject: Identifiable, Codable, Hashable, Sendable {
         frame.standardized
     }
 
+    /// Bounds of the visible rendered object. Most shapes render inside
+    /// `normalizedFrame`; triangles can extend outside it when the apex offset
+    /// is dragged beyond the base.
+    public var renderedBounds: CGRect {
+        guard shape == .triangle else {
+            return normalizedFrame
+        }
+        let frame = normalizedFrame
+        let apex = triangleApexSourcePoint
+        let minX = min(frame.minX, apex.x)
+        let maxX = max(frame.maxX, apex.x)
+        let minY = min(frame.minY, apex.y)
+        let maxY = max(frame.maxY, apex.y)
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+
     /// True when the signed width crosses back over the source origin.
     public var isFlippedHorizontal: Bool {
         width < 0
@@ -118,6 +140,20 @@ public struct CanvasGeometryObject: Identifiable, Codable, Hashable, Sendable {
     /// True when the signed height crosses back over the source origin.
     public var isFlippedVertical: Bool {
         height < 0
+    }
+
+    /// Apex offset as rendered after horizontal resize flipping.
+    public var renderedTriangleApexOffset: CGFloat {
+        isFlippedHorizontal ? 1 - apexOffset : apexOffset
+    }
+
+    /// Triangle apex in source coordinates, including vertical resize flipping.
+    public var triangleApexSourcePoint: CGPoint {
+        let frame = normalizedFrame
+        return CGPoint(
+            x: frame.minX + renderedTriangleApexOffset * frame.width,
+            y: isFlippedVertical ? frame.maxY : frame.minY
+        )
     }
 
     /// Rotation pivot in source coordinates, defaulting to the frame center.
@@ -129,7 +165,7 @@ public struct CanvasGeometryObject: Identifiable, Codable, Hashable, Sendable {
         case id, shape, x, y, width, height
         case strokeRed, strokeGreen, strokeBlue, strokeAlpha, strokeWidth
         case fillRed, fillGreen, fillBlue, fillOpacity
-        case polygonSides, arrow, rotation, pivotX, pivotY, isLocked
+        case polygonSides, arrow, apexOffset, rotation, pivotX, pivotY, isLocked
     }
 
     public init(from decoder: Decoder) throws {
@@ -151,6 +187,7 @@ public struct CanvasGeometryObject: Identifiable, Codable, Hashable, Sendable {
         fillOpacity = try container.decodeIfPresent(CGFloat.self, forKey: .fillOpacity) ?? 0
         polygonSides = try container.decodeIfPresent(Int.self, forKey: .polygonSides) ?? 5
         arrow = try container.decodeIfPresent(CanvasGeometryArrow.self, forKey: .arrow) ?? .none
+        apexOffset = try container.decodeIfPresent(CGFloat.self, forKey: .apexOffset) ?? 0.5
         rotation = try container.decodeIfPresent(CGFloat.self, forKey: .rotation) ?? 0
         pivotX = try container.decodeIfPresent(CGFloat.self, forKey: .pivotX)
         pivotY = try container.decodeIfPresent(CGFloat.self, forKey: .pivotY)

@@ -165,7 +165,7 @@ struct SlidePDFExporter {
             }
         }
         for object in geometryObjects {
-            let frame = object.normalizedFrame
+            let frame = object.renderedBounds
             if bounds.isEmpty || bounds.isNull {
                 bounds = frame
             } else {
@@ -206,7 +206,8 @@ struct SlidePDFExporter {
             context.restoreGState()
         }
 
-        drawInk(drawing, from: pageInfo.sourceRect, into: pageInfo.pageRect, in: context)
+        // Content object layers first, then handwriting ink on top, to match
+        // the on-canvas and mirrored paint order.
         drawImageObjects(
             imageObjects,
             assetDirectoryURL: PresentationCanvasImageObject.assetDirectoryURL(forDrawingURL: drawingURL),
@@ -226,6 +227,7 @@ struct SlidePDFExporter {
             into: pageInfo.pageRect,
             in: context
         )
+        drawInk(drawing, from: pageInfo.sourceRect, into: pageInfo.pageRect, in: context)
 
         context.endPDFPage()
     }

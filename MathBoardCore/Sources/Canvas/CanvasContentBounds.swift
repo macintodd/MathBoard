@@ -34,7 +34,7 @@ public enum CanvasContentBounds {
         }
 
         for object in geometryObjects {
-            let frame = object.normalizedFrame.offsetBy(dx: canvasOrigin.x, dy: canvasOrigin.y)
+            let frame = object.renderedBounds.offsetBy(dx: canvasOrigin.x, dy: canvasOrigin.y)
             guard isUsable(frame) else { continue }
             combined = union(combined, frame)
         }

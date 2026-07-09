@@ -541,14 +541,17 @@ private final class PencilKitCanvasHostView: UIView {
         regionSelectionOverlayView.acceptsRegionSelectionInput = false
         laserOverlayView.acceptsLaserInput = false
         textPlacementOverlayView.acceptsTextPlacement = false
+        // Paint order (bottom → top): PDF paper, then the content object layers
+        // (images, geometry, text), then handwriting ink on top of the content,
+        // then the transient interaction overlays with the laser pointer topmost.
         addSubview(backgroundView)
-        addSubview(canvas)
         addSubview(imageObjectsView)
         addSubview(geometryObjectsView)
         addSubview(textObjectsView)
+        addSubview(canvas)
         addSubview(regionSelectionOverlayView)
-        addSubview(laserOverlayView)
         addSubview(textPlacementOverlayView)
+        addSubview(laserOverlayView)
     }
 
     required init?(coder: NSCoder) {
@@ -606,11 +609,13 @@ private final class PencilKitCanvasHostView: UIView {
     func updateGeometryObjects(
         _ geometryObjects: [CanvasGeometryObject],
         using canvas: PKCanvasView,
-        selectedGeometryObjectID: UUID? = nil
+        selectedGeometryObjectID: UUID? = nil,
+        resizingGeometryObjectID: UUID? = nil
     ) {
         geometryObjectsView.configure(
             geometryObjects,
-            selectedGeometryObjectID: selectedGeometryObjectID
+            selectedGeometryObjectID: selectedGeometryObjectID,
+            resizingGeometryObjectID: resizingGeometryObjectID
         )
         updateGeometryObjectFrame(using: canvas)
     }
@@ -1206,6 +1211,7 @@ private final class CanvasImageObjectsView: UIView {
 private final class CanvasGeometryObjectsView: UIView {
     private var geometryObjects: [CanvasGeometryObject] = []
     private var selectedGeometryObjectID: UUID?
+    private var resizingGeometryObjectID: UUID?
     private var zoomScale: CGFloat = 1
     private var contentOffset: CGPoint = .zero
     private var canvasOrigin: CGPoint = .zero
@@ -1223,14 +1229,17 @@ private final class CanvasGeometryObjectsView: UIView {
 
     func configure(
         _ geometryObjects: [CanvasGeometryObject],
-        selectedGeometryObjectID: UUID? = nil
+        selectedGeometryObjectID: UUID? = nil,
+        resizingGeometryObjectID: UUID? = nil
     ) {
         guard self.geometryObjects != geometryObjects
-                || self.selectedGeometryObjectID != selectedGeometryObjectID else {
+                || self.selectedGeometryObjectID != selectedGeometryObjectID
+                || self.resizingGeometryObjectID != resizingGeometryObjectID else {
             return
         }
         self.geometryObjects = geometryObjects
         self.selectedGeometryObjectID = selectedGeometryObjectID
+        self.resizingGeometryObjectID = resizingGeometryObjectID
         setNeedsDisplay()
     }
 
@@ -1296,7 +1305,7 @@ private final class CanvasGeometryObjectsView: UIView {
     }
 
     private func drawSelection(for object: CanvasGeometryObject) {
-        let normalized = object.normalizedFrame
+        let normalized = object.renderedBounds
         let pivotSource = object.pivot
         let rotation = object.rotation
         func rs(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
@@ -1318,6 +1327,23 @@ private final class CanvasGeometryObjectsView: UIView {
         box.lineWidth = 2
         box.setLineDash([6, 4], count: 2, phase: 0)
         box.stroke()
+
+        // While actively resizing a circle/rectangle/right triangle, show a
+        // dotted diagonal corner-to-corner of the box when it is equal-sided
+        // (perfect circle / square / isosceles right triangle). It is a transient
+        // resize guide only — nothing is drawn once the resize ends.
+        if object.id == resizingGeometryObjectID,
+           object.shape == .circle || object.shape == .rectangle || object.shape == .rightTriangle,
+           CanvasGeometryRenderer.isEqualSided(width: object.width, height: object.height) {
+            let diagonal = UIBezierPath()
+            diagonal.move(to: topLeft)
+            diagonal.addLine(to: bottomRight)
+            diagonal.lineWidth = 4
+            diagonal.lineCapStyle = .round
+            diagonal.setLineDash([4, 5], count: 2, phase: 0)
+            UIColor.systemBlue.setStroke()
+            diagonal.stroke()
+        }
 
         // Rotation stem + knob, extending outward from the top edge center.
         let topCenter = rs(normalized.midX, normalized.minY)
@@ -1345,6 +1371,10 @@ private final class CanvasGeometryObjectsView: UIView {
 
         // Green rotation pivot dot (invariant under the object's own rotation).
         drawPivotDot(at: screenPoint(x: pivotSource.x, y: pivotSource.y))
+
+        if object.shape == .triangle {
+            drawApexHandle(at: rotatedScreenPoint(object.triangleApexSourcePoint, pivotSource: pivotSource, rotation: rotation))
+        }
     }
 
     private func drawResizeHandle(at point: CGPoint) {
@@ -1375,6 +1405,20 @@ private final class CanvasGeometryObjectsView: UIView {
         let ring = UIBezierPath(ovalIn: r)
         ring.lineWidth = 2
         ring.stroke()
+    }
+
+    private func drawApexHandle(at point: CGPoint) {
+        let path = UIBezierPath()
+        path.move(to: CGPoint(x: point.x, y: point.y - 8))
+        path.addLine(to: CGPoint(x: point.x + 8, y: point.y))
+        path.addLine(to: CGPoint(x: point.x, y: point.y + 8))
+        path.addLine(to: CGPoint(x: point.x - 8, y: point.y))
+        path.close()
+        UIColor.systemOrange.setFill()
+        path.fill()
+        UIColor.white.setStroke()
+        path.lineWidth = 2
+        path.stroke()
     }
 }
 
@@ -1939,6 +1983,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private var rotatingGeometryStartRotation: CGFloat = 0
         private var rotatingGeometryStartAngle: CGFloat = 0
         private var pivotDraggingGeometryObjectID: UUID?
+        private var apexDraggingGeometryObjectID: UUID?
         private var pendingGeometryHandleHit: (id: UUID, kind: GeometryHandleKind)?
         private var creatingGeometryObjectID: UUID?
         private var creatingGeometryStartSourcePoint: CGPoint = .zero
@@ -2972,6 +3017,8 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                         rotatingGeometryStartAngle = atan2(startSource.y - pivot.y, startSource.x - pivot.x)
                     case .pivot:
                         pivotDraggingGeometryObjectID = handle.id
+                    case .apex:
+                        apexDraggingGeometryObjectID = handle.id
                     }
                     updateHostGeometryObjects(using: canvas)
                     return
@@ -3067,6 +3114,25 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     return
                 }
 
+                if let apexDraggingGeometryObjectID,
+                   let index = parent.geometryObjects.firstIndex(where: { $0.id == apexDraggingGeometryObjectID }) {
+                    let source = sourcePoint(forCanvasPoint: recognizer.location(in: canvas), on: canvas)
+                    let object = parent.geometryObjects[index]
+                    let local = geometryLocalPoint(source, object: object)
+                    let frame = object.normalizedFrame
+                    guard frame.width > 0.001 else { return }
+                    let renderedOffset = (local.x - frame.minX) / frame.width
+                    var geometryObjects = parent.geometryObjects
+                    geometryObjects[index].apexOffset = object.isFlippedHorizontal ? 1 - renderedOffset : renderedOffset
+                    parent.geometryObjects = geometryObjects
+                    if selectedGeometryObjectID == apexDraggingGeometryObjectID {
+                        updateSharedSelectionState()
+                    }
+                    updateHostGeometryObjects(using: canvas)
+                    publishImageFromModel()
+                    return
+                }
+
                 if let resizingGeometryObjectID,
                    let index = parent.geometryObjects.firstIndex(where: { $0.id == resizingGeometryObjectID }) {
                     let currentSource = sourcePoint(forCanvasPoint: recognizer.location(in: canvas), on: canvas)
@@ -3084,8 +3150,28 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     } else {
                         geometryObjects[index].x = resizingGeometryObjectStartFrame.origin.x
                         geometryObjects[index].y = resizingGeometryObjectStartFrame.origin.y
-                        geometryObjects[index].width = signedGeometryDimension(resizingGeometryObjectStartFrame.width + delta.x)
-                        geometryObjects[index].height = signedGeometryDimension(resizingGeometryObjectStartFrame.height + delta.y)
+                        var newWidth = signedGeometryDimension(resizingGeometryObjectStartFrame.width + delta.x)
+                        var newHeight = signedGeometryDimension(resizingGeometryObjectStartFrame.height + delta.y)
+                        // Snap circles/rectangles/right triangles to an equal-sided
+                        // shape (perfect circle, square, or isosceles right triangle)
+                        // when the width and height get close, so the user can lift on
+                        // an exact equal-sided shape. Projects both onto their average
+                        // magnitude (the 45° diagonal) while preserving each sign.
+                        if geometryObjects[index].shape == .circle
+                            || geometryObjects[index].shape == .rectangle
+                            || geometryObjects[index].shape == .rightTriangle {
+                            let widthMagnitude = abs(newWidth)
+                            let heightMagnitude = abs(newHeight)
+                            let maxMagnitude = max(widthMagnitude, heightMagnitude)
+                            let snapTolerance = max(maxMagnitude * 0.06, 14)
+                            if maxMagnitude > 0.5, abs(widthMagnitude - heightMagnitude) <= snapTolerance {
+                                let snapped = (widthMagnitude + heightMagnitude) / 2
+                                newWidth = newWidth < 0 ? -snapped : snapped
+                                newHeight = newHeight < 0 ? -snapped : snapped
+                            }
+                        }
+                        geometryObjects[index].width = newWidth
+                        geometryObjects[index].height = newHeight
                     }
                     parent.geometryObjects = geometryObjects
                     if selectedGeometryObjectID == resizingGeometryObjectID {
@@ -3147,6 +3233,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 }
             case .ended, .cancelled, .failed:
                 clearObjectDragState()
+                // Refresh geometry overlay so the transient resize guide (the
+                // equal-sided diagonal) clears now that no resize is in progress.
+                updateHostGeometryObjects(using: canvas)
                 publishImageFromModel()
             default:
                 break
@@ -3162,6 +3251,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             resizingGeometryObjectID = nil
             rotatingGeometryObjectID = nil
             pivotDraggingGeometryObjectID = nil
+            apexDraggingGeometryObjectID = nil
             pendingGeometryHandleHit = nil
         }
 
@@ -3335,7 +3425,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 object.isLocked == true ? nil : (activeRegionSelection.intersects(object.frame) ? object.id : nil)
             })
             activeRegionSelectedGeometryObjectIDs = Set(parent.geometryObjects.compactMap { object in
-                object.isLocked == true ? nil : (activeRegionSelection.intersects(object.normalizedFrame) ? object.id : nil)
+                object.isLocked == true ? nil : (activeRegionSelection.intersects(object.renderedBounds) ? object.id : nil)
             })
             activeRegionSelectedStrokeIndexes = []
             updateRegionSelectionHighlight(on: canvas)
@@ -3352,7 +3442,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             }
             let geometryRects = parent.geometryObjects.compactMap { object -> CGRect? in
                 guard activeRegionSelectedGeometryObjectIDs.contains(object.id) else { return nil }
-                return overlayRect(forSourceRect: object.normalizedFrame, on: canvas)
+                return overlayRect(forSourceRect: object.renderedBounds, on: canvas)
             }
             hostView?.regionSelectionOverlayView.updateSelectedRects(textRects + imageRects + geometryRects)
         }
@@ -3447,7 +3537,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         }
 
         private func geometryHitFrame(_ object: CanvasGeometryObject) -> CGRect {
-            let normalized = object.normalizedFrame
+            let normalized = object.renderedBounds
             if normalized.width < 1 || normalized.height < 1 {
                 return normalized.insetBy(dx: -6, dy: -6)
             }
@@ -3476,6 +3566,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         enum GeometryHandleKind {
             case rotate
             case pivot
+            case apex
             case resize
         }
 
@@ -3569,6 +3660,21 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
 
             let pivotScreen = screenPoint(for: object.pivot, on: canvas)
 
+            let apexSource: CGPoint?
+            let apexScreen: CGPoint?
+            if object.shape == .triangle {
+                let source = rotateSourcePoint(
+                    object.triangleApexSourcePoint,
+                    about: object.pivot,
+                    by: object.rotation
+                )
+                apexSource = source
+                apexScreen = screenPoint(for: source, on: canvas)
+            } else {
+                apexSource = nil
+                apexScreen = nil
+            }
+
             let resizeCornerSource = rotateSourcePoint(
                 CGPoint(x: object.x + object.width, y: object.y + object.height),
                 about: object.pivot,
@@ -3576,16 +3682,33 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             )
             let resizeCornerScreen = screenPoint(for: resizeCornerSource, on: canvas)
 
-            let rotateScreenDistance = distance(to: knob)
-            let rotateSourceDistance = sourceDistance(to: knobSource)
-            let pivotScreenDistance = distance(to: pivotScreen)
-            let pivotSourceDistance = sourceDistance(to: object.pivot)
-            let resizeScreenDistance = distance(to: resizeCornerScreen)
-            let resizeSourceDistance = sourceDistance(to: resizeCornerSource)
+            // Nearest-handle-wins. The rotation knob and the apex handle sit only
+            // ~30pt apart, so a fixed priority + radius can't separate them; instead
+            // pick whichever handle center the touch is closest to (within radius).
+            // Distances are normalized to screen units so screen and source
+            // candidates compare fairly.
+            func normalizedDistance(screen screenPoint: CGPoint, source sourcePoint: CGPoint) -> CGFloat {
+                min(distance(to: screenPoint), sourceDistance(to: sourcePoint) * zoom)
+            }
 
-            if rotateScreenDistance <= radius || rotateSourceDistance <= sourceRadius { return (object.id, .rotate) }
-            if pivotScreenDistance <= radius || pivotSourceDistance <= sourceRadius { return (object.id, .pivot) }
-            if resizeScreenDistance <= radius || resizeSourceDistance <= sourceRadius { return (object.id, .resize) }
+            var best: (kind: GeometryHandleKind, distance: CGFloat)?
+            func consider(_ kind: GeometryHandleKind, _ candidateDistance: CGFloat) {
+                guard candidateDistance <= radius else { return }
+                if best == nil || candidateDistance < best!.distance {
+                    best = (kind, candidateDistance)
+                }
+            }
+
+            consider(.rotate, normalizedDistance(screen: knob, source: knobSource))
+            consider(.pivot, normalizedDistance(screen: pivotScreen, source: object.pivot))
+            if let apexScreen, let apexSource {
+                consider(.apex, normalizedDistance(screen: apexScreen, source: apexSource))
+            }
+            consider(.resize, normalizedDistance(screen: resizeCornerScreen, source: resizeCornerSource))
+
+            if let best {
+                return (object.id, best.kind)
+            }
             return nil
         }
 
@@ -3678,7 +3801,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 parent.selectionState = CanvasSelectionState(
                     selectedObject: .geometry(object.id),
                     selectedGeometryObject: object,
-                    viewportFrame: canvas.map { overlayRect(forSourceRect: object.normalizedFrame, on: $0) }
+                    viewportFrame: canvas.map { overlayRect(forSourceRect: object.renderedBounds, on: $0) }
                 )
             } else {
                 parent.selectionState = CanvasSelectionState()
@@ -3849,6 +3972,10 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 fillOpacity: object.fillOpacity,
                 polygonSides: object.polygonSides,
                 arrow: object.arrow,
+                apexOffset: object.apexOffset,
+                rotation: object.rotation,
+                pivotX: object.pivotX.map { $0 + offset },
+                pivotY: object.pivotY.map { $0 + offset },
                 isLocked: object.isLocked
             )
             var geometryObjects = parent.geometryObjects
@@ -4070,6 +4197,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                         fillOpacity: object.fillOpacity,
                         polygonSides: object.polygonSides,
                         arrow: object.arrow,
+                        apexOffset: object.apexOffset,
                         rotation: object.rotation,
                         pivotX: object.pivotX.map { $0 + offset },
                         pivotY: object.pivotY.map { $0 + offset },
@@ -4639,7 +4767,8 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             hostView?.updateGeometryObjects(
                 parent.geometryObjects,
                 using: canvas,
-                selectedGeometryObjectID: selectedGeometryObjectForDisplayID
+                selectedGeometryObjectID: selectedGeometryObjectForDisplayID,
+                resizingGeometryObjectID: resizingGeometryObjectID
             )
         }
 
@@ -5189,7 +5318,8 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     sourceRect: sourceRect,
                     destinationRect: destinationRect
                 )
-                parent.drawing.image(from: sourceRect, scale: drawingImageScale).draw(in: destinationRect)
+                // Content object layers first, then handwriting ink on top, to
+                // match the on-canvas paint order.
                 drawImageObjects(
                     in: context.cgContext,
                     sourceRect: sourceRect,
@@ -5205,6 +5335,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     sourceRect: sourceRect,
                     destinationRect: destinationRect
                 )
+                parent.drawing.image(from: sourceRect, scale: drawingImageScale).draw(in: destinationRect)
             }
             if let cg = image.cgImage {
                 onFrameUpdate(cg, sourceRect, visibleSourceRect)

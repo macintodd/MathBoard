@@ -64,9 +64,10 @@ public enum CanvasGeometryRenderer {
             fillAndStroke(CGPath(ellipseIn: boundingRect, transform: nil), fillOpacity: object.fillOpacity, in: context)
         case .triangle:
             let path = CGMutablePath()
+            let apexX = boundingRect.minX + object.renderedTriangleApexOffset * boundingRect.width
             let apexY = object.isFlippedVertical ? boundingRect.maxY : boundingRect.minY
             let baseY = object.isFlippedVertical ? boundingRect.minY : boundingRect.maxY
-            path.move(to: CGPoint(x: boundingRect.midX, y: apexY))
+            path.move(to: CGPoint(x: apexX, y: apexY))
             path.addLine(to: CGPoint(x: boundingRect.maxX, y: baseY))
             path.addLine(to: CGPoint(x: boundingRect.minX, y: baseY))
             path.closeSubpath()
@@ -87,6 +88,17 @@ public enum CanvasGeometryRenderer {
         }
 
         context.restoreGState()
+    }
+
+    /// True when the two axes are within ~2% — i.e. a circle is a perfect circle
+    /// (not an ellipse) or a rectangle is a square. Keyed off the object's own
+    /// source dimensions so it is independent of the render scale.
+    public static func isEqualSided(width: CGFloat, height: CGFloat) -> Bool {
+        let w = abs(width)
+        let h = abs(height)
+        let maxSide = max(w, h)
+        guard maxSide > 0.5 else { return false }
+        return abs(w - h) <= maxSide * 0.02
     }
 
     private static func fillAndStroke(_ path: CGPath, fillOpacity: CGFloat, in context: CGContext) {
