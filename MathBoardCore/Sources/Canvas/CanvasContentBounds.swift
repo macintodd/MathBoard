@@ -11,6 +11,7 @@ public enum CanvasContentBounds {
         drawingBounds: CGRect?,
         backgroundSize: CGSize?,
         textObjects: [CanvasTextObject],
+        geometryObjects: [CanvasGeometryObject] = [],
         canvasOrigin: CGPoint = .zero
     ) -> CGRect? {
         var combined: CGRect?
@@ -28,6 +29,12 @@ public enum CanvasContentBounds {
 
         for object in textObjects where !object.text.isEmpty {
             let frame = object.frame.offsetBy(dx: canvasOrigin.x, dy: canvasOrigin.y)
+            guard isUsable(frame) else { continue }
+            combined = union(combined, frame)
+        }
+
+        for object in geometryObjects {
+            let frame = object.normalizedFrame.offsetBy(dx: canvasOrigin.x, dy: canvasOrigin.y)
             guard isUsable(frame) else { continue }
             combined = union(combined, frame)
         }

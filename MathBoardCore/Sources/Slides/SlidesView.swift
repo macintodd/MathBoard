@@ -46,7 +46,12 @@ public struct SlidesView: View {
                         scheduleViewportSave(state, for: slide.id)
                     },
                     onInteractionBegan: handleCanvasInteractionBegan,
-                    onExtractedRegionSend: sendExtractedRegionToNextEmptySlide
+                    onExtractedRegionSend: sendExtractedRegionToNextEmptySlide,
+                    onImportPDF: { isShowingPDFImporter = true },
+                    onExportPDF: {
+                        flushPendingViewportSave()
+                        isShowingPDFExporter = true
+                    }
                 )
                     .id(slide.id)
             }
@@ -135,24 +140,6 @@ public struct SlidesView: View {
                 onExport: exportPDF
             )
         }
-        .toolbar {
-            ToolbarItem(placement: .secondaryAction) {
-                Button {
-                    flushPendingViewportSave()
-                    isShowingPDFExporter = true
-                } label: {
-                    Label("Export PDF", systemImage: "square.and.arrow.up")
-                }
-            }
-
-            ToolbarItem(placement: .secondaryAction) {
-                Button {
-                    isShowingPDFImporter = true
-                } label: {
-                    Label("Import PDF", systemImage: "doc.badge.plus")
-                }
-            }
-        }
     }
 
     private var activeSlide: SlideMetadata? {
@@ -228,7 +215,8 @@ public struct SlidesView: View {
         }
         let textObjects = PresentationCanvasTextObject.load(from: PresentationCanvasTextObject.sidecarURL(forDrawingURL: drawingURL))
         let imageObjects = PresentationCanvasImageObject.load(from: PresentationCanvasImageObject.sidecarURL(forDrawingURL: drawingURL))
-        return textObjects.isEmpty && imageObjects.isEmpty
+        let geometryObjects = PresentationCanvasGeometryObject.load(from: PresentationCanvasGeometryObject.sidecarURL(forDrawingURL: drawingURL))
+        return textObjects.isEmpty && imageObjects.isEmpty && geometryObjects.isEmpty
     }
 
     private func placeExtractedRegion(_ region: PresentationExtractedRegion, on slide: SlideMetadata) throws {

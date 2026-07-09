@@ -98,18 +98,18 @@ public struct ExternalCanvasView: View {
                                 )
                                 .allowsHitTesting(false)
                             case .compact:
-                                CompactToolPaletteView(
+                                // Mirror the iPad's floating palette layout exactly by
+                                // laying it out in the iPad reference space, then scaling
+                                // the whole thing down to the fitted TV rect. Reusing the
+                                // same view keeps the rail/drawer dock offset identical to
+                                // the iPad, so the palette no longer drifts left on the TV.
+                                FloatingCompactToolPaletteView(
                                     state: toolPaletteStateBinding,
+                                    center: compactToolPaletteCenterBinding,
                                     onCommand: { _ in }
                                 )
-                                .scaleEffect(paletteScale)
-                                .position(
-                                    scaledCompactToolPaletteCenter(
-                                        fittedSize: fitted,
-                                        referenceSize: referenceSize,
-                                        paletteScale: paletteScale
-                                    )
-                                )
+                                .frame(width: referenceSize.width, height: referenceSize.height)
+                                .scaleEffect(paletteScale, anchor: .topLeading)
                                 .allowsHitTesting(false)
                             }
                         }
@@ -148,6 +148,13 @@ public struct ExternalCanvasView: View {
     private var toolPaletteExpandedBinding: Binding<Bool> {
         Binding(
             get: { broker.isToolPaletteExpanded },
+            set: { _ in }
+        )
+    }
+
+    private var compactToolPaletteCenterBinding: Binding<CGPoint?> {
+        Binding(
+            get: { broker.compactToolPaletteCenter },
             set: { _ in }
         )
     }
@@ -220,24 +227,6 @@ public struct ExternalCanvasView: View {
             set: { _ in }
         )
     }
-
-    private func scaledCompactToolPaletteCenter(fittedSize: CGSize, referenceSize: CGSize, paletteScale: CGFloat) -> CGPoint {
-        guard let center = broker.compactToolPaletteCenter,
-              referenceSize.width > 0,
-              referenceSize.height > 0 else {
-            return CGPoint(
-                x: fittedSize.width - Self.compactPaletteFallbackSize.width * paletteScale / 2 - 16 * paletteScale,
-                y: Self.compactPaletteFallbackSize.height * paletteScale / 2 + 16 * paletteScale
-            )
-        }
-
-        return CGPoint(
-            x: center.x * fittedSize.width / referenceSize.width,
-            y: center.y * fittedSize.height / referenceSize.height
-        )
-    }
-
-    private static let compactPaletteFallbackSize = CGSize(width: 360, height: 420)
 
     private static func liveStrokeSourceSize(
         frame: CGImage,

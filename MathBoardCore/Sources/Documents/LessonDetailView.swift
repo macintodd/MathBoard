@@ -20,22 +20,46 @@ struct LessonDetailView: View {
 
     var body: some View {
         SlidesView(lessonURL: lesson.url)
-            .navigationTitle(lesson.name)
             .onAppear { DisplayBroker.shared.lessonURL = lesson.url }
             #if canImport(UIKit)
             .navigationBarBackButtonHidden(true)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Label("Back", systemImage: "chevron.backward")
-                    }
-                }
+            .toolbar(.hidden, for: .navigationBar)
+            .overlay(alignment: .topLeading) {
+                lessonChrome
             }
             .background(InteractivePopGestureDisabler())
             #endif
     }
+
+    #if canImport(UIKit)
+    // Floating back button + lesson title rendered over the whiteboard so the
+    // canvas can extend to the very top of the screen. Only the back button is
+    // interactive; the title lets pen strokes pass through to the canvas.
+    private var lessonChrome: some View {
+        HStack(spacing: 10) {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "chevron.backward")
+                    .font(.system(size: 18, weight: .semibold))
+                    .frame(width: 40, height: 40)
+                    .background(.ultraThinMaterial, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Back")
+
+            Text(lesson.name)
+                .font(.headline)
+                .lineLimit(1)
+                .padding(.horizontal, 12)
+                .frame(height: 40)
+                .background(.ultraThinMaterial, in: Capsule())
+                .allowsHitTesting(false)
+        }
+        .padding(.top, 8)
+        .padding(.leading, 12)
+    }
+    #endif
 }
 
 #if canImport(UIKit)

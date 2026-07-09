@@ -35,20 +35,55 @@ public struct CanvasSelectionState: Sendable, Equatable {
     public enum Object: Sendable, Equatable {
         case text(UUID)
         case image(UUID)
+        case geometry(UUID)
     }
 
     public var selectedObject: Object?
     public var selectedTextObject: CanvasTextObject?
+    public var selectedGeometryObject: CanvasGeometryObject?
     public var viewportFrame: CGRect?
 
     public init(
         selectedObject: Object? = nil,
         selectedTextObject: CanvasTextObject? = nil,
+        selectedGeometryObject: CanvasGeometryObject? = nil,
         viewportFrame: CGRect? = nil
     ) {
         self.selectedObject = selectedObject
         self.selectedTextObject = selectedTextObject
+        self.selectedGeometryObject = selectedGeometryObject
         self.viewportFrame = viewportFrame
+    }
+}
+
+public struct CanvasGeometryUpdate: Sendable, Equatable {
+    public var id: UUID
+    public var shape: CanvasGeometryShape
+    public var strokeColor: CanvasStrokeColor
+    public var strokeWidth: CGFloat
+    public var fillColor: CanvasStrokeColor
+    public var fillOpacity: CGFloat
+    public var polygonSides: Int
+    public var arrow: CanvasGeometryArrow
+
+    public init(
+        id: UUID,
+        shape: CanvasGeometryShape,
+        strokeColor: CanvasStrokeColor,
+        strokeWidth: CGFloat,
+        fillColor: CanvasStrokeColor,
+        fillOpacity: CGFloat,
+        polygonSides: Int,
+        arrow: CanvasGeometryArrow
+    ) {
+        self.id = id
+        self.shape = shape
+        self.strokeColor = strokeColor
+        self.strokeWidth = strokeWidth
+        self.fillColor = fillColor
+        self.fillOpacity = fillOpacity
+        self.polygonSides = polygonSides
+        self.arrow = arrow
     }
 }
 
@@ -56,6 +91,8 @@ public struct CanvasObjectCommand: Sendable, Equatable, Identifiable {
     public enum Action: Sendable, Equatable {
         case insertText(CanvasTextInsertion)
         case updateText(CanvasTextUpdate)
+        case updateGeometry(CanvasGeometryUpdate)
+        case clearSelection
         case duplicate(CanvasSelectionState.Object)
         case delete(CanvasSelectionState.Object)
     }
@@ -155,6 +192,7 @@ public struct CanvasToolCommand: Sendable, Equatable, Identifiable {
         case eraser(mode: EraserMode, width: CGFloat)
         case laser(color: CanvasStrokeColor, diameter: CGFloat, duration: TimeInterval, mode: LaserMode)
         case text(color: CanvasStrokeColor, fontSize: CGFloat, isBold: Bool, isItalic: Bool, isUnderlined: Bool, fontName: String?)
+        case geometry(shape: CanvasGeometryShape, strokeColor: CanvasStrokeColor, strokeWidth: CGFloat, fillColor: CanvasStrokeColor, fillOpacity: CGFloat, polygonSides: Int, arrow: CanvasGeometryArrow)
     }
 
     public enum EraserMode: Sendable, Equatable {

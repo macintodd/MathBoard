@@ -255,6 +255,10 @@ public struct ToolPaletteState: Equatable, Sendable {
     public var rotation: Double
     public var isColorBloomOpen: Bool
     public var selectionActionSequence: Int
+    /// Compact-palette contextual drawer visibility. When false, tools that have
+    /// a quick-strip show the slim mini-strip instead of the full drawer. Kept in
+    /// shared state so the mirrored external display matches the iPad.
+    public var isCompactDrawerOpen: Bool
 
     public init(
         activeTool: ToolID = .pen,
@@ -295,7 +299,8 @@ public struct ToolPaletteState: Equatable, Sendable {
         latexSource: String = "",
         rotation: Double = 0,
         isColorBloomOpen: Bool = false,
-        selectionActionSequence: Int = 0
+        selectionActionSequence: Int = 0,
+        isCompactDrawerOpen: Bool = true
     ) {
         self.activeTool = activeTool
         self.strokeColor = strokeColor
@@ -336,6 +341,7 @@ public struct ToolPaletteState: Equatable, Sendable {
         self.rotation = rotation
         self.isColorBloomOpen = isColorBloomOpen
         self.selectionActionSequence = selectionActionSequence
+        self.isCompactDrawerOpen = isCompactDrawerOpen
     }
 
     public var activeStrokeColor: PaletteColor {

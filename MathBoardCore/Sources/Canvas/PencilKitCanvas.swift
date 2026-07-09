@@ -175,13 +175,16 @@ struct PencilKitCanvasContainer: View {
     @State private var drawing: PKDrawing = PKDrawing()
     @State private var textObjects: [CanvasTextObject] = []
     @State private var imageObjects: [CanvasImageObject] = []
+    @State private var geometryObjects: [CanvasGeometryObject] = []
     @State private var didLoad = false
     @State private var saveTask: Task<Void, Never>?
     @State private var textSaveTask: Task<Void, Never>?
     @State private var imageObjectSaveTask: Task<Void, Never>?
+    @State private var geometryObjectSaveTask: Task<Void, Never>?
     @State private var hasPendingSave = false
     @State private var hasPendingTextSave = false
     @State private var hasPendingImageObjectSave = false
+    @State private var hasPendingGeometryObjectSave = false
     @State private var undoStack: [PKDrawing] = []
     @State private var redoStack: [PKDrawing] = []
     @State private var isApplyingEditCommand = false
@@ -197,6 +200,7 @@ struct PencilKitCanvasContainer: View {
             drawing: $drawing,
             textObjects: $textObjects,
             imageObjects: $imageObjects,
+            geometryObjects: $geometryObjects,
             background: background,
             presentationMode: presentationMode,
             initialViewportState: initialViewportState,
@@ -222,11 +226,15 @@ struct PencilKitCanvasContainer: View {
                 textSaveTask = nil
                 imageObjectSaveTask?.cancel()
                 imageObjectSaveTask = nil
+                geometryObjectSaveTask?.cancel()
+                geometryObjectSaveTask = nil
                 hasPendingTextSave = false
                 hasPendingImageObjectSave = false
+                hasPendingGeometryObjectSave = false
                 drawing = (try? Self.loadDrawing(at: drawingURL)) ?? PKDrawing()
                 textObjects = CanvasTextObject.load(from: CanvasTextObject.sidecarURL(forDrawingURL: drawingURL))
                 imageObjects = CanvasImageObject.load(from: CanvasImageObject.sidecarURL(forDrawingURL: drawingURL))
+                geometryObjects = CanvasGeometryObject.load(from: CanvasGeometryObject.sidecarURL(forDrawingURL: drawingURL))
                 undoStack = []
                 redoStack = []
                 isApplyingEditCommand = false
@@ -244,6 +252,9 @@ struct PencilKitCanvasContainer: View {
             .onChange(of: imageObjects) { _, newImageObjects in
                 handleImageObjectsChange(newImageObjects)
             }
+            .onChange(of: geometryObjects) { _, newGeometryObjects in
+                handleGeometryObjectsChange(newGeometryObjects)
+            }
             .onChange(of: editCommand) { _, command in
                 applyEditCommandIfNeeded(command)
             }
@@ -251,6 +262,7 @@ struct PencilKitCanvasContainer: View {
                 flushPendingSave()
                 flushPendingTextSave()
                 flushPendingImageObjectSave()
+                flushPendingGeometryObjectSave()
             }
     }
 
@@ -277,6 +289,11 @@ struct PencilKitCanvasContainer: View {
     private func handleImageObjectsChange(_ newImageObjects: [CanvasImageObject]) {
         guard didLoad else { return }
         scheduleImageObjectSave(of: newImageObjects)
+    }
+
+    private func handleGeometryObjectsChange(_ newGeometryObjects: [CanvasGeometryObject]) {
+        guard didLoad else { return }
+        scheduleGeometryObjectSave(of: newGeometryObjects)
     }
 
     private func applyEditCommandIfNeeded(_ command: CanvasEditCommand?) {
@@ -380,6 +397,25 @@ struct PencilKitCanvasContainer: View {
         hasPendingImageObjectSave = false
     }
 
+    private func scheduleGeometryObjectSave(of newGeometryObjects: [CanvasGeometryObject]) {
+        hasPendingGeometryObjectSave = true
+        geometryObjectSaveTask?.cancel()
+        geometryObjectSaveTask = Task { @MainActor in
+            try? await Task.sleep(for: Self.saveDebounce)
+            guard !Task.isCancelled else { return }
+            saveGeometryObjects(newGeometryObjects, to: CanvasGeometryObject.sidecarURL(forDrawingURL: drawingURL))
+            hasPendingGeometryObjectSave = false
+        }
+    }
+
+    private func flushPendingGeometryObjectSave() {
+        geometryObjectSaveTask?.cancel()
+        geometryObjectSaveTask = nil
+        guard hasPendingGeometryObjectSave else { return }
+        saveGeometryObjects(geometryObjects, to: CanvasGeometryObject.sidecarURL(forDrawingURL: drawingURL))
+        hasPendingGeometryObjectSave = false
+    }
+
     private static func loadDrawing(at url: URL) throws -> PKDrawing {
         let data = try Data(contentsOf: url)
         let drawing = try PKDrawing(data: data)
@@ -472,12 +508,21 @@ struct PencilKitCanvasContainer: View {
             print("[Canvas] image object save error: \(error)")
         }
     }
+
+    private func saveGeometryObjects(_ geometryObjects: [CanvasGeometryObject], to url: URL) {
+        do {
+            try CanvasGeometryObject.save(geometryObjects, to: url)
+        } catch {
+            print("[Canvas] geometry object save error: \(error)")
+        }
+    }
 }
 
 private final class PencilKitCanvasHostView: UIView {
     let backgroundView = PDFCanvasBackgroundView()
     let canvas = PKCanvasView()
     let imageObjectsView = CanvasImageObjectsView()
+    let geometryObjectsView = CanvasGeometryObjectsView()
     let textObjectsView = CanvasTextObjectsView()
     let regionSelectionOverlayView = CanvasRegionSelectionOverlayView()
     let laserOverlayView = CanvasLaserOverlayView()
@@ -491,6 +536,7 @@ private final class PencilKitCanvasHostView: UIView {
         clipsToBounds = true
         backgroundView.isUserInteractionEnabled = false
         imageObjectsView.isUserInteractionEnabled = false
+        geometryObjectsView.isUserInteractionEnabled = false
         textObjectsView.isUserInteractionEnabled = false
         regionSelectionOverlayView.acceptsRegionSelectionInput = false
         laserOverlayView.acceptsLaserInput = false
@@ -498,6 +544,7 @@ private final class PencilKitCanvasHostView: UIView {
         addSubview(backgroundView)
         addSubview(canvas)
         addSubview(imageObjectsView)
+        addSubview(geometryObjectsView)
         addSubview(textObjectsView)
         addSubview(regionSelectionOverlayView)
         addSubview(laserOverlayView)
@@ -512,12 +559,14 @@ private final class PencilKitCanvasHostView: UIView {
         super.layoutSubviews()
         canvas.frame = bounds
         imageObjectsView.frame = bounds
+        geometryObjectsView.frame = bounds
         textObjectsView.frame = bounds
         regionSelectionOverlayView.frame = bounds
         laserOverlayView.frame = bounds
         textPlacementOverlayView.frame = bounds
         updateBackgroundFrame(using: canvas)
         updateImageObjectFrame(using: canvas)
+        updateGeometryObjectFrame(using: canvas)
         updateTextObjectFrame(using: canvas)
     }
 
@@ -554,6 +603,18 @@ private final class PencilKitCanvasHostView: UIView {
         updateImageObjectFrame(using: canvas)
     }
 
+    func updateGeometryObjects(
+        _ geometryObjects: [CanvasGeometryObject],
+        using canvas: PKCanvasView,
+        selectedGeometryObjectID: UUID? = nil
+    ) {
+        geometryObjectsView.configure(
+            geometryObjects,
+            selectedGeometryObjectID: selectedGeometryObjectID
+        )
+        updateGeometryObjectFrame(using: canvas)
+    }
+
     func updateBackgroundFrame(using canvas: PKCanvasView) {
         guard let pageBounds = backgroundView.pageBounds else {
             backgroundView.isHidden = true
@@ -581,6 +642,14 @@ private final class PencilKitCanvasHostView: UIView {
 
     func updateImageObjectFrame(using canvas: PKCanvasView) {
         imageObjectsView.updateViewport(
+            zoomScale: canvas.zoomScale,
+            contentOffset: canvas.contentOffset,
+            canvasOrigin: PencilKitCanvasGeometry.drawingOriginOffset
+        )
+    }
+
+    func updateGeometryObjectFrame(using canvas: PKCanvasView) {
+        geometryObjectsView.updateViewport(
             zoomScale: canvas.zoomScale,
             contentOffset: canvas.contentOffset,
             canvasOrigin: PencilKitCanvasGeometry.drawingOriginOffset
@@ -1134,6 +1203,181 @@ private final class CanvasImageObjectsView: UIView {
     }
 }
 
+private final class CanvasGeometryObjectsView: UIView {
+    private var geometryObjects: [CanvasGeometryObject] = []
+    private var selectedGeometryObjectID: UUID?
+    private var zoomScale: CGFloat = 1
+    private var contentOffset: CGPoint = .zero
+    private var canvasOrigin: CGPoint = .zero
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        isOpaque = false
+        contentMode = .redraw
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(
+        _ geometryObjects: [CanvasGeometryObject],
+        selectedGeometryObjectID: UUID? = nil
+    ) {
+        guard self.geometryObjects != geometryObjects
+                || self.selectedGeometryObjectID != selectedGeometryObjectID else {
+            return
+        }
+        self.geometryObjects = geometryObjects
+        self.selectedGeometryObjectID = selectedGeometryObjectID
+        setNeedsDisplay()
+    }
+
+    func updateViewport(zoomScale: CGFloat, contentOffset: CGPoint, canvasOrigin: CGPoint) {
+        self.zoomScale = zoomScale
+        self.contentOffset = contentOffset
+        self.canvasOrigin = canvasOrigin
+        setNeedsDisplay()
+    }
+
+    // Rotation stem length (screen points) from the top edge to the rotate knob.
+    static let rotationStemLength: CGFloat = 30
+
+    override func draw(_ rect: CGRect) {
+        UIColor.clear.setFill()
+        UIRectFill(rect)
+        guard let context = UIGraphicsGetCurrentContext() else { return }
+
+        for object in geometryObjects {
+            let normalized = object.normalizedFrame
+            let boundingRect = screenRect(for: normalized)
+            let start = screenPoint(x: object.x, y: object.y)
+            let end = screenPoint(x: object.x + object.width, y: object.y + object.height)
+            let pivot = screenPoint(x: object.pivot.x, y: object.pivot.y)
+            CanvasGeometryRenderer.draw(
+                object,
+                boundingRect: boundingRect,
+                start: start,
+                end: end,
+                lineWidthScale: zoomScale,
+                pivot: pivot,
+                in: context
+            )
+            if object.id == selectedGeometryObjectID {
+                drawSelection(for: object)
+            }
+        }
+    }
+
+    private func screenRect(for sourceRect: CGRect) -> CGRect {
+        CGRect(
+            x: (canvasOrigin.x + sourceRect.minX) * zoomScale - contentOffset.x,
+            y: (canvasOrigin.y + sourceRect.minY) * zoomScale - contentOffset.y,
+            width: sourceRect.width * zoomScale,
+            height: sourceRect.height * zoomScale
+        )
+    }
+
+    private func screenPoint(x: CGFloat, y: CGFloat) -> CGPoint {
+        CGPoint(
+            x: (canvasOrigin.x + x) * zoomScale - contentOffset.x,
+            y: (canvasOrigin.y + y) * zoomScale - contentOffset.y
+        )
+    }
+
+    private func rotatedScreenPoint(_ point: CGPoint, pivotSource: CGPoint, rotation: CGFloat) -> CGPoint {
+        let dx = point.x - pivotSource.x
+        let dy = point.y - pivotSource.y
+        let cosR = cos(rotation)
+        let sinR = sin(rotation)
+        return screenPoint(x: pivotSource.x + dx * cosR - dy * sinR,
+                           y: pivotSource.y + dx * sinR + dy * cosR)
+    }
+
+    private func drawSelection(for object: CanvasGeometryObject) {
+        let normalized = object.normalizedFrame
+        let pivotSource = object.pivot
+        let rotation = object.rotation
+        func rs(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            rotatedScreenPoint(CGPoint(x: x, y: y), pivotSource: pivotSource, rotation: rotation)
+        }
+
+        let topLeft = rs(normalized.minX, normalized.minY)
+        let topRight = rs(normalized.maxX, normalized.minY)
+        let bottomRight = rs(normalized.maxX, normalized.maxY)
+        let bottomLeft = rs(normalized.minX, normalized.maxY)
+
+        let box = UIBezierPath()
+        box.move(to: topLeft)
+        box.addLine(to: topRight)
+        box.addLine(to: bottomRight)
+        box.addLine(to: bottomLeft)
+        box.close()
+        UIColor.systemBlue.setStroke()
+        box.lineWidth = 2
+        box.setLineDash([6, 4], count: 2, phase: 0)
+        box.stroke()
+
+        // Rotation stem + knob, extending outward from the top edge center.
+        let topCenter = rs(normalized.midX, normalized.minY)
+        let up = CGVector(dx: sin(rotation), dy: -cos(rotation))
+        let knob = CGPoint(
+            x: topCenter.x + up.dx * Self.rotationStemLength,
+            y: topCenter.y + up.dy * Self.rotationStemLength
+        )
+        let stem = UIBezierPath()
+        stem.move(to: topCenter)
+        stem.addLine(to: knob)
+        stem.lineWidth = 2
+        UIColor.systemBlue.setStroke()
+        stem.stroke()
+        drawRotationKnob(at: knob)
+
+        // Resize handle follows the signed resize corner, so dragging through
+        // the origin can flip directional shapes such as right triangles.
+        let resizeCorner = rotatedScreenPoint(
+            CGPoint(x: object.x + object.width, y: object.y + object.height),
+            pivotSource: pivotSource,
+            rotation: rotation
+        )
+        drawResizeHandle(at: resizeCorner)
+
+        // Green rotation pivot dot (invariant under the object's own rotation).
+        drawPivotDot(at: screenPoint(x: pivotSource.x, y: pivotSource.y))
+    }
+
+    private func drawResizeHandle(at point: CGPoint) {
+        let r = CGRect(x: point.x - 7, y: point.y - 7, width: 14, height: 14)
+        UIColor.white.setFill()
+        UIBezierPath(roundedRect: r, cornerRadius: 4).fill()
+        UIColor.systemBlue.setStroke()
+        let path = UIBezierPath(roundedRect: r, cornerRadius: 4)
+        path.lineWidth = 2
+        path.stroke()
+    }
+
+    private func drawRotationKnob(at point: CGPoint) {
+        let r = CGRect(x: point.x - 9, y: point.y - 9, width: 18, height: 18)
+        UIColor.white.setFill()
+        UIBezierPath(ovalIn: r).fill()
+        UIColor.systemBlue.setStroke()
+        let ring = UIBezierPath(ovalIn: r)
+        ring.lineWidth = 2
+        ring.stroke()
+    }
+
+    private func drawPivotDot(at point: CGPoint) {
+        let r = CGRect(x: point.x - 8, y: point.y - 8, width: 16, height: 16)
+        UIColor.systemGreen.setFill()
+        UIBezierPath(ovalIn: r).fill()
+        UIColor.white.setStroke()
+        let ring = UIBezierPath(ovalIn: r)
+        ring.lineWidth = 2
+        ring.stroke()
+    }
+}
+
 private final class CanvasTextObjectsView: UIView {
     private var textObjects: [CanvasTextObject] = []
     private var hiddenTextObjectID: UUID?
@@ -1463,6 +1707,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
     @Binding var drawing: PKDrawing
     @Binding var textObjects: [CanvasTextObject]
     @Binding var imageObjects: [CanvasImageObject]
+    @Binding var geometryObjects: [CanvasGeometryObject]
     let background: CanvasBackground?
     let presentationMode: CanvasPresentationMode
     let initialViewportState: CanvasViewportState?
@@ -1500,12 +1745,14 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         context.coordinator.installTextSelectionRecognizers(on: canvas)
         context.coordinator.installTextEditorDismissRecognizer(on: hostView)
         context.coordinator.installRegionSelectionRecognizer(on: hostView)
+        context.coordinator.installGeometryCreationRecognizer(on: hostView)
         hostView.updateBackground(background, using: canvas)
         hostView.updateImageObjects(
             imageObjects,
             assetDirectoryURL: CanvasImageObject.assetDirectoryURL(forDrawingURL: drawingURL),
             using: canvas
         )
+        hostView.updateGeometryObjects(geometryObjects, using: canvas)
         hostView.updateTextObjects(textObjects, using: canvas)
 
         // Tool picker has to be installed after the view is in a window;
@@ -1514,14 +1761,19 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         DispatchQueue.main.async {
             context.coordinator.configureViewport(for: canvas)
             context.coordinator.installToolPicker(on: canvas, isVisible: showsSystemToolPicker)
-            context.coordinator.applyToolCommandIfNeeded(toolCommand, to: canvas)
             context.coordinator.applyObjectCommandIfNeeded(objectCommand, to: canvas)
+            context.coordinator.applyToolCommandIfNeeded(toolCommand, to: canvas)
             hostView.updateBackground(self.background, using: canvas)
             hostView.updateImageObjects(
                 self.imageObjects,
                 assetDirectoryURL: CanvasImageObject.assetDirectoryURL(forDrawingURL: self.drawingURL),
                 using: canvas,
                 selectedImageObjectID: context.coordinator.selectedImageObjectForDisplayID
+            )
+            hostView.updateGeometryObjects(
+                self.geometryObjects,
+                using: canvas,
+                selectedGeometryObjectID: context.coordinator.selectedGeometryObjectForDisplayID
             )
             hostView.updateTextObjects(
                 self.textObjects,
@@ -1549,6 +1801,11 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             using: canvas,
             selectedImageObjectID: context.coordinator.selectedImageObjectForDisplayID
         )
+        hostView.updateGeometryObjects(
+            geometryObjects,
+            using: canvas,
+            selectedGeometryObjectID: context.coordinator.selectedGeometryObjectForDisplayID
+        )
         hostView.updateTextObjects(
             textObjects,
             using: canvas,
@@ -1558,8 +1815,8 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         context.coordinator.updateActiveTextEditorFrame(on: canvas)
         context.coordinator.applyViewportCommandIfNeeded(viewportCommand, to: canvas)
         context.coordinator.updateToolPickerVisibility(isVisible: showsSystemToolPicker, for: canvas)
-        context.coordinator.applyToolCommandIfNeeded(toolCommand, to: canvas)
         context.coordinator.applyObjectCommandIfNeeded(objectCommand, to: canvas)
+        context.coordinator.applyToolCommandIfNeeded(toolCommand, to: canvas)
 
         if context.coordinator.presentationModeDidChange(to: presentationMode) {
             context.coordinator.clearLiveStrokeAfterViewUpdate()
@@ -1625,6 +1882,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private var textSelectionPanRecognizer: CanvasObjectDragGestureRecognizer?
         private var textEditorDismissRecognizer: UITapGestureRecognizer?
         private var regionSelectionRecognizer: PencilLiveStrokeGestureRecognizer?
+        private var geometryCreationRecognizer: PencilLiveStrokeGestureRecognizer?
         private var appliedViewportCommandID: CanvasViewportCommand.ID?
         private var appliedToolCommandID: CanvasToolCommand.ID?
         private var appliedObjectCommandID: CanvasObjectCommand.ID?
@@ -1653,6 +1911,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private var activeRegionConsumedSampleCount = 0
         private var activeRegionSelectedTextObjectIDs: Set<UUID> = []
         private var activeRegionSelectedImageObjectIDs: Set<UUID> = []
+        private var activeRegionSelectedGeometryObjectIDs: Set<UUID> = []
         private var activeRegionSelectedStrokeIndexes: Set<Int> = []
         private var selectedTextObjectID: UUID?
         private var lastSelectedTextObjectID: UUID?
@@ -1667,6 +1926,24 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private var resizingTextObjectID: UUID?
         private var resizingTextObjectStartSize: CGSize = .zero
         private var resizingTextStartSourcePoint: CGPoint = .zero
+        private var selectedGeometryObjectID: UUID?
+        private var lastSelectedGeometryObjectID: UUID?
+        private var movingGeometryObjectID: UUID?
+        private var movingGeometryObjectStartOrigin: CGPoint = .zero
+        private var movingGeometryObjectStartPivot: CGPoint?
+        private var movingGeometryStartSourcePoint: CGPoint = .zero
+        private var resizingGeometryObjectID: UUID?
+        private var resizingGeometryObjectStartFrame: CGRect = .zero
+        private var resizingGeometryStartLocalPoint: CGPoint = .zero
+        private var rotatingGeometryObjectID: UUID?
+        private var rotatingGeometryStartRotation: CGFloat = 0
+        private var rotatingGeometryStartAngle: CGFloat = 0
+        private var pivotDraggingGeometryObjectID: UUID?
+        private var pendingGeometryHandleHit: (id: UUID, kind: GeometryHandleKind)?
+        private var creatingGeometryObjectID: UUID?
+        private var creatingGeometryStartSourcePoint: CGPoint = .zero
+        private var creatingGeometryConsumedSampleCount = 0
+        private var activeGeometryConfig: GeometryToolConfig?
         private var activeLaserDuration: TimeInterval = 0
         private var activeLaserMode: CanvasToolCommand.LaserMode = .trail
         private var laserClearTask: Task<Void, Never>?
@@ -1678,6 +1955,16 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             case pen
             case marker
             case laser
+        }
+
+        struct GeometryToolConfig {
+            var shape: CanvasGeometryShape
+            var strokeColor: CanvasStrokeColor
+            var strokeWidth: CGFloat
+            var fillColor: CanvasStrokeColor
+            var fillOpacity: CGFloat
+            var polygonSides: Int
+            var arrow: CanvasGeometryArrow
         }
 
         private enum RegionSelection {
@@ -1771,6 +2058,15 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         func applyToolCommandIfNeeded(_ command: CanvasToolCommand?, to canvas: PKCanvasView) {
             guard let command, appliedToolCommandID != command.id else { return }
             appliedToolCommandID = command.id
+
+            // Geometry creation is only active for the geometry tool; the
+            // `.geometry` case re-enables it. Clearing here keeps every other
+            // tool from leaving a live create gesture armed.
+            geometryCreationRecognizer?.isEnabled = false
+            if case .geometry = command.action {} else {
+                activeGeometryConfig = nil
+                finishCreatingGeometryObject(commit: false)
+            }
 
             switch command.action {
             case .idle:
@@ -1965,6 +2261,45 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 updateHostTextObjects(using: canvas)
                 applyActiveTextStyleToSelectedObject(using: canvas)
                 clearLaserOverlay()
+            case .geometry(let shape, let strokeColor, let strokeWidth, let fillColor, let fillOpacity, let polygonSides, let arrow):
+                finishTextEditing()
+                activeLiveStrokeColor = nil
+                activeLiveStrokeWidth = nil
+                activeLiveStrokeTool = nil
+                activeTextColor = nil
+                let isEditingSelectedGeometry = selectedGeometryObjectIDFromSharedState != nil || selectedGeometryObjectID != nil
+                isTextSelectionEnabled = isEditingSelectedGeometry
+                isRegionSelectionEnabled = false
+                if !isEditingSelectedGeometry {
+                    setSelectedTextObjectID(nil)
+                }
+                activeLaserDuration = 0
+                if isEditingSelectedGeometry {
+                    activeGeometryConfig = nil
+                } else {
+                    setSelectedGeometryObjectID(nil)
+                    activeGeometryConfig = GeometryToolConfig(
+                        shape: shape,
+                        strokeColor: strokeColor,
+                        strokeWidth: strokeWidth,
+                        fillColor: fillColor,
+                        fillOpacity: fillOpacity,
+                        polygonSides: polygonSides,
+                        arrow: arrow
+                    )
+                }
+                liveStrokeRecognizer?.isEnabled = false
+                liveStrokeRecognizer?.cancelsTouchesInView = false
+                canvas.drawingGestureRecognizer.isEnabled = false
+                canvas.panGestureRecognizer.minimumNumberOfTouches = 2
+                activeSelectionTarget = .object
+                geometryCreationRecognizer?.isEnabled = !isEditingSelectedGeometry
+                hostView?.laserOverlayView.acceptsLaserInput = false
+                hostView?.textPlacementOverlayView.acceptsTextPlacement = false
+                hostView?.regionSelectionOverlayView.acceptsRegionSelectionInput = false
+                clearRegionSelection()
+                updateHostTextObjects(using: canvas)
+                clearLaserOverlay()
             }
         }
 
@@ -1982,6 +2317,16 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 Task { @MainActor [weak self, weak canvas] in
                     guard let self, let canvas else { return }
                     self.updateTextObject(update, using: canvas)
+                }
+            case .updateGeometry(let update):
+                Task { @MainActor [weak self, weak canvas] in
+                    guard let self, let canvas else { return }
+                    self.updateGeometryObject(update, using: canvas)
+                }
+            case .clearSelection:
+                Task { @MainActor [weak self, weak canvas] in
+                    guard let self, let canvas else { return }
+                    self.clearObjectSelection(using: canvas)
                 }
             case .duplicate(.text(let id)):
                 Task { @MainActor [weak self, weak canvas] in
@@ -2002,6 +2347,16 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 Task { @MainActor [weak self, weak canvas] in
                     guard let self, let canvas else { return }
                     self.deleteImageObject(id, using: canvas)
+                }
+            case .duplicate(.geometry(let id)):
+                Task { @MainActor [weak self, weak canvas] in
+                    guard let self, let canvas else { return }
+                    self.duplicateGeometryObject(id, using: canvas)
+                }
+            case .delete(.geometry(let id)):
+                Task { @MainActor [weak self, weak canvas] in
+                    guard let self, let canvas else { return }
+                    self.deleteGeometryObject(id, using: canvas)
                 }
             }
         }
@@ -2342,6 +2697,131 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             regionSelectionRecognizer = recognizer
         }
 
+        func installGeometryCreationRecognizer(on hostView: PencilKitCanvasHostView) {
+            guard geometryCreationRecognizer == nil else { return }
+
+            let recognizer = PencilLiveStrokeGestureRecognizer(
+                allowedTouchTypes: [.direct, .pencil]
+            ) { [weak self, weak hostView] samples, phase in
+                guard let self, let hostView else { return }
+                self.handleGeometryCreationSamples(samples, phase: phase, hostView: hostView)
+            }
+            recognizer.cancelsTouchesInView = false
+            recognizer.isEnabled = false
+            recognizer.delegate = self
+            hostView.addGestureRecognizer(recognizer)
+            geometryCreationRecognizer = recognizer
+        }
+
+        private func handleGeometryCreationSamples(
+            _ samples: [CanvasLiveStrokePoint],
+            phase: PencilLiveStrokeGestureRecognizer.Phase,
+            hostView: PencilKitCanvasHostView
+        ) {
+            guard let config = activeGeometryConfig, let canvas else {
+                creatingGeometryConsumedSampleCount = 0
+                return
+            }
+
+            func sourcePointFromSample(_ sample: CanvasLiveStrokePoint) -> CGPoint {
+                let canvasPoint = hostView.convert(sample.location, to: canvas)
+                return sourcePoint(forCanvasPoint: canvasPoint, on: canvas)
+            }
+
+            switch phase {
+            case .began:
+                guard let first = samples.first else { return }
+                creatingGeometryConsumedSampleCount = samples.count
+                parent.onInteractionBegan?()
+                setSelectedTextObjectID(nil)
+                let start = sourcePointFromSample(first)
+                creatingGeometryStartSourcePoint = start
+                let object = CanvasGeometryObject(
+                    shape: config.shape,
+                    x: start.x,
+                    y: start.y,
+                    width: 0,
+                    height: 0,
+                    strokeRed: config.strokeColor.red,
+                    strokeGreen: config.strokeColor.green,
+                    strokeBlue: config.strokeColor.blue,
+                    strokeAlpha: config.strokeColor.alpha,
+                    strokeWidth: config.strokeWidth,
+                    fillRed: config.fillColor.red,
+                    fillGreen: config.fillColor.green,
+                    fillBlue: config.fillColor.blue,
+                    fillOpacity: config.fillOpacity,
+                    polygonSides: config.polygonSides,
+                    arrow: config.arrow
+                )
+                creatingGeometryObjectID = object.id
+                var geometryObjects = parent.geometryObjects
+                geometryObjects.append(object)
+                parent.geometryObjects = geometryObjects
+                setSelectedGeometryObjectID(object.id)
+                updateHostGeometryObjects(using: canvas)
+            case .moved, .ended, .cancelled:
+                guard let last = samples.last else { return }
+                creatingGeometryConsumedSampleCount = samples.count
+                let current = sourcePointFromSample(last)
+                updateCreatingGeometryObject(to: current, using: canvas)
+                if phase == .ended || phase == .cancelled {
+                    finishCreatingGeometryObject(commit: true)
+                    publishImageFromModel()
+                }
+            }
+        }
+
+        private func updateCreatingGeometryObject(to current: CGPoint, using canvas: PKCanvasView) {
+            guard let id = creatingGeometryObjectID,
+                  let index = parent.geometryObjects.firstIndex(where: { $0.id == id }) else {
+                return
+            }
+            var geometryObjects = parent.geometryObjects
+            geometryObjects[index].x = creatingGeometryStartSourcePoint.x
+            geometryObjects[index].y = creatingGeometryStartSourcePoint.y
+            geometryObjects[index].width = current.x - creatingGeometryStartSourcePoint.x
+            geometryObjects[index].height = current.y - creatingGeometryStartSourcePoint.y
+            parent.geometryObjects = geometryObjects
+            updateHostGeometryObjects(using: canvas)
+        }
+
+        /// Ends any in-progress geometry create gesture. When `commit` is false
+        /// or the shape is too small to be intentional, the provisional object
+        /// is removed.
+        private func finishCreatingGeometryObject(commit: Bool) {
+            creatingGeometryConsumedSampleCount = 0
+            guard let id = creatingGeometryObjectID else { return }
+            creatingGeometryObjectID = nil
+            guard let index = parent.geometryObjects.firstIndex(where: { $0.id == id }) else { return }
+            let object = parent.geometryObjects[index]
+            let isLine = object.shape == .line
+            let extent = isLine
+                ? hypot(object.width, object.height)
+                : max(abs(object.width), abs(object.height))
+            if !commit || extent < 8 {
+                var geometryObjects = parent.geometryObjects
+                geometryObjects.remove(at: index)
+                parent.geometryObjects = geometryObjects
+                if selectedGeometryObjectID == id {
+                    setSelectedGeometryObjectID(nil)
+                }
+                if let canvas {
+                    updateHostGeometryObjects(using: canvas)
+                }
+            } else {
+                activeGeometryConfig = nil
+                activeSelectionTarget = .object
+                isTextSelectionEnabled = true
+                isRegionSelectionEnabled = false
+                geometryCreationRecognizer?.isEnabled = false
+                setSelectedGeometryObjectID(id)
+                if let canvas {
+                    updateHostGeometryObjects(using: canvas)
+                }
+            }
+        }
+
         @objc private func handleTextSelectionTap(_ recognizer: UITapGestureRecognizer) {
             guard recognizer.state == .ended,
                   isTextSelectionEnabled,
@@ -2360,17 +2840,30 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 updateHostTextObjects(using: canvas)
                 return
             }
+            if let handle = geometryHandleHit(at: location, on: canvas) {
+                setSelectedGeometryObjectID(handle.id)
+                updateHostGeometryObjects(using: canvas)
+                return
+            }
             if let id = hitSelectedTextObjectID(at: location, on: canvas) {
                 setSelectedTextObjectID(id)
                 updateHostTextObjects(using: canvas)
                 return
             }
+            if let id = hitSelectedGeometryObjectID(at: location, on: canvas) {
+                setSelectedGeometryObjectID(id)
+                updateHostGeometryObjects(using: canvas)
+                return
+            }
             if let id = hitTextObjectID(at: location, on: canvas) {
                 setSelectedTextObjectID(id)
+            } else if let id = hitGeometryObjectID(at: location, on: canvas) {
+                setSelectedGeometryObjectID(id)
             } else {
                 setSelectedImageObjectID(hitImageObjectID(at: location, on: canvas))
             }
             updateHostTextObjects(using: canvas)
+            updateHostGeometryObjects(using: canvas)
             updateHostImageObjects(using: canvas)
         }
 
@@ -2388,8 +2881,28 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             guard recognizer.state == .ended,
                   isTextSelectionEnabled,
                   activeTextEditor == nil,
-                  let canvas,
-                  let id = hitTextObjectID(at: recognizer.location(in: canvas), on: canvas),
+                  let canvas else {
+                return
+            }
+
+            let location = recognizer.location(in: canvas)
+            if let handle = geometryHandleHit(at: location, on: canvas),
+               handle.kind == .pivot,
+               let index = parent.geometryObjects.firstIndex(where: { $0.id == handle.id }) {
+                parent.onInteractionBegan?()
+                clearRegionSelection()
+                setSelectedGeometryObjectID(handle.id)
+                var geometryObjects = parent.geometryObjects
+                geometryObjects[index].pivotX = nil
+                geometryObjects[index].pivotY = nil
+                parent.geometryObjects = geometryObjects
+                updateSharedSelectionState()
+                updateHostGeometryObjects(using: canvas)
+                publishImageFromModel()
+                return
+            }
+
+            guard let id = hitTextObjectID(at: location, on: canvas),
                   let object = parent.textObjects.first(where: { $0.id == id }) else {
                 return
             }
@@ -2416,13 +2929,14 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             switch recognizer.state {
             case .began:
                 let startLocation = recognizer.location(in: canvas)
+                let geometryHandleAtStart = geometryHandleHit(at: startLocation, on: canvas) ?? pendingGeometryHandleHit
+                pendingGeometryHandleHit = nil
                 if let id = hitTextResizeHandleID(at: startLocation, on: canvas),
                    let object = parent.textObjects.first(where: { $0.id == id }) {
                     parent.onInteractionBegan?()
                     clearRegionSelection()
                     setSelectedTextObjectID(id)
-                    movingTextObjectID = nil
-                    movingImageObjectID = nil
+                    clearObjectDragState()
                     resizingTextObjectID = id
                     resizingTextObjectStartSize = CGSize(width: object.width, height: object.height)
                     resizingTextStartSourcePoint = sourcePoint(forCanvasPoint: startLocation, on: canvas)
@@ -2430,10 +2944,59 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     return
                 }
 
+                if let handle = geometryHandleAtStart,
+                   let object = parent.geometryObjects.first(where: { $0.id == handle.id }) {
+                    parent.onInteractionBegan?()
+                    clearRegionSelection()
+                    setSelectedGeometryObjectID(handle.id)
+                    clearObjectDragState()
+                    let startSource = sourcePoint(forCanvasPoint: startLocation, on: canvas)
+                    switch handle.kind {
+                    case .resize:
+                        resizingGeometryObjectID = handle.id
+                        var resizeObject = object
+                        if resizeObject.pivotX != nil || resizeObject.pivotY != nil,
+                           let index = parent.geometryObjects.firstIndex(where: { $0.id == handle.id }) {
+                            var geometryObjects = parent.geometryObjects
+                            geometryObjects[index].pivotX = nil
+                            geometryObjects[index].pivotY = nil
+                            parent.geometryObjects = geometryObjects
+                            resizeObject = geometryObjects[index]
+                        }
+                        resizingGeometryObjectStartFrame = resizeObject.frame
+                        resizingGeometryStartLocalPoint = geometryLocalPoint(startSource, object: resizeObject)
+                    case .rotate:
+                        rotatingGeometryObjectID = handle.id
+                        rotatingGeometryStartRotation = object.rotation
+                        let pivot = object.pivot
+                        rotatingGeometryStartAngle = atan2(startSource.y - pivot.y, startSource.x - pivot.x)
+                    case .pivot:
+                        pivotDraggingGeometryObjectID = handle.id
+                    }
+                    updateHostGeometryObjects(using: canvas)
+                    return
+                }
+
                 let textObjectHitID = hitSelectedTextObjectID(at: startLocation, on: canvas)
                     ?? hitTextObjectID(at: startLocation, on: canvas)
                 guard let id = textObjectHitID,
                       let object = parent.textObjects.first(where: { $0.id == id }) else {
+                    let geometryObjectHitID = hitSelectedGeometryObjectID(at: startLocation, on: canvas)
+                        ?? hitGeometryObjectID(at: startLocation, on: canvas)
+                    if let id = geometryObjectHitID,
+                       let object = parent.geometryObjects.first(where: { $0.id == id }) {
+                        parent.onInteractionBegan?()
+                        clearRegionSelection()
+                        setSelectedGeometryObjectID(id)
+                        clearObjectDragState()
+                        movingGeometryObjectID = id
+                        movingGeometryObjectStartOrigin = CGPoint(x: object.x, y: object.y)
+                        movingGeometryObjectStartPivot = (object.pivotX != nil || object.pivotY != nil) ? object.pivot : nil
+                        movingGeometryStartSourcePoint = sourcePoint(forCanvasPoint: startLocation, on: canvas)
+                        updateHostGeometryObjects(using: canvas)
+                        return
+                    }
+
                     let imageObjectHitID = hitSelectedImageObjectID(at: startLocation, on: canvas)
                         ?? hitImageObjectID(at: startLocation, on: canvas)
                     if let id = imageObjectHitID,
@@ -2441,25 +3004,21 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                         parent.onInteractionBegan?()
                         clearRegionSelection()
                         setSelectedImageObjectID(id)
-                        movingTextObjectID = nil
-                        resizingTextObjectID = nil
+                        clearObjectDragState()
                         movingImageObjectID = id
                         movingImageObjectStartOrigin = CGPoint(x: object.x, y: object.y)
                         movingImageStartSourcePoint = sourcePoint(forCanvasPoint: startLocation, on: canvas)
                         updateHostImageObjects(using: canvas)
                         return
                     }
-                    movingTextObjectID = nil
-                    movingImageObjectID = nil
-                    resizingTextObjectID = nil
+                    clearObjectDragState()
                     return
                 }
                 parent.onInteractionBegan?()
                 clearRegionSelection()
                 setSelectedTextObjectID(id)
+                clearObjectDragState()
                 movingTextObjectID = id
-                movingImageObjectID = nil
-                resizingTextObjectID = nil
                 movingTextObjectStartOrigin = CGPoint(x: object.x, y: object.y)
                 movingTextStartSourcePoint = sourcePoint(forCanvasPoint: startLocation, on: canvas)
                 updateHostTextObjects(using: canvas)
@@ -2476,6 +3035,63 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                         object.height = max(resizingTextObjectStartSize.height + delta.y, max(object.fontSize * 1.4, 36))
                     }
                     updateHostTextObjects(using: canvas)
+                    publishImageFromModel()
+                    return
+                }
+
+                if let rotatingGeometryObjectID,
+                   let index = parent.geometryObjects.firstIndex(where: { $0.id == rotatingGeometryObjectID }) {
+                    let pivot = parent.geometryObjects[index].pivot
+                    let currentSource = sourcePoint(forCanvasPoint: recognizer.location(in: canvas), on: canvas)
+                    let currentAngle = atan2(currentSource.y - pivot.y, currentSource.x - pivot.x)
+                    var geometryObjects = parent.geometryObjects
+                    geometryObjects[index].rotation = rotatingGeometryStartRotation + (currentAngle - rotatingGeometryStartAngle)
+                    parent.geometryObjects = geometryObjects
+                    if selectedGeometryObjectID == rotatingGeometryObjectID {
+                        updateSharedSelectionState()
+                    }
+                    updateHostGeometryObjects(using: canvas)
+                    publishImageFromModel()
+                    return
+                }
+
+                if let pivotDraggingGeometryObjectID,
+                   let index = parent.geometryObjects.firstIndex(where: { $0.id == pivotDraggingGeometryObjectID }) {
+                    let source = sourcePoint(forCanvasPoint: recognizer.location(in: canvas), on: canvas)
+                    var geometryObjects = parent.geometryObjects
+                    geometryObjects[index].pivotX = source.x
+                    geometryObjects[index].pivotY = source.y
+                    parent.geometryObjects = geometryObjects
+                    updateHostGeometryObjects(using: canvas)
+                    publishImageFromModel()
+                    return
+                }
+
+                if let resizingGeometryObjectID,
+                   let index = parent.geometryObjects.firstIndex(where: { $0.id == resizingGeometryObjectID }) {
+                    let currentSource = sourcePoint(forCanvasPoint: recognizer.location(in: canvas), on: canvas)
+                    let currentLocal = geometryLocalPoint(currentSource, object: parent.geometryObjects[index])
+                    let delta = CGPoint(
+                        x: currentLocal.x - resizingGeometryStartLocalPoint.x,
+                        y: currentLocal.y - resizingGeometryStartLocalPoint.y
+                    )
+                    var geometryObjects = parent.geometryObjects
+                    if geometryObjects[index].shape == .line {
+                        // Keep the start endpoint fixed and move the end point so
+                        // the line's direction is preserved.
+                        geometryObjects[index].width = resizingGeometryObjectStartFrame.width + delta.x
+                        geometryObjects[index].height = resizingGeometryObjectStartFrame.height + delta.y
+                    } else {
+                        geometryObjects[index].x = resizingGeometryObjectStartFrame.origin.x
+                        geometryObjects[index].y = resizingGeometryObjectStartFrame.origin.y
+                        geometryObjects[index].width = signedGeometryDimension(resizingGeometryObjectStartFrame.width + delta.x)
+                        geometryObjects[index].height = signedGeometryDimension(resizingGeometryObjectStartFrame.height + delta.y)
+                    }
+                    parent.geometryObjects = geometryObjects
+                    if selectedGeometryObjectID == resizingGeometryObjectID {
+                        updateSharedSelectionState()
+                    }
+                    updateHostGeometryObjects(using: canvas)
                     publishImageFromModel()
                     return
                 }
@@ -2508,14 +3124,45 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     updateHostImageObjects(using: canvas)
                     publishImageFromModel()
                 }
+                if let movingGeometryObjectID,
+                   let index = parent.geometryObjects.firstIndex(where: { $0.id == movingGeometryObjectID }) {
+                    let currentSourcePoint = sourcePoint(forCanvasPoint: recognizer.location(in: canvas), on: canvas)
+                    let delta = CGPoint(
+                        x: currentSourcePoint.x - movingGeometryStartSourcePoint.x,
+                        y: currentSourcePoint.y - movingGeometryStartSourcePoint.y
+                    )
+                    var geometryObjects = parent.geometryObjects
+                    geometryObjects[index].x = movingGeometryObjectStartOrigin.x + delta.x
+                    geometryObjects[index].y = movingGeometryObjectStartOrigin.y + delta.y
+                    if let movingGeometryObjectStartPivot {
+                        geometryObjects[index].pivotX = movingGeometryObjectStartPivot.x + delta.x
+                        geometryObjects[index].pivotY = movingGeometryObjectStartPivot.y + delta.y
+                    }
+                    parent.geometryObjects = geometryObjects
+                    if selectedGeometryObjectID == movingGeometryObjectID {
+                        updateSharedSelectionState()
+                    }
+                    updateHostGeometryObjects(using: canvas)
+                    publishImageFromModel()
+                }
             case .ended, .cancelled, .failed:
-                movingTextObjectID = nil
-                movingImageObjectID = nil
-                resizingTextObjectID = nil
+                clearObjectDragState()
                 publishImageFromModel()
             default:
                 break
             }
+        }
+
+        private func clearObjectDragState() {
+            movingTextObjectID = nil
+            movingImageObjectID = nil
+            movingGeometryObjectID = nil
+            movingGeometryObjectStartPivot = nil
+            resizingTextObjectID = nil
+            resizingGeometryObjectID = nil
+            rotatingGeometryObjectID = nil
+            pivotDraggingGeometryObjectID = nil
+            pendingGeometryHandleHit = nil
         }
 
         private func handleRegionSelectionSamples(
@@ -2542,6 +3189,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 activeRegionConsumedSampleCount = 0
                 activeRegionSelectedTextObjectIDs = []
                 activeRegionSelectedImageObjectIDs = []
+                activeRegionSelectedGeometryObjectIDs = []
                 activeRegionSelectedStrokeIndexes = []
                 let newOverlayPoints = appendRegionSelectionSamples(
                     samples,
@@ -2632,6 +3280,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private func clearObjectRegionTargets() {
             activeRegionSelectedTextObjectIDs = []
             activeRegionSelectedImageObjectIDs = []
+            activeRegionSelectedGeometryObjectIDs = []
             activeRegionSelectedStrokeIndexes = []
             hostView?.regionSelectionOverlayView.updateSelectedRects([])
         }
@@ -2673,6 +3322,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             guard let activeRegionSelection else {
                 activeRegionSelectedTextObjectIDs = []
                 activeRegionSelectedImageObjectIDs = []
+                activeRegionSelectedGeometryObjectIDs = []
                 activeRegionSelectedStrokeIndexes = []
                 hostView?.regionSelectionOverlayView.updateSelectedRects([])
                 return
@@ -2683,6 +3333,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             })
             activeRegionSelectedImageObjectIDs = Set(parent.imageObjects.compactMap { object in
                 object.isLocked == true ? nil : (activeRegionSelection.intersects(object.frame) ? object.id : nil)
+            })
+            activeRegionSelectedGeometryObjectIDs = Set(parent.geometryObjects.compactMap { object in
+                object.isLocked == true ? nil : (activeRegionSelection.intersects(object.normalizedFrame) ? object.id : nil)
             })
             activeRegionSelectedStrokeIndexes = []
             updateRegionSelectionHighlight(on: canvas)
@@ -2697,7 +3350,11 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 guard activeRegionSelectedImageObjectIDs.contains(object.id) else { return nil }
                 return overlayRect(forSourceRect: object.frame, on: canvas)
             }
-            hostView?.regionSelectionOverlayView.updateSelectedRects(textRects + imageRects)
+            let geometryRects = parent.geometryObjects.compactMap { object -> CGRect? in
+                guard activeRegionSelectedGeometryObjectIDs.contains(object.id) else { return nil }
+                return overlayRect(forSourceRect: object.normalizedFrame, on: canvas)
+            }
+            hostView?.regionSelectionOverlayView.updateSelectedRects(textRects + imageRects + geometryRects)
         }
 
         private func hitTextResizeHandleID(at canvasPoint: CGPoint, on canvas: PKCanvasView) -> UUID? {
@@ -2758,6 +3415,13 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             max(72 / max(canvas.zoomScale, 0.001), 24)
         }
 
+        private func signedGeometryDimension(_ value: CGFloat, minimumMagnitude: CGFloat = 6) -> CGFloat {
+            if value < 0 {
+                return min(value, -minimumMagnitude)
+            }
+            return max(value, minimumMagnitude)
+        }
+
         private func textResizeHandleRect(for object: CanvasTextObject, on canvas: PKCanvasView) -> CGRect {
             let handleSize = max(44 / max(canvas.zoomScale, 0.001), 18)
             return CGRect(
@@ -2777,14 +3441,186 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             }?.id
         }
 
+        private var selectedGeometryObjectIDFromSharedState: UUID? {
+            guard case .geometry(let id) = parent.selectionState.selectedObject else { return nil }
+            return id
+        }
+
+        private func geometryHitFrame(_ object: CanvasGeometryObject) -> CGRect {
+            let normalized = object.normalizedFrame
+            if normalized.width < 1 || normalized.height < 1 {
+                return normalized.insetBy(dx: -6, dy: -6)
+            }
+            return normalized
+        }
+
+        // MARK: Geometry handle hit-testing (pure source space, like text resize)
+
+        private static let geometryHandleHitRadius: CGFloat = 44
+        private static let geometryRotationStemLength: CGFloat = 30
+
+        private func rotateSourcePoint(_ point: CGPoint, about pivot: CGPoint, by rotation: CGFloat) -> CGPoint {
+            let dx = point.x - pivot.x
+            let dy = point.y - pivot.y
+            let cosR = cos(rotation)
+            let sinR = sin(rotation)
+            return CGPoint(x: pivot.x + dx * cosR - dy * sinR, y: pivot.y + dx * sinR + dy * cosR)
+        }
+
+        /// Un-rotates a source point into the object's local (unrotated) space so
+        /// a rotated object can be hit-tested against its axis-aligned frame.
+        private func geometryLocalPoint(_ source: CGPoint, object: CanvasGeometryObject) -> CGPoint {
+            rotateSourcePoint(source, about: object.pivot, by: -object.rotation)
+        }
+
+        enum GeometryHandleKind {
+            case rotate
+            case pivot
+            case resize
+        }
+
+        private func hostPoint(forCanvasPoint canvasPoint: CGPoint, on canvas: PKCanvasView) -> CGPoint {
+            if let hostView {
+                return canvas.convert(canvasPoint, to: hostView)
+            }
+            return CGPoint(
+                x: canvasPoint.x - canvas.contentOffset.x,
+                y: canvasPoint.y - canvas.contentOffset.y
+            )
+        }
+
+        private func screenPoint(for sourcePoint: CGPoint, on canvas: PKCanvasView) -> CGPoint {
+            let zoom = max(canvas.zoomScale, 0.001)
+            return CGPoint(
+                x: (PencilKitCanvasGeometry.drawingOriginOffset.x + sourcePoint.x) * zoom - canvas.contentOffset.x,
+                y: (PencilKitCanvasGeometry.drawingOriginOffset.y + sourcePoint.y) * zoom - canvas.contentOffset.y
+            )
+        }
+
+        private func rotatedGeometryScreenPoint(
+            _ point: CGPoint,
+            object: CanvasGeometryObject,
+            on canvas: PKCanvasView
+        ) -> CGPoint {
+            screenPoint(for: rotateSourcePoint(point, about: object.pivot, by: object.rotation), on: canvas)
+        }
+
+        /// Hit test for the selected geometry object's handles in the same
+        /// screen-space coordinates used by `CanvasGeometryObjectsView.draw`.
+        private func geometryHandleHit(at canvasPoint: CGPoint, on canvas: PKCanvasView) -> (id: UUID, kind: GeometryHandleKind)? {
+            guard let selectedID = selectedGeometryObjectIDFromSharedState ?? selectedGeometryObjectID ?? lastSelectedGeometryObjectID,
+                  let object = parent.geometryObjects.first(where: { $0.id == selectedID }),
+                  object.isLocked != true else {
+                return nil
+            }
+            let touchCandidates = [
+                canvasPoint,
+                CGPoint(
+                    x: canvasPoint.x - canvas.contentOffset.x,
+                    y: canvasPoint.y - canvas.contentOffset.y
+                ),
+                hostPoint(forCanvasPoint: canvasPoint, on: canvas)
+            ]
+            let zoom = max(canvas.zoomScale, 0.001)
+            let sourceTouchCandidates = touchCandidates.map { point in
+                CGPoint(
+                    x: (point.x + canvas.contentOffset.x) / zoom - PencilKitCanvasGeometry.drawingOriginOffset.x,
+                    y: (point.y + canvas.contentOffset.y) / zoom - PencilKitCanvasGeometry.drawingOriginOffset.y
+                )
+            } + [
+                sourcePoint(forCanvasPoint: canvasPoint, on: canvas)
+            ]
+            let radius = Self.geometryHandleHitRadius
+            let sourceRadius = radius / zoom
+            let normalized = object.normalizedFrame
+
+            func distance(to point: CGPoint) -> CGFloat {
+                touchCandidates
+                    .map { hypot($0.x - point.x, $0.y - point.y) }
+                    .min() ?? .greatestFiniteMagnitude
+            }
+
+            func sourceDistance(to point: CGPoint) -> CGFloat {
+                sourceTouchCandidates
+                    .map { hypot($0.x - point.x, $0.y - point.y) }
+                    .min() ?? .greatestFiniteMagnitude
+            }
+
+            func hits(screen screenPoint: CGPoint, source sourcePoint: CGPoint) -> Bool {
+                distance(to: screenPoint) <= radius || sourceDistance(to: sourcePoint) <= sourceRadius
+            }
+
+            let topCenterSource = rotateSourcePoint(
+                CGPoint(x: normalized.midX, y: normalized.minY),
+                about: object.pivot,
+                by: object.rotation
+            )
+            let topCenter = screenPoint(for: topCenterSource, on: canvas)
+            let up = CGPoint(x: sin(object.rotation), y: -cos(object.rotation))
+            let sourceStem = Self.geometryRotationStemLength / zoom
+            let knobSource = CGPoint(
+                x: topCenterSource.x + up.x * sourceStem,
+                y: topCenterSource.y + up.y * sourceStem
+            )
+            let knob = CGPoint(
+                x: topCenter.x + up.x * Self.geometryRotationStemLength,
+                y: topCenter.y + up.y * Self.geometryRotationStemLength
+            )
+
+            let pivotScreen = screenPoint(for: object.pivot, on: canvas)
+
+            let resizeCornerSource = rotateSourcePoint(
+                CGPoint(x: object.x + object.width, y: object.y + object.height),
+                about: object.pivot,
+                by: object.rotation
+            )
+            let resizeCornerScreen = screenPoint(for: resizeCornerSource, on: canvas)
+
+            let rotateScreenDistance = distance(to: knob)
+            let rotateSourceDistance = sourceDistance(to: knobSource)
+            let pivotScreenDistance = distance(to: pivotScreen)
+            let pivotSourceDistance = sourceDistance(to: object.pivot)
+            let resizeScreenDistance = distance(to: resizeCornerScreen)
+            let resizeSourceDistance = sourceDistance(to: resizeCornerSource)
+
+            if rotateScreenDistance <= radius || rotateSourceDistance <= sourceRadius { return (object.id, .rotate) }
+            if pivotScreenDistance <= radius || pivotSourceDistance <= sourceRadius { return (object.id, .pivot) }
+            if resizeScreenDistance <= radius || resizeSourceDistance <= sourceRadius { return (object.id, .resize) }
+            return nil
+        }
+
+        private func hitSelectedGeometryObjectID(at canvasPoint: CGPoint, on canvas: PKCanvasView) -> UUID? {
+            guard let selectedID = selectedGeometryObjectID ?? selectedGeometryObjectIDFromSharedState ?? lastSelectedGeometryObjectID,
+                  let object = parent.geometryObjects.first(where: { $0.id == selectedID }),
+                  object.isLocked != true else {
+                return nil
+            }
+            let source = sourcePoint(forCanvasPoint: canvasPoint, on: canvas)
+            let local = geometryLocalPoint(source, object: object)
+            let hitMargin = selectedObjectDragHitMargin(on: canvas)
+            return geometryHitFrame(object).insetBy(dx: -hitMargin, dy: -hitMargin).contains(local) ? object.id : nil
+        }
+
+        private func hitGeometryObjectID(at canvasPoint: CGPoint, on canvas: PKCanvasView) -> UUID? {
+            let source = sourcePoint(forCanvasPoint: canvasPoint, on: canvas)
+            let hitMargin = max(16 / max(canvas.zoomScale, 0.001), 8)
+            return parent.geometryObjects.reversed().first { object in
+                guard object.isLocked != true else { return false }
+                let local = geometryLocalPoint(source, object: object)
+                return geometryHitFrame(object).insetBy(dx: -hitMargin, dy: -hitMargin).contains(local)
+            }?.id
+        }
+
         private func setSelectedTextObjectID(_ id: UUID?) {
             guard selectedTextObjectID != id
                     || selectedImageObjectID != nil
+                    || selectedGeometryObjectID != nil
                     || parent.selectionState.selectedObject != id.map(CanvasSelectionState.Object.text) else {
                 return
             }
             selectedTextObjectID = id
             selectedImageObjectID = nil
+            selectedGeometryObjectID = nil
             if let id {
                 lastSelectedTextObjectID = id
             }
@@ -2794,13 +3630,31 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private func setSelectedImageObjectID(_ id: UUID?) {
             guard selectedImageObjectID != id
                     || selectedTextObjectID != nil
+                    || selectedGeometryObjectID != nil
                     || parent.selectionState.selectedObject != id.map(CanvasSelectionState.Object.image) else {
                 return
             }
             selectedImageObjectID = id
             selectedTextObjectID = nil
+            selectedGeometryObjectID = nil
             if let id {
                 lastSelectedImageObjectID = id
+            }
+            updateSharedSelectionState()
+        }
+
+        private func setSelectedGeometryObjectID(_ id: UUID?) {
+            guard selectedGeometryObjectID != id
+                    || selectedTextObjectID != nil
+                    || selectedImageObjectID != nil
+                    || parent.selectionState.selectedObject != id.map(CanvasSelectionState.Object.geometry) else {
+                return
+            }
+            selectedGeometryObjectID = id
+            selectedTextObjectID = nil
+            selectedImageObjectID = nil
+            if let id {
+                lastSelectedGeometryObjectID = id
             }
             updateSharedSelectionState()
         }
@@ -2819,9 +3673,33 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     selectedObject: .image(object.id),
                     viewportFrame: canvas.map { overlayRect(forSourceRect: object.frame, on: $0) }
                 )
+            } else if let selectedGeometryObjectID,
+                      let object = parent.geometryObjects.first(where: { $0.id == selectedGeometryObjectID }) {
+                parent.selectionState = CanvasSelectionState(
+                    selectedObject: .geometry(object.id),
+                    selectedGeometryObject: object,
+                    viewportFrame: canvas.map { overlayRect(forSourceRect: object.normalizedFrame, on: $0) }
+                )
             } else {
                 parent.selectionState = CanvasSelectionState()
             }
+        }
+
+        private func clearObjectSelection(using canvas: PKCanvasView) {
+            finishTextEditing()
+            selectedTextObjectID = nil
+            selectedImageObjectID = nil
+            selectedGeometryObjectID = nil
+            lastSelectedTextObjectID = nil
+            lastSelectedImageObjectID = nil
+            lastSelectedGeometryObjectID = nil
+            clearObjectDragState()
+            clearRegionSelection()
+            updateSharedSelectionState()
+            updateHostTextObjects(using: canvas)
+            updateHostImageObjects(using: canvas)
+            updateHostGeometryObjects(using: canvas)
+            publishImageFromModel()
         }
 
         private func duplicateSelectedTextObject(using canvas: PKCanvasView) {
@@ -2831,6 +3709,10 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 return
             }
             if duplicateSelectedRegion(using: canvas) {
+                return
+            }
+            if let targetID = selectedGeometryObjectID {
+                duplicateGeometryObject(targetID, using: canvas)
                 return
             }
             if let targetID = selectedImageObjectID ?? lastSelectedImageObjectID {
@@ -2883,6 +3765,10 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 return
             }
             if deleteSelectedRegion(using: canvas) {
+                return
+            }
+            if let targetID = selectedGeometryObjectID {
+                deleteGeometryObject(targetID, using: canvas)
                 return
             }
             if let targetID = selectedImageObjectID ?? lastSelectedImageObjectID {
@@ -2939,6 +3825,71 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             lastSelectedImageObjectID = nil
             movingImageObjectID = nil
             updateHostImageObjects(using: canvas)
+            publishImageFromModel()
+        }
+
+        private func duplicateGeometryObject(_ id: UUID, using canvas: PKCanvasView) {
+            guard let object = parent.geometryObjects.first(where: { $0.id == id }) else { return }
+            parent.onInteractionBegan?()
+            let offset = max(24 / max(canvas.zoomScale, 0.001), 12)
+            let duplicate = CanvasGeometryObject(
+                shape: object.shape,
+                x: object.x + offset,
+                y: object.y + offset,
+                width: object.width,
+                height: object.height,
+                strokeRed: object.strokeRed,
+                strokeGreen: object.strokeGreen,
+                strokeBlue: object.strokeBlue,
+                strokeAlpha: object.strokeAlpha,
+                strokeWidth: object.strokeWidth,
+                fillRed: object.fillRed,
+                fillGreen: object.fillGreen,
+                fillBlue: object.fillBlue,
+                fillOpacity: object.fillOpacity,
+                polygonSides: object.polygonSides,
+                arrow: object.arrow,
+                isLocked: object.isLocked
+            )
+            var geometryObjects = parent.geometryObjects
+            geometryObjects.append(duplicate)
+            parent.geometryObjects = geometryObjects
+            setSelectedGeometryObjectID(duplicate.id)
+            updateHostGeometryObjects(using: canvas)
+            publishImageFromModel()
+        }
+
+        private func updateGeometryObject(_ update: CanvasGeometryUpdate, using canvas: PKCanvasView) {
+            guard let index = parent.geometryObjects.firstIndex(where: { $0.id == update.id }) else { return }
+            var geometryObjects = parent.geometryObjects
+            geometryObjects[index].shape = update.shape
+            geometryObjects[index].strokeRed = update.strokeColor.red
+            geometryObjects[index].strokeGreen = update.strokeColor.green
+            geometryObjects[index].strokeBlue = update.strokeColor.blue
+            geometryObjects[index].strokeAlpha = update.strokeColor.alpha
+            geometryObjects[index].strokeWidth = update.strokeWidth
+            geometryObjects[index].fillRed = update.fillColor.red
+            geometryObjects[index].fillGreen = update.fillColor.green
+            geometryObjects[index].fillBlue = update.fillColor.blue
+            geometryObjects[index].fillOpacity = update.fillOpacity
+            geometryObjects[index].polygonSides = update.polygonSides
+            geometryObjects[index].arrow = update.arrow
+            parent.geometryObjects = geometryObjects
+            if selectedGeometryObjectID == update.id {
+                updateSharedSelectionState()
+            }
+            updateHostGeometryObjects(using: canvas)
+            publishImageFromModel()
+        }
+
+        private func deleteGeometryObject(_ id: UUID, using canvas: PKCanvasView) {
+            guard parent.geometryObjects.contains(where: { $0.id == id }) else { return }
+            parent.onInteractionBegan?()
+            parent.geometryObjects.removeAll { $0.id == id }
+            setSelectedGeometryObjectID(nil)
+            lastSelectedGeometryObjectID = nil
+            clearObjectDragState()
+            updateHostGeometryObjects(using: canvas)
             publishImageFromModel()
         }
 
@@ -3058,8 +4009,12 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             let matchingImageObjects = parent.imageObjects.filter { object in
                 activeRegionSelectedImageObjectIDs.contains(object.id)
             }
+            let matchingGeometryObjects = parent.geometryObjects.filter { object in
+                activeRegionSelectedGeometryObjectIDs.contains(object.id)
+            }
             let matchingStrokeIndexes = activeRegionSelectedStrokeIndexes.sorted()
-            guard !matchingTextObjects.isEmpty || !matchingImageObjects.isEmpty || !matchingStrokeIndexes.isEmpty else { return false }
+            guard !matchingTextObjects.isEmpty || !matchingImageObjects.isEmpty
+                || !matchingGeometryObjects.isEmpty || !matchingStrokeIndexes.isEmpty else { return false }
 
             parent.onInteractionBegan?()
             let offset = max(24 / max(canvas.zoomScale, 0.001), 12)
@@ -3096,6 +4051,33 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 }
                 parent.imageObjects.append(contentsOf: duplicates)
             }
+            if !matchingGeometryObjects.isEmpty {
+                let duplicates = matchingGeometryObjects.map { object -> CanvasGeometryObject in
+                    CanvasGeometryObject(
+                        shape: object.shape,
+                        x: object.x + offset,
+                        y: object.y + offset,
+                        width: object.width,
+                        height: object.height,
+                        strokeRed: object.strokeRed,
+                        strokeGreen: object.strokeGreen,
+                        strokeBlue: object.strokeBlue,
+                        strokeAlpha: object.strokeAlpha,
+                        strokeWidth: object.strokeWidth,
+                        fillRed: object.fillRed,
+                        fillGreen: object.fillGreen,
+                        fillBlue: object.fillBlue,
+                        fillOpacity: object.fillOpacity,
+                        polygonSides: object.polygonSides,
+                        arrow: object.arrow,
+                        rotation: object.rotation,
+                        pivotX: object.pivotX.map { $0 + offset },
+                        pivotY: object.pivotY.map { $0 + offset },
+                        isLocked: object.isLocked
+                    )
+                }
+                parent.geometryObjects.append(contentsOf: duplicates)
+            }
 
             if !matchingStrokeIndexes.isEmpty {
                 let strokes = parent.drawing.strokes
@@ -3109,6 +4091,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             setSelectedTextObjectID(nil)
             updateHostTextObjects(using: canvas)
             updateHostImageObjects(using: canvas)
+            updateHostGeometryObjects(using: canvas)
             updateActiveRegionTargets(using: canvas)
             publishImageFromModel()
             return true
@@ -3118,8 +4101,10 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             guard activeRegionSelection != nil else { return false }
             let matchingTextIDs = activeRegionSelectedTextObjectIDs
             let matchingImageIDs = activeRegionSelectedImageObjectIDs
+            let matchingGeometryIDs = activeRegionSelectedGeometryObjectIDs
             let matchingStrokeIndexes = activeRegionSelectedStrokeIndexes
-            guard !matchingTextIDs.isEmpty || !matchingImageIDs.isEmpty || !matchingStrokeIndexes.isEmpty else { return false }
+            guard !matchingTextIDs.isEmpty || !matchingImageIDs.isEmpty
+                || !matchingGeometryIDs.isEmpty || !matchingStrokeIndexes.isEmpty else { return false }
 
             parent.onInteractionBegan?()
             if !matchingTextIDs.isEmpty {
@@ -3127,6 +4112,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             }
             if !matchingImageIDs.isEmpty {
                 parent.imageObjects.removeAll { matchingImageIDs.contains($0.id) }
+            }
+            if !matchingGeometryIDs.isEmpty {
+                parent.geometryObjects.removeAll { matchingGeometryIDs.contains($0.id) }
             }
             if !matchingStrokeIndexes.isEmpty {
                 let remainingStrokes = parent.drawing.strokes.enumerated().compactMap { index, stroke in
@@ -3138,11 +4126,11 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
 
             setSelectedTextObjectID(nil)
             lastSelectedTextObjectID = nil
-            movingTextObjectID = nil
-            resizingTextObjectID = nil
+            clearObjectDragState()
             clearRegionSelection()
             updateHostTextObjects(using: canvas)
             updateHostImageObjects(using: canvas)
+            updateHostGeometryObjects(using: canvas)
             publishImageFromModel()
             return true
         }
@@ -3444,6 +4432,14 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             return id
         }
 
+        var selectedGeometryObjectForDisplayID: UUID? {
+            guard activeTextEditor == nil,
+                  case .geometry(let id) = parent.selectionState.selectedObject else {
+                return nil
+            }
+            return id
+        }
+
         private var activeTextObjectIndex: Int? {
             if let activeTextObjectID,
                let index = parent.textObjects.firstIndex(where: { $0.id == activeTextObjectID }) {
@@ -3636,6 +4632,14 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 assetDirectoryURL: CanvasImageObject.assetDirectoryURL(forDrawingURL: parent.drawingURL),
                 using: canvas,
                 selectedImageObjectID: selectedImageObjectForDisplayID
+            )
+        }
+
+        private func updateHostGeometryObjects(using canvas: PKCanvasView) {
+            hostView?.updateGeometryObjects(
+                parent.geometryObjects,
+                using: canvas,
+                selectedGeometryObjectID: selectedGeometryObjectForDisplayID
             )
         }
 
@@ -3949,6 +4953,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 return hostView?.textPlacementOverlayView.acceptsTextPlacement == true
                     && activeTextEditor == nil
             }
+            if gestureRecognizer === geometryCreationRecognizer {
+                return activeGeometryConfig != nil
+            }
             if gestureRecognizer === regionSelectionRecognizer {
                 if activeSelectionTarget == .object,
                    let canvas,
@@ -3956,6 +4963,8 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     let location = hostView.convert(gestureRecognizer.location(in: hostView), to: canvas)
                     if hitTextResizeHandleID(at: location, on: canvas) != nil
                         || hitTextObjectID(at: location, on: canvas) != nil
+                        || geometryHandleHit(at: location, on: canvas) != nil
+                        || hitGeometryObjectID(at: location, on: canvas) != nil
                         || hitImageObjectID(at: location, on: canvas) != nil {
                         return false
                     }
@@ -3969,12 +4978,18 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             if gestureRecognizer === textSelectionPanRecognizer {
                 guard isTextSelectionEnabled,
                       let canvas else {
+                    pendingGeometryHandleHit = nil
                     return false
                 }
                 let startLocation = gestureRecognizer.location(in: canvas)
+                let geometryHandle = geometryHandleHit(at: startLocation, on: canvas)
+                pendingGeometryHandleHit = geometryHandle
                 return hitTextResizeHandleID(at: startLocation, on: canvas) != nil
+                    || geometryHandle != nil
                     || hitSelectedTextObjectID(at: startLocation, on: canvas) != nil
                     || hitTextObjectID(at: startLocation, on: canvas) != nil
+                    || hitSelectedGeometryObjectID(at: startLocation, on: canvas) != nil
+                    || hitGeometryObjectID(at: startLocation, on: canvas) != nil
                     || hitSelectedImageObjectID(at: startLocation, on: canvas) != nil
                     || hitImageObjectID(at: startLocation, on: canvas) != nil
             }
@@ -3996,7 +5011,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 return true
             }
             if gestureRecognizer === regionSelectionRecognizer
-                || otherGestureRecognizer === regionSelectionRecognizer {
+                || otherGestureRecognizer === regionSelectionRecognizer
+                || gestureRecognizer === geometryCreationRecognizer
+                || otherGestureRecognizer === geometryCreationRecognizer {
                 return false
             }
             return true
@@ -4015,6 +5032,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             stabilizeBackgroundViewportIfNeeded(on: canvas)
             hostView?.updateBackgroundFrame(using: canvas)
             hostView?.updateImageObjectFrame(using: canvas)
+            hostView?.updateGeometryObjectFrame(using: canvas)
             hostView?.updateTextObjectFrame(using: canvas)
             updateActiveTextEditorFrame(on: canvas)
             updateRegionSelectionHighlight(on: canvas)
@@ -4036,6 +5054,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             guard let canvas = scrollView as? PKCanvasView else { return }
             hostView?.updateBackgroundFrame(using: canvas)
             hostView?.updateImageObjectFrame(using: canvas)
+            hostView?.updateGeometryObjectFrame(using: canvas)
             hostView?.updateTextObjectFrame(using: canvas)
             updateActiveTextEditorFrame(on: canvas)
             updateRegionSelectionHighlight(on: canvas)
@@ -4049,6 +5068,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             guard let canvas = scrollView as? PKCanvasView else { return }
             hostView?.updateBackgroundFrame(using: canvas)
             hostView?.updateImageObjectFrame(using: canvas)
+            hostView?.updateGeometryObjectFrame(using: canvas)
             hostView?.updateTextObjectFrame(using: canvas)
             updateActiveTextEditorFrame(on: canvas)
             updateSharedSelectionState()
@@ -4171,6 +5191,11 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 )
                 parent.drawing.image(from: sourceRect, scale: drawingImageScale).draw(in: destinationRect)
                 drawImageObjects(
+                    in: context.cgContext,
+                    sourceRect: sourceRect,
+                    destinationRect: destinationRect
+                )
+                drawGeometryObjects(
                     in: context.cgContext,
                     sourceRect: sourceRect,
                     destinationRect: destinationRect
@@ -4298,6 +5323,52 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     height: object.height * scaleY
                 )
                 image.draw(in: imageFrame)
+            }
+
+            context.restoreGState()
+        }
+
+        private func drawGeometryObjects(
+            in context: CGContext,
+            sourceRect: CGRect,
+            destinationRect: CGRect
+        ) {
+            guard !parent.geometryObjects.isEmpty else { return }
+
+            let scaleX = destinationRect.width / max(sourceRect.width, 0.001)
+            let scaleY = destinationRect.height / max(sourceRect.height, 0.001)
+            let origin = PencilKitCanvasGeometry.drawingOriginOffset
+            context.saveGState()
+            context.clip(to: destinationRect)
+
+            func map(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+                CGPoint(
+                    x: destinationRect.minX + (origin.x + x - sourceRect.minX) * scaleX,
+                    y: destinationRect.minY + (origin.y + y - sourceRect.minY) * scaleY
+                )
+            }
+
+            for object in parent.geometryObjects {
+                let normalized = object.normalizedFrame
+                let topLeft = map(normalized.minX, normalized.minY)
+                let boundingRect = CGRect(
+                    x: topLeft.x,
+                    y: topLeft.y,
+                    width: normalized.width * scaleX,
+                    height: normalized.height * scaleY
+                )
+                let start = map(object.x, object.y)
+                let end = map(object.x + object.width, object.y + object.height)
+                let pivot = map(object.pivot.x, object.pivot.y)
+                CanvasGeometryRenderer.draw(
+                    object,
+                    boundingRect: boundingRect,
+                    start: start,
+                    end: end,
+                    lineWidthScale: scaleY,
+                    pivot: pivot,
+                    in: context
+                )
             }
 
             context.restoreGState()

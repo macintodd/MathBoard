@@ -56,6 +56,74 @@ struct MathBoardTests {
         #expect(PresentationCanvasTextObject.load(from: missingURL).isEmpty)
     }
 
+    @Test func geometryObjectSidecarURLUsesDrawingBaseName() throws {
+        let drawingURL = URL(fileURLWithPath: "/tmp/slide-123.drawing")
+        let sidecarURL = CanvasGeometryObject.sidecarURL(forDrawingURL: drawingURL)
+
+        #expect(sidecarURL.lastPathComponent == "slide-123.geometryobjects.json")
+        #expect(sidecarURL.deletingLastPathComponent() == drawingURL.deletingLastPathComponent())
+    }
+
+    @Test func geometryObjectRoundTripsThroughSidecarJSON() throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MathBoardTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let drawingURL = directoryURL.appendingPathComponent("slide-abc.drawing")
+        let sidecarURL = CanvasGeometryObject.sidecarURL(forDrawingURL: drawingURL)
+        let geometryObjects = [
+            CanvasGeometryObject(
+                shape: .rectangle,
+                x: 10,
+                y: 20,
+                width: 120,
+                height: 80,
+                strokeRed: 0.1,
+                strokeGreen: 0.2,
+                strokeBlue: 0.3,
+                strokeAlpha: 1,
+                strokeWidth: 4,
+                fillRed: 0.5,
+                fillGreen: 0.6,
+                fillBlue: 0.7,
+                fillOpacity: 0.35,
+                polygonSides: 6,
+                arrow: .end
+            ),
+            CanvasGeometryObject(
+                shape: .line,
+                x: 0,
+                y: 0,
+                width: -50,
+                height: 30,
+                arrow: .both
+            )
+        ]
+
+        try CanvasGeometryObject.save(geometryObjects, to: sidecarURL)
+        let loaded = CanvasGeometryObject.load(from: sidecarURL)
+
+        #expect(loaded == geometryObjects)
+    }
+
+    @Test func missingGeometryObjectSidecarLoadsAsEmptyArray() {
+        let missingURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("missing-\(UUID().uuidString).geometryobjects.json")
+
+        #expect(CanvasGeometryObject.load(from: missingURL).isEmpty)
+    }
+
+    @Test func geometryObjectNormalizedFrameStandardizesNegativeExtent() {
+        let object = CanvasGeometryObject(shape: .line, x: 100, y: 100, width: -40, height: -20)
+        let normalized = object.normalizedFrame
+
+        #expect(normalized.minX == 60)
+        #expect(normalized.minY == 80)
+        #expect(normalized.width == 40)
+        #expect(normalized.height == 20)
+    }
+
     @Test func strokeColorSidecarURLUsesDrawingBaseName() {
         let drawingURL = URL(fileURLWithPath: "/tmp/slide-123.drawing")
         let sidecarURL = CanvasStrokeColorRecord.sidecarURL(forDrawingURL: drawingURL)

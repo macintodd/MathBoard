@@ -43,11 +43,13 @@ struct SlidePDFExporter {
             let drawing = loadDrawing(at: slideDrawingURL)
             let textObjects = loadTextObjects(forDrawingURL: slideDrawingURL)
             let imageObjects = loadImageObjects(forDrawingURL: slideDrawingURL)
+            let geometryObjects = loadGeometryObjects(forDrawingURL: slideDrawingURL)
             let pageInfo = pageInfo(
                 for: slide,
                 drawing: drawing,
                 textObjects: textObjects,
                 imageObjects: imageObjects,
+                geometryObjects: geometryObjects,
                 backgroundURL: backgroundURL
             )
             drawPage(
@@ -55,6 +57,7 @@ struct SlidePDFExporter {
                 drawing: drawing,
                 textObjects: textObjects,
                 imageObjects: imageObjects,
+                geometryObjects: geometryObjects,
                 drawingURL: slideDrawingURL,
                 in: context
             )
@@ -92,11 +95,18 @@ struct SlidePDFExporter {
         )
     }
 
+    private static func loadGeometryObjects(forDrawingURL drawingURL: URL) -> [PresentationCanvasGeometryObject] {
+        PresentationCanvasGeometryObject.load(
+            from: PresentationCanvasGeometryObject.sidecarURL(forDrawingURL: drawingURL)
+        )
+    }
+
     private static func pageInfo(
         for slide: SlideMetadata,
         drawing: PKDrawing,
         textObjects: [PresentationCanvasTextObject],
         imageObjects: [PresentationCanvasImageObject],
+        geometryObjects: [PresentationCanvasGeometryObject],
         backgroundURL: (SlideBackground) -> URL
     ) -> SlidePDFPageInfo {
         if let background = slide.background,
@@ -113,7 +123,8 @@ struct SlidePDFExporter {
         let contentBounds = combinedContentBounds(
             drawing: drawing,
             textObjects: textObjects,
-            imageObjects: imageObjects
+            imageObjects: imageObjects,
+            geometryObjects: geometryObjects
         )
         if !contentBounds.isEmpty {
             let paddedBounds = contentBounds.insetBy(dx: -48, dy: -48)
@@ -135,7 +146,8 @@ struct SlidePDFExporter {
     private static func combinedContentBounds(
         drawing: PKDrawing,
         textObjects: [PresentationCanvasTextObject],
-        imageObjects: [PresentationCanvasImageObject]
+        imageObjects: [PresentationCanvasImageObject],
+        geometryObjects: [PresentationCanvasGeometryObject]
     ) -> CGRect {
         var bounds = drawing.bounds
         for object in textObjects where !object.text.isEmpty {
@@ -152,6 +164,14 @@ struct SlidePDFExporter {
                 bounds = bounds.union(object.frame)
             }
         }
+        for object in geometryObjects {
+            let frame = object.normalizedFrame
+            if bounds.isEmpty || bounds.isNull {
+                bounds = frame
+            } else {
+                bounds = bounds.union(frame)
+            }
+        }
         return bounds
     }
 
@@ -160,6 +180,7 @@ struct SlidePDFExporter {
         drawing: PKDrawing,
         textObjects: [PresentationCanvasTextObject],
         imageObjects: [PresentationCanvasImageObject],
+        geometryObjects: [PresentationCanvasGeometryObject],
         drawingURL: URL,
         in context: CGContext
     ) {
@@ -189,6 +210,12 @@ struct SlidePDFExporter {
         drawImageObjects(
             imageObjects,
             assetDirectoryURL: PresentationCanvasImageObject.assetDirectoryURL(forDrawingURL: drawingURL),
+            from: pageInfo.sourceRect,
+            into: pageInfo.pageRect,
+            in: context
+        )
+        drawGeometryObjects(
+            geometryObjects,
             from: pageInfo.sourceRect,
             into: pageInfo.pageRect,
             in: context
@@ -300,6 +327,57 @@ struct SlidePDFExporter {
                 height: object.height * scaleY
             )
             context.draw(cgImage, in: imageRect)
+        }
+
+        context.restoreGState()
+    }
+
+    private static func drawGeometryObjects(
+        _ geometryObjects: [PresentationCanvasGeometryObject],
+        from sourceRect: CGRect,
+        into destinationRect: CGRect,
+        in context: CGContext
+    ) {
+        guard !geometryObjects.isEmpty else { return }
+
+        let scaleX = destinationRect.width / max(sourceRect.width, 0.001)
+        let scaleY = destinationRect.height / max(sourceRect.height, 0.001)
+
+        context.saveGState()
+        context.clip(to: destinationRect)
+        // The PDF context is y-up; flip within the page so the shared y-down
+        // renderer draws shapes upright, matching the on-screen canvas.
+        context.translateBy(x: 0, y: destinationRect.origin.y * 2 + destinationRect.height)
+        context.scaleBy(x: 1, y: -1)
+
+        func map(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(
+                x: destinationRect.minX + (x - sourceRect.minX) * scaleX,
+                y: destinationRect.minY + (y - sourceRect.minY) * scaleY
+            )
+        }
+
+        for object in geometryObjects {
+            let normalized = object.normalizedFrame
+            let topLeft = map(normalized.minX, normalized.minY)
+            let boundingRect = CGRect(
+                x: topLeft.x,
+                y: topLeft.y,
+                width: normalized.width * scaleX,
+                height: normalized.height * scaleY
+            )
+            let start = map(object.x, object.y)
+            let end = map(object.x + object.width, object.y + object.height)
+            let pivot = map(object.pivot.x, object.pivot.y)
+            PresentationGeometryRenderer.draw(
+                object,
+                boundingRect: boundingRect,
+                start: start,
+                end: end,
+                lineWidthScale: scaleY,
+                pivot: pivot,
+                in: context
+            )
         }
 
         context.restoreGState()

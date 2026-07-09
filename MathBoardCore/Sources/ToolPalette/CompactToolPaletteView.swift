@@ -195,9 +195,10 @@ public struct CompactToolPaletteView: View {
     private let dockEdge: CompactPaletteDockEdge
     private let dragHandle: AnyView?
 
-    // Contextual drawer visibility. Collapsing leaves only the slim tool rail so
-    // the palette shrinks to almost nothing while teaching.
-    @State private var isDrawerOpen = true
+    // Contextual drawer visibility now lives in `ToolPaletteState.isCompactDrawerOpen`
+    // (shared, mirror-synced state) instead of local @State, so the external display
+    // reflects the mini-strip vs. full-drawer choice rather than always showing the
+    // full drawer. Collapsing leaves only the slim tool rail while teaching.
 
     // Popover hosts, mirroring the radial palette's "open…" command handling.
     @State private var isColorPickerPresented = false
@@ -225,7 +226,7 @@ public struct CompactToolPaletteView: View {
 
     public var body: some View {
         let configuration = ToolPaletteDefinitions.definition(for: state.activeTool).configuration(for: state)
-        let isDrawerVisible = isDrawerOpen && state.activeTool.hasCompactDrawer
+        let isDrawerVisible = state.isCompactDrawerOpen && state.activeTool.hasCompactDrawer
 
         HStack(alignment: .top, spacing: 0) {
             if dockEdge == .right, isDrawerVisible {
@@ -247,16 +248,16 @@ public struct CompactToolPaletteView: View {
                     .transition(drawerTransition)
             }
         }
-        .animation(Self.drawerAnimation, value: isDrawerOpen)
+        .animation(Self.drawerAnimation, value: state.isCompactDrawerOpen)
         .animation(Self.drawerAnimation, value: isQuickStripVisible)
         .environment(\.colorScheme, .dark)
         .onChange(of: state.activeTool) { _, newTool in
             guard newTool.hasCompactDrawer else {
-                isDrawerOpen = false
+                state.isCompactDrawerOpen = false
                 return
             }
             if !newTool.hasCompactQuickStrip || newTool == .equation {
-                isDrawerOpen = true
+                state.isCompactDrawerOpen = true
             }
         }
         // Popovers reuse the shared reducer via `send`, just like the radial dial.
@@ -349,16 +350,16 @@ public struct CompactToolPaletteView: View {
 
             // Explicit drawer toggle for discoverability.
             Button {
-                withAnimation(Self.drawerAnimation) { isDrawerOpen.toggle() }
+                withAnimation(Self.drawerAnimation) { state.isCompactDrawerOpen.toggle() }
             } label: {
-                Image(systemName: isDrawerOpen ? "chevron.left" : "chevron.right")
+                Image(systemName: state.isCompactDrawerOpen ? "chevron.left" : "chevron.right")
                     .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(Color(red: 0.05, green: 0.11, blue: 0.18).opacity(0.82))
                     .frame(width: 44, height: 32)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(isDrawerOpen ? "Hide tool options" : "Show tool options")
+            .accessibilityLabel(state.isCompactDrawerOpen ? "Hide tool options" : "Show tool options")
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 8)
@@ -390,16 +391,16 @@ public struct CompactToolPaletteView: View {
 
         if !toolID.hasCompactDrawer {
             withAnimation(Self.drawerAnimation) {
-                isDrawerOpen = false
+                state.isCompactDrawerOpen = false
             }
         } else if toolID.hasCompactQuickStrip {
             withAnimation(Self.drawerAnimation) {
-                isDrawerOpen = wasActive ? !isDrawerOpen : false
+                state.isCompactDrawerOpen = wasActive ? !state.isCompactDrawerOpen : false
             }
         } else if wasActive {
-            withAnimation(Self.drawerAnimation) { isDrawerOpen.toggle() }
+            withAnimation(Self.drawerAnimation) { state.isCompactDrawerOpen.toggle() }
         } else {
-            isDrawerOpen = true
+            state.isCompactDrawerOpen = true
         }
     }
 
@@ -412,7 +413,7 @@ public struct CompactToolPaletteView: View {
     }
 
     private var isQuickStripVisible: Bool {
-        state.activeTool.hasCompactQuickStrip && !isDrawerOpen
+        state.activeTool.hasCompactQuickStrip && !state.isCompactDrawerOpen
     }
 
     @ViewBuilder
@@ -421,7 +422,37 @@ public struct CompactToolPaletteView: View {
             quickColorStrip
         } else if state.activeTool == .extract || state.activeTool == .eraser {
             quickModeStrip
+        } else if state.activeTool == .geometry {
+            quickShapeStrip
         }
+    }
+
+    private var quickShapeStrip: some View {
+        VStack(spacing: 10) {
+            ForEach(GeometryType.allCases, id: \.rawValue) { shape in
+                CompactQuickModeButton(
+                    iconSystemName: shape.iconSystemName,
+                    label: shape.displayName,
+                    isSelected: state.geometryType == shape
+                ) {
+                    send(.setGeometryType(shape))
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.white.opacity(0.78))
+                .shadow(color: .white.opacity(0.3), radius: 3, x: -1, y: -1)
+                .shadow(color: .black.opacity(0.16), radius: 8, x: 3, y: 3)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.62), lineWidth: 1)
+        )
+        .padding(.top, drawerTopOffset)
+        .padding(.horizontal, 8)
     }
 
     private var quickColorStrip: some View {
@@ -808,7 +839,7 @@ private extension ToolID {
     }
 
     var hasCompactQuickStrip: Bool {
-        isCompactInkTool || self == .extract || self == .eraser
+        isCompactInkTool || self == .extract || self == .eraser || self == .geometry
     }
 
     var hasCompactDrawer: Bool {
@@ -1091,7 +1122,20 @@ private struct CompactSlider: View {
     var configuration: PaletteSliderConfiguration
     var onCommand: (ToolPaletteCommand) -> Void
 
+    @ViewBuilder
     var body: some View {
+        if isLineArrowControl {
+            lineArrowButtons
+        } else {
+            sliderContent
+        }
+    }
+
+    private var isLineArrowControl: Bool {
+        configuration.id.lowercased().contains("linearrows")
+    }
+
+    private var sliderContent: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Image(systemName: configuration.iconSystemName)
@@ -1114,6 +1158,69 @@ private struct CompactSlider: View {
         .padding(.vertical, 10)
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(ToolPaletteTheme.segment))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.white.opacity(0.06), lineWidth: 1))
+    }
+
+    // A start/end pair of toggle buttons instead of a slider so each line end's
+    // arrow can be turned on/off independently.
+    private var lineArrowButtons: some View {
+        let idx = Int(configuration.value.rounded())
+        let startOn = idx == 1 || idx == 3
+        let endOn = idx == 2 || idx == 3
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: configuration.iconSystemName)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(ToolPaletteTheme.mutedLabel.opacity(0.8))
+                Text(configuration.label)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(ToolPaletteTheme.label)
+                Spacer()
+            }
+            HStack(spacing: 8) {
+                arrowToggleButton(title: "Start", systemImage: "arrow.left", isOn: startOn) {
+                    onCommand(configuration.command(Double(Self.arrowIndex(start: !startOn, end: endOn))))
+                }
+                arrowToggleButton(title: "End", systemImage: "arrow.right", isOn: endOn) {
+                    onCommand(configuration.command(Double(Self.arrowIndex(start: startOn, end: !endOn))))
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(ToolPaletteTheme.segment))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.white.opacity(0.06), lineWidth: 1))
+    }
+
+    private func arrowToggleButton(title: String, systemImage: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 13, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+            }
+            .foregroundStyle(isOn ? Color(red: 0.05, green: 0.11, blue: 0.18) : ToolPaletteTheme.label)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(isOn ? ToolPaletteTheme.cyan.opacity(0.92) : ToolPaletteTheme.segment)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private static func arrowIndex(start: Bool, end: Bool) -> Int {
+        switch (start, end) {
+        case (true, true): return 3
+        case (true, false): return 1
+        case (false, true): return 2
+        case (false, false): return 0
+        }
     }
 
     private var valueBinding: Binding<Double> {

@@ -25,6 +25,8 @@ public typealias PresentationViewportState = CanvasViewportState
 public typealias PresentationCanvasBackground = CanvasBackground
 public typealias PresentationCanvasTextObject = CanvasTextObject
 public typealias PresentationCanvasImageObject = CanvasImageObject
+public typealias PresentationCanvasGeometryObject = CanvasGeometryObject
+public typealias PresentationGeometryRenderer = CanvasGeometryRenderer
 public typealias PresentationExtractedRegion = CanvasExtractedRegion
 
 public struct PresentingCanvasView: View {
@@ -34,6 +36,8 @@ public struct PresentingCanvasView: View {
     private let onViewportStateChange: (@MainActor (PresentationViewportState) -> Void)?
     private let onInteractionBegan: (@MainActor () -> Void)?
     private let onExtractedRegionSend: (@MainActor (PresentationExtractedRegion) -> Void)?
+    private let onImportPDF: (@MainActor () -> Void)?
+    private let onExportPDF: (@MainActor () -> Void)?
     private let broker = DisplayBroker.shared
     private let calculator = CalculatorState.shared
     private let paletteSettings = ToolPaletteSettings.shared
@@ -46,6 +50,9 @@ public struct PresentingCanvasView: View {
     @State private var editState = CanvasEditState()
     @State private var pendingTextPlacement: PendingTextPlacement?
     @State private var pendingTextEdit: PendingTextEdit?
+    @State private var actionHUDOffset: CGSize = .zero
+    @State private var actionHUDStoredOffset: CGSize = .zero
+    @State private var isClearingGeometrySelectionForCreation = false
 
     public init(
         drawingURL: URL,
@@ -53,7 +60,9 @@ public struct PresentingCanvasView: View {
         initialViewportState: PresentationViewportState? = nil,
         onViewportStateChange: (@MainActor (PresentationViewportState) -> Void)? = nil,
         onInteractionBegan: (@MainActor () -> Void)? = nil,
-        onExtractedRegionSend: (@MainActor (PresentationExtractedRegion) -> Void)? = nil
+        onExtractedRegionSend: (@MainActor (PresentationExtractedRegion) -> Void)? = nil,
+        onImportPDF: (@MainActor () -> Void)? = nil,
+        onExportPDF: (@MainActor () -> Void)? = nil
     ) {
         self.drawingURL = drawingURL
         self.background = background
@@ -61,9 +70,15 @@ public struct PresentingCanvasView: View {
         self.onViewportStateChange = onViewportStateChange
         self.onInteractionBegan = onInteractionBegan
         self.onExtractedRegionSend = onExtractedRegionSend
+        self.onImportPDF = onImportPDF
+        self.onExportPDF = onExportPDF
     }
 
-    public var body: some View {
+    // The full-screen drawing surface and its full-bleed overlays. This
+    // ignores all safe areas so the whiteboard reaches every edge of the
+    // display; the floating chrome (back/title, tool menu) is layered over
+    // it separately and respects the safe area.
+    private var canvasStack: some View {
         ZStack {
             CanvasView(
                 drawingURL: drawingURL,
@@ -120,122 +135,15 @@ public struct PresentingCanvasView: View {
                     }
             }
         )
-        .ignoresSafeArea(edges: .bottom)
-        .toolbar {
-            if broker.isExternalDisplayConnected {
-                ToolbarItem(placement: .secondaryAction) {
-                    Label("TV Connected", systemImage: "tv.fill")
-                        .labelStyle(.iconOnly)
-                        .foregroundStyle(.green)
-                }
-            }
-            ToolbarItemGroup(placement: .secondaryAction) {
-                Button {
-                    editCommand = CanvasEditCommand(.undo)
-                } label: {
-                    Label("Undo", systemImage: "arrow.uturn.backward")
-                }
-                .disabled(!editState.canUndo)
+        .ignoresSafeArea()
+    }
 
-                Button {
-                    editCommand = CanvasEditCommand(.redo)
-                } label: {
-                    Label("Redo", systemImage: "arrow.uturn.forward")
-                }
-                .disabled(!editState.canRedo)
-
-                Button {
-                    viewportCommand = CanvasViewportCommand(.zoomOut)
-                } label: {
-                    Label("Zoom Out", systemImage: "minus.magnifyingglass")
-                }
-                .disabled(!canZoomOut)
-
-                Text(zoomLabel)
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .frame(minWidth: 44)
-
-                Button {
-                    viewportCommand = CanvasViewportCommand(.zoomIn)
-                } label: {
-                    Label("Zoom In", systemImage: "plus.magnifyingglass")
-                }
-                .disabled(!canZoomIn)
-
-                Button {
-                    viewportCommand = CanvasViewportCommand(.fitToViewfinder)
-                } label: {
-                    Label("Fit to Viewfinder", systemImage: "aspectratio")
-                }
-
-                Button {
-                    viewportCommand = CanvasViewportCommand(.reset)
-                } label: {
-                    Label("Reset View", systemImage: "arrow.counterclockwise")
-                }
-            }
-
-            ToolbarItem(placement: .secondaryAction) {
-                Button {
-                    togglePresentationMode()
-                } label: {
-                    Label(
-                        broker.mode == .present ? "Mirror Mode" : "Present Mode",
-                        systemImage: broker.mode == .present ? "rectangle.dashed" : "rectangle.inset.filled"
-                    )
-                }
-                .tint(broker.mode == .present ? .orange : .blue)
-            }
-
-            ToolbarItem(placement: .secondaryAction) {
-                Button {
-                    calculator.isVisible.toggle()
-                } label: {
-                    Label("Calculator", systemImage: "function")
-                }
-                .tint(calculator.isVisible ? .blue : nil)
-            }
-
-            #if os(iOS)
-            ToolbarItem(placement: .secondaryAction) {
-                Menu {
-                    Button {
-                        broker.isGraphCalculatorVisible.toggle()
-                    } label: {
-                        Label(
-                            broker.isGraphCalculatorVisible ? "Hide graphCalc" : "Show graphCalc",
-                            systemImage: "chart.xyaxis.line"
-                        )
-                    }
-
-                    Button {
-                        paletteSettings.isCustomPaletteEnabled.toggle()
-                    } label: {
-                        Label(
-                            paletteSettings.isCustomPaletteEnabled ? "Hide Tool Palette" : "Show Tool Palette",
-                            systemImage: paletteSettings.isCustomPaletteEnabled ? "eye.slash" : "eye"
-                        )
-                    }
-
-                    Picker("Palette Style", selection: toolPaletteStyleBinding) {
-                        ForEach(ToolPaletteStyle.allCases) { style in
-                            Text(style.displayName).tag(style)
-                        }
-                    }
-
-                    Picker("Palette Size", selection: toolPaletteSizeBinding) {
-                        ForEach(ToolPaletteSize.allCases) { size in
-                            Text(size.displayName).tag(size)
-                        }
-                    }
-                    .disabled(paletteSettings.paletteStyle != .radial)
-                } label: {
-                    Label("Tool Palette", systemImage: "paintpalette")
-                }
-                .tint(paletteSettings.isCustomPaletteEnabled ? .blue : nil)
-            }
-            #endif
+    public var body: some View {
+        ZStack(alignment: .topTrailing) {
+            canvasStack
+            floatingToolMenu
+                .padding(.top, 8)
+                .padding(.trailing, 12)
         }
         .onAppear {
             applyCurrentToolPaletteStateIfNeeded(triggering: .selectTool(broker.toolPaletteState.activeTool))
@@ -249,6 +157,13 @@ public struct PresentingCanvasView: View {
         }
         .onChange(of: paletteSettings.paletteStyle) { _, _ in
             applyCurrentToolPaletteStateIfNeeded(triggering: .selectTool(broker.toolPaletteState.activeTool))
+        }
+        .onChange(of: selectionState.selectedObject) { oldValue, newValue in
+            handleSelectionChange(from: oldValue, to: newValue)
+            if oldValue != newValue {
+                actionHUDOffset = .zero
+                actionHUDStoredOffset = .zero
+            }
         }
         .fullScreenCover(item: $pendingTextPlacement) { placement in
             TextEditorModalView { result in
@@ -281,6 +196,147 @@ public struct PresentingCanvasView: View {
         }
     }
 
+    // Floating overflow menu that replaces the former navigation-bar toolbar.
+    // Layered over the full-screen canvas (top-trailing) so the whiteboard can
+    // use the entire display while every tool stays reachable.
+    private var floatingToolMenu: some View {
+        Menu {
+            Section {
+                Button {
+                    editCommand = CanvasEditCommand(.undo)
+                } label: {
+                    Label("Undo", systemImage: "arrow.uturn.backward")
+                }
+                .disabled(!editState.canUndo)
+
+                Button {
+                    editCommand = CanvasEditCommand(.redo)
+                } label: {
+                    Label("Redo", systemImage: "arrow.uturn.forward")
+                }
+                .disabled(!editState.canRedo)
+            }
+
+            Section("Zoom \(zoomLabel)") {
+                Button {
+                    viewportCommand = CanvasViewportCommand(.zoomIn)
+                } label: {
+                    Label("Zoom In", systemImage: "plus.magnifyingglass")
+                }
+                .disabled(!canZoomIn)
+
+                Button {
+                    viewportCommand = CanvasViewportCommand(.zoomOut)
+                } label: {
+                    Label("Zoom Out", systemImage: "minus.magnifyingglass")
+                }
+                .disabled(!canZoomOut)
+
+                Button {
+                    viewportCommand = CanvasViewportCommand(.fitToViewfinder)
+                } label: {
+                    Label("Fit to Viewfinder", systemImage: "aspectratio")
+                }
+
+                Button {
+                    viewportCommand = CanvasViewportCommand(.reset)
+                } label: {
+                    Label("Reset View", systemImage: "arrow.counterclockwise")
+                }
+            }
+
+            Section {
+                Button {
+                    togglePresentationMode()
+                } label: {
+                    Label(
+                        broker.mode == .present ? "Mirror Mode" : "Present Mode",
+                        systemImage: broker.mode == .present ? "rectangle.dashed" : "rectangle.inset.filled"
+                    )
+                }
+
+                Button {
+                    calculator.isVisible.toggle()
+                } label: {
+                    Label(
+                        calculator.isVisible ? "Hide Calculator" : "Calculator",
+                        systemImage: "function"
+                    )
+                }
+
+                #if os(iOS)
+                Button {
+                    broker.isGraphCalculatorVisible.toggle()
+                } label: {
+                    Label(
+                        broker.isGraphCalculatorVisible ? "Hide graphCalc" : "Show graphCalc",
+                        systemImage: "chart.xyaxis.line"
+                    )
+                }
+                #endif
+            }
+
+            #if os(iOS)
+            Section("Tool Palette") {
+                Button {
+                    paletteSettings.isCustomPaletteEnabled.toggle()
+                } label: {
+                    Label(
+                        paletteSettings.isCustomPaletteEnabled ? "Hide Tool Palette" : "Show Tool Palette",
+                        systemImage: paletteSettings.isCustomPaletteEnabled ? "eye.slash" : "eye"
+                    )
+                }
+
+                Picker("Palette Style", selection: toolPaletteStyleBinding) {
+                    ForEach(ToolPaletteStyle.allCases) { style in
+                        Text(style.displayName).tag(style)
+                    }
+                }
+
+                Picker("Palette Size", selection: toolPaletteSizeBinding) {
+                    ForEach(ToolPaletteSize.allCases) { size in
+                        Text(size.displayName).tag(size)
+                    }
+                }
+                .disabled(paletteSettings.paletteStyle != .radial)
+            }
+            #endif
+
+            if onImportPDF != nil || onExportPDF != nil {
+                Section {
+                    if let onImportPDF {
+                        Button {
+                            onImportPDF()
+                        } label: {
+                            Label("Import PDF", systemImage: "doc.badge.plus")
+                        }
+                    }
+                    if let onExportPDF {
+                        Button {
+                            onExportPDF()
+                        } label: {
+                            Label("Export PDF", systemImage: "square.and.arrow.up")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                if broker.isExternalDisplayConnected {
+                    Image(systemName: "tv.fill")
+                        .foregroundStyle(.green)
+                }
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 18, weight: .semibold))
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 40)
+            .background(.ultraThinMaterial, in: Capsule())
+        }
+        .menuOrder(.fixed)
+        .accessibilityLabel("Tools")
+    }
+
     private var selectedTextActionHUD: some View {
         GeometryReader { proxy in
             if let object = selectionState.selectedTextObject,
@@ -293,9 +349,35 @@ public struct PresentingCanvasView: View {
                     onDelete: { objectCommand = CanvasObjectCommand(.delete(.text(object.id))) }
                 )
                 .position(hudPosition(for: viewportFrame, in: proxy.size))
+                .offset(actionHUDOffset)
+                .gesture(actionHUDDragGesture)
+            } else if let object = selectionState.selectedGeometryObject,
+                      let viewportFrame = selectionState.viewportFrame,
+                      pendingTextEdit == nil,
+                      pendingTextPlacement == nil {
+                FloatingActionHUD(
+                    onClone: { objectCommand = CanvasObjectCommand(.duplicate(.geometry(object.id))) },
+                    onDelete: { objectCommand = CanvasObjectCommand(.delete(.geometry(object.id))) }
+                )
+                .position(hudPosition(for: viewportFrame, in: proxy.size))
+                .offset(actionHUDOffset)
+                .gesture(actionHUDDragGesture)
             }
         }
         .ignoresSafeArea()
+    }
+
+    private var actionHUDDragGesture: some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                actionHUDOffset = CGSize(
+                    width: actionHUDStoredOffset.width + value.translation.width,
+                    height: actionHUDStoredOffset.height + value.translation.height
+                )
+            }
+            .onEnded { _ in
+                actionHUDStoredOffset = actionHUDOffset
+            }
     }
 
     #if os(iOS)
@@ -383,7 +465,82 @@ public struct PresentingCanvasView: View {
     }
 
     private func handleToolPaletteCommand(_ command: ToolPaletteCommand, state: ToolPaletteState) {
+        if case .geometry? = selectionState.selectedObject,
+           command == .selectTool(.geometry) {
+            isClearingGeometrySelectionForCreation = true
+            broker.toolPaletteState = state
+            objectCommand = CanvasObjectCommand(.clearSelection)
+            applyToolPaletteState(state, triggering: command)
+            return
+        }
+
+        // When a geometry object is selected, the geometry controls edit that
+        // object instead of only the create config. The canvas stays in Select
+        // mode so the object can still be moved / resized / rotated.
+        if case .geometry(let id)? = selectionState.selectedObject,
+           Self.isGeometryEditCommand(command) {
+            broker.toolPaletteState = state
+            objectCommand = CanvasObjectCommand(.updateGeometry(geometryUpdate(for: id, from: state)))
+            return
+        }
         applyToolPaletteState(state, triggering: command)
+    }
+
+    private static func isGeometryEditCommand(_ command: ToolPaletteCommand) -> Bool {
+        switch command {
+        case .setStrokeColor, .setPaletteColor, .setStrokeWidth, .setOpacity, .setFillColor,
+             .setGeometryType, .setPolygonSides, .setGeometryLineArrowMode, .setGeometryFillOpacity:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func geometryUpdate(for id: UUID, from state: ToolPaletteState) -> CanvasGeometryUpdate {
+        CanvasGeometryUpdate(
+            id: id,
+            shape: CanvasGeometryShape(geometryType: state.geometryType),
+            strokeColor: CanvasStrokeColor(color: state.strokeColor, opacity: state.opacity),
+            strokeWidth: CGFloat(state.strokeWidth),
+            fillColor: CanvasStrokeColor(color: state.fillColor, opacity: 1),
+            fillOpacity: CGFloat(state.geometryFillOpacity),
+            polygonSides: state.polygonSides,
+            arrow: CanvasGeometryArrow(mode: state.geometryLineArrowMode)
+        )
+    }
+
+    /// Loads a selected geometry object's properties into the palette and opens
+    /// the geometry controls drawer so the user can edit it in place.
+    private func loadGeometryObjectIntoPalette(_ object: CanvasGeometryObject) {
+        var state = broker.toolPaletteState
+        state.activeTool = .geometry
+        state.isCompactDrawerOpen = true
+        state.geometryType = GeometryType(canvasShape: object.shape)
+        state.strokeColor = PaletteColor(name: "custom", red: Double(object.strokeRed), green: Double(object.strokeGreen), blue: Double(object.strokeBlue))
+        state.strokeWidth = Double(object.strokeWidth)
+        state.fillColor = PaletteColor(name: "customFill", red: Double(object.fillRed), green: Double(object.fillGreen), blue: Double(object.fillBlue))
+        state.geometryFillOpacity = Double(object.fillOpacity)
+        state.polygonSides = object.polygonSides
+        state.geometryLineArrowMode = GeometryLineArrowMode(canvasArrow: object.arrow)
+        broker.toolPaletteState = state
+    }
+
+    private func handleSelectionChange(from oldValue: CanvasSelectionState.Object?, to newValue: CanvasSelectionState.Object?) {
+        if case .geometry = newValue, let object = selectionState.selectedGeometryObject {
+            loadGeometryObjectIntoPalette(object)
+        } else if case .geometry = oldValue {
+            if isClearingGeometrySelectionForCreation {
+                isClearingGeometrySelectionForCreation = false
+                return
+            }
+
+            // Return the palette to the selection controls after deselecting.
+            var state = broker.toolPaletteState
+            if state.activeTool == .geometry {
+                state.activeTool = .selection
+                broker.toolPaletteState = state
+            }
+        }
     }
 
     private func applyCurrentToolPaletteStateIfNeeded(triggering command: ToolPaletteCommand) {
@@ -501,13 +658,15 @@ private struct PendingTextEdit: Identifiable {
 }
 
 private struct FloatingActionHUD: View {
-    let onEdit: () -> Void
+    var onEdit: (() -> Void)?
     let onClone: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
-            hudButton("Edit", systemImage: "pencil", action: onEdit)
+            if let onEdit {
+                hudButton("Edit", systemImage: "pencil", action: onEdit)
+            }
             hudButton("Clone", systemImage: "plus.square.on.square", action: onClone)
             hudButton("Delete", systemImage: "trash", role: .destructive, action: onDelete)
         }
@@ -578,7 +737,17 @@ private extension CanvasToolCommand {
                 target: .region,
                 mode: CanvasToolCommand.SelectionMode(selectionMode: state.selectionMode)
             ))
-        case .geometry, .reserved:
+        case .geometry:
+            self.init(.geometry(
+                shape: CanvasGeometryShape(geometryType: state.geometryType),
+                strokeColor: CanvasStrokeColor(color: state.strokeColor, opacity: state.opacity),
+                strokeWidth: CGFloat(state.strokeWidth),
+                fillColor: CanvasStrokeColor(color: state.fillColor, opacity: 1),
+                fillOpacity: CGFloat(state.geometryFillOpacity),
+                polygonSides: state.polygonSides,
+                arrow: CanvasGeometryArrow(mode: state.geometryLineArrowMode)
+            ))
+        case .reserved:
             self.init(.idle)
         case .pen:
             self.init(.pen(
@@ -619,7 +788,9 @@ private extension CanvasToolCommand {
         case .selectTool(let tool):
             return ToolID.allCases.contains(tool)
         case .setStrokeColor, .setPaletteColor, .setStrokeWidth, .setOpacity:
-            return activeTool == .pen || activeTool == .marker || activeTool == .eraser || activeTool == .laser || activeTool == .equation
+            return activeTool == .pen || activeTool == .marker || activeTool == .eraser || activeTool == .laser || activeTool == .equation || activeTool == .geometry
+        case .setFillColor, .setGeometryType, .setPolygonSides, .setGeometryLineArrowMode, .setGeometryFillOpacity:
+            return activeTool == .geometry
         case .setEraserMode:
             return activeTool == .eraser
         case .setLaserDuration, .setLaserMode:
@@ -647,6 +818,54 @@ private extension CanvasStrokeColor {
             blue: CGFloat(color.blue),
             alpha: CGFloat(opacity)
         )
+    }
+}
+
+private extension CanvasGeometryShape {
+    init(geometryType: GeometryType) {
+        switch geometryType {
+        case .line: self = .line
+        case .circle: self = .circle
+        case .rightTriangle: self = .rightTriangle
+        case .triangle: self = .triangle
+        case .rectangle: self = .rectangle
+        case .polygon: self = .polygon
+        }
+    }
+}
+
+private extension CanvasGeometryArrow {
+    init(mode: GeometryLineArrowMode) {
+        switch mode {
+        case .none: self = .none
+        case .start: self = .start
+        case .end: self = .end
+        case .both: self = .both
+        }
+    }
+}
+
+private extension GeometryType {
+    init(canvasShape: CanvasGeometryShape) {
+        switch canvasShape {
+        case .line: self = .line
+        case .circle: self = .circle
+        case .rightTriangle: self = .rightTriangle
+        case .triangle: self = .triangle
+        case .rectangle: self = .rectangle
+        case .polygon: self = .polygon
+        }
+    }
+}
+
+private extension GeometryLineArrowMode {
+    init(canvasArrow: CanvasGeometryArrow) {
+        switch canvasArrow {
+        case .none: self = .none
+        case .start: self = .start
+        case .end: self = .end
+        case .both: self = .both
+        }
     }
 }
 
