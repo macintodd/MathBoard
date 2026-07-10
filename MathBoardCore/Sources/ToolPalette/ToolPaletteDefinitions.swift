@@ -22,7 +22,8 @@ public enum ToolPaletteDefinitions {
         .eraser,
         .geometry,
         .reserved,
-        .equation
+        .equation,
+        .cover
     ]
 
     public static let all: [any ToolDefinition] = orderedToolIDs.map { definition(for: $0) }
@@ -47,6 +48,8 @@ public enum ToolPaletteDefinitions {
             return TextToolDefinition()
         case .reserved:
             return AddToolDefinition()
+        case .cover:
+            return CoverToolDefinition()
         }
     }
 }
@@ -65,7 +68,7 @@ public enum ToolPaletteReducer {
                 state.markerColor = color
             case .laser:
                 state.laserColor = color
-            case .selection, .extract, .reserved, .eraser, .geometry, .equation:
+            case .selection, .extract, .reserved, .eraser, .geometry, .equation, .cover:
                 state.strokeColor = color
             }
         case .setFillColor(let color):
@@ -82,7 +85,7 @@ public enum ToolPaletteReducer {
                 state.eraserWidth = min(max(width, 16), 80)
             case .laser:
                 state.laserDiameter = min(max(width, 3), 56)
-            case .selection, .extract, .geometry, .reserved, .equation:
+            case .selection, .extract, .geometry, .reserved, .equation, .cover:
                 break
             }
         case .setOpacity(let opacity):
@@ -93,7 +96,7 @@ public enum ToolPaletteReducer {
                 state.penOpacity = clampedOpacity
             case .marker:
                 state.markerOpacity = clampedOpacity
-            case .selection, .extract, .reserved, .eraser, .geometry, .laser, .equation:
+            case .selection, .extract, .reserved, .eraser, .geometry, .laser, .equation, .cover:
                 break
             }
         case .setLaserDuration(let duration):
@@ -112,7 +115,7 @@ public enum ToolPaletteReducer {
             case .laser:
                 state.laserPalettePreset = preset
                 state.laserPaletteColors = ToolPaletteState.paletteColors(for: preset)
-            case .selection, .extract, .reserved, .eraser, .geometry, .equation:
+            case .selection, .extract, .reserved, .eraser, .geometry, .equation, .cover:
                 break
             }
         case .setPaletteColor(let tool, let index, let color):
@@ -126,7 +129,7 @@ public enum ToolPaletteReducer {
             case .laser:
                 replacePaletteColor(&state.laserPaletteColors, at: index, with: color)
                 state.laserColor = color
-            case .selection, .extract, .reserved, .eraser, .geometry, .equation:
+            case .selection, .extract, .reserved, .eraser, .geometry, .equation, .cover:
                 break
             }
         case .setGeometryType(let geometryType):
@@ -632,6 +635,20 @@ private extension GeometryLineArrowMode {
 private func replacePaletteColor(_ colors: inout [PaletteColor], at index: Int, with color: PaletteColor) {
     guard colors.indices.contains(index) else { return }
     colors[index] = color
+}
+
+struct CoverToolDefinition: ToolDefinition {
+    let id: ToolID = .cover
+    let iconSystemName = ToolID.cover.iconSystemName
+    let label = ToolID.cover.displayName
+
+    func configuration(for state: ToolPaletteState) -> ToolPaletteConfiguration {
+        ToolPaletteConfiguration(
+            topOrbit: colorOrbitItems(state.penPaletteColors, prefix: "cover"),
+            leftArc: .disabled(label: "Region"),
+            rightArc: .disabled(label: "Tap to reveal")
+        )
+    }
 }
 
 private func colorOrbitItems(_ colors: [PaletteColor], prefix: String) -> [PaletteOrbitItem] {

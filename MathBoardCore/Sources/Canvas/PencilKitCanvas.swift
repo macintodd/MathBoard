@@ -176,15 +176,18 @@ struct PencilKitCanvasContainer: View {
     @State private var textObjects: [CanvasTextObject] = []
     @State private var imageObjects: [CanvasImageObject] = []
     @State private var geometryObjects: [CanvasGeometryObject] = []
+    @State private var coverObjects: [CanvasCoverObject] = []
     @State private var didLoad = false
     @State private var saveTask: Task<Void, Never>?
     @State private var textSaveTask: Task<Void, Never>?
     @State private var imageObjectSaveTask: Task<Void, Never>?
     @State private var geometryObjectSaveTask: Task<Void, Never>?
+    @State private var coverObjectSaveTask: Task<Void, Never>?
     @State private var hasPendingSave = false
     @State private var hasPendingTextSave = false
     @State private var hasPendingImageObjectSave = false
     @State private var hasPendingGeometryObjectSave = false
+    @State private var hasPendingCoverObjectSave = false
     @State private var undoStack: [PKDrawing] = []
     @State private var redoStack: [PKDrawing] = []
     @State private var isApplyingEditCommand = false
@@ -201,6 +204,7 @@ struct PencilKitCanvasContainer: View {
             textObjects: $textObjects,
             imageObjects: $imageObjects,
             geometryObjects: $geometryObjects,
+            coverObjects: $coverObjects,
             background: background,
             presentationMode: presentationMode,
             initialViewportState: initialViewportState,
@@ -228,13 +232,17 @@ struct PencilKitCanvasContainer: View {
                 imageObjectSaveTask = nil
                 geometryObjectSaveTask?.cancel()
                 geometryObjectSaveTask = nil
+                coverObjectSaveTask?.cancel()
+                coverObjectSaveTask = nil
                 hasPendingTextSave = false
                 hasPendingImageObjectSave = false
                 hasPendingGeometryObjectSave = false
+                hasPendingCoverObjectSave = false
                 drawing = (try? Self.loadDrawing(at: drawingURL)) ?? PKDrawing()
                 textObjects = CanvasTextObject.load(from: CanvasTextObject.sidecarURL(forDrawingURL: drawingURL))
                 imageObjects = CanvasImageObject.load(from: CanvasImageObject.sidecarURL(forDrawingURL: drawingURL))
                 geometryObjects = CanvasGeometryObject.load(from: CanvasGeometryObject.sidecarURL(forDrawingURL: drawingURL))
+                coverObjects = CanvasCoverObject.load(from: CanvasCoverObject.sidecarURL(forDrawingURL: drawingURL))
                 undoStack = []
                 redoStack = []
                 isApplyingEditCommand = false
@@ -255,6 +263,9 @@ struct PencilKitCanvasContainer: View {
             .onChange(of: geometryObjects) { _, newGeometryObjects in
                 handleGeometryObjectsChange(newGeometryObjects)
             }
+            .onChange(of: coverObjects) { _, newCoverObjects in
+                handleCoverObjectsChange(newCoverObjects)
+            }
             .onChange(of: editCommand) { _, command in
                 applyEditCommandIfNeeded(command)
             }
@@ -263,6 +274,7 @@ struct PencilKitCanvasContainer: View {
                 flushPendingTextSave()
                 flushPendingImageObjectSave()
                 flushPendingGeometryObjectSave()
+                flushPendingCoverObjectSave()
             }
     }
 
@@ -294,6 +306,11 @@ struct PencilKitCanvasContainer: View {
     private func handleGeometryObjectsChange(_ newGeometryObjects: [CanvasGeometryObject]) {
         guard didLoad else { return }
         scheduleGeometryObjectSave(of: newGeometryObjects)
+    }
+
+    private func handleCoverObjectsChange(_ newCoverObjects: [CanvasCoverObject]) {
+        guard didLoad else { return }
+        scheduleCoverObjectSave(of: newCoverObjects)
     }
 
     private func applyEditCommandIfNeeded(_ command: CanvasEditCommand?) {
@@ -416,6 +433,25 @@ struct PencilKitCanvasContainer: View {
         hasPendingGeometryObjectSave = false
     }
 
+    private func scheduleCoverObjectSave(of newCoverObjects: [CanvasCoverObject]) {
+        hasPendingCoverObjectSave = true
+        coverObjectSaveTask?.cancel()
+        coverObjectSaveTask = Task { @MainActor in
+            try? await Task.sleep(for: Self.saveDebounce)
+            guard !Task.isCancelled else { return }
+            saveCoverObjects(newCoverObjects, to: CanvasCoverObject.sidecarURL(forDrawingURL: drawingURL))
+            hasPendingCoverObjectSave = false
+        }
+    }
+
+    private func flushPendingCoverObjectSave() {
+        coverObjectSaveTask?.cancel()
+        coverObjectSaveTask = nil
+        guard hasPendingCoverObjectSave else { return }
+        saveCoverObjects(coverObjects, to: CanvasCoverObject.sidecarURL(forDrawingURL: drawingURL))
+        hasPendingCoverObjectSave = false
+    }
+
     private static func loadDrawing(at url: URL) throws -> PKDrawing {
         let data = try Data(contentsOf: url)
         let drawing = try PKDrawing(data: data)
@@ -516,6 +552,14 @@ struct PencilKitCanvasContainer: View {
             print("[Canvas] geometry object save error: \(error)")
         }
     }
+
+    private func saveCoverObjects(_ coverObjects: [CanvasCoverObject], to url: URL) {
+        do {
+            try CanvasCoverObject.save(coverObjects, to: url)
+        } catch {
+            print("[Canvas] cover object save error: \(error)")
+        }
+    }
 }
 
 private final class PencilKitCanvasHostView: UIView {
@@ -524,6 +568,7 @@ private final class PencilKitCanvasHostView: UIView {
     let imageObjectsView = CanvasImageObjectsView()
     let geometryObjectsView = CanvasGeometryObjectsView()
     let textObjectsView = CanvasTextObjectsView()
+    let coverObjectsView = CanvasCoverObjectsView()
     let regionSelectionOverlayView = CanvasRegionSelectionOverlayView()
     let laserOverlayView = CanvasLaserOverlayView()
     let textPlacementOverlayView = CanvasTextPlacementOverlayView()
@@ -538,6 +583,7 @@ private final class PencilKitCanvasHostView: UIView {
         imageObjectsView.isUserInteractionEnabled = false
         geometryObjectsView.isUserInteractionEnabled = false
         textObjectsView.isUserInteractionEnabled = false
+        coverObjectsView.isUserInteractionEnabled = false
         regionSelectionOverlayView.acceptsRegionSelectionInput = false
         laserOverlayView.acceptsLaserInput = false
         textPlacementOverlayView.acceptsTextPlacement = false
@@ -549,6 +595,9 @@ private final class PencilKitCanvasHostView: UIView {
         addSubview(geometryObjectsView)
         addSubview(textObjectsView)
         addSubview(canvas)
+        // Tape covers paint above the ink/content so they can hide anything,
+        // but below the transient overlays so the laser stays topmost.
+        addSubview(coverObjectsView)
         addSubview(regionSelectionOverlayView)
         addSubview(textPlacementOverlayView)
         addSubview(laserOverlayView)
@@ -564,6 +613,7 @@ private final class PencilKitCanvasHostView: UIView {
         imageObjectsView.frame = bounds
         geometryObjectsView.frame = bounds
         textObjectsView.frame = bounds
+        coverObjectsView.frame = bounds
         regionSelectionOverlayView.frame = bounds
         laserOverlayView.frame = bounds
         textPlacementOverlayView.frame = bounds
@@ -571,6 +621,7 @@ private final class PencilKitCanvasHostView: UIView {
         updateImageObjectFrame(using: canvas)
         updateGeometryObjectFrame(using: canvas)
         updateTextObjectFrame(using: canvas)
+        updateCoverObjectFrame(using: canvas)
     }
 
     func updateBackground(_ background: CanvasBackground?, using canvas: PKCanvasView) {
@@ -658,6 +709,79 @@ private final class PencilKitCanvasHostView: UIView {
             zoomScale: canvas.zoomScale,
             contentOffset: canvas.contentOffset,
             canvasOrigin: PencilKitCanvasGeometry.drawingOriginOffset
+        )
+    }
+
+    func updateCoverObjects(_ coverObjects: [CanvasCoverObject], using canvas: PKCanvasView) {
+        coverObjectsView.configure(coverObjects)
+        updateCoverObjectFrame(using: canvas)
+    }
+
+    func updateCoverObjectFrame(using canvas: PKCanvasView) {
+        coverObjectsView.updateViewport(
+            zoomScale: canvas.zoomScale,
+            contentOffset: canvas.contentOffset,
+            canvasOrigin: PencilKitCanvasGeometry.drawingOriginOffset
+        )
+    }
+}
+
+private final class CanvasCoverObjectsView: UIView {
+    private var coverObjects: [CanvasCoverObject] = []
+    private var zoomScale: CGFloat = 1
+    private var contentOffset: CGPoint = .zero
+    private var canvasOrigin: CGPoint = .zero
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        isOpaque = false
+        contentMode = .redraw
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(_ coverObjects: [CanvasCoverObject]) {
+        guard self.coverObjects != coverObjects else { return }
+        self.coverObjects = coverObjects
+        setNeedsDisplay()
+    }
+
+    func updateViewport(zoomScale: CGFloat, contentOffset: CGPoint, canvasOrigin: CGPoint) {
+        self.zoomScale = zoomScale
+        self.contentOffset = contentOffset
+        self.canvasOrigin = canvasOrigin
+        setNeedsDisplay()
+    }
+
+    override func draw(_ rect: CGRect) {
+        UIColor.clear.setFill()
+        UIRectFill(rect)
+
+        for object in coverObjects where !object.isRevealed {
+            guard object.points.count >= 2 else { continue }
+            let path = UIBezierPath()
+            path.move(to: screenPoint(object.points[0]))
+            for point in object.points.dropFirst() {
+                path.addLine(to: screenPoint(point))
+            }
+            path.close()
+            UIColor(
+                red: object.red,
+                green: object.green,
+                blue: object.blue,
+                alpha: object.alpha
+            ).setFill()
+            path.fill()
+        }
+    }
+
+    private func screenPoint(_ point: CGPoint) -> CGPoint {
+        CGPoint(
+            x: (canvasOrigin.x + point.x) * zoomScale - contentOffset.x,
+            y: (canvasOrigin.y + point.y) * zoomScale - contentOffset.y
         )
     }
 }
@@ -1752,6 +1876,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
     @Binding var textObjects: [CanvasTextObject]
     @Binding var imageObjects: [CanvasImageObject]
     @Binding var geometryObjects: [CanvasGeometryObject]
+    @Binding var coverObjects: [CanvasCoverObject]
     let background: CanvasBackground?
     let presentationMode: CanvasPresentationMode
     let initialViewportState: CanvasViewportState?
@@ -1790,6 +1915,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         context.coordinator.installTextEditorDismissRecognizer(on: hostView)
         context.coordinator.installRegionSelectionRecognizer(on: hostView)
         context.coordinator.installGeometryCreationRecognizer(on: hostView)
+        context.coordinator.installCoverCreationRecognizer(on: hostView)
         hostView.updateBackground(background, using: canvas)
         hostView.updateImageObjects(
             imageObjects,
@@ -1797,6 +1923,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             using: canvas
         )
         hostView.updateGeometryObjects(geometryObjects, using: canvas)
+        hostView.updateCoverObjects(coverObjects, using: canvas)
         hostView.updateTextObjects(textObjects, using: canvas)
 
         // Tool picker has to be installed after the view is in a window;
@@ -1819,6 +1946,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 using: canvas,
                 selectedGeometryObjectID: context.coordinator.selectedGeometryObjectForDisplayID
             )
+            hostView.updateCoverObjects(self.coverObjects, using: canvas)
             hostView.updateTextObjects(
                 self.textObjects,
                 using: canvas,
@@ -1850,6 +1978,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             using: canvas,
             selectedGeometryObjectID: context.coordinator.selectedGeometryObjectForDisplayID
         )
+        hostView.updateCoverObjects(coverObjects, using: canvas)
         hostView.updateTextObjects(
             textObjects,
             using: canvas,
@@ -1977,7 +2106,8 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private var movingGeometryObjectStartPivot: CGPoint?
         private var movingGeometryStartSourcePoint: CGPoint = .zero
         private var resizingGeometryObjectID: UUID?
-        private var resizingGeometryObjectStartFrame: CGRect = .zero
+        private var resizingGeometryObjectStartOrigin: CGPoint = .zero
+        private var resizingGeometryObjectStartSize: CGSize = .zero
         private var resizingGeometryStartLocalPoint: CGPoint = .zero
         private var rotatingGeometryObjectID: UUID?
         private var rotatingGeometryStartRotation: CGFloat = 0
@@ -1989,6 +2119,11 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private var creatingGeometryStartSourcePoint: CGPoint = .zero
         private var creatingGeometryConsumedSampleCount = 0
         private var activeGeometryConfig: GeometryToolConfig?
+        private var coverCreationRecognizer: PencilLiveStrokeGestureRecognizer?
+        private var activeCoverConfig: CoverToolConfig?
+        private var creatingCoverObjectID: UUID?
+        private var creatingCoverSourcePoints: [CGPoint] = []
+        private var creatingCoverConsumedSampleCount = 0
         private var activeLaserDuration: TimeInterval = 0
         private var activeLaserMode: CanvasToolCommand.LaserMode = .trail
         private var laserClearTask: Task<Void, Never>?
@@ -2010,6 +2145,11 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             var fillOpacity: CGFloat
             var polygonSides: Int
             var arrow: CanvasGeometryArrow
+        }
+
+        struct CoverToolConfig {
+            var color: CanvasStrokeColor
+            var mode: CanvasToolCommand.SelectionMode
         }
 
         private enum RegionSelection {
@@ -2111,6 +2251,14 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             if case .geometry = command.action {} else {
                 activeGeometryConfig = nil
                 finishCreatingGeometryObject(commit: false)
+            }
+
+            // Cover (tape) creation is only active for the cover tool.
+            coverCreationRecognizer?.isEnabled = false
+            if case .cover = command.action {} else {
+                activeCoverConfig = nil
+                creatingCoverSourcePoints = []
+                creatingCoverConsumedSampleCount = 0
             }
 
             switch command.action {
@@ -2339,6 +2487,31 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 canvas.panGestureRecognizer.minimumNumberOfTouches = 2
                 activeSelectionTarget = .object
                 geometryCreationRecognizer?.isEnabled = !isEditingSelectedGeometry
+                hostView?.laserOverlayView.acceptsLaserInput = false
+                hostView?.textPlacementOverlayView.acceptsTextPlacement = false
+                hostView?.regionSelectionOverlayView.acceptsRegionSelectionInput = false
+                clearRegionSelection()
+                updateHostTextObjects(using: canvas)
+                clearLaserOverlay()
+            case .cover(let color, let mode):
+                finishTextEditing()
+                activeLiveStrokeColor = nil
+                activeLiveStrokeWidth = nil
+                activeLiveStrokeTool = nil
+                activeTextColor = nil
+                isTextSelectionEnabled = false
+                isRegionSelectionEnabled = false
+                setSelectedTextObjectID(nil)
+                setSelectedGeometryObjectID(nil)
+                activeLaserDuration = 0
+                activeCoverConfig = CoverToolConfig(color: color, mode: mode)
+                creatingCoverSourcePoints = []
+                creatingCoverConsumedSampleCount = 0
+                liveStrokeRecognizer?.isEnabled = false
+                liveStrokeRecognizer?.cancelsTouchesInView = false
+                canvas.drawingGestureRecognizer.isEnabled = false
+                canvas.panGestureRecognizer.minimumNumberOfTouches = 2
+                coverCreationRecognizer?.isEnabled = true
                 hostView?.laserOverlayView.acceptsLaserInput = false
                 hostView?.textPlacementOverlayView.acceptsTextPlacement = false
                 hostView?.regionSelectionOverlayView.acceptsRegionSelectionInput = false
@@ -2758,6 +2931,137 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             geometryCreationRecognizer = recognizer
         }
 
+        func installCoverCreationRecognizer(on hostView: PencilKitCanvasHostView) {
+            guard coverCreationRecognizer == nil else { return }
+
+            let recognizer = PencilLiveStrokeGestureRecognizer(
+                allowedTouchTypes: [.direct, .pencil]
+            ) { [weak self, weak hostView] samples, phase in
+                guard let self, let hostView else { return }
+                self.handleCoverCreationSamples(samples, phase: phase, hostView: hostView)
+            }
+            recognizer.cancelsTouchesInView = false
+            recognizer.isEnabled = false
+            recognizer.delegate = self
+            hostView.addGestureRecognizer(recognizer)
+            coverCreationRecognizer = recognizer
+        }
+
+        private func handleCoverCreationSamples(
+            _ samples: [CanvasLiveStrokePoint],
+            phase: PencilLiveStrokeGestureRecognizer.Phase,
+            hostView: PencilKitCanvasHostView
+        ) {
+            guard let config = activeCoverConfig, let canvas else {
+                creatingCoverConsumedSampleCount = 0
+                return
+            }
+
+            func sourcePointFromSample(_ sample: CanvasLiveStrokePoint) -> CGPoint {
+                let canvasPoint = hostView.convert(sample.location, to: canvas)
+                return sourcePoint(forCanvasPoint: canvasPoint, on: canvas)
+            }
+
+            switch phase {
+            case .began:
+                parent.onInteractionBegan?()
+                creatingCoverObjectID = nil
+                creatingCoverSourcePoints = samples.map(sourcePointFromSample)
+                creatingCoverConsumedSampleCount = samples.count
+            case .moved:
+                let newPoints = samples.dropFirst(creatingCoverConsumedSampleCount).map(sourcePointFromSample)
+                creatingCoverConsumedSampleCount = samples.count
+                creatingCoverSourcePoints.append(contentsOf: newPoints)
+                updateCoverPreview(config: config, using: canvas)
+            case .ended, .cancelled:
+                let newPoints = samples.dropFirst(creatingCoverConsumedSampleCount).map(sourcePointFromSample)
+                creatingCoverSourcePoints.append(contentsOf: newPoints)
+                creatingCoverConsumedSampleCount = 0
+                finishCover(cancelled: phase == .cancelled, using: canvas)
+            }
+        }
+
+        private func coverBoundingBox(of points: [CGPoint]) -> CGRect {
+            guard let first = points.first else { return .null }
+            var minX = first.x, minY = first.y, maxX = first.x, maxY = first.y
+            for point in points.dropFirst() {
+                minX = min(minX, point.x)
+                minY = min(minY, point.y)
+                maxX = max(maxX, point.x)
+                maxY = max(maxY, point.y)
+            }
+            return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+        }
+
+        private func coverPreviewPoints(config: CoverToolConfig) -> [CGPoint] {
+            switch config.mode {
+            case .marquee:
+                let bounds = coverBoundingBox(of: creatingCoverSourcePoints)
+                return [
+                    CGPoint(x: bounds.minX, y: bounds.minY),
+                    CGPoint(x: bounds.maxX, y: bounds.minY),
+                    CGPoint(x: bounds.maxX, y: bounds.maxY),
+                    CGPoint(x: bounds.minX, y: bounds.maxY)
+                ]
+            case .lasso:
+                return creatingCoverSourcePoints
+            }
+        }
+
+        private func updateCoverPreview(config: CoverToolConfig, using canvas: PKCanvasView) {
+            guard creatingCoverSourcePoints.count >= 2 else { return }
+            let points = coverPreviewPoints(config: config)
+            var coverObjects = parent.coverObjects
+            if let id = creatingCoverObjectID,
+               let index = coverObjects.firstIndex(where: { $0.id == id }) {
+                coverObjects[index].points = points
+            } else {
+                let cover = CanvasCoverObject(
+                    points: points,
+                    red: config.color.red,
+                    green: config.color.green,
+                    blue: config.color.blue,
+                    alpha: 1
+                )
+                creatingCoverObjectID = cover.id
+                coverObjects.append(cover)
+            }
+            parent.coverObjects = coverObjects
+            updateHostCoverObjects(using: canvas)
+        }
+
+        private func finishCover(cancelled: Bool, using canvas: PKCanvasView) {
+            let bounds = coverBoundingBox(of: creatingCoverSourcePoints)
+            let wasDrag = max(bounds.width, bounds.height) >= 12
+
+            if cancelled || !wasDrag {
+                // A tap (or cancel): drop any provisional cover, and on a tap
+                // toggle the reveal state of the topmost cover under the point.
+                if let id = creatingCoverObjectID {
+                    parent.coverObjects.removeAll { $0.id == id }
+                }
+                if !cancelled, let point = creatingCoverSourcePoints.first {
+                    toggleCoverReveal(at: point)
+                }
+            }
+            // A real drag leaves the provisional cover in place as the final cover.
+            creatingCoverObjectID = nil
+            creatingCoverSourcePoints = []
+            updateHostCoverObjects(using: canvas)
+            publishImageFromModel()
+        }
+
+        private func toggleCoverReveal(at sourcePoint: CGPoint) {
+            guard let index = parent.coverObjects.lastIndex(where: { $0.contains(sourcePoint) }) else { return }
+            var coverObjects = parent.coverObjects
+            coverObjects[index].isRevealed.toggle()
+            parent.coverObjects = coverObjects
+        }
+
+        private func updateHostCoverObjects(using canvas: PKCanvasView) {
+            hostView?.updateCoverObjects(parent.coverObjects, using: canvas)
+        }
+
         private func handleGeometryCreationSamples(
             _ samples: [CanvasLiveStrokePoint],
             phase: PencilLiveStrokeGestureRecognizer.Phase,
@@ -3008,7 +3312,8 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                             parent.geometryObjects = geometryObjects
                             resizeObject = geometryObjects[index]
                         }
-                        resizingGeometryObjectStartFrame = resizeObject.frame
+                        resizingGeometryObjectStartOrigin = CGPoint(x: resizeObject.x, y: resizeObject.y)
+                        resizingGeometryObjectStartSize = CGSize(width: resizeObject.width, height: resizeObject.height)
                         resizingGeometryStartLocalPoint = geometryLocalPoint(startSource, object: resizeObject)
                     case .rotate:
                         rotatingGeometryObjectID = handle.id
@@ -3145,13 +3450,13 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     if geometryObjects[index].shape == .line {
                         // Keep the start endpoint fixed and move the end point so
                         // the line's direction is preserved.
-                        geometryObjects[index].width = resizingGeometryObjectStartFrame.width + delta.x
-                        geometryObjects[index].height = resizingGeometryObjectStartFrame.height + delta.y
+                        geometryObjects[index].width = resizingGeometryObjectStartSize.width + delta.x
+                        geometryObjects[index].height = resizingGeometryObjectStartSize.height + delta.y
                     } else {
-                        geometryObjects[index].x = resizingGeometryObjectStartFrame.origin.x
-                        geometryObjects[index].y = resizingGeometryObjectStartFrame.origin.y
-                        var newWidth = signedGeometryDimension(resizingGeometryObjectStartFrame.width + delta.x)
-                        var newHeight = signedGeometryDimension(resizingGeometryObjectStartFrame.height + delta.y)
+                        geometryObjects[index].x = resizingGeometryObjectStartOrigin.x
+                        geometryObjects[index].y = resizingGeometryObjectStartOrigin.y
+                        var newWidth = signedGeometryDimension(resizingGeometryObjectStartSize.width + delta.x)
+                        var newHeight = signedGeometryDimension(resizingGeometryObjectStartSize.height + delta.y)
                         // Snap circles/rectangles/right triangles to an equal-sided
                         // shape (perfect circle, square, or isosceles right triangle)
                         // when the width and height get close, so the user can lift on
@@ -5085,6 +5390,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             if gestureRecognizer === geometryCreationRecognizer {
                 return activeGeometryConfig != nil
             }
+            if gestureRecognizer === coverCreationRecognizer {
+                return activeCoverConfig != nil
+            }
             if gestureRecognizer === regionSelectionRecognizer {
                 if activeSelectionTarget == .object,
                    let canvas,
@@ -5142,7 +5450,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             if gestureRecognizer === regionSelectionRecognizer
                 || otherGestureRecognizer === regionSelectionRecognizer
                 || gestureRecognizer === geometryCreationRecognizer
-                || otherGestureRecognizer === geometryCreationRecognizer {
+                || otherGestureRecognizer === geometryCreationRecognizer
+                || gestureRecognizer === coverCreationRecognizer
+                || otherGestureRecognizer === coverCreationRecognizer {
                 return false
             }
             return true
@@ -5162,6 +5472,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             hostView?.updateBackgroundFrame(using: canvas)
             hostView?.updateImageObjectFrame(using: canvas)
             hostView?.updateGeometryObjectFrame(using: canvas)
+            hostView?.updateCoverObjectFrame(using: canvas)
             hostView?.updateTextObjectFrame(using: canvas)
             updateActiveTextEditorFrame(on: canvas)
             updateRegionSelectionHighlight(on: canvas)
@@ -5184,6 +5495,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             hostView?.updateBackgroundFrame(using: canvas)
             hostView?.updateImageObjectFrame(using: canvas)
             hostView?.updateGeometryObjectFrame(using: canvas)
+            hostView?.updateCoverObjectFrame(using: canvas)
             hostView?.updateTextObjectFrame(using: canvas)
             updateActiveTextEditorFrame(on: canvas)
             updateRegionSelectionHighlight(on: canvas)
@@ -5198,6 +5510,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             hostView?.updateBackgroundFrame(using: canvas)
             hostView?.updateImageObjectFrame(using: canvas)
             hostView?.updateGeometryObjectFrame(using: canvas)
+            hostView?.updateCoverObjectFrame(using: canvas)
             hostView?.updateTextObjectFrame(using: canvas)
             updateActiveTextEditorFrame(on: canvas)
             updateSharedSelectionState()
@@ -5336,6 +5649,13 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     destinationRect: destinationRect
                 )
                 parent.drawing.image(from: sourceRect, scale: drawingImageScale).draw(in: destinationRect)
+                // Tape covers paint last (above everything) so they hide content
+                // on the mirrored display too.
+                drawCoverObjects(
+                    in: context.cgContext,
+                    sourceRect: sourceRect,
+                    destinationRect: destinationRect
+                )
             }
             if let cg = image.cgImage {
                 onFrameUpdate(cg, sourceRect, visibleSourceRect)
@@ -5500,6 +5820,45 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     pivot: pivot,
                     in: context
                 )
+            }
+
+            context.restoreGState()
+        }
+
+        private func drawCoverObjects(
+            in context: CGContext,
+            sourceRect: CGRect,
+            destinationRect: CGRect
+        ) {
+            guard !parent.coverObjects.isEmpty else { return }
+
+            let scaleX = destinationRect.width / max(sourceRect.width, 0.001)
+            let scaleY = destinationRect.height / max(sourceRect.height, 0.001)
+            let origin = PencilKitCanvasGeometry.drawingOriginOffset
+            context.saveGState()
+            context.clip(to: destinationRect)
+
+            func map(_ point: CGPoint) -> CGPoint {
+                CGPoint(
+                    x: destinationRect.minX + (origin.x + point.x - sourceRect.minX) * scaleX,
+                    y: destinationRect.minY + (origin.y + point.y - sourceRect.minY) * scaleY
+                )
+            }
+
+            for object in parent.coverObjects where !object.isRevealed {
+                guard object.points.count >= 2 else { continue }
+                let path = CGMutablePath()
+                path.move(to: map(object.points[0]))
+                for point in object.points.dropFirst() {
+                    path.addLine(to: map(point))
+                }
+                path.closeSubpath()
+                context.addPath(path)
+                context.setFillColor(CGColor(
+                    colorSpace: CGColorSpaceCreateDeviceRGB(),
+                    components: [object.red, object.green, object.blue, object.alpha]
+                ) ?? CGColor(gray: 0.16, alpha: 1))
+                context.fillPath()
             }
 
             context.restoreGState()

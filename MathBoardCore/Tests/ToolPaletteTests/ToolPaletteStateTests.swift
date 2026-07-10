@@ -45,7 +45,8 @@ struct ToolPaletteStateTests {
             .eraser,
             .geometry,
             .reserved,
-            .equation
+            .equation,
+            .cover
         ])
     }
 

@@ -408,7 +408,7 @@ public struct CompactToolPaletteView: View {
         [
             [.selection, .extract],
             [.pen, .marker, .laser, .eraser],
-            [.geometry, .reserved, .equation]
+            [.geometry, .reserved, .equation, .cover]
         ]
     }
 
@@ -420,7 +420,7 @@ public struct CompactToolPaletteView: View {
     private var quickStrip: some View {
         if state.activeTool.isCompactInkTool {
             quickColorStrip
-        } else if state.activeTool == .extract || state.activeTool == .eraser {
+        } else if state.activeTool == .extract || state.activeTool == .eraser || state.activeTool == .cover {
             quickModeStrip
         } else if state.activeTool == .geometry {
             quickShapeStrip
@@ -546,6 +546,23 @@ public struct CompactToolPaletteView: View {
                     command: .setEraserMode(.stroke)
                 )
             ]
+        case .cover:
+            return [
+                CompactQuickModeItem(
+                    id: "cover.quick.marquee",
+                    iconSystemName: "rectangle.dashed",
+                    label: "Box",
+                    isSelected: state.selectionMode == .marquee,
+                    command: .setSelectionMode(.marquee)
+                ),
+                CompactQuickModeItem(
+                    id: "cover.quick.lasso",
+                    iconSystemName: "lasso",
+                    label: "Lasso",
+                    isSelected: state.selectionMode == .lasso,
+                    command: .setSelectionMode(.lasso)
+                )
+            ]
         case .selection, .reserved, .pen, .marker, .geometry, .laser, .equation:
             return []
         }
@@ -590,7 +607,7 @@ public struct CompactToolPaletteView: View {
         case .pen: return state.penColor.swiftUIColor
         case .marker: return state.markerColor.swiftUIColor
         case .laser: return state.laserColor.swiftUIColor
-        case .selection, .extract, .reserved, .eraser, .geometry, .equation:
+        case .selection, .extract, .reserved, .eraser, .geometry, .equation, .cover:
             return ToolPaletteTheme.cyan
         }
     }
@@ -816,7 +833,7 @@ public struct CompactToolPaletteView: View {
             colors = state.markerPaletteColors
         case .laser:
             colors = state.laserPaletteColors
-        case .selection, .extract, .reserved, .eraser, .geometry, .equation:
+        case .selection, .extract, .reserved, .eraser, .geometry, .equation, .cover:
             return nil
         }
         guard colors.indices.contains(editingColorSlot) else { return nil }
@@ -839,7 +856,7 @@ private extension ToolID {
     }
 
     var hasCompactQuickStrip: Bool {
-        isCompactInkTool || self == .extract || self == .eraser || self == .geometry
+        isCompactInkTool || self == .extract || self == .eraser || self == .geometry || self == .cover
     }
 
     var hasCompactDrawer: Bool {
@@ -933,7 +950,7 @@ private struct CompactToolButton: View {
         switch toolID {
         case .pen, .marker, .laser:
             return accentColor
-        case .selection, .extract, .reserved, .eraser, .geometry, .equation:
+        case .selection, .extract, .reserved, .eraser, .geometry, .equation, .cover:
             return isActive ? Color.white : Color(red: 0.02, green: 0.06, blue: 0.10)
         }
     }

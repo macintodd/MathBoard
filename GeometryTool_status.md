@@ -12,7 +12,7 @@ This is the focused handoff document for MathBoard's Geometry tool. New AI sessi
 - While actively resizing a circle, rectangle, or right triangle, a **prominent dotted diagonal** (stroke width 4, dash [4,5]) is drawn corner-to-corner (topLeft→bottomRight) of the selection box when the shape is equal-sided, to signal the equal-sided state. It is a **transient resize guide only**: drawn by `CanvasGeometryObjectsView.drawSelection` (on-canvas overlay), gated on `resizingGeometryObjectID`, and disappears the moment the resize ends. It is NOT in the shared `CanvasGeometryRenderer`, so it never appears on the mirrored display or in PDF export. Equal-sided test: `CanvasGeometryRenderer.isEqualSided` (~2% tolerance on the object's signed source width/height). `resizingGeometryObjectID` is plumbed to the overlay via `updateGeometryObjects` / `updateHostGeometryObjects`, and the pan `.ended` refreshes the overlay so the guide clears.
 - Geometry objects persist in the drawing package through the `CanvasGeometryObject` sidecar.
 - Line arrowheads render with their tips at the true line endpoints. The shaft is shortened behind arrowheads so the arrows visually define the ends of the line.
-- Regular triangles have an adjustable apex handle. The default apex offset is centered (`0.5`); dragging it left/right can create scalene and obtuse triangles, including apex positions outside the base.
+- Regular triangles have a recoded orange diamond adjustable apex handle. The default apex offset is centered (`0.5`); dragging it left/right can create scalene and obtuse triangles, including apex positions outside the base.
 - Selecting a geometry object opens the Geometry attribute menu and loads that object's current attributes into the palette.
 - While a geometry object is selected, Geometry palette controls edit the selected object live: stroke color, stroke width, opacity, fill color, fill opacity, shape, polygon sides, and line arrow mode.
 - Selecting an existing geometry object puts the canvas into object manipulation behavior even though the Geometry tool is visually active in the palette.
@@ -30,7 +30,7 @@ This is the focused handoff document for MathBoard's Geometry tool. New AI sessi
 - The green pivot dot can be dragged to relocate the center of rotation.
 - Double-tapping the green pivot dot resets it to the center of the object.
 - If an explicit off-center pivot has been set, dragging the whole object moves that pivot with the object so it keeps its relative position.
-- The geometry Action HUD is draggable so the user can move it away from line handles or the pivot dot.
+- The geometry Action HUD is draggable so the user can move it away from line handles, the pivot dot, the rotation knob, or triangle apex handle.
 
 ## Mode Rules
 
@@ -81,11 +81,13 @@ This is the focused handoff document for MathBoard's Geometry tool. New AI sessi
 - Regular triangles now support an adjustable apex handle for obtuse/scalene triangles. `CanvasGeometryObject.apexOffset` persists the apex position, and rendered bounds include apexes dragged outside the base.
 - Geometry handle hit-testing is now **nearest-handle-wins** (`geometryHandleHit`): among rotate/pivot/apex/resize within the 44pt radius, the touch picks the closest handle center rather than the first in a fixed priority order. This fixes the rotation knob overriding the orange apex handle when they sit only ~30pt apart — tapping on the apex now selects apex, tapping the knob selects rotate. Distances are normalized to screen units so screen and source touch candidates compare fairly.
 - **Obtuse / scalene triangles via the orange apex handle now work in device testing.** The apex is reliably grabbable (nearest-handle-wins), and dragging it horizontally produces obtuse triangles including apex positions outside the base.
+- **Equal-sided snap + resize guide are working in device testing** for circles, squares, and isosceles right triangles. The dotted diagonal guide appears only while actively resizing in the snapped equal-sided state.
+- **Draggable geometry Action HUD is working in device testing.** Use it to move the HUD away from handles when it overlaps line endpoints, the pivot dot, rotation knob, or apex handle.
+- Second resize after a horizontal or vertical flip now preserves the flipped orientation. Resize gesture setup stores the object's signed start origin and signed start size explicitly instead of relying on a `CGRect` baseline that can be standardized.
 
 ## Open Bugs
 
 - **Rotation breaks on very obtuse triangles.** Once the orange apex handle has stretched the triangle far horizontally (very obtuse), at some point the rotation handle stops working: grabbing the rotation knob just drags the object and shows a dotted PencilKit drag line that disappears on pencil-up (i.e., the rotation hit is lost and the touch falls through to a raw canvas/ink drag). Likely the rotation knob's computed position or hit region degrades as the triangle's bounds/apex extend well outside the base, or the drawing recognizer is no longer being suppressed for that touch. Needs investigation in `geometryHandleHit` / the rotation-knob position (which is derived from `normalizedFrame.midX/minY`, not `renderedBounds`) and gesture suppression.
-- **Horizontally flipped resize snaps back on the second resize.** After resizing a shape so it points the opposite direction (drag the resize handle through the source origin so the handle ends up on the left / signed negative width), a *second* resize attempt flips the object back to the right-facing orientation with the handle on the right, discarding the flipped state. The second resize is not preserving the existing signed dimensions / flip state as its starting point.
 
 ## Known Watch Points
 
@@ -115,3 +117,7 @@ This is the focused handoff document for MathBoard's Geometry tool. New AI sessi
 - Draw a regular triangle, drag the resize handle upward past the source origin, and confirm the apex flips to the bottom.
 - Draw a regular triangle, drag the orange apex handle left/right, and confirm the apex moves horizontally without changing the base or height.
 - Drag the regular triangle apex outside the base and confirm obtuse triangle rendering, selection bounds, duplication, and PDF export preserve the adjusted apex.
+- Resize a circle near equal width/height and confirm it snaps to a perfect circle with the dotted diagonal guide visible only while resizing.
+- Resize a rectangle near equal width/height and confirm it snaps to a square with the dotted diagonal guide visible only while resizing.
+- Resize a right triangle near equal width/height and confirm it snaps to an isosceles right triangle with the dotted diagonal guide visible only while resizing.
+- Drag the geometry Action HUD away from an overlapping handle and confirm geometry handles remain reachable afterward.

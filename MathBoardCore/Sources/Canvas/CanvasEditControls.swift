@@ -193,6 +193,7 @@ public struct CanvasToolCommand: Sendable, Equatable, Identifiable {
         case laser(color: CanvasStrokeColor, diameter: CGFloat, duration: TimeInterval, mode: LaserMode)
         case text(color: CanvasStrokeColor, fontSize: CGFloat, isBold: Bool, isItalic: Bool, isUnderlined: Bool, fontName: String?)
         case geometry(shape: CanvasGeometryShape, strokeColor: CanvasStrokeColor, strokeWidth: CGFloat, fillColor: CanvasStrokeColor, fillOpacity: CGFloat, polygonSides: Int, arrow: CanvasGeometryArrow)
+        case cover(color: CanvasStrokeColor, mode: SelectionMode)
     }
 
     public enum EraserMode: Sendable, Equatable {

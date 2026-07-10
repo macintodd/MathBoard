@@ -18,6 +18,7 @@ public enum ToolID: String, CaseIterable, Codable, Equatable, Hashable, Sendable
     case geometry
     case laser
     case equation
+    case cover
 
     public var displayName: String {
         switch self {
@@ -30,6 +31,7 @@ public enum ToolID: String, CaseIterable, Codable, Equatable, Hashable, Sendable
         case .geometry: return "Geometry"
         case .laser: return "Laser"
         case .equation: return "Text"
+        case .cover: return "Tape"
         }
     }
 
@@ -44,6 +46,7 @@ public enum ToolID: String, CaseIterable, Codable, Equatable, Hashable, Sendable
         case .geometry: return "ruler"
         case .laser: return "laser.burst"
         case .equation: return "textformat"
+        case .cover: return "square.dashed.inset.filled"
         }
     }
 }
@@ -352,7 +355,7 @@ public struct ToolPaletteState: Equatable, Sendable {
             return markerColor
         case .laser:
             return laserColor
-        case .selection, .extract, .reserved, .eraser, .geometry, .equation:
+        case .selection, .extract, .reserved, .eraser, .geometry, .equation, .cover:
             return strokeColor
         }
     }
@@ -365,7 +368,7 @@ public struct ToolPaletteState: Equatable, Sendable {
             return markerPalettePreset
         case .laser:
             return laserPalettePreset
-        case .selection, .extract, .reserved, .eraser, .geometry, .equation:
+        case .selection, .extract, .reserved, .eraser, .geometry, .equation, .cover:
             return palettePreset
         }
     }
@@ -378,7 +381,7 @@ public struct ToolPaletteState: Equatable, Sendable {
             return markerPaletteColors
         case .laser:
             return laserPaletteColors
-        case .selection, .extract, .reserved, .eraser, .geometry, .equation:
+        case .selection, .extract, .reserved, .eraser, .geometry, .equation, .cover:
             return Self.paletteColors(for: palettePreset)
         }
     }
@@ -393,7 +396,7 @@ public struct ToolPaletteState: Equatable, Sendable {
             return eraserWidth
         case .laser:
             return laserDiameter
-        case .selection, .extract, .geometry, .reserved, .equation:
+        case .selection, .extract, .geometry, .reserved, .equation, .cover:
             return strokeWidth
         }
     }
@@ -404,7 +407,7 @@ public struct ToolPaletteState: Equatable, Sendable {
             return penOpacity
         case .marker:
             return markerOpacity
-        case .selection, .extract, .reserved, .eraser, .geometry, .laser, .equation:
+        case .selection, .extract, .reserved, .eraser, .geometry, .laser, .equation, .cover:
             return opacity
         }
     }

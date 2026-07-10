@@ -749,6 +749,11 @@ private extension CanvasToolCommand {
             ))
         case .reserved:
             self.init(.idle)
+        case .cover:
+            self.init(.cover(
+                color: CanvasStrokeColor(color: state.strokeColor, opacity: 1),
+                mode: CanvasToolCommand.SelectionMode(selectionMode: state.selectionMode)
+            ))
         case .pen:
             self.init(.pen(
                 color: CanvasStrokeColor(color: state.penColor, opacity: state.penOpacity),
@@ -788,7 +793,7 @@ private extension CanvasToolCommand {
         case .selectTool(let tool):
             return ToolID.allCases.contains(tool)
         case .setStrokeColor, .setPaletteColor, .setStrokeWidth, .setOpacity:
-            return activeTool == .pen || activeTool == .marker || activeTool == .eraser || activeTool == .laser || activeTool == .equation || activeTool == .geometry
+            return activeTool == .pen || activeTool == .marker || activeTool == .eraser || activeTool == .laser || activeTool == .equation || activeTool == .geometry || activeTool == .cover
         case .setFillColor, .setGeometryType, .setPolygonSides, .setGeometryLineArrowMode, .setGeometryFillOpacity:
             return activeTool == .geometry
         case .setEraserMode:
@@ -800,7 +805,7 @@ private extension CanvasToolCommand {
         case .setSelectionTarget:
             return activeTool == .selection || activeTool == .extract
         case .setSelectionMode:
-            return activeTool == .extract
+            return activeTool == .extract || activeTool == .cover
         case .copySelection, .duplicateSelection, .deleteSelection,
              .extractSelectionAsImageSticker, .sendSelectionToNextSlide:
             return activeTool == .selection || activeTool == .extract
