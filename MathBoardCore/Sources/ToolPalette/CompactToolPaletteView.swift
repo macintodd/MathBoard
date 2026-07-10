@@ -696,13 +696,17 @@ public struct CompactToolPaletteView: View {
 
         VStack(alignment: .leading, spacing: 10) {
             if !colorItems.isEmpty {
-                CompactFlowRow(spacing: 8) {
-                    ForEach(Array(colorItems.enumerated()), id: \.element.id) { index, item in
-                        CompactOrbitChip(item: item, isSelected: isOrbitItemSelected(item)) {
-                            if let color = item.color {
-                                selectDrawerColor(color, at: index)
-                            } else {
-                                send(item.command)
+                if state.activeTool == .geometry {
+                    geometryColorControls
+                } else {
+                    CompactFlowRow(spacing: 8) {
+                        ForEach(Array(colorItems.enumerated()), id: \.element.id) { index, item in
+                            CompactOrbitChip(item: item, isSelected: isOrbitItemSelected(item)) {
+                                if let color = item.color {
+                                    selectDrawerColor(color, at: index)
+                                } else {
+                                    send(item.command)
+                                }
                             }
                         }
                     }
@@ -717,6 +721,21 @@ public struct CompactToolPaletteView: View {
                     }
                 }
             }
+        }
+    }
+
+    private var geometryColorControls: some View {
+        HStack(spacing: 8) {
+            CompactGeometryColorPicker(
+                label: "Outline",
+                color: state.strokeColor.swiftUIColor,
+                selection: geometryStrokeColorBinding
+            )
+            CompactGeometryColorPicker(
+                label: "Fill",
+                color: state.fillColor.swiftUIColor,
+                selection: geometryFillColorBinding
+            )
         }
     }
 
@@ -819,6 +838,26 @@ public struct CompactToolPaletteView: View {
                     case .fill: send(.setFillColor(paletteColor))
                     }
                 }
+            }
+        )
+    }
+
+    private var geometryStrokeColorBinding: Binding<Color> {
+        Binding(
+            get: { state.strokeColor.swiftUIColor },
+            set: { color in
+                guard let paletteColor = PaletteColor(name: "Custom Outline", color: color) else { return }
+                send(.setStrokeColor(paletteColor))
+            }
+        )
+    }
+
+    private var geometryFillColorBinding: Binding<Color> {
+        Binding(
+            get: { state.fillColor.swiftUIColor },
+            set: { color in
+                guard let paletteColor = PaletteColor(name: "Custom Fill", color: color) else { return }
+                send(.setFillColor(paletteColor))
             }
         )
     }
@@ -1107,6 +1146,34 @@ private struct CompactOrbitColorSwatch: View {
             .overlay(Circle().strokeBorder(.white.opacity(isSelected ? 0.95 : 0.35), lineWidth: isSelected ? 3 : 1.5))
             .shadow(color: color.swiftUIColor.opacity(isSelected ? 0.55 : 0), radius: 5)
             .accessibilityLabel(label)
+    }
+}
+
+private struct CompactGeometryColorPicker: View {
+    var label: String
+    var color: Color
+    var selection: Binding<Color>
+
+    var body: some View {
+        ColorPicker(selection: selection, supportsOpacity: false) {
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(color)
+                    .frame(width: 18, height: 18)
+                    .overlay(Circle().strokeBorder(.white.opacity(0.62), lineWidth: 1.2))
+                    .shadow(color: color.opacity(0.28), radius: 3)
+                Text(label)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(ToolPaletteTheme.label)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(ToolPaletteTheme.segment))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.white.opacity(0.08), lineWidth: 1))
+        .accessibilityLabel(label)
     }
 }
 

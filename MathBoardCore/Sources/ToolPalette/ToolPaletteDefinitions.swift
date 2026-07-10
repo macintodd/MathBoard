@@ -440,7 +440,7 @@ struct GeometryToolDefinition: ToolDefinition {
         [
             PaletteOrbitItem(
                 id: "geometry.outlineColor",
-                label: "Line",
+                label: "Outline",
                 color: state.strokeColor,
                 command: .openColorPicker
             ),

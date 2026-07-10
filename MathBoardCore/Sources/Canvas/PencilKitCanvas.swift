@@ -2108,6 +2108,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private var resizingGeometryObjectID: UUID?
         private var resizingGeometryObjectStartOrigin: CGPoint = .zero
         private var resizingGeometryObjectStartSize: CGSize = .zero
+        private var resizingGeometryStartAnchorSourcePoint: CGPoint = .zero
+        private var resizingGeometryStartPivot: CGPoint = .zero
+        private var resizingGeometryStartRotation: CGFloat = 0
         private var resizingGeometryStartLocalPoint: CGPoint = .zero
         private var rotatingGeometryObjectID: UUID?
         private var rotatingGeometryStartRotation: CGFloat = 0
@@ -3314,7 +3317,18 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                         }
                         resizingGeometryObjectStartOrigin = CGPoint(x: resizeObject.x, y: resizeObject.y)
                         resizingGeometryObjectStartSize = CGSize(width: resizeObject.width, height: resizeObject.height)
-                        resizingGeometryStartLocalPoint = geometryLocalPoint(startSource, object: resizeObject)
+                        resizingGeometryStartPivot = resizeObject.pivot
+                        resizingGeometryStartRotation = resizeObject.rotation
+                        resizingGeometryStartAnchorSourcePoint = rotateSourcePoint(
+                            resizingGeometryObjectStartOrigin,
+                            about: resizingGeometryStartPivot,
+                            by: resizingGeometryStartRotation
+                        )
+                        resizingGeometryStartLocalPoint = geometryLocalPoint(
+                            startSource,
+                            pivot: resizingGeometryStartPivot,
+                            rotation: resizingGeometryStartRotation
+                        )
                     case .rotate:
                         rotatingGeometryObjectID = handle.id
                         rotatingGeometryStartRotation = object.rotation
@@ -3411,9 +3425,22 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                    let index = parent.geometryObjects.firstIndex(where: { $0.id == pivotDraggingGeometryObjectID }) {
                     let source = sourcePoint(forCanvasPoint: recognizer.location(in: canvas), on: canvas)
                     var geometryObjects = parent.geometryObjects
+                    let object = geometryObjects[index]
+                    let oldPivot = object.pivot
+                    let newOrigin = originPreservingRenderedPosition(
+                        origin: CGPoint(x: object.x, y: object.y),
+                        oldPivot: oldPivot,
+                        newPivot: source,
+                        rotation: object.rotation
+                    )
+                    geometryObjects[index].x = newOrigin.x
+                    geometryObjects[index].y = newOrigin.y
                     geometryObjects[index].pivotX = source.x
                     geometryObjects[index].pivotY = source.y
                     parent.geometryObjects = geometryObjects
+                    if selectedGeometryObjectID == pivotDraggingGeometryObjectID {
+                        updateSharedSelectionState()
+                    }
                     updateHostGeometryObjects(using: canvas)
                     publishImageFromModel()
                     return
@@ -3441,22 +3468,29 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 if let resizingGeometryObjectID,
                    let index = parent.geometryObjects.firstIndex(where: { $0.id == resizingGeometryObjectID }) {
                     let currentSource = sourcePoint(forCanvasPoint: recognizer.location(in: canvas), on: canvas)
-                    let currentLocal = geometryLocalPoint(currentSource, object: parent.geometryObjects[index])
-                    let delta = CGPoint(
-                        x: currentLocal.x - resizingGeometryStartLocalPoint.x,
-                        y: currentLocal.y - resizingGeometryStartLocalPoint.y
-                    )
                     var geometryObjects = parent.geometryObjects
                     if geometryObjects[index].shape == .line {
+                        let currentLocal = geometryLocalPoint(
+                            currentSource,
+                            pivot: resizingGeometryStartPivot,
+                            rotation: resizingGeometryStartRotation
+                        )
+                        let delta = CGPoint(
+                            x: currentLocal.x - resizingGeometryStartLocalPoint.x,
+                            y: currentLocal.y - resizingGeometryStartLocalPoint.y
+                        )
                         // Keep the start endpoint fixed and move the end point so
                         // the line's direction is preserved.
                         geometryObjects[index].width = resizingGeometryObjectStartSize.width + delta.x
                         geometryObjects[index].height = resizingGeometryObjectStartSize.height + delta.y
                     } else {
-                        geometryObjects[index].x = resizingGeometryObjectStartOrigin.x
-                        geometryObjects[index].y = resizingGeometryObjectStartOrigin.y
-                        var newWidth = signedGeometryDimension(resizingGeometryObjectStartSize.width + delta.x)
-                        var newHeight = signedGeometryDimension(resizingGeometryObjectStartSize.height + delta.y)
+                        var anchoredSize = anchoredResizeSize(
+                            from: resizingGeometryStartAnchorSourcePoint,
+                            to: currentSource,
+                            rotation: resizingGeometryStartRotation
+                        )
+                        anchoredSize.width = signedGeometryDimension(anchoredSize.width)
+                        anchoredSize.height = signedGeometryDimension(anchoredSize.height)
                         // Snap circles/rectangles/right triangles to an equal-sided
                         // shape (perfect circle, square, or isosceles right triangle)
                         // when the width and height get close, so the user can lift on
@@ -3465,18 +3499,25 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                         if geometryObjects[index].shape == .circle
                             || geometryObjects[index].shape == .rectangle
                             || geometryObjects[index].shape == .rightTriangle {
-                            let widthMagnitude = abs(newWidth)
-                            let heightMagnitude = abs(newHeight)
+                            let widthMagnitude = abs(anchoredSize.width)
+                            let heightMagnitude = abs(anchoredSize.height)
                             let maxMagnitude = max(widthMagnitude, heightMagnitude)
                             let snapTolerance = max(maxMagnitude * 0.06, 14)
                             if maxMagnitude > 0.5, abs(widthMagnitude - heightMagnitude) <= snapTolerance {
                                 let snapped = (widthMagnitude + heightMagnitude) / 2
-                                newWidth = newWidth < 0 ? -snapped : snapped
-                                newHeight = newHeight < 0 ? -snapped : snapped
+                                anchoredSize.width = anchoredSize.width < 0 ? -snapped : snapped
+                                anchoredSize.height = anchoredSize.height < 0 ? -snapped : snapped
                             }
                         }
-                        geometryObjects[index].width = newWidth
-                        geometryObjects[index].height = newHeight
+                        let origin = anchoredResizeOrigin(
+                            anchorSource: resizingGeometryStartAnchorSourcePoint,
+                            size: anchoredSize,
+                            rotation: resizingGeometryStartRotation
+                        )
+                        geometryObjects[index].x = origin.x
+                        geometryObjects[index].y = origin.y
+                        geometryObjects[index].width = anchoredSize.width
+                        geometryObjects[index].height = anchoredSize.height
                     }
                     parent.geometryObjects = geometryObjects
                     if selectedGeometryObjectID == resizingGeometryObjectID {
@@ -3862,10 +3903,51 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             return CGPoint(x: pivot.x + dx * cosR - dy * sinR, y: pivot.y + dx * sinR + dy * cosR)
         }
 
+        private func rotateSourceVector(_ vector: CGVector, by rotation: CGFloat) -> CGVector {
+            let cosR = cos(rotation)
+            let sinR = sin(rotation)
+            return CGVector(
+                dx: vector.dx * cosR - vector.dy * sinR,
+                dy: vector.dx * sinR + vector.dy * cosR
+            )
+        }
+
+        private func anchoredResizeSize(from anchorSource: CGPoint, to handleSource: CGPoint, rotation: CGFloat) -> CGSize {
+            let sourceDelta = CGVector(
+                dx: handleSource.x - anchorSource.x,
+                dy: handleSource.y - anchorSource.y
+            )
+            let localDelta = rotateSourceVector(sourceDelta, by: -rotation)
+            return CGSize(width: localDelta.dx, height: localDelta.dy)
+        }
+
+        private func anchoredResizeOrigin(anchorSource: CGPoint, size: CGSize, rotation: CGFloat) -> CGPoint {
+            let localSize = CGVector(dx: size.width, dy: size.height)
+            let rotatedSize = rotateSourceVector(localSize, by: rotation)
+            return CGPoint(
+                x: anchorSource.x - localSize.dx / 2 + rotatedSize.dx / 2,
+                y: anchorSource.y - localSize.dy / 2 + rotatedSize.dy / 2
+            )
+        }
+
+        private func originPreservingRenderedPosition(
+            origin: CGPoint,
+            oldPivot: CGPoint,
+            newPivot: CGPoint,
+            rotation: CGFloat
+        ) -> CGPoint {
+            let renderedOrigin = rotateSourcePoint(origin, about: oldPivot, by: rotation)
+            return rotateSourcePoint(renderedOrigin, about: newPivot, by: -rotation)
+        }
+
         /// Un-rotates a source point into the object's local (unrotated) space so
         /// a rotated object can be hit-tested against its axis-aligned frame.
         private func geometryLocalPoint(_ source: CGPoint, object: CanvasGeometryObject) -> CGPoint {
             rotateSourcePoint(source, about: object.pivot, by: -object.rotation)
+        }
+
+        private func geometryLocalPoint(_ source: CGPoint, pivot: CGPoint, rotation: CGFloat) -> CGPoint {
+            rotateSourcePoint(source, about: pivot, by: -rotation)
         }
 
         enum GeometryHandleKind {
@@ -3928,7 +4010,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             ]
             let radius = Self.geometryHandleHitRadius
             let sourceRadius = radius / zoom
-            let normalized = object.normalizedFrame
+            let renderedBounds = object.renderedBounds
 
             func distance(to point: CGPoint) -> CGFloat {
                 touchCandidates
@@ -3947,7 +4029,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             }
 
             let topCenterSource = rotateSourcePoint(
-                CGPoint(x: normalized.midX, y: normalized.minY),
+                CGPoint(x: renderedBounds.midX, y: renderedBounds.minY),
                 about: object.pivot,
                 by: object.rotation
             )

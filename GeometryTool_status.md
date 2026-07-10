@@ -84,10 +84,14 @@ This is the focused handoff document for MathBoard's Geometry tool. New AI sessi
 - **Equal-sided snap + resize guide are working in device testing** for circles, squares, and isosceles right triangles. The dotted diagonal guide appears only while actively resizing in the snapped equal-sided state.
 - **Draggable geometry Action HUD is working in device testing.** Use it to move the HUD away from handles when it overlaps line endpoints, the pivot dot, rotation knob, or apex handle.
 - Second resize after a horizontal or vertical flip now preserves the flipped orientation. Resize gesture setup stores the object's signed start origin and signed start size explicitly instead of relying on a `CGRect` baseline that can be standardized.
+- Rotation handle hit-testing for very obtuse triangles now uses `renderedBounds`, matching the visible selection/rotation handle position when the orange apex extends far outside the original base frame.
+- Resizing a rotated geometry object is now stabilized by using the resize-start pivot and resize-start rotation for all local drag deltas during that gesture. This prevents rubbery/inverted behavior near 180 degrees, where the object's default center pivot moves as width/height change.
+- Frame-based geometry shape resize now uses an opposite-corner anchor model instead of the old `startSize + delta` model. The rendered source point for the corner opposite the resize handle is fixed at gesture begin, the pencil point becomes the dragged rendered corner, and the model solves signed width/height plus origin from that relationship. This makes the resize handle track the pencil through arbitrary rotations and flipped states. Lines keep the endpoint-vector resize path.
+- Dragging the green pivot dot on an already-rotated geometry object now preserves the rendered object position. The pivot drag compensates the stored `x/y` origin when pivot changes, so the object does not orbit around the new pivot while the dot is being moved.
 
 ## Open Bugs
 
-- **Rotation breaks on very obtuse triangles.** Once the orange apex handle has stretched the triangle far horizontally (very obtuse), at some point the rotation handle stops working: grabbing the rotation knob just drags the object and shows a dotted PencilKit drag line that disappears on pencil-up (i.e., the rotation hit is lost and the touch falls through to a raw canvas/ink drag). Likely the rotation knob's computed position or hit region degrades as the triangle's bounds/apex extend well outside the base, or the drawing recognizer is no longer being suppressed for that touch. Needs investigation in `geometryHandleHit` / the rotation-knob position (which is derived from `normalizedFrame.midX/minY`, not `renderedBounds`) and gesture suppression.
+- No active Geometry tool bugs recorded here after the latest fixes. Continue device-testing resize-to-flip, obtuse apex dragging, rotation around very obtuse triangles, resize behavior on objects rotated near 180 degrees, and pivot dragging after rotation.
 
 ## Known Watch Points
 
@@ -121,3 +125,6 @@ This is the focused handoff document for MathBoard's Geometry tool. New AI sessi
 - Resize a rectangle near equal width/height and confirm it snaps to a square with the dotted diagonal guide visible only while resizing.
 - Resize a right triangle near equal width/height and confirm it snaps to an isosceles right triangle with the dotted diagonal guide visible only while resizing.
 - Drag the geometry Action HUD away from an overlapping handle and confirm geometry handles remain reachable afterward.
+- Rotate several geometry objects close to 180 degrees, then resize from the resize handle and confirm size changes track the drag without rubber-banding, huge jumps, or flip-flopping.
+- For a rotated frame-based shape, drag the resize handle inward/outward and confirm the handle remains under the pencil except when equal-sided snapping intentionally pulls it onto the snap diagonal.
+- Rotate a geometry object, drag the green pivot dot, and confirm the object stays visually fixed while only the pivot dot moves.
