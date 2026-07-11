@@ -93,6 +93,8 @@ public struct CanvasObjectCommand: Sendable, Equatable, Identifiable {
         case updateText(CanvasTextUpdate)
         case updateGeometry(CanvasGeometryUpdate)
         case clearSelection
+        case copy(CanvasSelectionState.Object)
+        case pasteClipboard
         case duplicate(CanvasSelectionState.Object)
         case delete(CanvasSelectionState.Object)
     }
@@ -104,6 +106,11 @@ public struct CanvasObjectCommand: Sendable, Equatable, Identifiable {
         self.id = UUID()
         self.action = action
     }
+}
+
+public enum CanvasSemanticClipboardPayload: Codable, Equatable, Sendable {
+    case text(CanvasTextObject)
+    case geometry(CanvasGeometryObject)
 }
 
 public struct CanvasTextInsertion: Sendable, Equatable {
@@ -183,6 +190,7 @@ public struct CanvasToolCommand: Sendable, Equatable, Identifiable {
         case idle
         case select(target: SelectionTarget, mode: SelectionMode)
         case copySelection
+        case pasteSelection
         case duplicateSelection
         case deleteSelection
         case extractSelectionAsImageSticker

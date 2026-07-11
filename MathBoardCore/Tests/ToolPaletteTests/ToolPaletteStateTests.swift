@@ -196,8 +196,9 @@ struct ToolPaletteStateTests {
         let configuration = definition.configuration(for: state)
 
         #expect(ToolID.extract.displayName == "Extract")
-        #expect(configuration.topOrbit.count == 5)
+        #expect(configuration.topOrbit.count == 6)
         #expect(configuration.topOrbit.map(\.command).contains(.copySelection))
+        #expect(configuration.topOrbit.map(\.command).contains(.pasteSelection))
         #expect(configuration.topOrbit.map(\.command).contains(.deleteSelection))
         #expect(configuration.topOrbit.map(\.command).contains(.extractSelectionAsImageSticker))
 

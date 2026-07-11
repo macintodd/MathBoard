@@ -1254,6 +1254,7 @@ private final class CanvasImageObjectsView: UIView {
     private var contentOffset: CGPoint = .zero
     private var canvasOrigin: CGPoint = .zero
     private var imageCache: [String: UIImage] = [:]
+    private static let rotationStemLength: CGFloat = 30
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1298,15 +1299,25 @@ private final class CanvasImageObjectsView: UIView {
 
         for object in imageObjects {
             guard let image = image(for: object) else { continue }
-            let frame = CGRect(
-                x: (canvasOrigin.x + object.x) * zoomScale - contentOffset.x,
-                y: (canvasOrigin.y + object.y) * zoomScale - contentOffset.y,
-                width: object.width * zoomScale,
-                height: object.height * zoomScale
-            )
-            image.draw(in: frame)
+            let frame = screenRect(for: object.frame)
+            if let context = UIGraphicsGetCurrentContext(), object.rotation != 0 {
+                context.saveGState()
+                let center = screenPoint(object.center)
+                context.translateBy(x: center.x, y: center.y)
+                context.rotate(by: object.rotation)
+                let rotatedFrame = CGRect(
+                    x: -frame.width / 2,
+                    y: -frame.height / 2,
+                    width: frame.width,
+                    height: frame.height
+                )
+                image.draw(in: rotatedFrame)
+                context.restoreGState()
+            } else {
+                image.draw(in: frame)
+            }
             if object.id == selectedImageObjectID {
-                drawSelectionFrame(frame)
+                drawSelectionFrame(for: object)
             }
         }
     }
@@ -1322,13 +1333,85 @@ private final class CanvasImageObjectsView: UIView {
         return image
     }
 
-    private func drawSelectionFrame(_ frame: CGRect) {
-        let rect = frame.insetBy(dx: -6, dy: -6)
-        let path = UIBezierPath(roundedRect: rect, cornerRadius: 6)
+    private func screenRect(for sourceRect: CGRect) -> CGRect {
+        CGRect(
+            x: (canvasOrigin.x + sourceRect.minX) * zoomScale - contentOffset.x,
+            y: (canvasOrigin.y + sourceRect.minY) * zoomScale - contentOffset.y,
+            width: sourceRect.width * zoomScale,
+            height: sourceRect.height * zoomScale
+        )
+    }
+
+    private func screenPoint(_ sourcePoint: CGPoint) -> CGPoint {
+        CGPoint(
+            x: (canvasOrigin.x + sourcePoint.x) * zoomScale - contentOffset.x,
+            y: (canvasOrigin.y + sourcePoint.y) * zoomScale - contentOffset.y
+        )
+    }
+
+    private func rotatedSourcePoint(_ point: CGPoint, object: CanvasImageObject) -> CGPoint {
+        let center = object.center
+        let dx = point.x - center.x
+        let dy = point.y - center.y
+        let cosR = cos(object.rotation)
+        let sinR = sin(object.rotation)
+        return CGPoint(x: center.x + dx * cosR - dy * sinR, y: center.y + dx * sinR + dy * cosR)
+    }
+
+    private func drawSelectionFrame(for object: CanvasImageObject) {
+        let topLeft = screenPoint(rotatedSourcePoint(CGPoint(x: object.frame.minX, y: object.frame.minY), object: object))
+        let topRight = screenPoint(rotatedSourcePoint(CGPoint(x: object.frame.maxX, y: object.frame.minY), object: object))
+        let bottomRight = screenPoint(rotatedSourcePoint(CGPoint(x: object.frame.maxX, y: object.frame.maxY), object: object))
+        let bottomLeft = screenPoint(rotatedSourcePoint(CGPoint(x: object.frame.minX, y: object.frame.maxY), object: object))
+
+        let path = UIBezierPath()
+        path.move(to: topLeft)
+        path.addLine(to: topRight)
+        path.addLine(to: bottomRight)
+        path.addLine(to: bottomLeft)
+        path.close()
         UIColor.systemBlue.setStroke()
         path.lineWidth = 2
         path.setLineDash([6, 4], count: 2, phase: 0)
         path.stroke()
+
+        let topCenter = screenPoint(rotatedSourcePoint(CGPoint(x: object.frame.midX, y: object.frame.minY), object: object))
+        let up = CGVector(dx: sin(object.rotation), dy: -cos(object.rotation))
+        let knob = CGPoint(
+            x: topCenter.x + up.dx * Self.rotationStemLength,
+            y: topCenter.y + up.dy * Self.rotationStemLength
+        )
+        let stem = UIBezierPath()
+        stem.move(to: topCenter)
+        stem.addLine(to: knob)
+        stem.lineWidth = 2
+        UIColor.systemBlue.setStroke()
+        stem.stroke()
+        drawRotationKnob(at: knob)
+
+        let handleSize: CGFloat = 18
+        let handleRect = CGRect(
+            x: bottomRight.x - handleSize / 2,
+            y: bottomRight.y - handleSize / 2,
+            width: handleSize,
+            height: handleSize
+        )
+        let handlePath = UIBezierPath(roundedRect: handleRect, cornerRadius: 5)
+        UIColor.white.setFill()
+        handlePath.fill()
+        UIColor.systemBlue.setStroke()
+        handlePath.lineWidth = 2
+        handlePath.stroke()
+    }
+
+    private func drawRotationKnob(at point: CGPoint) {
+        let r = CGRect(x: point.x - 9, y: point.y - 9, width: 18, height: 18)
+        UIColor.white.setFill()
+        UIBezierPath(ovalIn: r).fill()
+        UIColor.systemBlue.setStroke()
+        let ring = UIBezierPath(ovalIn: r)
+        ring.lineWidth = 2
+        ring.stroke()
     }
 }
 
@@ -2053,6 +2136,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private var textSelectionTapRecognizer: UITapGestureRecognizer?
         private var textSelectionDoubleTapRecognizer: UITapGestureRecognizer?
         private var textSelectionPanRecognizer: CanvasObjectDragGestureRecognizer?
+        private var selectionLongPressRecognizer: UILongPressGestureRecognizer?
         private var textEditorDismissRecognizer: UITapGestureRecognizer?
         private var regionSelectionRecognizer: PencilLiveStrokeGestureRecognizer?
         private var geometryCreationRecognizer: PencilLiveStrokeGestureRecognizer?
@@ -2099,6 +2183,12 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private var resizingTextObjectID: UUID?
         private var resizingTextObjectStartSize: CGSize = .zero
         private var resizingTextStartSourcePoint: CGPoint = .zero
+        private var resizingImageObjectID: UUID?
+        private var resizingImageStartAnchorSourcePoint: CGPoint = .zero
+        private var resizingImageStartRotation: CGFloat = 0
+        private var rotatingImageObjectID: UUID?
+        private var rotatingImageStartRotation: CGFloat = 0
+        private var rotatingImageStartAngle: CGFloat = 0
         private var selectedGeometryObjectID: UUID?
         private var lastSelectedGeometryObjectID: UUID?
         private var movingGeometryObjectID: UUID?
@@ -2315,7 +2405,20 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             case .copySelection:
                 Task { @MainActor [weak self, weak canvas] in
                     guard let self, let canvas else { return }
-                    self.copySelectedRegionToPasteboard(using: canvas)
+                    if self.activeSelectionTarget == .region {
+                        self.copySelectedRegionToPasteboard(using: canvas)
+                    } else {
+                        self.copySelectedSemanticObjectToPasteboard(using: canvas)
+                    }
+                }
+            case .pasteSelection:
+                Task { @MainActor [weak self, weak canvas] in
+                    guard let self, let canvas else { return }
+                    if self.activeSelectionTarget == .region {
+                        self.pasteExtractedImageFromPasteboard(using: canvas)
+                    } else {
+                        self.pasteClipboardObjectFromPasteboard(using: canvas)
+                    }
                 }
             case .duplicateSelection:
                 Task { @MainActor [weak self, weak canvas] in
@@ -2548,6 +2651,16 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 Task { @MainActor [weak self, weak canvas] in
                     guard let self, let canvas else { return }
                     self.clearObjectSelection(using: canvas)
+                }
+            case .copy(let object):
+                Task { @MainActor [weak self, weak canvas] in
+                    guard let self, let canvas else { return }
+                    self.copySemanticObject(object, using: canvas)
+                }
+            case .pasteClipboard:
+                Task { @MainActor [weak self, weak canvas] in
+                    guard let self, let canvas else { return }
+                    self.pasteClipboardObjectFromPasteboard(using: canvas)
                 }
             case .duplicate(.text(let id)):
                 Task { @MainActor [weak self, weak canvas] in
@@ -2884,9 +2997,18 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             canvas.addGestureRecognizer(pan)
             canvas.panGestureRecognizer.require(toFail: pan)
 
+            let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleSelectionLongPress(_:)))
+            longPress.minimumPressDuration = 0.45
+            longPress.cancelsTouchesInView = false
+            longPress.delaysTouchesBegan = false
+            longPress.delaysTouchesEnded = false
+            longPress.delegate = self
+            canvas.addGestureRecognizer(longPress)
+
             textSelectionTapRecognizer = tap
             textSelectionDoubleTapRecognizer = doubleTap
             textSelectionPanRecognizer = pan
+            selectionLongPressRecognizer = longPress
         }
 
         func installTextEditorDismissRecognizer(on hostView: PencilKitCanvasHostView) {
@@ -3343,6 +3465,32 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     return
                 }
 
+                if let handle = imageHandleHit(at: startLocation, on: canvas),
+                   let object = parent.imageObjects.first(where: { $0.id == handle.id }) {
+                    parent.onInteractionBegan?()
+                    clearRegionSelection()
+                    setSelectedImageObjectID(handle.id)
+                    clearObjectDragState()
+                    let startSource = sourcePoint(forCanvasPoint: startLocation, on: canvas)
+                    switch handle.kind {
+                    case .resize:
+                        resizingImageObjectID = handle.id
+                        resizingImageStartRotation = object.rotation
+                        resizingImageStartAnchorSourcePoint = rotateSourcePoint(
+                            CGPoint(x: object.frame.minX, y: object.frame.minY),
+                            about: object.center,
+                            by: object.rotation
+                        )
+                    case .rotate:
+                        rotatingImageObjectID = handle.id
+                        rotatingImageStartRotation = object.rotation
+                        let center = object.center
+                        rotatingImageStartAngle = atan2(startSource.y - center.y, startSource.x - center.x)
+                    }
+                    updateHostImageObjects(using: canvas)
+                    return
+                }
+
                 let textObjectHitID = hitSelectedTextObjectID(at: startLocation, on: canvas)
                     ?? hitTextObjectID(at: startLocation, on: canvas)
                 guard let id = textObjectHitID,
@@ -3401,6 +3549,51 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                         object.height = max(resizingTextObjectStartSize.height + delta.y, max(object.fontSize * 1.4, 36))
                     }
                     updateHostTextObjects(using: canvas)
+                    publishImageFromModel()
+                    return
+                }
+
+                if let rotatingImageObjectID,
+                   let index = parent.imageObjects.firstIndex(where: { $0.id == rotatingImageObjectID }) {
+                    let center = parent.imageObjects[index].center
+                    let currentSource = sourcePoint(forCanvasPoint: recognizer.location(in: canvas), on: canvas)
+                    let currentAngle = atan2(currentSource.y - center.y, currentSource.x - center.x)
+                    var imageObjects = parent.imageObjects
+                    imageObjects[index].rotation = rotatingImageStartRotation + (currentAngle - rotatingImageStartAngle)
+                    parent.imageObjects = imageObjects
+                    if selectedImageObjectID == rotatingImageObjectID {
+                        updateSharedSelectionState()
+                    }
+                    updateHostImageObjects(using: canvas)
+                    publishImageFromModel()
+                    return
+                }
+
+                if let resizingImageObjectID,
+                   let index = parent.imageObjects.firstIndex(where: { $0.id == resizingImageObjectID }) {
+                    let currentSource = sourcePoint(forCanvasPoint: recognizer.location(in: canvas), on: canvas)
+                    var anchoredSize = anchoredResizeSize(
+                        from: resizingImageStartAnchorSourcePoint,
+                        to: currentSource,
+                        rotation: resizingImageStartRotation
+                    )
+                    anchoredSize.width = max(anchoredSize.width, 24)
+                    anchoredSize.height = max(anchoredSize.height, 24)
+                    let origin = anchoredResizeOrigin(
+                        anchorSource: resizingImageStartAnchorSourcePoint,
+                        size: anchoredSize,
+                        rotation: resizingImageStartRotation
+                    )
+                    var imageObjects = parent.imageObjects
+                    imageObjects[index].x = origin.x
+                    imageObjects[index].y = origin.y
+                    imageObjects[index].width = anchoredSize.width
+                    imageObjects[index].height = anchoredSize.height
+                    parent.imageObjects = imageObjects
+                    if selectedImageObjectID == resizingImageObjectID {
+                        updateSharedSelectionState()
+                    }
+                    updateHostImageObjects(using: canvas)
                     publishImageFromModel()
                     return
                 }
@@ -3553,6 +3746,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     imageObjects[index].x = movingImageObjectStartOrigin.x + delta.x
                     imageObjects[index].y = movingImageObjectStartOrigin.y + delta.y
                     parent.imageObjects = imageObjects
+                    if selectedImageObjectID == movingImageObjectID {
+                        updateSharedSelectionState()
+                    }
                     updateHostImageObjects(using: canvas)
                     publishImageFromModel()
                 }
@@ -3594,7 +3790,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             movingGeometryObjectID = nil
             movingGeometryObjectStartPivot = nil
             resizingTextObjectID = nil
+            resizingImageObjectID = nil
             resizingGeometryObjectID = nil
+            rotatingImageObjectID = nil
             rotatingGeometryObjectID = nil
             pivotDraggingGeometryObjectID = nil
             apexDraggingGeometryObjectID = nil
@@ -3768,7 +3966,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 !object.text.isEmpty && activeRegionSelection.intersects(object.frame) ? object.id : nil
             })
             activeRegionSelectedImageObjectIDs = Set(parent.imageObjects.compactMap { object in
-                object.isLocked == true ? nil : (activeRegionSelection.intersects(object.frame) ? object.id : nil)
+                object.isLocked == true ? nil : (activeRegionSelection.intersects(object.renderedBounds) ? object.id : nil)
             })
             activeRegionSelectedGeometryObjectIDs = Set(parent.geometryObjects.compactMap { object in
                 object.isLocked == true ? nil : (activeRegionSelection.intersects(object.renderedBounds) ? object.id : nil)
@@ -3784,7 +3982,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             }
             let imageRects = parent.imageObjects.compactMap { object -> CGRect? in
                 guard activeRegionSelectedImageObjectIDs.contains(object.id) else { return nil }
-                return overlayRect(forSourceRect: object.frame, on: canvas)
+                return overlayRect(forSourceRect: object.renderedBounds, on: canvas)
             }
             let geometryRects = parent.geometryObjects.compactMap { object -> CGRect? in
                 guard activeRegionSelectedGeometryObjectIDs.contains(object.id) else { return nil }
@@ -3836,7 +4034,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         }
 
         private func hitSelectedImageObjectID(at canvasPoint: CGPoint, on canvas: PKCanvasView) -> UUID? {
-            guard let selectedImageObjectID,
+            guard let selectedImageObjectID = selectedImageObjectID ?? selectedImageObjectIDFromSharedState,
                   let object = parent.imageObjects.first(where: { $0.id == selectedImageObjectID }),
                   object.isLocked != true else {
                 return nil
@@ -3844,7 +4042,15 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
 
             let sourcePoint = sourcePoint(forCanvasPoint: canvasPoint, on: canvas)
             let hitMargin = selectedObjectDragHitMargin(on: canvas)
-            return object.frame.insetBy(dx: -hitMargin, dy: -hitMargin).contains(sourcePoint) ? object.id : nil
+            let localPoint = imageLocalPoint(sourcePoint, object: object)
+            return object.frame.insetBy(dx: -hitMargin, dy: -hitMargin).contains(localPoint) ? object.id : nil
+        }
+
+        private var selectedImageObjectIDFromSharedState: UUID? {
+            guard case .image(let id) = parent.selectionState.selectedObject else {
+                return nil
+            }
+            return id
         }
 
         private func selectedObjectDragHitMargin(on canvas: PKCanvasView) -> CGFloat {
@@ -3868,12 +4074,92 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             )
         }
 
+        private func hitImageResizeHandleID(at canvasPoint: CGPoint, on canvas: PKCanvasView) -> UUID? {
+            guard let hit = imageHandleHit(at: canvasPoint, on: canvas), hit.kind == .resize else {
+                return nil
+            }
+            return hit.id
+        }
+
+        private func imageHandleHit(at canvasPoint: CGPoint, on canvas: PKCanvasView) -> (id: UUID, kind: ImageHandleKind)? {
+            guard let selectedID = selectedImageObjectIDFromSharedState ?? selectedImageObjectID ?? lastSelectedImageObjectID,
+                  let object = parent.imageObjects.first(where: { $0.id == selectedID }),
+                  object.isLocked != true else {
+                return nil
+            }
+
+            let touchCandidates = [
+                canvasPoint,
+                CGPoint(x: canvasPoint.x - canvas.contentOffset.x, y: canvasPoint.y - canvas.contentOffset.y),
+                hostPoint(forCanvasPoint: canvasPoint, on: canvas)
+            ]
+            let zoom = max(canvas.zoomScale, 0.001)
+            let sourceTouchCandidates = touchCandidates.map { point in
+                CGPoint(
+                    x: (point.x + canvas.contentOffset.x) / zoom - PencilKitCanvasGeometry.drawingOriginOffset.x,
+                    y: (point.y + canvas.contentOffset.y) / zoom - PencilKitCanvasGeometry.drawingOriginOffset.y
+                )
+            } + [
+                sourcePoint(forCanvasPoint: canvasPoint, on: canvas)
+            ]
+            let radius: CGFloat = 44
+            let sourceRadius = radius / zoom
+
+            func distance(to point: CGPoint) -> CGFloat {
+                touchCandidates
+                    .map { hypot($0.x - point.x, $0.y - point.y) }
+                    .min() ?? .greatestFiniteMagnitude
+            }
+
+            func sourceDistance(to point: CGPoint) -> CGFloat {
+                sourceTouchCandidates
+                    .map { hypot($0.x - point.x, $0.y - point.y) }
+                    .min() ?? .greatestFiniteMagnitude
+            }
+
+            func hits(screen screenPoint: CGPoint, source sourcePoint: CGPoint) -> Bool {
+                distance(to: screenPoint) <= radius || sourceDistance(to: sourcePoint) <= sourceRadius
+            }
+
+            let topCenterSource = imageRotatedSourcePoint(
+                CGPoint(x: object.frame.midX, y: object.frame.minY),
+                object: object
+            )
+            let topCenter = screenPoint(for: topCenterSource, on: canvas)
+            let up = CGPoint(x: sin(object.rotation), y: -cos(object.rotation))
+            let sourceStem = Self.geometryRotationStemLength / zoom
+            let knobSource = CGPoint(
+                x: topCenterSource.x + up.x * sourceStem,
+                y: topCenterSource.y + up.y * sourceStem
+            )
+            let knob = CGPoint(
+                x: topCenter.x + up.x * Self.geometryRotationStemLength,
+                y: topCenter.y + up.y * Self.geometryRotationStemLength
+            )
+            let resizeSource = imageRotatedSourcePoint(
+                CGPoint(x: object.frame.maxX, y: object.frame.maxY),
+                object: object
+            )
+            let resize = screenPoint(for: resizeSource, on: canvas)
+
+            let rotateDistance = min(distance(to: knob), sourceDistance(to: knobSource) * zoom)
+            let resizeDistance = min(distance(to: resize), sourceDistance(to: resizeSource) * zoom)
+            if rotateDistance <= resizeDistance, hits(screen: knob, source: knobSource) {
+                return (object.id, .rotate)
+            }
+            if hits(screen: resize, source: resizeSource) {
+                return (object.id, .resize)
+            }
+            return nil
+        }
+
         private func hitImageObjectID(at canvasPoint: CGPoint, on canvas: PKCanvasView) -> UUID? {
             let sourcePoint = sourcePoint(forCanvasPoint: canvasPoint, on: canvas)
             let hitMargin = max(16 / max(canvas.zoomScale, 0.001), 4)
             return parent.imageObjects.reversed().first { object in
-                object.isLocked != true
-                    && object.frame.insetBy(dx: -hitMargin, dy: -hitMargin).contains(sourcePoint)
+                guard object.isLocked != true else { return false }
+                let localPoint = imageLocalPoint(sourcePoint, object: object)
+                return object.frame.insetBy(dx: -hitMargin, dy: -hitMargin).contains(localPoint)
             }?.id
         }
 
@@ -3950,10 +4236,23 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             rotateSourcePoint(source, about: pivot, by: -rotation)
         }
 
+        private func imageRotatedSourcePoint(_ point: CGPoint, object: CanvasImageObject) -> CGPoint {
+            rotateSourcePoint(point, about: object.center, by: object.rotation)
+        }
+
+        private func imageLocalPoint(_ source: CGPoint, object: CanvasImageObject) -> CGPoint {
+            rotateSourcePoint(source, about: object.center, by: -object.rotation)
+        }
+
         enum GeometryHandleKind {
             case rotate
             case pivot
             case apex
+            case resize
+        }
+
+        enum ImageHandleKind {
+            case rotate
             case resize
         }
 
@@ -4181,7 +4480,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                       let object = parent.imageObjects.first(where: { $0.id == selectedImageObjectID }) {
                 parent.selectionState = CanvasSelectionState(
                     selectedObject: .image(object.id),
-                    viewportFrame: canvas.map { overlayRect(forSourceRect: object.frame, on: $0) }
+                    viewportFrame: canvas.map { overlayRect(forSourceRect: object.renderedBounds, on: $0) }
                 )
             } else if let selectedGeometryObjectID,
                       let object = parent.geometryObjects.first(where: { $0.id == selectedGeometryObjectID }) {
@@ -4319,7 +4618,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 x: object.x + offset,
                 y: object.y + offset,
                 width: object.width,
-                height: object.height
+                height: object.height,
+                rotation: object.rotation,
+                isLocked: object.isLocked
             )
             parent.imageObjects.append(duplicate)
             setSelectedImageObjectID(duplicate.id)
@@ -4334,6 +4635,8 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             setSelectedImageObjectID(nil)
             lastSelectedImageObjectID = nil
             movingImageObjectID = nil
+            resizingImageObjectID = nil
+            rotatingImageObjectID = nil
             updateHostImageObjects(using: canvas)
             publishImageFromModel()
         }
@@ -4409,7 +4712,177 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
 
         private func copySelectedRegionToPasteboard(using canvas: PKCanvasView) {
             guard let snapshot = makeRegionSnapshot() else { return }
-            UIPasteboard.general.image = snapshot.image
+            let pasteboard = UIPasteboard.general
+            pasteboard.image = snapshot.image
+            let payload = CanvasExtractedImageClipboardPayload(
+                pngData: snapshot.pngData,
+                sourceBounds: snapshot.sourceBounds
+            )
+            if let data = try? JSONEncoder().encode(payload) {
+                pasteboard.setData(data, forPasteboardType: Self.extractedImagePasteboardType)
+            }
+        }
+
+        private static let semanticObjectPasteboardType = "com.mathboard.canvas.semantic-object"
+        private static let extractedImagePasteboardType = "com.mathboard.canvas.extracted-image"
+
+        private struct CanvasExtractedImageClipboardPayload: Codable {
+            var pngData: Data
+            var sourceBounds: CGRect
+        }
+
+        private func copySelectedSemanticObjectToPasteboard(using canvas: PKCanvasView) {
+            finishTextEditing()
+            if let targetID = selectedGeometryObjectID ?? lastSelectedGeometryObjectID {
+                copySemanticObject(.geometry(targetID), using: canvas)
+                return
+            }
+            if let targetID = selectedTextObjectID ?? lastSelectedTextObjectID {
+                copySemanticObject(.text(targetID), using: canvas)
+                return
+            }
+        }
+
+        private func copySemanticObject(_ object: CanvasSelectionState.Object, using canvas: PKCanvasView) {
+            switch object {
+            case .text(let id):
+                guard let textObject = parent.textObjects.first(where: { $0.id == id }) else { return }
+                writeSemanticObjectToPasteboard(.text(textObject))
+            case .geometry(let id):
+                guard let geometryObject = parent.geometryObjects.first(where: { $0.id == id }) else { return }
+                writeSemanticObjectToPasteboard(.geometry(geometryObject))
+            case .image:
+                break
+            }
+        }
+
+        private func writeSemanticObjectToPasteboard(_ payload: CanvasSemanticClipboardPayload) {
+            guard let data = try? JSONEncoder().encode(payload) else { return }
+            UIPasteboard.general.setData(data, forPasteboardType: Self.semanticObjectPasteboardType)
+        }
+
+        private func semanticObjectPayloadFromPasteboard() -> CanvasSemanticClipboardPayload? {
+            guard let data = UIPasteboard.general.data(forPasteboardType: Self.semanticObjectPasteboardType) else {
+                return nil
+            }
+            return try? JSONDecoder().decode(CanvasSemanticClipboardPayload.self, from: data)
+        }
+
+        private func extractedImagePayloadFromPasteboard() -> CanvasExtractedImageClipboardPayload? {
+            if let data = UIPasteboard.general.data(forPasteboardType: Self.extractedImagePasteboardType),
+               let payload = try? JSONDecoder().decode(CanvasExtractedImageClipboardPayload.self, from: data) {
+                return payload
+            }
+            guard let image = UIPasteboard.general.image,
+                  let pngData = image.pngData() else {
+                return nil
+            }
+            return CanvasExtractedImageClipboardPayload(
+                pngData: pngData,
+                sourceBounds: CGRect(origin: .zero, size: image.size)
+            )
+        }
+
+        private func canPasteClipboardObject() -> Bool {
+            semanticObjectPayloadFromPasteboard() != nil || extractedImagePayloadFromPasteboard() != nil
+        }
+
+        private func pasteClipboardObjectFromPasteboard(using canvas: PKCanvasView, at sourcePoint: CGPoint? = nil) {
+            if semanticObjectPayloadFromPasteboard() != nil {
+                pasteSemanticObjectFromPasteboard(using: canvas, at: sourcePoint)
+            } else {
+                pasteExtractedImageFromPasteboard(using: canvas, at: sourcePoint)
+            }
+        }
+
+        private func pasteSemanticObjectFromPasteboard(using canvas: PKCanvasView, at sourcePoint: CGPoint? = nil) {
+            guard let payload = semanticObjectPayloadFromPasteboard() else { return }
+            parent.onInteractionBegan?()
+            let offset = max(24 / max(canvas.zoomScale, 0.001), 12)
+
+            switch payload {
+            case .text(let object):
+                let pastedOrigin = sourcePoint ?? CGPoint(x: object.x + offset, y: object.y + offset)
+                let pasted = CanvasTextObject(
+                    text: object.text,
+                    x: pastedOrigin.x,
+                    y: pastedOrigin.y,
+                    width: object.width,
+                    height: object.height,
+                    fontSize: object.fontSize,
+                    red: object.red,
+                    green: object.green,
+                    blue: object.blue,
+                    alpha: object.alpha,
+                    isBold: object.isBold,
+                    isItalic: object.isItalic,
+                    isUnderlined: object.isUnderlined,
+                    fontName: object.fontName
+                )
+                var textObjects = parent.textObjects
+                textObjects.append(pasted)
+                parent.textObjects = textObjects
+                setSelectedTextObjectID(pasted.id)
+                updateHostTextObjects(using: canvas)
+            case .geometry(let object):
+                let pastedOrigin = sourcePoint ?? CGPoint(x: object.x + offset, y: object.y + offset)
+                let deltaX = pastedOrigin.x - object.x
+                let deltaY = pastedOrigin.y - object.y
+                let pasted = CanvasGeometryObject(
+                    shape: object.shape,
+                    x: pastedOrigin.x,
+                    y: pastedOrigin.y,
+                    width: object.width,
+                    height: object.height,
+                    strokeRed: object.strokeRed,
+                    strokeGreen: object.strokeGreen,
+                    strokeBlue: object.strokeBlue,
+                    strokeAlpha: object.strokeAlpha,
+                    strokeWidth: object.strokeWidth,
+                    fillRed: object.fillRed,
+                    fillGreen: object.fillGreen,
+                    fillBlue: object.fillBlue,
+                    fillOpacity: object.fillOpacity,
+                    polygonSides: object.polygonSides,
+                    arrow: object.arrow,
+                    apexOffset: object.apexOffset,
+                    rotation: object.rotation,
+                    pivotX: object.pivotX.map { $0 + deltaX },
+                    pivotY: object.pivotY.map { $0 + deltaY },
+                    isLocked: object.isLocked
+                )
+                var geometryObjects = parent.geometryObjects
+                geometryObjects.append(pasted)
+                parent.geometryObjects = geometryObjects
+                setSelectedGeometryObjectID(pasted.id)
+                updateHostGeometryObjects(using: canvas)
+            }
+            publishImageFromModel()
+        }
+
+        private func pasteExtractedImageFromPasteboard(using canvas: PKCanvasView, at sourcePoint: CGPoint? = nil) {
+            guard let payload = extractedImagePayloadFromPasteboard() else { return }
+            let offset = max(24 / max(canvas.zoomScale, 0.001), 12)
+            let origin = sourcePoint ?? CGPoint(
+                x: payload.sourceBounds.minX + offset,
+                y: payload.sourceBounds.minY + offset
+            )
+            let frame = CGRect(
+                x: origin.x,
+                y: origin.y,
+                width: max(payload.sourceBounds.width, 1),
+                height: max(payload.sourceBounds.height, 1)
+            )
+            guard saveImageObject(
+                pngData: payload.pngData,
+                frame: frame,
+                selectAfterInsert: true,
+                using: canvas
+            ) else {
+                return
+            }
+            clearRegionSelection()
+            publishImageFromModel()
         }
 
         private func extractSelectedRegionAsImageSticker(using canvas: PKCanvasView) {
@@ -4515,6 +4988,44 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             return true
         }
 
+        private func saveImageObject(
+            pngData: Data,
+            frame: CGRect,
+            selectAfterInsert: Bool,
+            isLocked: Bool = false,
+            using canvas: PKCanvasView
+        ) -> Bool {
+            let fileName = "\(UUID().uuidString).png"
+            let assetDirectoryURL = CanvasImageObject.assetDirectoryURL(forDrawingURL: parent.drawingURL)
+            let assetURL = assetDirectoryURL.appendingPathComponent(fileName)
+            do {
+                try FileManager.default.createDirectory(
+                    at: assetDirectoryURL,
+                    withIntermediateDirectories: true
+                )
+                try pngData.write(to: assetURL, options: .atomic)
+            } catch {
+                print("[Canvas] image paste save error: \(error)")
+                return false
+            }
+
+            parent.onInteractionBegan?()
+            let imageObject = CanvasImageObject(
+                imageFileName: fileName,
+                x: frame.minX,
+                y: frame.minY,
+                width: frame.width,
+                height: frame.height,
+                isLocked: isLocked ? true : nil
+            )
+            parent.imageObjects.append(imageObject)
+            if selectAfterInsert {
+                setSelectedImageObjectID(imageObject.id)
+            }
+            updateHostImageObjects(using: canvas)
+            return true
+        }
+
         private func duplicateSelectedRegion(using canvas: PKCanvasView) -> Bool {
             guard activeRegionSelection != nil else { return false }
             let matchingTextObjects = parent.textObjects.filter { object in
@@ -4560,7 +5071,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                         x: object.x + offset,
                         y: object.y + offset,
                         width: object.width,
-                        height: object.height
+                        height: object.height,
+                        rotation: object.rotation,
+                        isLocked: object.isLocked
                     )
                 }
                 parent.imageObjects.append(contentsOf: duplicates)
@@ -4786,6 +5299,63 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             let sourcePoint = sourcePoint(forCanvasPoint: canvasPoint, on: canvas)
             parent.onInteractionBegan?()
             parent.onTextPlacementRequested?(sourcePoint)
+        }
+
+        @objc private func handleSelectionLongPress(_ recognizer: UILongPressGestureRecognizer) {
+            guard recognizer.state == .began,
+                  let canvas,
+                  activeSelectionTarget == .object,
+                  isTextSelectionEnabled,
+                  canPasteClipboardObject() else {
+                return
+            }
+
+            let canvasPoint = recognizer.location(in: canvas)
+            guard isEmptySelectionCanvasPoint(canvasPoint, on: canvas) else { return }
+
+            clearRegionSelection()
+            let sourcePoint = sourcePoint(forCanvasPoint: canvasPoint, on: canvas)
+            presentSelectionPasteMenu(from: canvasPoint, on: canvas) { [weak self, weak canvas] in
+                guard let self, let canvas else { return }
+                self.pasteClipboardObjectFromPasteboard(using: canvas, at: sourcePoint)
+            }
+        }
+
+        private func isEmptySelectionCanvasPoint(_ point: CGPoint, on canvas: PKCanvasView) -> Bool {
+            hitTextResizeHandleID(at: point, on: canvas) == nil
+                && hitTextObjectID(at: point, on: canvas) == nil
+                && geometryHandleHit(at: point, on: canvas) == nil
+                && hitGeometryObjectID(at: point, on: canvas) == nil
+                && imageHandleHit(at: point, on: canvas) == nil
+                && hitImageObjectID(at: point, on: canvas) == nil
+        }
+
+        private func presentSelectionPasteMenu(
+            from canvasPoint: CGPoint,
+            on canvas: PKCanvasView,
+            pasteAction: @escaping () -> Void
+        ) {
+            guard let presenter = canvas.window?.rootViewController?.topPresentedViewController else {
+                pasteAction()
+                return
+            }
+
+            let menu = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+            menu.addAction(UIAlertAction(title: "Paste", style: .default) { _ in
+                pasteAction()
+            })
+            menu.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+            if let popover = menu.popoverPresentationController {
+                popover.sourceView = canvas
+                popover.sourceRect = CGRect(
+                    x: canvasPoint.x,
+                    y: canvasPoint.y,
+                    width: 1,
+                    height: 1
+                )
+                popover.permittedArrowDirections = []
+            }
+            presenter.present(menu, animated: true)
         }
 
         private func insertTextObject(_ insertion: CanvasTextInsertion, using canvas: PKCanvasView) {
@@ -5484,6 +6054,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                         || hitTextObjectID(at: location, on: canvas) != nil
                         || geometryHandleHit(at: location, on: canvas) != nil
                         || hitGeometryObjectID(at: location, on: canvas) != nil
+                        || imageHandleHit(at: location, on: canvas) != nil
                         || hitImageObjectID(at: location, on: canvas) != nil {
                         return false
                     }
@@ -5493,6 +6064,15 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             if gestureRecognizer === textSelectionTapRecognizer
                 || gestureRecognizer === textSelectionDoubleTapRecognizer {
                 return isTextSelectionEnabled
+            }
+            if gestureRecognizer === selectionLongPressRecognizer {
+                guard isTextSelectionEnabled,
+                      activeSelectionTarget == .object,
+                      canPasteClipboardObject(),
+                      let canvas else {
+                    return false
+                }
+                return isEmptySelectionCanvasPoint(gestureRecognizer.location(in: canvas), on: canvas)
             }
             if gestureRecognizer === textSelectionPanRecognizer {
                 guard isTextSelectionEnabled,
@@ -5505,6 +6085,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 pendingGeometryHandleHit = geometryHandle
                 return hitTextResizeHandleID(at: startLocation, on: canvas) != nil
                     || geometryHandle != nil
+                    || imageHandleHit(at: startLocation, on: canvas) != nil
                     || hitSelectedTextObjectID(at: startLocation, on: canvas) != nil
                     || hitTextObjectID(at: startLocation, on: canvas) != nil
                     || hitSelectedGeometryObjectID(at: startLocation, on: canvas) != nil
@@ -5519,6 +6100,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
+            if gestureRecognizer === selectionLongPressRecognizer || otherGestureRecognizer === selectionLongPressRecognizer {
+                return true
+            }
             if gestureRecognizer === textSelectionPanRecognizer || otherGestureRecognizer === textSelectionPanRecognizer {
                 return !isCanvasViewportGesture(gestureRecognizer) && !isCanvasViewportGesture(otherGestureRecognizer)
             }
@@ -5855,7 +6439,22 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     width: object.width * scaleX,
                     height: object.height * scaleY
                 )
-                image.draw(in: imageFrame)
+                if object.rotation == 0 {
+                    image.draw(in: imageFrame)
+                } else {
+                    context.saveGState()
+                    context.translateBy(x: imageFrame.midX, y: imageFrame.midY)
+                    context.rotate(by: object.rotation)
+                    image.draw(
+                        in: CGRect(
+                            x: -imageFrame.width / 2,
+                            y: -imageFrame.height / 2,
+                            width: imageFrame.width,
+                            height: imageFrame.height
+                        )
+                    )
+                    context.restoreGState()
+                }
             }
 
             context.restoreGState()
@@ -6003,6 +6602,12 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 height: rectSize.height
             )
         }
+    }
+}
+
+private extension UIViewController {
+    var topPresentedViewController: UIViewController {
+        presentedViewController?.topPresentedViewController ?? self
     }
 }
 

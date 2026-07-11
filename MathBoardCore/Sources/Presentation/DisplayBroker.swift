@@ -80,7 +80,7 @@ public final class DisplayBroker {
     /// Visual state for the custom radial palette while Phase 1 integration is
     /// still display-only. The iPad owns interaction; the external display reads
     /// this state so full-canvas sharing can match what the teacher sees.
-    public var toolPaletteState = ToolPaletteState()
+    public var toolPaletteState = ToolPaletteState(activeTool: .selection, isCompactDrawerOpen: false)
     public var isToolPaletteExpanded = false
     public var toolPaletteCenter: CGPoint?
     public var compactToolPaletteCenter: CGPoint?

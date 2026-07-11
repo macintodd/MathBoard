@@ -166,7 +166,7 @@ public enum ToolPaletteReducer {
             // Insertion is wired later (file import, widget config, sticker
             // placement, axis creator); selecting an option is a no-op for now.
             break
-        case .copySelection, .duplicateSelection, .deleteSelection,
+        case .copySelection, .pasteSelection, .duplicateSelection, .deleteSelection,
              .extractSelectionAsImageSticker, .sendSelectionToNextSlide:
             state.selectionActionSequence += 1
         case .undo, .redo:
@@ -338,7 +338,32 @@ struct SelectionToolDefinition: ToolDefinition {
 
     func configuration(for state: ToolPaletteState) -> ToolPaletteConfiguration {
         ToolPaletteConfiguration(
-            topOrbit: [],
+            topOrbit: [
+                PaletteOrbitItem(
+                    id: "selection.copy",
+                    iconSystemName: "doc.on.doc",
+                    label: "Copy",
+                    command: .copySelection
+                ),
+                PaletteOrbitItem(
+                    id: "selection.paste",
+                    iconSystemName: "doc.on.clipboard",
+                    label: "Paste",
+                    command: .pasteSelection
+                ),
+                PaletteOrbitItem(
+                    id: "selection.duplicate",
+                    iconSystemName: "plus.square.on.square",
+                    label: "Clone",
+                    command: .duplicateSelection
+                ),
+                PaletteOrbitItem(
+                    id: "selection.delete",
+                    iconSystemName: "trash",
+                    label: "Delete",
+                    command: .deleteSelection
+                )
+            ],
             leftArc: .disabled(label: "Objects"),
             rightArc: .disabled(label: "HUD actions")
         )
@@ -358,6 +383,12 @@ struct ExtractToolDefinition: ToolDefinition {
                     iconSystemName: "doc.on.doc",
                     label: "Copy",
                     command: .copySelection
+                ),
+                PaletteOrbitItem(
+                    id: "extract.paste",
+                    iconSystemName: "doc.on.clipboard",
+                    label: "Paste",
+                    command: .pasteSelection
                 ),
                 PaletteOrbitItem(
                     id: "extract.duplicate",

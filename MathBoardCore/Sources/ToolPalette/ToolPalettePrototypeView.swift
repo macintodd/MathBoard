@@ -160,6 +160,8 @@ private extension ToolPaletteCommand {
             return "redo"
         case .copySelection:
             return "copySelection"
+        case .pasteSelection:
+            return "pasteSelection"
         case .duplicateSelection:
             return "duplicateSelection"
         case .deleteSelection:

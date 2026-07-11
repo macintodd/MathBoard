@@ -345,6 +345,8 @@ public struct PresentingCanvasView: View {
                pendingTextPlacement == nil {
                 FloatingActionHUD(
                     onEdit: { pendingTextEdit = PendingTextEdit(object: object) },
+                    onCopy: { objectCommand = CanvasObjectCommand(.copy(.text(object.id))) },
+                    onPaste: { objectCommand = CanvasObjectCommand(.pasteClipboard) },
                     onClone: { objectCommand = CanvasObjectCommand(.duplicate(.text(object.id))) },
                     onDelete: { objectCommand = CanvasObjectCommand(.delete(.text(object.id))) }
                 )
@@ -356,6 +358,8 @@ public struct PresentingCanvasView: View {
                       pendingTextEdit == nil,
                       pendingTextPlacement == nil {
                 FloatingActionHUD(
+                    onCopy: { objectCommand = CanvasObjectCommand(.copy(.geometry(object.id))) },
+                    onPaste: { objectCommand = CanvasObjectCommand(.pasteClipboard) },
                     onClone: { objectCommand = CanvasObjectCommand(.duplicate(.geometry(object.id))) },
                     onDelete: { objectCommand = CanvasObjectCommand(.delete(.geometry(object.id))) }
                 )
@@ -470,7 +474,12 @@ public struct PresentingCanvasView: View {
             isClearingGeometrySelectionForCreation = true
             broker.toolPaletteState = state
             objectCommand = CanvasObjectCommand(.clearSelection)
-            applyToolPaletteState(state, triggering: command)
+            Task { @MainActor in
+                await Task.yield()
+                guard broker.toolPaletteState.activeTool == .geometry,
+                      selectionState.selectedObject == nil else { return }
+                applyToolPaletteState(broker.toolPaletteState, triggering: .setGeometryType(broker.toolPaletteState.geometryType))
+            }
             return
         }
 
@@ -600,7 +609,7 @@ public struct PresentingCanvasView: View {
     }
 
     private func hudPosition(for frame: CGRect, in size: CGSize) -> CGPoint {
-        let hudWidth: CGFloat = 148
+        let hudWidth: CGFloat = 220
         let hudHeight: CGFloat = 44
         let margin: CGFloat = 14
         let requestedDownwardOffset: CGFloat = 90
@@ -659,6 +668,8 @@ private struct PendingTextEdit: Identifiable {
 
 private struct FloatingActionHUD: View {
     var onEdit: (() -> Void)?
+    let onCopy: () -> Void
+    let onPaste: () -> Void
     let onClone: () -> Void
     let onDelete: () -> Void
 
@@ -667,6 +678,8 @@ private struct FloatingActionHUD: View {
             if let onEdit {
                 hudButton("Edit", systemImage: "pencil", action: onEdit)
             }
+            hudButton("Copy", systemImage: "doc.on.doc", action: onCopy)
+            hudButton("Paste", systemImage: "doc.on.clipboard", action: onPaste)
             hudButton("Clone", systemImage: "plus.square.on.square", action: onClone)
             hudButton("Delete", systemImage: "trash", role: .destructive, action: onDelete)
         }
@@ -709,6 +722,9 @@ private extension CanvasToolCommand {
         switch command {
         case .copySelection:
             self.init(.copySelection)
+            return
+        case .pasteSelection:
+            self.init(.pasteSelection)
             return
         case .duplicateSelection:
             self.init(.duplicateSelection)
@@ -806,7 +822,7 @@ private extension CanvasToolCommand {
             return activeTool == .selection || activeTool == .extract
         case .setSelectionMode:
             return activeTool == .extract || activeTool == .cover
-        case .copySelection, .duplicateSelection, .deleteSelection,
+        case .copySelection, .pasteSelection, .duplicateSelection, .deleteSelection,
              .extractSelectionAsImageSticker, .sendSelectionToNextSlide:
             return activeTool == .selection || activeTool == .extract
         default:

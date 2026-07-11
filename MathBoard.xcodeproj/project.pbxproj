@@ -97,13 +97,13 @@
 		E48FA9482FE47E1100CA2F40 = {
 			isa = PBXGroup;
 			children = (
+				E44A3B272FECD14C00B53DB9 /* Project_status.md */,
 				E42FB9EE2FF2F9AE005C8DFD /* ToolPaletteTests */,
 				E42FB9ED2FF2F950005C8DFD /* ToolPaletteTests */,
 				E48FA9532FE47E1100CA2F40 /* MathBoard */,
 				E48FA9612FE47E1200CA2F40 /* MathBoardTests */,
 				E48FA96B2FE47E1200CA2F40 /* MathBoardUITests */,
 				E48FA9522FE47E1100CA2F40 /* Products */,
-				E44A3B272FECD14C00B53DB9 /* Project_status.md */,
 			);
 			sourceTree = "<group>";
 		};

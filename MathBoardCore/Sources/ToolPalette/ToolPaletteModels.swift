@@ -458,6 +458,7 @@ public enum ToolPaletteCommand: Equatable, Sendable {
     case undo
     case redo
     case copySelection
+    case pasteSelection
     case duplicateSelection
     case deleteSelection
     case extractSelectionAsImageSticker

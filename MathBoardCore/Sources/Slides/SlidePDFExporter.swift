@@ -159,9 +159,9 @@ struct SlidePDFExporter {
         }
         for object in imageObjects {
             if bounds.isEmpty || bounds.isNull {
-                bounds = object.frame
+                bounds = object.renderedBounds
             } else {
-                bounds = bounds.union(object.frame)
+                bounds = bounds.union(object.renderedBounds)
             }
         }
         for object in geometryObjects {
@@ -328,7 +328,23 @@ struct SlidePDFExporter {
                 width: object.width * scaleX,
                 height: object.height * scaleY
             )
-            context.draw(cgImage, in: imageRect)
+            if object.rotation == 0 {
+                context.draw(cgImage, in: imageRect)
+            } else {
+                context.saveGState()
+                context.translateBy(x: imageRect.midX, y: imageRect.midY)
+                context.rotate(by: -object.rotation)
+                context.draw(
+                    cgImage,
+                    in: CGRect(
+                        x: -imageRect.width / 2,
+                        y: -imageRect.height / 2,
+                        width: imageRect.width,
+                        height: imageRect.height
+                    )
+                )
+                context.restoreGState()
+            }
         }
 
         context.restoreGState()

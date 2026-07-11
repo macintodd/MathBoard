@@ -149,7 +149,7 @@ public struct FloatingCompactToolPaletteView: View {
         clampRailCenter(
             CGPoint(
                 x: railWidth / 2 + margin,
-                y: paletteSize.height / 2 + margin
+                y: containerSize.height / 2
             ),
             in: containerSize,
             paletteSize: paletteSize,
@@ -420,7 +420,7 @@ public struct CompactToolPaletteView: View {
     private var quickStrip: some View {
         if state.activeTool.isCompactInkTool {
             quickColorStrip
-        } else if state.activeTool == .extract || state.activeTool == .eraser || state.activeTool == .cover {
+        } else if state.activeTool == .selection || state.activeTool == .extract || state.activeTool == .eraser || state.activeTool == .cover {
             quickModeStrip
         } else if state.activeTool == .geometry {
             quickShapeStrip
@@ -512,8 +512,25 @@ public struct CompactToolPaletteView: View {
 
     private var quickModeItems: [CompactQuickModeItem] {
         switch state.activeTool {
+        case .selection:
+            return [
+                CompactQuickModeItem(
+                    id: "selection.quick.paste",
+                    iconSystemName: "doc.on.clipboard",
+                    label: "Paste",
+                    isSelected: false,
+                    command: .pasteSelection
+                )
+            ]
         case .extract:
             return [
+                CompactQuickModeItem(
+                    id: "extract.quick.paste",
+                    iconSystemName: "doc.on.clipboard",
+                    label: "Paste",
+                    isSelected: false,
+                    command: .pasteSelection
+                ),
                 CompactQuickModeItem(
                     id: "extract.quick.lasso",
                     iconSystemName: "lasso",
@@ -563,7 +580,7 @@ public struct CompactToolPaletteView: View {
                     command: .setSelectionMode(.lasso)
                 )
             ]
-        case .selection, .reserved, .pen, .marker, .geometry, .laser, .equation:
+        case .reserved, .pen, .marker, .geometry, .laser, .equation:
             return []
         }
     }
@@ -895,7 +912,7 @@ private extension ToolID {
     }
 
     var hasCompactQuickStrip: Bool {
-        isCompactInkTool || self == .extract || self == .eraser || self == .geometry || self == .cover
+        isCompactInkTool || self == .selection || self == .extract || self == .eraser || self == .geometry || self == .cover
     }
 
     var hasCompactDrawer: Bool {
@@ -1677,6 +1694,7 @@ private extension ToolPaletteCommand {
         case .undo: return "undo"
         case .redo: return "redo"
         case .copySelection: return "copySelection"
+        case .pasteSelection: return "pasteSelection"
         case .duplicateSelection: return "duplicateSelection"
         case .deleteSelection: return "deleteSelection"
         case .extractSelectionAsImageSticker: return "extractSelectionAsImageSticker"
