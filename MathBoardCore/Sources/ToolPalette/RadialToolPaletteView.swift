@@ -156,7 +156,7 @@ public struct RadialToolPaletteView: View {
 
                 toolWedgeButton(angle: angle, toolID: toolID)
 
-                ToolSlotLabel(toolID: toolID, isSelected: selected, dialSize: dialSize)
+                ToolSlotLabel(toolID: toolID, iconSystemName: state.iconSystemName(for: toolID), isSelected: selected, dialSize: dialSize)
                     .position(layout.toolSlotCenter(index: index))
                     .allowsHitTesting(false)
             }
@@ -172,7 +172,11 @@ public struct RadialToolPaletteView: View {
         )
 
         return Button {
-            send(.selectTool(toolID))
+            if toolID == .selection && state.activeTool == .selection {
+                send(.setSelectionBehavior(state.selectionBehavior.toggled))
+            } else {
+                send(.selectTool(toolID))
+            }
         } label: {
             sector
                 .fill(.white.opacity(0.001))
@@ -665,6 +669,7 @@ private struct TextFontChooserView: View {
 
 private struct ToolSlotLabel: View {
     var toolID: ToolID
+    var iconSystemName: String
     var isSelected: Bool
     var dialSize: CGFloat
 
@@ -678,7 +683,7 @@ private struct ToolSlotLabel: View {
                 )
                 .frame(width: dialSize * 0.052, height: dialSize * 0.052)
             } else {
-                Image(systemName: toolID.iconSystemName)
+                Image(systemName: iconSystemName)
                     .font(.system(size: dialSize * 0.046, weight: .medium))
             }
             Text(toolID.displayName)

@@ -192,7 +192,7 @@ struct CollapsedToolPuck: View {
                 )
                 .frame(width: size * 0.34, height: size * 0.34)
             } else {
-                Image(systemName: state.activeTool.iconSystemName)
+                Image(systemName: state.iconSystemName(for: state.activeTool))
                     .font(.system(size: size * 0.30, weight: .medium))
                     .foregroundStyle(iconColor)
             }

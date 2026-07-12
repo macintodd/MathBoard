@@ -40,19 +40,34 @@ public struct CanvasSelectionState: Sendable, Equatable {
 
     public var selectedObject: Object?
     public var selectedTextObject: CanvasTextObject?
+    public var selectedImageObject: CanvasImageObject?
+    public var selectedImageCanMoveBackward: Bool
+    public var selectedImageCanMoveForward: Bool
     public var selectedGeometryObject: CanvasGeometryObject?
     public var viewportFrame: CGRect?
+    public var selectedGroupObjectCount: Int
+    public var selectedObjectGroupID: UUID?
 
     public init(
         selectedObject: Object? = nil,
         selectedTextObject: CanvasTextObject? = nil,
+        selectedImageObject: CanvasImageObject? = nil,
+        selectedImageCanMoveBackward: Bool = false,
+        selectedImageCanMoveForward: Bool = false,
         selectedGeometryObject: CanvasGeometryObject? = nil,
-        viewportFrame: CGRect? = nil
+        viewportFrame: CGRect? = nil,
+        selectedGroupObjectCount: Int = 0,
+        selectedObjectGroupID: UUID? = nil
     ) {
         self.selectedObject = selectedObject
         self.selectedTextObject = selectedTextObject
+        self.selectedImageObject = selectedImageObject
+        self.selectedImageCanMoveBackward = selectedImageCanMoveBackward
+        self.selectedImageCanMoveForward = selectedImageCanMoveForward
         self.selectedGeometryObject = selectedGeometryObject
         self.viewportFrame = viewportFrame
+        self.selectedGroupObjectCount = selectedGroupObjectCount
+        self.selectedObjectGroupID = selectedObjectGroupID
     }
 }
 
@@ -88,6 +103,13 @@ public struct CanvasGeometryUpdate: Sendable, Equatable {
 }
 
 public struct CanvasObjectCommand: Sendable, Equatable, Identifiable {
+    public enum ImageLayerAction: Sendable, Equatable {
+        case bringForward
+        case sendBackward
+        case bringToFront
+        case sendToBack
+    }
+
     public enum Action: Sendable, Equatable {
         case insertText(CanvasTextInsertion)
         case updateText(CanvasTextUpdate)
@@ -97,6 +119,10 @@ public struct CanvasObjectCommand: Sendable, Equatable, Identifiable {
         case pasteClipboard
         case duplicate(CanvasSelectionState.Object)
         case delete(CanvasSelectionState.Object)
+        case reorderImage(UUID, ImageLayerAction)
+        case setImageLocked(UUID, Bool)
+        case groupSelection
+        case ungroupSelection
     }
 
     public let id: UUID
@@ -110,6 +136,7 @@ public struct CanvasObjectCommand: Sendable, Equatable, Identifiable {
 
 public enum CanvasSemanticClipboardPayload: Codable, Equatable, Sendable {
     case text(CanvasTextObject)
+    case image(CanvasImageObject, Data)
     case geometry(CanvasGeometryObject)
 }
 
@@ -188,7 +215,7 @@ public struct CanvasTextUpdate: Sendable, Equatable {
 public struct CanvasToolCommand: Sendable, Equatable, Identifiable {
     public enum Action: Sendable, Equatable {
         case idle
-        case select(target: SelectionTarget, mode: SelectionMode)
+        case select(target: SelectionTarget, mode: SelectionMode, behavior: SelectionBehavior)
         case copySelection
         case pasteSelection
         case duplicateSelection
@@ -220,8 +247,14 @@ public struct CanvasToolCommand: Sendable, Equatable, Identifiable {
     }
 
     public enum SelectionMode: Sendable, Equatable {
+        case tap
         case lasso
         case marquee
+    }
+
+    public enum SelectionBehavior: Sendable, Equatable {
+        case single
+        case multi
     }
 
     public let id: UUID

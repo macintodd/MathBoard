@@ -326,6 +326,7 @@ public struct CompactToolPaletteView: View {
                     ForEach(toolSections[sectionIndex], id: \.self) { toolID in
                         CompactToolButton(
                             toolID: toolID,
+                            iconSystemName: state.iconSystemName(for: toolID),
                             isActive: toolID == state.activeTool,
                             accentColor: railAccentColor(for: toolID),
                             outlineColor: state.strokeColor.swiftUIColor,
@@ -387,7 +388,11 @@ public struct CompactToolPaletteView: View {
 
     private func handleToolTap(_ toolID: ToolID) {
         let wasActive = state.activeTool == toolID
-        send(.selectTool(toolID))
+        if toolID == .selection && wasActive {
+            send(.setSelectionBehavior(state.selectionBehavior.toggled))
+        } else {
+            send(.selectTool(toolID))
+        }
 
         if !toolID.hasCompactDrawer {
             withAnimation(Self.drawerAnimation) {
@@ -513,15 +518,7 @@ public struct CompactToolPaletteView: View {
     private var quickModeItems: [CompactQuickModeItem] {
         switch state.activeTool {
         case .selection:
-            return [
-                CompactQuickModeItem(
-                    id: "selection.quick.paste",
-                    iconSystemName: "doc.on.clipboard",
-                    label: "Paste",
-                    isSelected: false,
-                    command: .pasteSelection
-                )
-            ]
+            return []
         case .extract:
             return [
                 CompactQuickModeItem(
@@ -944,6 +941,7 @@ private struct CompactQuickModeItem: Identifiable {
 
 private struct CompactToolButton: View {
     var toolID: ToolID
+    var iconSystemName: String
     var isActive: Bool
     var accentColor: Color
     var outlineColor: Color
@@ -996,7 +994,7 @@ private struct CompactToolButton: View {
                 lineWidth: 1.4
             )
         } else {
-            Image(systemName: toolID.iconSystemName)
+            Image(systemName: iconSystemName)
                 .font(.system(size: 20, weight: .medium))
                 .foregroundStyle(iconColor)
         }
@@ -1680,6 +1678,7 @@ private extension ToolPaletteCommand {
         case .setGeometryFillOpacity(let opacity): return "setGeometryFillOpacity(\(String(format: "%.2f", opacity)))"
         case .setSelectionTarget(let target): return "setSelectionTarget(\(target.rawValue))"
         case .setSelectionMode(let mode): return "setSelectionMode(\(mode.rawValue))"
+        case .setSelectionBehavior(let behavior): return "setSelectionBehavior(\(behavior.rawValue))"
         case .setEraserMode(let mode): return "setEraserMode(\(mode.rawValue))"
         case .setLaserMode(let mode): return "setLaserMode(\(mode.rawValue))"
         case .setTextBold(let isBold): return "setTextBold(\(isBold))"

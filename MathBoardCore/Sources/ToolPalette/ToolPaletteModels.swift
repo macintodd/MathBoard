@@ -37,7 +37,7 @@ public enum ToolID: String, CaseIterable, Codable, Equatable, Hashable, Sendable
 
     public var iconSystemName: String {
         switch self {
-        case .selection: return "cursorarrow.motionlines"
+        case .selection: return "cursorarrow"
         case .extract: return "crop"
         case .reserved: return "plus"
         case .pen: return "pencil.tip"
@@ -129,8 +129,35 @@ public enum SelectionTarget: String, CaseIterable, Codable, Equatable, Sendable 
 }
 
 public enum SelectionMode: String, CaseIterable, Codable, Equatable, Sendable {
+    case tap
     case lasso
     case marquee
+}
+
+public enum SelectionBehavior: String, CaseIterable, Codable, Equatable, Sendable {
+    case single
+    case multi
+
+    public var displayName: String {
+        switch self {
+        case .single: return "Select"
+        case .multi: return "Multi Select"
+        }
+    }
+
+    public var iconSystemName: String {
+        switch self {
+        case .single: return "cursorarrow"
+        case .multi: return "cursorarrow.motionlines"
+        }
+    }
+
+    public var toggled: SelectionBehavior {
+        switch self {
+        case .single: return .multi
+        case .multi: return .single
+        }
+    }
 }
 
 public enum EraserMode: String, CaseIterable, Codable, Equatable, Sendable {
@@ -247,6 +274,7 @@ public struct ToolPaletteState: Equatable, Sendable {
     public var geometryFillOpacity: Double
     public var selectionTarget: SelectionTarget
     public var selectionMode: SelectionMode
+    public var selectionBehavior: SelectionBehavior
     public var eraserMode: EraserMode
     public var laserMode: LaserMode
     public var textStyle: PaletteTextStyle
@@ -291,7 +319,8 @@ public struct ToolPaletteState: Equatable, Sendable {
         geometryLineArrowMode: GeometryLineArrowMode = .none,
         geometryFillOpacity: Double = 0.35,
         selectionTarget: SelectionTarget = .region,
-        selectionMode: SelectionMode = .lasso,
+        selectionMode: SelectionMode = .tap,
+        selectionBehavior: SelectionBehavior = .single,
         eraserMode: EraserMode = .pixel,
         laserMode: LaserMode = .dot,
         textStyle: PaletteTextStyle = .normal,
@@ -333,6 +362,7 @@ public struct ToolPaletteState: Equatable, Sendable {
         self.geometryFillOpacity = geometryFillOpacity
         self.selectionTarget = selectionTarget
         self.selectionMode = selectionMode
+        self.selectionBehavior = selectionBehavior
         self.eraserMode = eraserMode
         self.laserMode = laserMode
         self.textStyle = textStyle
@@ -345,6 +375,10 @@ public struct ToolPaletteState: Equatable, Sendable {
         self.isColorBloomOpen = isColorBloomOpen
         self.selectionActionSequence = selectionActionSequence
         self.isCompactDrawerOpen = isCompactDrawerOpen
+    }
+
+    public func iconSystemName(for tool: ToolID) -> String {
+        tool == .selection ? selectionBehavior.iconSystemName : tool.iconSystemName
     }
 
     public var activeStrokeColor: PaletteColor {
@@ -443,6 +477,7 @@ public enum ToolPaletteCommand: Equatable, Sendable {
     case setGeometryFillOpacity(Double)
     case setSelectionTarget(SelectionTarget)
     case setSelectionMode(SelectionMode)
+    case setSelectionBehavior(SelectionBehavior)
     case setEraserMode(EraserMode)
     case setLaserMode(LaserMode)
     case setTextBold(Bool)

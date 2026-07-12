@@ -58,7 +58,11 @@ public enum ToolPaletteReducer {
     public static func reduce(_ state: inout ToolPaletteState, command: ToolPaletteCommand) {
         switch command {
         case .selectTool(let tool):
+            let wasSelection = state.activeTool == .selection
             state.activeTool = tool
+            if tool == .selection && !wasSelection {
+                state.selectionBehavior = .single
+            }
             state.isColorBloomOpen = false
         case .setStrokeColor(let color):
             switch state.activeTool {
@@ -144,6 +148,8 @@ public enum ToolPaletteReducer {
             state.selectionTarget = target
         case .setSelectionMode(let mode):
             state.selectionMode = mode
+        case .setSelectionBehavior(let behavior):
+            state.selectionBehavior = behavior
         case .setEraserMode(let mode):
             state.eraserMode = mode
         case .setLaserMode(let mode):
@@ -365,7 +371,7 @@ struct SelectionToolDefinition: ToolDefinition {
                 )
             ],
             leftArc: .disabled(label: "Objects"),
-            rightArc: .disabled(label: "HUD actions")
+            rightArc: .disabled(label: "Select")
         )
     }
 }

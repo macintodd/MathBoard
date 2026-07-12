@@ -339,7 +339,24 @@ public struct PresentingCanvasView: View {
 
     private var selectedTextActionHUD: some View {
         GeometryReader { proxy in
-            if let object = selectionState.selectedTextObject,
+            if selectionState.selectedGroupObjectCount > 1,
+               let viewportFrame = selectionState.viewportFrame,
+               pendingTextEdit == nil,
+               pendingTextPlacement == nil {
+                FloatingActionHUD(
+                    onPaste: { objectCommand = CanvasObjectCommand(.pasteClipboard) },
+                    onClone: { toolCommand = CanvasToolCommand(.duplicateSelection) },
+                    onGroupToggle: {
+                        objectCommand = CanvasObjectCommand(selectionState.selectedObjectGroupID == nil ? .groupSelection : .ungroupSelection)
+                    },
+                    groupToggleTitle: selectionState.selectedObjectGroupID == nil ? "Group" : "Ungroup",
+                    groupToggleSystemImage: selectionState.selectedObjectGroupID == nil ? "rectangle.3.group" : "rectangle.3.group.bubble.left",
+                    onDelete: { toolCommand = CanvasToolCommand(.deleteSelection) }
+                )
+                .position(hudPosition(for: viewportFrame, in: proxy.size))
+                .offset(actionHUDOffset)
+                .gesture(actionHUDDragGesture)
+            } else if let object = selectionState.selectedTextObject,
                let viewportFrame = selectionState.viewportFrame,
                pendingTextEdit == nil,
                pendingTextPlacement == nil {
@@ -362,6 +379,30 @@ public struct PresentingCanvasView: View {
                     onPaste: { objectCommand = CanvasObjectCommand(.pasteClipboard) },
                     onClone: { objectCommand = CanvasObjectCommand(.duplicate(.geometry(object.id))) },
                     onDelete: { objectCommand = CanvasObjectCommand(.delete(.geometry(object.id))) }
+                )
+                .position(hudPosition(for: viewportFrame, in: proxy.size))
+                .offset(actionHUDOffset)
+                .gesture(actionHUDDragGesture)
+            } else if let object = selectionState.selectedImageObject,
+                      let viewportFrame = selectionState.viewportFrame,
+                      pendingTextEdit == nil,
+                      pendingTextPlacement == nil {
+                let isLocked = object.isLocked == true
+                FloatingActionHUD(
+                    onCopy: { objectCommand = CanvasObjectCommand(.copy(.image(object.id))) },
+                    onPaste: { objectCommand = CanvasObjectCommand(.pasteClipboard) },
+                    onClone: { objectCommand = CanvasObjectCommand(.duplicate(.image(object.id))) },
+                    onBringForward: { objectCommand = CanvasObjectCommand(.reorderImage(object.id, .bringForward)) },
+                    onSendBackward: { objectCommand = CanvasObjectCommand(.reorderImage(object.id, .sendBackward)) },
+                    onBringToFront: { objectCommand = CanvasObjectCommand(.reorderImage(object.id, .bringToFront)) },
+                    onSendToBack: { objectCommand = CanvasObjectCommand(.reorderImage(object.id, .sendToBack)) },
+                    canBringForward: !isLocked && selectionState.selectedImageCanMoveForward,
+                    canSendBackward: !isLocked && selectionState.selectedImageCanMoveBackward,
+                    onLockToggle: { objectCommand = CanvasObjectCommand(.setImageLocked(object.id, !isLocked)) },
+                    lockToggleTitle: isLocked ? "Unlock" : "Lock",
+                    lockToggleSystemImage: isLocked ? "lock.open" : "lock",
+                    canDelete: !isLocked,
+                    onDelete: { objectCommand = CanvasObjectCommand(.delete(.image(object.id))) }
                 )
                 .position(hudPosition(for: viewportFrame, in: proxy.size))
                 .offset(actionHUDOffset)
@@ -535,7 +576,29 @@ public struct PresentingCanvasView: View {
     }
 
     private func handleSelectionChange(from oldValue: CanvasSelectionState.Object?, to newValue: CanvasSelectionState.Object?) {
+        if selectionState.selectedGroupObjectCount > 1 {
+            var state = broker.toolPaletteState
+            var shouldApplySelectionTool = false
+            if state.activeTool != .selection {
+                state.activeTool = .selection
+                state.isCompactDrawerOpen = false
+                shouldApplySelectionTool = true
+            }
+            if state.selectionMode != .tap {
+                state.selectionMode = .tap
+                shouldApplySelectionTool = true
+            }
+            if shouldApplySelectionTool {
+                broker.toolPaletteState = state
+                applyToolPaletteState(state, triggering: .selectTool(.selection))
+            }
+            return
+        }
         if case .geometry = newValue, let object = selectionState.selectedGeometryObject {
+            if broker.toolPaletteState.activeTool == .selection,
+               broker.toolPaletteState.selectionMode == .tap {
+                return
+            }
             loadGeometryObjectIntoPalette(object)
         } else if case .geometry = oldValue {
             if isClearingGeometrySelectionForCreation {
@@ -668,9 +731,22 @@ private struct PendingTextEdit: Identifiable {
 
 private struct FloatingActionHUD: View {
     var onEdit: (() -> Void)?
-    let onCopy: () -> Void
+    var onCopy: (() -> Void)?
     let onPaste: () -> Void
     let onClone: () -> Void
+    var onBringForward: (() -> Void)?
+    var onSendBackward: (() -> Void)?
+    var onBringToFront: (() -> Void)?
+    var onSendToBack: (() -> Void)?
+    var canBringForward = true
+    var canSendBackward = true
+    var onLockToggle: (() -> Void)?
+    var lockToggleTitle = "Lock"
+    var lockToggleSystemImage = "lock"
+    var onGroupToggle: (() -> Void)?
+    var groupToggleTitle = "Group"
+    var groupToggleSystemImage = "rectangle.3.group"
+    var canDelete = true
     let onDelete: () -> Void
 
     var body: some View {
@@ -678,10 +754,30 @@ private struct FloatingActionHUD: View {
             if let onEdit {
                 hudButton("Edit", systemImage: "pencil", action: onEdit)
             }
-            hudButton("Copy", systemImage: "doc.on.doc", action: onCopy)
+            if let onCopy {
+                hudButton("Copy", systemImage: "doc.on.doc", action: onCopy)
+            }
             hudButton("Paste", systemImage: "doc.on.clipboard", action: onPaste)
             hudButton("Clone", systemImage: "plus.square.on.square", action: onClone)
-            hudButton("Delete", systemImage: "trash", role: .destructive, action: onDelete)
+            if let onSendToBack {
+                hudButton("Send to Back", systemImage: "square.3.layers.3d.down.backward", isEnabled: canSendBackward, action: onSendToBack)
+            }
+            if let onSendBackward {
+                hudButton("Send Backward", systemImage: "square.2.layers.3d.bottom.filled", isEnabled: canSendBackward, action: onSendBackward)
+            }
+            if let onBringForward {
+                hudButton("Bring Forward", systemImage: "square.2.layers.3d.top.filled", isEnabled: canBringForward, action: onBringForward)
+            }
+            if let onBringToFront {
+                hudButton("Bring to Front", systemImage: "square.3.layers.3d.up.forward", isEnabled: canBringForward, action: onBringToFront)
+            }
+            if let onLockToggle {
+                hudButton(lockToggleTitle, systemImage: lockToggleSystemImage, action: onLockToggle)
+            }
+            if let onGroupToggle {
+                hudButton(groupToggleTitle, systemImage: groupToggleSystemImage, action: onGroupToggle)
+            }
+            hudButton("Delete", systemImage: "trash", role: .destructive, isEnabled: canDelete, action: onDelete)
         }
         .padding(6)
         .background(.ultraThinMaterial, in: Capsule())
@@ -696,6 +792,7 @@ private struct FloatingActionHUD: View {
         _ title: String,
         systemImage: String,
         role: ButtonRole? = nil,
+        isEnabled: Bool = true,
         action: @escaping () -> Void
     ) -> some View {
         Button(role: role, action: action) {
@@ -704,6 +801,7 @@ private struct FloatingActionHUD: View {
                 .font(.system(size: 16, weight: .semibold))
                 .frame(width: 34, height: 34)
         }
+        .disabled(!isEnabled)
         .buttonStyle(.plain)
         .foregroundStyle(role == .destructive ? .red : .primary)
         .background(Color.white.opacity(0.86), in: Circle())
@@ -746,12 +844,14 @@ private extension CanvasToolCommand {
         case .selection:
             self.init(.select(
                 target: .object,
-                mode: CanvasToolCommand.SelectionMode(selectionMode: state.selectionMode)
+                mode: CanvasToolCommand.SelectionMode(selectionSelectionMode: state.selectionMode),
+                behavior: CanvasToolCommand.SelectionBehavior(selectionBehavior: state.selectionBehavior)
             ))
         case .extract:
             self.init(.select(
                 target: .region,
-                mode: CanvasToolCommand.SelectionMode(selectionMode: state.selectionMode)
+                mode: CanvasToolCommand.SelectionMode(regionSelectionMode: state.selectionMode),
+                behavior: .single
             ))
         case .geometry:
             self.init(.geometry(
@@ -768,7 +868,7 @@ private extension CanvasToolCommand {
         case .cover:
             self.init(.cover(
                 color: CanvasStrokeColor(color: state.strokeColor, opacity: 1),
-                mode: CanvasToolCommand.SelectionMode(selectionMode: state.selectionMode)
+                mode: CanvasToolCommand.SelectionMode(regionSelectionMode: state.selectionMode)
             ))
         case .pen:
             self.init(.pen(
@@ -821,7 +921,9 @@ private extension CanvasToolCommand {
         case .setSelectionTarget:
             return activeTool == .selection || activeTool == .extract
         case .setSelectionMode:
-            return activeTool == .extract || activeTool == .cover
+            return activeTool == .selection || activeTool == .extract || activeTool == .cover
+        case .setSelectionBehavior:
+            return activeTool == .selection
         case .copySelection, .pasteSelection, .duplicateSelection, .deleteSelection,
              .extractSelectionAsImageSticker, .sendSelectionToNextSlide:
             return activeTool == .selection || activeTool == .extract
@@ -912,6 +1014,17 @@ private extension CanvasToolCommand.LaserMode {
     }
 }
 
+private extension CanvasToolCommand.SelectionBehavior {
+    init(selectionBehavior: SelectionBehavior) {
+        switch selectionBehavior {
+        case .single:
+            self = .single
+        case .multi:
+            self = .multi
+        }
+    }
+}
+
 private extension CanvasToolCommand.SelectionTarget {
     init(selectionTarget: SelectionTarget) {
         switch selectionTarget {
@@ -924,8 +1037,14 @@ private extension CanvasToolCommand.SelectionTarget {
 }
 
 private extension CanvasToolCommand.SelectionMode {
-    init(selectionMode: SelectionMode) {
-        switch selectionMode {
+    init(selectionSelectionMode: SelectionMode) {
+        self = .marquee
+    }
+
+    init(regionSelectionMode: SelectionMode) {
+        switch regionSelectionMode {
+        case .tap:
+            self = .marquee
         case .lasso:
             self = .lasso
         case .marquee:
