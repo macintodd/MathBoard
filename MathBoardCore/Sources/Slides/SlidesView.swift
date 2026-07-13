@@ -23,6 +23,7 @@ public struct SlidesView: View {
     @State private var isShowingPDFImporter = false
     @State private var isShowingPDFExporter = false
     @State private var isShowingFilmstrip = false
+    @State private var isTextEditingOnCanvas = false
     @State private var shouldHideFilmstripOnCanvasInteraction = false
     @State private var pendingPDFImport: PendingPDFImport?
     @State private var viewportSaveTask: Task<Void, Never>?
@@ -46,6 +47,8 @@ public struct SlidesView: View {
                         scheduleViewportSave(state, for: slide.id)
                     },
                     onInteractionBegan: handleCanvasInteractionBegan,
+                    onTextEditingBegan: handleCanvasTextEditingBegan,
+                    onTextEditingEnded: handleCanvasTextEditingEnded,
                     onExtractedRegionSend: sendExtractedRegionToNextEmptySlide,
                     onImportPDF: { isShowingPDFImporter = true },
                     onExportPDF: {
@@ -56,32 +59,35 @@ public struct SlidesView: View {
                     .id(slide.id)
             }
 
-            VStack(spacing: 10) {
-                if isShowingFilmstrip {
-                    SlideFilmstripView(
-                        slides: store.slides,
-                        currentIndex: activeIndex,
-                        backgroundURL: store.backgroundURL(for:),
-                        onSelect: goToSlide
-                    )
-                    .padding(.horizontal, 14)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
+            if !isTextEditingOnCanvas {
+                VStack(spacing: 10) {
+                    if isShowingFilmstrip {
+                        SlideFilmstripView(
+                            slides: store.slides,
+                            currentIndex: activeIndex,
+                            backgroundURL: store.backgroundURL(for:),
+                            onSelect: goToSlide
+                        )
+                        .padding(.horizontal, 14)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
 
-                SlideNavigator(
-                    currentIndex: activeIndex,
-                    totalCount: store.slides.count,
-                    isFilmstripExpanded: isShowingFilmstrip,
-                    onToggleFilmstrip: toggleFilmstrip,
-                    onPrevious: goToPrevious,
-                    onNext: goToNext,
-                    onMoveLeft: moveCurrentSlideLeft,
-                    onMoveRight: moveCurrentSlideRight,
-                    onDelete: requestDeleteCurrentSlide,
-                    onAdd: addSlide
-                )
+                    SlideNavigator(
+                        currentIndex: activeIndex,
+                        totalCount: store.slides.count,
+                        isFilmstripExpanded: isShowingFilmstrip,
+                        onToggleFilmstrip: toggleFilmstrip,
+                        onPrevious: goToPrevious,
+                        onNext: goToNext,
+                        onMoveLeft: moveCurrentSlideLeft,
+                        onMoveRight: moveCurrentSlideRight,
+                        onDelete: requestDeleteCurrentSlide,
+                        onAdd: addSlide
+                    )
+                }
+                .padding(.bottom, 12)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-            .padding(.bottom, 12)
         }
         .confirmationDialog(
             "Delete Slide \(activeIndex + 1)?",
@@ -181,6 +187,20 @@ public struct SlidesView: View {
         shouldHideFilmstripOnCanvasInteraction = false
         withAnimation(.snappy(duration: 0.22)) {
             isShowingFilmstrip = false
+        }
+    }
+
+    private func handleCanvasTextEditingBegan() {
+        shouldHideFilmstripOnCanvasInteraction = false
+        withAnimation(.snappy(duration: 0.18)) {
+            isShowingFilmstrip = false
+            isTextEditingOnCanvas = true
+        }
+    }
+
+    private func handleCanvasTextEditingEnded() {
+        withAnimation(.snappy(duration: 0.18)) {
+            isTextEditingOnCanvas = false
         }
     }
 

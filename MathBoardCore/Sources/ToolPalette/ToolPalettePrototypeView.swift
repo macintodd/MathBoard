@@ -134,6 +134,8 @@ private extension ToolPaletteCommand {
             return "setSelectionMode(\(mode.rawValue))"
         case .setSelectionBehavior(let behavior):
             return "setSelectionBehavior(\(behavior.rawValue))"
+        case .setExtractAction(let action):
+            return "setExtractAction(\(action.rawValue))"
         case .setEraserMode(let mode):
             return "setEraserMode(\(mode.rawValue))"
         case .setLaserMode(let mode):

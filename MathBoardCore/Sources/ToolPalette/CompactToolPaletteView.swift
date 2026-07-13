@@ -400,7 +400,7 @@ public struct CompactToolPaletteView: View {
             }
         } else if toolID.hasCompactQuickStrip {
             withAnimation(Self.drawerAnimation) {
-                state.isCompactDrawerOpen = wasActive ? !state.isCompactDrawerOpen : false
+                state.isCompactDrawerOpen = toolID == .extract ? false : (wasActive ? !state.isCompactDrawerOpen : false)
             }
         } else if wasActive {
             withAnimation(Self.drawerAnimation) { state.isCompactDrawerOpen.toggle() }
@@ -425,7 +425,9 @@ public struct CompactToolPaletteView: View {
     private var quickStrip: some View {
         if state.activeTool.isCompactInkTool {
             quickColorStrip
-        } else if state.activeTool == .selection || state.activeTool == .extract || state.activeTool == .eraser || state.activeTool == .cover {
+        } else if state.activeTool == .extract {
+            extractQuickStrip
+        } else if state.activeTool == .selection || state.activeTool == .eraser || state.activeTool == .cover {
             quickModeStrip
         } else if state.activeTool == .geometry {
             quickShapeStrip
@@ -515,34 +517,61 @@ public struct CompactToolPaletteView: View {
         .padding(.horizontal, 8)
     }
 
+    private var extractQuickStrip: some View {
+        VStack(spacing: 10) {
+            CompactQuickModeButton(
+                iconSystemName: "lasso",
+                label: "Lasso",
+                isSelected: state.selectionMode == .lasso
+            ) {
+                send(.setSelectionMode(.lasso))
+            }
+
+            CompactQuickModeButton(
+                iconSystemName: "rectangle.dashed",
+                label: "Box",
+                isSelected: state.selectionMode == .marquee
+            ) {
+                send(.setSelectionMode(.marquee))
+            }
+
+            Capsule()
+                .fill(Color(red: 0.04, green: 0.11, blue: 0.18).opacity(0.26))
+                .frame(width: 34, height: 2)
+                .padding(.vertical, 2)
+
+            ForEach(ExtractAction.allCases, id: \.rawValue) { action in
+                CompactQuickModeButton(
+                    iconSystemName: action.iconSystemName,
+                    label: action.displayName,
+                    isSelected: state.extractAction == action
+                ) {
+                    send(.setExtractAction(action))
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.white.opacity(0.78))
+                .shadow(color: .white.opacity(0.3), radius: 3, x: -1, y: -1)
+                .shadow(color: .black.opacity(0.16), radius: 8, x: 3, y: 3)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.62), lineWidth: 1)
+        )
+        .padding(.top, drawerTopOffset)
+        .padding(.horizontal, 8)
+    }
+
     private var quickModeItems: [CompactQuickModeItem] {
         switch state.activeTool {
         case .selection:
             return []
         case .extract:
-            return [
-                CompactQuickModeItem(
-                    id: "extract.quick.paste",
-                    iconSystemName: "doc.on.clipboard",
-                    label: "Paste",
-                    isSelected: false,
-                    command: .pasteSelection
-                ),
-                CompactQuickModeItem(
-                    id: "extract.quick.lasso",
-                    iconSystemName: "lasso",
-                    label: "Lasso",
-                    isSelected: state.selectionMode == .lasso,
-                    command: .setSelectionMode(.lasso)
-                ),
-                CompactQuickModeItem(
-                    id: "extract.quick.marquee",
-                    iconSystemName: "rectangle.dashed",
-                    label: "Box",
-                    isSelected: state.selectionMode == .marquee,
-                    command: .setSelectionMode(.marquee)
-                )
-            ]
+            return []
         case .eraser:
             return [
                 CompactQuickModeItem(
@@ -1679,6 +1708,7 @@ private extension ToolPaletteCommand {
         case .setSelectionTarget(let target): return "setSelectionTarget(\(target.rawValue))"
         case .setSelectionMode(let mode): return "setSelectionMode(\(mode.rawValue))"
         case .setSelectionBehavior(let behavior): return "setSelectionBehavior(\(behavior.rawValue))"
+        case .setExtractAction(let action): return "setExtractAction(\(action.rawValue))"
         case .setEraserMode(let mode): return "setEraserMode(\(mode.rawValue))"
         case .setLaserMode(let mode): return "setLaserMode(\(mode.rawValue))"
         case .setTextBold(let isBold): return "setTextBold(\(isBold))"

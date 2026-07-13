@@ -160,6 +160,34 @@ public enum SelectionBehavior: String, CaseIterable, Codable, Equatable, Sendabl
     }
 }
 
+public enum ExtractAction: String, CaseIterable, Codable, Equatable, Sendable {
+    case copy
+    case clone
+    case send
+    case sticker
+    case delete
+
+    public var displayName: String {
+        switch self {
+        case .copy: return "Copy"
+        case .clone: return "Clone"
+        case .send: return "Send"
+        case .sticker: return "Sticker"
+        case .delete: return "Delete"
+        }
+    }
+
+    public var iconSystemName: String {
+        switch self {
+        case .copy: return "doc.on.doc"
+        case .clone: return "plus.square.on.square"
+        case .send: return "arrow.right.doc.on.clipboard"
+        case .sticker: return "photo.badge.plus"
+        case .delete: return "trash"
+        }
+    }
+}
+
 public enum EraserMode: String, CaseIterable, Codable, Equatable, Sendable {
     case pixel
     case stroke
@@ -275,6 +303,7 @@ public struct ToolPaletteState: Equatable, Sendable {
     public var selectionTarget: SelectionTarget
     public var selectionMode: SelectionMode
     public var selectionBehavior: SelectionBehavior
+    public var extractAction: ExtractAction
     public var eraserMode: EraserMode
     public var laserMode: LaserMode
     public var textStyle: PaletteTextStyle
@@ -321,6 +350,7 @@ public struct ToolPaletteState: Equatable, Sendable {
         selectionTarget: SelectionTarget = .region,
         selectionMode: SelectionMode = .tap,
         selectionBehavior: SelectionBehavior = .single,
+        extractAction: ExtractAction = .copy,
         eraserMode: EraserMode = .pixel,
         laserMode: LaserMode = .dot,
         textStyle: PaletteTextStyle = .normal,
@@ -363,6 +393,7 @@ public struct ToolPaletteState: Equatable, Sendable {
         self.selectionTarget = selectionTarget
         self.selectionMode = selectionMode
         self.selectionBehavior = selectionBehavior
+        self.extractAction = extractAction
         self.eraserMode = eraserMode
         self.laserMode = laserMode
         self.textStyle = textStyle
@@ -478,6 +509,7 @@ public enum ToolPaletteCommand: Equatable, Sendable {
     case setSelectionTarget(SelectionTarget)
     case setSelectionMode(SelectionMode)
     case setSelectionBehavior(SelectionBehavior)
+    case setExtractAction(ExtractAction)
     case setEraserMode(EraserMode)
     case setLaserMode(LaserMode)
     case setTextBold(Bool)

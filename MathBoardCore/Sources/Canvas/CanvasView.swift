@@ -35,6 +35,7 @@ public struct CanvasView: View {
     private let onTextEditingEnded: (@MainActor () -> Void)?
     private let onTextPlacementRequested: (@MainActor (CGPoint) -> Void)?
     private let onExtractedRegionSend: (@MainActor (CanvasExtractedRegion) -> Void)?
+    private let onExtractActionCompleted: (@MainActor () -> Void)?
 
     public init(
         drawingURL: URL,
@@ -56,7 +57,8 @@ public struct CanvasView: View {
         onTextEditingBegan: (@MainActor () -> Void)? = nil,
         onTextEditingEnded: (@MainActor () -> Void)? = nil,
         onTextPlacementRequested: (@MainActor (CGPoint) -> Void)? = nil,
-        onExtractedRegionSend: (@MainActor (CanvasExtractedRegion) -> Void)? = nil
+        onExtractedRegionSend: (@MainActor (CanvasExtractedRegion) -> Void)? = nil,
+        onExtractActionCompleted: (@MainActor () -> Void)? = nil
     ) {
         self.drawingURL = drawingURL
         self.background = background
@@ -78,6 +80,7 @@ public struct CanvasView: View {
         self.onTextEditingEnded = onTextEditingEnded
         self.onTextPlacementRequested = onTextPlacementRequested
         self.onExtractedRegionSend = onExtractedRegionSend
+        self.onExtractActionCompleted = onExtractActionCompleted
     }
 
     public var body: some View {
@@ -102,7 +105,8 @@ public struct CanvasView: View {
             onTextEditingBegan: onTextEditingBegan,
             onTextEditingEnded: onTextEditingEnded,
             onTextPlacementRequested: onTextPlacementRequested,
-            onExtractedRegionSend: onExtractedRegionSend
+            onExtractedRegionSend: onExtractedRegionSend,
+            onExtractActionCompleted: onExtractActionCompleted
         )
         #else
         MacCanvasPlaceholder(

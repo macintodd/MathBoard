@@ -22,6 +22,8 @@ public struct CanvasTextObject: Identifiable, Codable, Hashable, Sendable {
     public var isItalic: Bool
     public var isUnderlined: Bool
     public var fontName: String?
+    /// Rotation in radians, applied about the text frame center.
+    public var rotation: CGFloat
 
     public init(
         id: UUID = UUID(),
@@ -38,7 +40,8 @@ public struct CanvasTextObject: Identifiable, Codable, Hashable, Sendable {
         isBold: Bool = false,
         isItalic: Bool = false,
         isUnderlined: Bool = false,
-        fontName: String? = nil
+        fontName: String? = nil,
+        rotation: CGFloat = 0
     ) {
         self.id = id
         self.text = text
@@ -55,10 +58,36 @@ public struct CanvasTextObject: Identifiable, Codable, Hashable, Sendable {
         self.isItalic = isItalic
         self.isUnderlined = isUnderlined
         self.fontName = fontName
+        self.rotation = rotation
     }
 
     public var frame: CGRect {
         CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    public var center: CGPoint {
+        CGPoint(x: x + width / 2, y: y + height / 2)
+    }
+
+    public var renderedBounds: CGRect {
+        guard rotation != 0 else { return frame }
+        let corners = [
+            CGPoint(x: frame.minX, y: frame.minY),
+            CGPoint(x: frame.maxX, y: frame.minY),
+            CGPoint(x: frame.maxX, y: frame.maxY),
+            CGPoint(x: frame.minX, y: frame.maxY)
+        ].map { point -> CGPoint in
+            let dx = point.x - center.x
+            let dy = point.y - center.y
+            let cosR = cos(rotation)
+            let sinR = sin(rotation)
+            return CGPoint(x: center.x + dx * cosR - dy * sinR, y: center.y + dx * sinR + dy * cosR)
+        }
+        let minX = corners.map(\.x).min() ?? frame.minX
+        let maxX = corners.map(\.x).max() ?? frame.maxX
+        let minY = corners.map(\.y).min() ?? frame.minY
+        let maxY = corners.map(\.y).max() ?? frame.maxY
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 
     public var colorComponents: (red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat) {
@@ -111,6 +140,7 @@ public struct CanvasTextObject: Identifiable, Codable, Hashable, Sendable {
         case isItalic
         case isUnderlined
         case fontName
+        case rotation
     }
 
     public init(from decoder: Decoder) throws {
@@ -130,5 +160,6 @@ public struct CanvasTextObject: Identifiable, Codable, Hashable, Sendable {
         isItalic = try container.decodeIfPresent(Bool.self, forKey: .isItalic) ?? false
         isUnderlined = try container.decodeIfPresent(Bool.self, forKey: .isUnderlined) ?? false
         fontName = try container.decodeIfPresent(String.self, forKey: .fontName)
+        rotation = try container.decodeIfPresent(CGFloat.self, forKey: .rotation) ?? 0
     }
 }

@@ -63,6 +63,9 @@ public enum ToolPaletteReducer {
             if tool == .selection && !wasSelection {
                 state.selectionBehavior = .single
             }
+            if tool == .extract && state.selectionMode == .tap {
+                state.selectionMode = .marquee
+            }
             state.isColorBloomOpen = false
         case .setStrokeColor(let color):
             switch state.activeTool {
@@ -150,6 +153,8 @@ public enum ToolPaletteReducer {
             state.selectionMode = mode
         case .setSelectionBehavior(let behavior):
             state.selectionBehavior = behavior
+        case .setExtractAction(let action):
+            state.extractAction = action
         case .setEraserMode(let mode):
             state.eraserMode = mode
         case .setLaserMode(let mode):
