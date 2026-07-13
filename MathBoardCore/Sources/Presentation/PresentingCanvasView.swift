@@ -35,6 +35,8 @@ public struct PresentingCanvasView: View {
     private let initialViewportState: PresentationViewportState?
     private let onViewportStateChange: (@MainActor (PresentationViewportState) -> Void)?
     private let onInteractionBegan: (@MainActor () -> Void)?
+    private let onTextEditingBegan: (@MainActor () -> Void)?
+    private let onTextEditingEnded: (@MainActor () -> Void)?
     private let onExtractedRegionSend: (@MainActor (PresentationExtractedRegion) -> Void)?
     private let onImportPDF: (@MainActor () -> Void)?
     private let onExportPDF: (@MainActor () -> Void)?
@@ -60,6 +62,8 @@ public struct PresentingCanvasView: View {
         initialViewportState: PresentationViewportState? = nil,
         onViewportStateChange: (@MainActor (PresentationViewportState) -> Void)? = nil,
         onInteractionBegan: (@MainActor () -> Void)? = nil,
+        onTextEditingBegan: (@MainActor () -> Void)? = nil,
+        onTextEditingEnded: (@MainActor () -> Void)? = nil,
         onExtractedRegionSend: (@MainActor (PresentationExtractedRegion) -> Void)? = nil,
         onImportPDF: (@MainActor () -> Void)? = nil,
         onExportPDF: (@MainActor () -> Void)? = nil
@@ -69,6 +73,8 @@ public struct PresentingCanvasView: View {
         self.initialViewportState = initialViewportState
         self.onViewportStateChange = onViewportStateChange
         self.onInteractionBegan = onInteractionBegan
+        self.onTextEditingBegan = onTextEditingBegan
+        self.onTextEditingEnded = onTextEditingEnded
         self.onExtractedRegionSend = onExtractedRegionSend
         self.onImportPDF = onImportPDF
         self.onExportPDF = onExportPDF
@@ -92,15 +98,16 @@ public struct PresentingCanvasView: View {
                 selectionState: $selectionState,
                 showsSystemToolPicker: !paletteSettings.isCustomPaletteEnabled,
                 onFrameUpdate: broker.isExternalDisplayConnected ? Self.publishFrame : nil,
-                onViewportSourceRectChange: broker.isExternalDisplayConnected ? Self.publishViewportSourceRect : nil,
+                onViewportSourceRectChange: Self.publishViewportSourceRect,
                 onLiveStrokeUpdate: Self.publishLiveStroke,
                 onViewportStateChange: publishViewportState,
                 onEditStateChange: publishEditState,
                 onInteractionBegan: onInteractionBegan,
-                onTextEditingBegan: activateTextToolForExistingEditor,
-                onTextEditingEnded: activateSelectTool,
+                onTextEditingBegan: handleTextEditingBegan,
+                onTextEditingEnded: handleTextEditingEnded,
                 onTextPlacementRequested: requestTextPlacement,
-                onExtractedRegionSend: onExtractedRegionSend
+                onExtractedRegionSend: onExtractedRegionSend,
+                onExtractActionCompleted: activateSelectToolAfterExtractAction
             )
             ViewfinderOverlay()
                 .opacity(broker.mode == .present ? 1 : 0)
@@ -110,7 +117,10 @@ public struct PresentingCanvasView: View {
             }
 
             if broker.isGraphCalculatorVisible {
-                GraphCalculatorView(state: broker.graphCalculator)
+                GraphCalculatorView(
+                    state: broker.graphCalculator,
+                    onGraphSnapshot: insertGraphSnapshot
+                )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
@@ -634,6 +644,16 @@ public struct PresentingCanvasView: View {
         applyToolPaletteState(state, triggering: .selectTool(.equation))
     }
 
+    private func handleTextEditingBegan() {
+        onTextEditingBegan?()
+        activateTextToolForExistingEditor()
+    }
+
+    private func handleTextEditingEnded() {
+        onTextEditingEnded?()
+        activateSelectTool()
+    }
+
     private func requestTextPlacement(at sourcePoint: CGPoint) {
         pendingTextPlacement = PendingTextPlacement(sourcePoint: sourcePoint)
     }
@@ -671,6 +691,15 @@ public struct PresentingCanvasView: View {
         applyToolPaletteState(state, triggering: .selectTool(.selection))
     }
 
+    private func activateSelectToolAfterExtractAction() {
+        var state = broker.toolPaletteState
+        guard state.activeTool == .extract else { return }
+        ToolPaletteReducer.reduce(&state, command: .selectTool(.selection))
+        state.isCompactDrawerOpen = false
+        broker.toolPaletteState = state
+        applyToolPaletteState(state, triggering: .selectTool(.selection))
+    }
+
     private func hudPosition(for frame: CGRect, in size: CGSize) -> CGPoint {
         let hudWidth: CGFloat = 220
         let hudHeight: CGFloat = 44
@@ -697,6 +726,24 @@ public struct PresentingCanvasView: View {
     @MainActor
     private static func publishViewportSourceRect(_ sourceRect: CGRect) {
         DisplayBroker.shared.publishViewportSourceRect(sourceRect)
+    }
+
+    @MainActor
+    private func insertGraphSnapshot(_ snapshot: GraphCalculatorSnapshot) {
+        let aspect = snapshot.size.width / max(snapshot.size.height, 1)
+        let displayWidth: CGFloat = 160
+        objectCommand = CanvasObjectCommand(
+            .insertImageNearViewport(
+                CanvasViewportImageInsertion(
+                    pngData: snapshot.pngData,
+                    displaySize: CGSize(width: displayWidth, height: displayWidth / aspect),
+                    referenceRect: snapshot.placementRect,
+                    containerSize: snapshot.containerSize,
+                    margin: 20,
+                    selectAfterInsert: true
+                )
+            )
+        )
     }
 
     @MainActor
@@ -836,6 +883,9 @@ private extension CanvasToolCommand {
         case .sendSelectionToNextSlide:
             self.init(.sendSelectionToNextSlide)
             return
+        case .setExtractAction(let action):
+            self.init(.setExtractAction(CanvasToolCommand.ExtractAction(extractAction: action)))
+            return
         default:
             break
         }
@@ -845,13 +895,15 @@ private extension CanvasToolCommand {
             self.init(.select(
                 target: .object,
                 mode: CanvasToolCommand.SelectionMode(selectionSelectionMode: state.selectionMode),
-                behavior: CanvasToolCommand.SelectionBehavior(selectionBehavior: state.selectionBehavior)
+                behavior: CanvasToolCommand.SelectionBehavior(selectionBehavior: state.selectionBehavior),
+                extractAction: nil
             ))
         case .extract:
             self.init(.select(
                 target: .region,
                 mode: CanvasToolCommand.SelectionMode(regionSelectionMode: state.selectionMode),
-                behavior: .single
+                behavior: .single,
+                extractAction: CanvasToolCommand.ExtractAction(extractAction: state.extractAction)
             ))
         case .geometry:
             self.init(.geometry(
@@ -924,6 +976,8 @@ private extension CanvasToolCommand {
             return activeTool == .selection || activeTool == .extract || activeTool == .cover
         case .setSelectionBehavior:
             return activeTool == .selection
+        case .setExtractAction:
+            return activeTool == .extract
         case .copySelection, .pasteSelection, .duplicateSelection, .deleteSelection,
              .extractSelectionAsImageSticker, .sendSelectionToNextSlide:
             return activeTool == .selection || activeTool == .extract
@@ -1049,6 +1103,23 @@ private extension CanvasToolCommand.SelectionMode {
             self = .lasso
         case .marquee:
             self = .marquee
+        }
+    }
+}
+
+private extension CanvasToolCommand.ExtractAction {
+    init(extractAction: ExtractAction) {
+        switch extractAction {
+        case .copy:
+            self = .copy
+        case .clone:
+            self = .clone
+        case .send:
+            self = .send
+        case .sticker:
+            self = .sticker
+        case .delete:
+            self = .delete
         }
     }
 }

@@ -12,6 +12,7 @@ import Calculator
 struct GraphAxisStyle {
     var axisStrokeWidth: CGFloat = 1.4
     var gridlineThickness: CGFloat = 0.8
+    var gridlineOpacity: CGFloat = 0.24
     var showGrid: Bool = true
     var xAxisLabel: String = ""
     var yAxisLabel: String = ""
@@ -27,17 +28,72 @@ enum GraphPaperPalette {
     static let paper = Color(red: 0.984, green: 0.980, blue: 0.957)
 }
 
+/// A set of teacher-added ordered pairs (from a point row's table) to plot in a row's style.
+struct GraphAttachedPoints {
+    /// Points in graph coordinates.
+    var points: [CGPoint]
+    var color: Color
+    var lineWidth: CGFloat
+}
+
+/// A point from a visible function-table row, plotted on the trace overlay.
+struct GraphTracePoint {
+    var point: CGPoint
+    var rowIndex: Int
+}
+
+/// The live trace overlay for a function table: the selected point, the visible table points
+/// along the curve, and the selected point's ordered-pair label. All points are in graph coordinates.
+struct GraphTraceOverlay {
+    var anchor: CGPoint
+    var points: [GraphTracePoint]
+    var color: Color
+    var lineWidth: CGFloat
+    var label: String
+    var specialKind: GraphCalculatorPointReadout.Kind?
+}
+
+enum GraphHighlightPalette {
+    /// Warm gold — curve–curve intersection points.
+    static let intersection = Color(red: 0.98, green: 0.70, blue: 0.11)
+    /// Cyan/teal — x-intercepts.
+    static let xIntercept = Color(red: 0.10, green: 0.72, blue: 0.78)
+    /// Violet — y-intercepts.
+    static let yIntercept = Color(red: 0.60, green: 0.30, blue: 0.92)
+    /// Coral — plotted ordered-pair rows and attached point-table points.
+    static let plottedPoint = Color(red: 0.96, green: 0.36, blue: 0.24)
+
+    static func color(for kind: GraphCalculatorPointReadout.Kind) -> Color {
+        switch kind {
+        case .intersection: return intersection
+        case .xIntercept: return xIntercept
+        case .yIntercept: return yIntercept
+        case .plottedPoint: return plottedPoint
+        }
+    }
+
+    /// Label text color chosen for contrast against the (filled) bubble color.
+    static func labelColor(for kind: GraphCalculatorPointReadout.Kind) -> Color {
+        switch kind {
+        case .intersection: return .black.opacity(0.82) // dark on bright gold
+        case .xIntercept, .yIntercept, .plottedPoint: return .white
+        }
+    }
+}
+
 enum GraphCalculatorRenderer {
     static func draw(
         in context: GraphicsContext,
         size: CGSize,
         window: GraphWindow,
         expressions: [GraphEquation],
-        dataTables: [GraphCalculatorDataTable] = [],
         engine: CalculatorEngine,
         variableValues: [String: Double] = [:],
         accent: Color,
-        axisStyle: GraphAxisStyle = .default
+        axisStyle: GraphAxisStyle = .default,
+        highlightedPoint: GraphCalculatorPointReadout? = nil,
+        attachedPoints: [GraphAttachedPoints] = [],
+        trace: GraphTraceOverlay? = nil
     ) {
         guard window.isValid, size.width > 0, size.height > 0 else { return }
 
@@ -55,7 +111,169 @@ enum GraphCalculatorRenderer {
             drawPlot(in: context, size: size, window: window, plot: plot, engine: engine, variableValues: variableValues, color: color, lineWidth: lineWidth, handDrawn: axisStyle.handDrawn)
         }
 
-        drawDataTables(in: context, size: size, window: window, dataTables: dataTables, fallback: accent)
+        for set in attachedPoints {
+            for graphPoint in set.points {
+                drawPoint(in: context, size: size, window: window, x: Double(graphPoint.x), y: Double(graphPoint.y), color: set.color, lineWidth: set.lineWidth)
+            }
+        }
+
+        if let trace {
+            drawTrace(in: context, size: size, window: window, trace: trace)
+        }
+
+        if let highlightedPoint {
+            drawHighlightedPoint(in: context, size: size, window: window, point: highlightedPoint)
+        }
+    }
+
+    /// Draws a tapped-out notable point (x-intercept, y-intercept, or intersection) as a glowing
+    /// dot with its ordered-pair label. Each kind uses its own color from `GraphHighlightPalette`.
+    private static func drawHighlightedPoint(
+        in context: GraphicsContext,
+        size: CGSize,
+        window: GraphWindow,
+        point: GraphCalculatorPointReadout
+    ) {
+        let center = CalculatorGraphGeometry.viewPoint(forGraph: CGPoint(x: point.x, y: point.y), window: window, size: size)
+        guard center.x.isFinite, center.y.isFinite else { return }
+
+        let color = GraphHighlightPalette.color(for: point.kind)
+
+        // Layered blurred halos give a genuine glow around the point.
+        var glow = context
+        glow.addFilter(.blur(radius: 9))
+        for haloRadius in [18, 12] as [CGFloat] {
+            let rect = CGRect(x: center.x - haloRadius, y: center.y - haloRadius, width: haloRadius * 2, height: haloRadius * 2)
+            glow.fill(Path(ellipseIn: rect), with: .color(color.opacity(0.55)))
+        }
+        let coreGlow = CGRect(x: center.x - 7, y: center.y - 7, width: 14, height: 14)
+        glow.fill(Path(ellipseIn: coreGlow), with: .color(.white.opacity(0.9)))
+
+        let radius: CGFloat = 7
+        let dotRect = CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)
+        context.fill(Path(ellipseIn: dotRect), with: .color(color))
+        context.stroke(Path(ellipseIn: dotRect), with: .color(.white), lineWidth: 2)
+        // A bright inner pip to make the dot read as "lit".
+        let pip = CGRect(x: center.x - 2, y: center.y - 2, width: 4, height: 4)
+        context.fill(Path(ellipseIn: pip), with: .color(.white))
+
+        let text = "(\(coordinateLabel(point.x)), \(coordinateLabel(point.y)))"
+        drawLabelBubble(
+            in: context,
+            near: center,
+            markerRadius: radius,
+            size: size,
+            text: text,
+            fill: color,
+            textColor: GraphHighlightPalette.labelColor(for: point.kind)
+        )
+    }
+
+    /// Draws a rounded label bubble anchored above (or, near the top edge, below) a marker.
+    private static func drawLabelBubble(
+        in context: GraphicsContext,
+        near center: CGPoint,
+        markerRadius: CGFloat,
+        size: CGSize,
+        text: String,
+        fill: Color,
+        textColor: Color
+    ) {
+        let resolved = context.resolve(
+            Text(text)
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .foregroundStyle(textColor)
+        )
+        let textSize = resolved.measure(in: CGSize(width: 240, height: 60))
+        let padding = CGSize(width: 10, height: 5)
+        let bubbleWidth = textSize.width + padding.width * 2
+        let bubbleHeight = textSize.height + padding.height * 2
+
+        var bubbleY = center.y - markerRadius - 8 - bubbleHeight / 2
+        if bubbleY - bubbleHeight / 2 < 4 {
+            bubbleY = center.y + markerRadius + 8 + bubbleHeight / 2
+        }
+        let bubbleX = min(max(center.x, bubbleWidth / 2 + 4), size.width - bubbleWidth / 2 - 4)
+
+        let bubbleRect = CGRect(
+            x: bubbleX - bubbleWidth / 2,
+            y: bubbleY - bubbleHeight / 2,
+            width: bubbleWidth,
+            height: bubbleHeight
+        )
+        context.fill(
+            Path(roundedRect: bubbleRect, cornerRadius: 7, style: .continuous),
+            with: .color(fill)
+        )
+        context.draw(resolved, at: CGPoint(x: bubbleX, y: bubbleY), anchor: .center)
+    }
+
+    /// Draws the trace overlay: a faint vertical guide at the anchor x, a dot at each table point,
+    /// and a ringed, labeled marker at the anchor (the finger / table-start point).
+    private static func drawTrace(
+        in context: GraphicsContext,
+        size: CGSize,
+        window: GraphWindow,
+        trace: GraphTraceOverlay
+    ) {
+        let anchorView = CalculatorGraphGeometry.viewPoint(forGraph: trace.anchor, window: window, size: size)
+        guard anchorView.x.isFinite, anchorView.y.isFinite else { return }
+
+        // Faint vertical guide line at the traced x.
+        if anchorView.x >= 0, anchorView.x <= size.width {
+            var guide = Path()
+            guide.move(to: CGPoint(x: anchorView.x, y: 0))
+            guide.addLine(to: CGPoint(x: anchorView.x, y: size.height))
+            context.stroke(guide, with: .color(trace.color.opacity(0.35)), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+        }
+
+        // A dot at each table point along the curve.
+        for tracePoint in trace.points {
+            let view = CalculatorGraphGeometry.viewPoint(forGraph: tracePoint.point, window: window, size: size)
+            guard view.x.isFinite, view.y.isFinite else { continue }
+            let r: CGFloat = 4
+            let rect = CGRect(x: view.x - r, y: view.y - r, width: r * 2, height: r * 2)
+            context.fill(Path(ellipseIn: rect), with: .color(trace.color))
+            context.stroke(Path(ellipseIn: rect), with: .color(.white.opacity(0.9)), lineWidth: 1)
+        }
+
+        if let specialKind = trace.specialKind {
+            drawHighlightedPoint(
+                in: context,
+                size: size,
+                window: window,
+                point: GraphCalculatorPointReadout(
+                    x: Double(trace.anchor.x),
+                    y: Double(trace.anchor.y),
+                    kind: specialKind
+                )
+            )
+            return
+        }
+
+        // The selected trace point: larger ringed marker plus label.
+        let radius: CGFloat = 7
+        let dotRect = CGRect(x: anchorView.x - radius, y: anchorView.y - radius, width: radius * 2, height: radius * 2)
+        context.fill(Path(ellipseIn: dotRect), with: .color(trace.color))
+        context.stroke(Path(ellipseIn: dotRect), with: .color(.white), lineWidth: 2)
+        drawLabelBubble(
+            in: context,
+            near: anchorView,
+            markerRadius: radius,
+            size: size,
+            text: trace.label,
+            fill: trace.color,
+            textColor: .white
+        )
+    }
+
+    /// Compact coordinate formatting: trims trailing zeros and rounds off floating-point noise.
+    private static func coordinateLabel(_ value: Double) -> String {
+        let rounded = (value * 1e6).rounded() / 1e6
+        if rounded == rounded.rounded() {
+            return String(Int(rounded))
+        }
+        return String(format: "%g", rounded)
     }
 
     /// Fills an off-white "bond paper" background with a faint, cheap grain (one filled path).
@@ -100,10 +318,12 @@ enum GraphCalculatorRenderer {
         if axisStyle.showGrid {
             let minorWidth = max(0.25, axisStyle.gridlineThickness * 0.6)
             let majorWidth = max(0.25, axisStyle.gridlineThickness)
-            drawTicks(context: context, size: size, window: window, step: minorX, axis: .x, color: .black.opacity(0.10), lineWidth: minorWidth)
-            drawTicks(context: context, size: size, window: window, step: minorY, axis: .y, color: .black.opacity(0.10), lineWidth: minorWidth)
-            drawTicks(context: context, size: size, window: window, step: majorX, axis: .x, color: .black.opacity(0.24), lineWidth: majorWidth)
-            drawTicks(context: context, size: size, window: window, step: majorY, axis: .y, color: .black.opacity(0.24), lineWidth: majorWidth)
+            let majorOpacity = min(max(axisStyle.gridlineOpacity, 0.02), 0.85)
+            let minorOpacity = min(max(majorOpacity * 0.42, 0.02), 0.60)
+            drawTicks(context: context, size: size, window: window, step: minorX, axis: .x, color: .black.opacity(minorOpacity), lineWidth: minorWidth)
+            drawTicks(context: context, size: size, window: window, step: minorY, axis: .y, color: .black.opacity(minorOpacity), lineWidth: minorWidth)
+            drawTicks(context: context, size: size, window: window, step: majorX, axis: .x, color: .black.opacity(majorOpacity), lineWidth: majorWidth)
+            drawTicks(context: context, size: size, window: window, step: majorY, axis: .y, color: .black.opacity(majorOpacity), lineWidth: majorWidth)
         }
 
         let axisWidth = max(0.5, axisStyle.axisStrokeWidth)
@@ -461,36 +681,6 @@ enum GraphCalculatorRenderer {
         var variables = values
         variables["x"] = x
         return variables
-    }
-
-    private static func drawDataTables(
-        in context: GraphicsContext,
-        size: CGSize,
-        window: GraphWindow,
-        dataTables: [GraphCalculatorDataTable],
-        fallback: Color
-    ) {
-        for (tableIndex, table) in dataTables.enumerated() {
-            guard table.columnNames.count >= 2 else { continue }
-            for columnIndex in 1..<table.columnNames.count {
-                let color = color(for: tableIndex + columnIndex - 1, fallback: fallback)
-                for row in table.rows {
-                    guard row.indices.contains(0),
-                          row.indices.contains(columnIndex),
-                          let x = row[0],
-                          let y = row[columnIndex],
-                          x.isFinite,
-                          y.isFinite else {
-                        continue
-                    }
-                    let point = CalculatorGraphGeometry.viewPoint(forGraph: CGPoint(x: x, y: y), window: window, size: size)
-                    guard point.x.isFinite, point.y.isFinite else { continue }
-                    let rect = CGRect(x: point.x - 4, y: point.y - 4, width: 8, height: 8)
-                    context.fill(Path(ellipseIn: rect), with: .color(color))
-                    context.stroke(Path(ellipseIn: rect), with: .color(.white.opacity(0.85)), lineWidth: 1)
-                }
-            }
-        }
     }
 
     private static func color(for index: Int, fallback: Color) -> Color {

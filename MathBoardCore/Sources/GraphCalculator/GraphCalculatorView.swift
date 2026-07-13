@@ -7,9 +7,32 @@
 
 import SwiftUI
 import Calculator
+#if os(iOS)
+import UIKit
+#endif
+
+public struct GraphCalculatorSnapshot: Sendable, Equatable {
+    public var pngData: Data
+    public var size: CGSize
+    public var placementRect: CGRect?
+    public var containerSize: CGSize?
+
+    public init(
+        pngData: Data,
+        size: CGSize,
+        placementRect: CGRect? = nil,
+        containerSize: CGSize? = nil
+    ) {
+        self.pngData = pngData
+        self.size = size
+        self.placementRect = placementRect
+        self.containerSize = containerSize
+    }
+}
 
 public struct GraphCalculatorView: View {
     @Bindable private var state: GraphCalculatorState
+    private let onGraphSnapshot: (@MainActor (GraphCalculatorSnapshot) -> Void)?
 
     @State private var dragStartCenter: CGPoint?
     @State private var detachedDragStartCenter: CGPoint?
@@ -32,6 +55,12 @@ public struct GraphCalculatorView: View {
     @State private var sliderPlaybackTask: Task<Void, Never>?
     @State private var keypadHiddenEntryExtra: CGFloat = 260
     @State private var entryResizeStartExtra: CGFloat?
+    @State private var tableDragStartCenter: CGPoint?
+    @State private var tableWindowLiveOffset: CGSize = .zero
+    @State private var tableResizeStart: (size: CGSize, topLeft: CGPoint)?
+    @State private var tableResizeLive: (size: CGSize, center: CGPoint)?
+    @State private var isTableSettingsPresented: Bool = false
+    @State private var isCalculatorMenuPresented: Bool = false
 
     private let engine = CalculatorEngine()
     private let minimumGraphSpan: Double = 0.2
@@ -40,9 +69,16 @@ public struct GraphCalculatorView: View {
     private let baseEntryHeight: CGFloat = 150
     private let baseDetachedEntryHeight: CGFloat = 170
     private let entryHandleHeight: CGFloat = 22
+    private let visibleTraceTableRows = 10
+    private let preferredTraceSlotRange = 4...6
+    private let preferredTraceSlotIndex = 5
 
-    public init(state: GraphCalculatorState = GraphCalculatorState()) {
+    public init(
+        state: GraphCalculatorState = GraphCalculatorState(),
+        onGraphSnapshot: (@MainActor (GraphCalculatorSnapshot) -> Void)? = nil
+    ) {
         self.state = state
+        self.onGraphSnapshot = onGraphSnapshot
     }
 
     public static func preview() -> some View {
@@ -74,6 +110,8 @@ public struct GraphCalculatorView: View {
                         .opacity(isDragging(.docked) ? 0.14 : 1)
                 }
 
+                tableWindow(in: proxy.size)
+
                 if let dragProxy {
                     dragProxyView(dragProxy)
                         .frame(width: dragProxy.size.width, height: dragProxy.size.height)
@@ -93,13 +131,19 @@ public struct GraphCalculatorView: View {
     private func calculatorBody(in containerSize: CGSize) -> some View {
         let size = dockedCalculatorSize(in: containerSize)
         let center = dockedCalculatorCenter(size: size, in: containerSize)
+        let placementRect = CGRect(
+            x: center.x - size.width / 2,
+            y: center.y - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
 
         return VStack(spacing: 0) {
             topBar
                 .gesture(dockedCalculatorDragGesture(currentCenter: center, size: size, in: containerSize))
             graphRegion
                 .frame(height: 285)
-            graphToolbar
+            graphToolbar(placementRect: placementRect, containerSize: containerSize)
             entryPanel
                 .frame(height: dockedEntryHeight)
                 .overlay(alignment: .bottom) {
@@ -138,7 +182,7 @@ public struct GraphCalculatorView: View {
                 .padding(.vertical, 8)
                 .background(GraphCalculatorTheme.blue, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
-            Button {} label: {
+            Button { isCalculatorMenuPresented.toggle() } label: {
                 Image(systemName: "ellipsis")
                     .font(.title2.weight(.bold))
                     .foregroundStyle(.white.opacity(0.88))
@@ -146,10 +190,39 @@ public struct GraphCalculatorView: View {
                     .overlay(Circle().strokeBorder(.white.opacity(0.8), lineWidth: 2))
             }
             .buttonStyle(.plain)
+            .popover(isPresented: $isCalculatorMenuPresented, arrowEdge: .top) {
+                calculatorMenu
+                    .presentationCompactAdaptation(.popover)
+            }
         }
         .padding(.horizontal, 14)
         .frame(height: 58)
         .background(GraphCalculatorTheme.header)
+    }
+
+    private var calculatorMenu: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Graph Display")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.black.opacity(0.82))
+
+            graphSettingSlider(
+                title: "Axis boldness",
+                value: $state.axisStrokeWidth,
+                range: 0.5...5,
+                display: String(format: "%.1f", state.axisStrokeWidth)
+            )
+
+            graphSettingSlider(
+                title: "Grid darkness",
+                value: $state.gridlineOpacity,
+                range: 0.08...0.75,
+                display: String(format: "%.2f", state.gridlineOpacity)
+            )
+        }
+        .padding(16)
+        .frame(width: 300)
+        .background(Color.white)
     }
 
     private var graphRegion: some View {
@@ -187,33 +260,68 @@ public struct GraphCalculatorView: View {
     private var graphCanvas: some View {
         GeometryReader { proxy in
             Canvas { context, size in
-                GraphCalculatorRenderer.draw(
-                    in: context,
-                    size: size,
-                    window: state.graphWindow,
-                    expressions: state.expressions,
-                    dataTables: state.dataTables,
-                    engine: engine,
-                    variableValues: graphVariableValues,
-                    accent: GraphCalculatorTheme.blue,
-                    axisStyle: GraphAxisStyle(
-                        axisStrokeWidth: CGFloat(state.axisStrokeWidth),
-                        gridlineThickness: CGFloat(state.gridlineThickness),
-                        showGrid: state.isGridVisible,
-                        xAxisLabel: state.xAxisLabel,
-                        yAxisLabel: state.yAxisLabel,
-                        handDrawn: state.isHandDrawnStyle
-                    )
-                )
+                drawGraph(in: context, size: size)
             }
             .background(state.isHandDrawnStyle ? GraphPaperPalette.paper : Color.white)
             .contentShape(Rectangle())
             .gesture(graphPanGesture(size: proxy.size))
             .simultaneousGesture(graphMagnifyGesture(size: proxy.size))
+            .simultaneousGesture(graphTapGesture(size: proxy.size))
         }
     }
 
-    private var graphToolbar: some View {
+    private func drawGraph(in context: GraphicsContext, size: CGSize) {
+        GraphCalculatorRenderer.draw(
+            in: context,
+            size: size,
+            window: state.graphWindow,
+            expressions: state.expressions,
+            engine: engine,
+            variableValues: graphVariableValues,
+            accent: GraphCalculatorTheme.blue,
+            axisStyle: GraphAxisStyle(
+                axisStrokeWidth: CGFloat(state.axisStrokeWidth),
+                gridlineThickness: CGFloat(state.gridlineThickness),
+                gridlineOpacity: CGFloat(state.gridlineOpacity),
+                showGrid: state.isGridVisible,
+                xAxisLabel: state.xAxisLabel,
+                yAxisLabel: state.yAxisLabel,
+                handDrawn: state.isHandDrawnStyle
+            ),
+            highlightedPoint: state.selectedPoint,
+            attachedPoints: attachedPointSets,
+            trace: traceOverlay
+        )
+    }
+
+    private func graphSnapshotView(size: CGSize) -> some View {
+        Canvas { context, canvasSize in
+            drawGraph(in: context, size: canvasSize)
+        }
+        .frame(width: size.width, height: size.height)
+        .background(state.isHandDrawnStyle ? GraphPaperPalette.paper : Color.white)
+    }
+
+    private func captureGraphSnapshot(placementRect: CGRect?, containerSize: CGSize?) {
+        guard let onGraphSnapshot else { return }
+        #if os(iOS)
+        let size = CGSize(width: 1200, height: 800)
+        let renderer = ImageRenderer(content: graphSnapshotView(size: size))
+        renderer.scale = 2
+        guard let image = renderer.uiImage,
+              let pngData = image.pngData() else {
+            return
+        }
+        onGraphSnapshot(GraphCalculatorSnapshot(
+            pngData: pngData,
+            size: size,
+            placementRect: placementRect,
+            containerSize: containerSize
+        ))
+        #endif
+    }
+
+    private func graphToolbar(placementRect: CGRect? = nil, containerSize: CGSize? = nil) -> some View {
         HStack(spacing: 18) {
             Button { state.isAddMenuVisible.toggle() } label: {
                 Image(systemName: "plus")
@@ -227,6 +335,11 @@ public struct GraphCalculatorView: View {
                 Image(systemName: state.isKeypadCollapsed ? "chevron.up.2" : "chevron.down.2")
                     .foregroundStyle(state.isKeypadCollapsed ? GraphCalculatorTheme.blue : .black.opacity(0.62))
             }
+            Button { captureGraphSnapshot(placementRect: placementRect, containerSize: containerSize) } label: {
+                Image(systemName: "camera.fill")
+                    .foregroundStyle(onGraphSnapshot == nil ? .black.opacity(0.28) : .black.opacity(0.62))
+            }
+            .disabled(onGraphSnapshot == nil)
             Button { state.resetWindow() } label: { Image(systemName: "house") }
             Button { toggleGraphSettings() } label: {
                 Image(systemName: "gearshape.fill")
@@ -245,51 +358,6 @@ public struct GraphCalculatorView: View {
         .background(GraphCalculatorTheme.toolbar)
     }
 
-    private var tablePanel: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("Table")
-                    .font(.system(size: 16, weight: .semibold))
-                Spacer()
-                Button { state.addTableXValue() } label: {
-                    Image(systemName: "plus")
-                        .font(.headline.weight(.semibold))
-                }
-                .buttonStyle(.plain)
-                Button { state.isTableVisible = false } label: {
-                    Image(systemName: "xmark")
-                        .font(.headline.weight(.semibold))
-                }
-                .buttonStyle(.plain)
-            }
-            .foregroundStyle(.black.opacity(0.72))
-            .padding(.horizontal, 14)
-            .frame(height: 34)
-
-            HStack(spacing: 0) {
-                tableHeaderCell("x")
-                tableHeaderCell("y")
-                tableHeaderCell("")
-            }
-            ForEach(Array(tableRows.enumerated()), id: \.offset) { index, row in
-                HStack(spacing: 0) {
-                    editableTableXCell(row.x, index: index)
-                    tableValueCell(row.y)
-                    Button { state.deleteTableXValue(at: index) } label: {
-                        Image(systemName: "xmark")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(.black.opacity(0.35))
-                            .frame(maxWidth: .infinity, minHeight: 24)
-                    }
-                    .buttonStyle(.plain)
-                    .overlay(Rectangle().stroke(.black.opacity(0.10), lineWidth: 0.5))
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .background(Color.white)
-    }
-
     private var entryPanel: some View {
         VStack(spacing: 0) {
             if state.isAddMenuVisible {
@@ -298,8 +366,6 @@ public struct GraphCalculatorView: View {
                 functionMenuPanel
             } else if state.isGraphSettingsVisible {
                 graphSettingsPanel
-            } else if state.isTableVisible {
-                tablePanel
             } else {
                 expressionList
             }
@@ -312,7 +378,6 @@ public struct GraphCalculatorView: View {
         if newValue {
             state.isAddMenuVisible = false
             state.isFunctionMenuVisible = false
-            state.isTableVisible = false
         }
         state.isGraphSettingsVisible = newValue
     }
@@ -460,7 +525,6 @@ public struct GraphCalculatorView: View {
 
             HStack(spacing: 10) {
                 addMenuButton("Function", systemName: "function") { state.addExpression() }
-                addMenuButton("Table", systemName: "tablecells") { state.addDataTable() }
                 addMenuButton("Folder", systemName: "folder") { state.addFolder() }
             }
             .padding(.horizontal, 12)
@@ -535,11 +599,7 @@ public struct GraphCalculatorView: View {
 
     private func functionKey(_ label: String, inserts text: String) -> some View {
         Button {
-            if text.isEmpty {
-                state.addDataTable()
-            } else {
-                insert(text)
-            }
+            insert(text)
             state.isFunctionMenuVisible = false
         } label: {
             Text(label)
@@ -794,90 +854,29 @@ public struct GraphCalculatorView: View {
         state.ensureSliderDefaults(for: sliderNames)
     }
 
-    private var tableRows: [(x: String, y: String)] {
-        guard let row = resolvedRows.first(where: { $0.index == state.selectedExpressionIndex }),
-              let plot = row.plot,
-              let source = yValueExpression(from: plot),
-              let compiled = try? engine.compile(source) else {
-            return [(x: "Select a y-function", y: "")]
-        }
-
-        return state.tableXValues.map { x in
-            var variables = graphVariableValues
-            variables["x"] = x
-            let y = try? engine.evaluate(compiled: compiled, angleMode: .radians, variables: variables)
-            return (
-                x: CalculatorResultFormatter.string(for: x),
-                y: y.map(CalculatorResultFormatter.string(for:)) ?? "undefined"
-            )
-        }
-    }
-
-    private func yValueExpression(from plot: GraphCalculatorPlot) -> String? {
-        switch plot {
-        case .curve(let source), .yRelation(let source, _):
-            return source
-        case .xRelation, .point:
-            return nil
-        }
-    }
-
     private func tableHeaderCell(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 14, weight: .semibold, design: .serif))
+            .font(.system(size: 15, weight: .semibold, design: .serif))
             .foregroundStyle(.black.opacity(0.7))
-            .frame(maxWidth: .infinity, minHeight: 24)
+            .frame(maxWidth: .infinity, minHeight: 30)
             .background(Color.black.opacity(0.06))
             .overlay(Rectangle().stroke(.black.opacity(0.12), lineWidth: 0.5))
     }
 
-    private func tableValueCell(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 14, weight: .regular, design: .serif))
-            .foregroundStyle(.black.opacity(0.82))
+    private func tableValueCell(_ text: String, highlightColor: Color? = nil) -> some View {
+        let isHighlighted = highlightColor != nil
+        let color = highlightColor ?? GraphCalculatorTheme.blue
+        return Text(text)
+            .font(.system(size: 18, weight: isHighlighted ? .semibold : .regular, design: .serif))
+            .foregroundStyle(isHighlighted ? color : .black.opacity(0.82))
             .lineLimit(1)
-            .minimumScaleFactor(0.65)
-            .frame(maxWidth: .infinity, minHeight: 22)
-            .overlay(Rectangle().stroke(.black.opacity(0.10), lineWidth: 0.5))
+            .minimumScaleFactor(0.55)
+            .padding(.horizontal, 2)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .background(isHighlighted ? color.opacity(0.12) : Color.clear)
+            .overlay(Rectangle().stroke(isHighlighted ? color.opacity(0.55) : .black.opacity(0.10), lineWidth: isHighlighted ? 1 : 0.5))
     }
 
-    private func editableTableXCell(_ text: String, index: Int) -> some View {
-        HStack(spacing: 4) {
-            Button { state.updateTableXValue(at: index, by: -1) } label: {
-                Image(systemName: "minus")
-                    .font(.caption.weight(.semibold))
-            }
-            .buttonStyle(.plain)
-
-            TextField(
-                "",
-                text: Binding(
-                    get: { text },
-                    set: { newValue in
-                        if let value = Double(newValue.replacingOccurrences(of: "−", with: "-")),
-                           state.tableXValues.indices.contains(index) {
-                            state.tableXValues[index] = value
-                        }
-                    }
-                )
-            )
-                .font(.system(size: 14, weight: .regular, design: .serif))
-                .foregroundStyle(.black.opacity(0.82))
-                .multilineTextAlignment(.center)
-                .keyboardType(.numbersAndPunctuation)
-                .frame(maxWidth: .infinity)
-
-            Button { state.updateTableXValue(at: index, by: 1) } label: {
-                Image(systemName: "plus")
-                    .font(.caption.weight(.semibold))
-            }
-            .buttonStyle(.plain)
-        }
-        .foregroundStyle(.black.opacity(0.62))
-        .padding(.horizontal, 6)
-        .frame(maxWidth: .infinity, minHeight: 24)
-        .overlay(Rectangle().stroke(.black.opacity(0.10), lineWidth: 0.5))
-    }
 
     private var expressionList: some View {
         ScrollViewReader { proxy in
@@ -889,9 +888,6 @@ public struct GraphCalculatorView: View {
                         ForEach(ownedSliderNames(forExpressionIndex: index), id: \.self) { name in
                             sliderCell(name)
                         }
-                    }
-                    ForEach(Array(state.dataTables.enumerated()), id: \.element.id) { tableIndex, table in
-                        dataTableCard(table, tableIndex: tableIndex)
                     }
                     ForEach(state.folders) { folder in
                         folderRow(folder)
@@ -906,120 +902,6 @@ public struct GraphCalculatorView: View {
             }
         }
         .background(Color.white)
-    }
-
-    private func dataTableCard(_ table: GraphCalculatorDataTable, tableIndex: Int) -> some View {
-        HStack(spacing: 0) {
-            ZStack {
-                Circle()
-                    .fill(graphColor(for: tableIndex))
-                    .frame(width: 28, height: 28)
-                    .overlay(Circle().strokeBorder(.black.opacity(0.08), lineWidth: 1.5))
-                Image(systemName: "tablecells")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.white)
-            }
-            .frame(width: 52)
-            .background(Color.black.opacity(0.06))
-
-            VStack(spacing: 0) {
-                HStack {
-                    Text("Table")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.black.opacity(0.62))
-                    Spacer()
-                    Button { state.addDataTableColumn(tableID: table.id) } label: {
-                        Image(systemName: "plus.square")
-                            .font(.subheadline.weight(.semibold))
-                    }
-                    .disabled(table.columnNames.count >= 4)
-                    Button { state.addDataTableRow(tableID: table.id) } label: {
-                        Image(systemName: "plus")
-                            .font(.subheadline.weight(.semibold))
-                    }
-                    Button { state.deleteDataTable(tableID: table.id) } label: {
-                        Image(systemName: "xmark")
-                            .font(.subheadline.weight(.semibold))
-                    }
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.black.opacity(0.6))
-                .padding(.horizontal, 10)
-                .frame(height: 28)
-
-                HStack(spacing: 0) {
-                    ForEach(0..<table.columnNames.count, id: \.self) { columnIndex in
-                        dataTableHeader(table: table, columnIndex: columnIndex)
-                    }
-                    tableHeaderCell("")
-                }
-
-                ForEach(Array(table.rows.enumerated()), id: \.offset) { rowIndex, row in
-                    HStack(spacing: 0) {
-                        ForEach(0..<table.columnNames.count, id: \.self) { columnIndex in
-                            dataTableValueCell(table: table, row: row, rowIndex: rowIndex, columnIndex: columnIndex)
-                        }
-                        Button { state.deleteDataTableRow(tableID: table.id, rowIndex: rowIndex) } label: {
-                            Image(systemName: "xmark")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(.black.opacity(0.35))
-                                .frame(width: 30, height: 26)
-                        }
-                        .buttonStyle(.plain)
-                        .overlay(Rectangle().stroke(.black.opacity(0.10), lineWidth: 0.5))
-                    }
-                }
-            }
-            .padding(.vertical, 6)
-            .padding(.trailing, 8)
-        }
-        .background(Color.white)
-        .overlay(Rectangle().fill(Color.black.opacity(0.12)).frame(height: 0.5), alignment: .top)
-    }
-
-    private func dataTableHeader(table: GraphCalculatorDataTable, columnIndex: Int) -> some View {
-        ZStack {
-            Text(GraphCalculatorExpressionDisplay.variableName(for: table.columnNames.indices.contains(columnIndex) ? table.columnNames[columnIndex] : ""))
-                .font(.system(size: 13, weight: .semibold, design: .serif))
-                .foregroundStyle(.black.opacity(0.72))
-            TextField(
-                "",
-                text: Binding(
-                    get: { table.columnNames.indices.contains(columnIndex) ? table.columnNames[columnIndex] : "" },
-                    set: { state.updateDataTableColumnName(tableID: table.id, columnIndex: columnIndex, name: $0) }
-                )
-            )
-            .font(.system(size: 13, weight: .semibold, design: .serif))
-            .foregroundStyle(.clear)
-            .tint(GraphCalculatorTheme.blue)
-            .multilineTextAlignment(.center)
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-        }
-        .frame(maxWidth: .infinity, minHeight: 26)
-        .background(Color.black.opacity(0.055))
-        .overlay(Rectangle().stroke(.black.opacity(0.12), lineWidth: 0.5))
-    }
-
-    private func dataTableValueCell(table: GraphCalculatorDataTable, row: [Double?], rowIndex: Int, columnIndex: Int) -> some View {
-        TextField(
-            "",
-            text: Binding(
-                get: {
-                    guard row.indices.contains(columnIndex), let value = row[columnIndex] else { return "" }
-                    return CalculatorResultFormatter.string(for: value)
-                },
-                set: { text in
-                    state.updateDataTableValue(tableID: table.id, rowIndex: rowIndex, columnIndex: columnIndex, value: Double(text.replacingOccurrences(of: "−", with: "-")))
-                }
-            )
-        )
-        .font(.system(size: 13, weight: .regular, design: .serif))
-        .foregroundStyle(.black.opacity(0.82))
-        .multilineTextAlignment(.center)
-        .keyboardType(.numbersAndPunctuation)
-        .frame(maxWidth: .infinity, minHeight: 26)
-        .overlay(Rectangle().stroke(.black.opacity(0.10), lineWidth: 0.5))
     }
 
     private func folderRow(_ folder: GraphCalculatorFolder) -> some View {
@@ -1049,6 +931,193 @@ public struct GraphCalculatorView: View {
         )
     }
 
+    /// Trace is active only while the open table is a function table and the trace toggle is on.
+    private var isTracing: Bool {
+        state.isTraceActive && state.activeTable?.kind == .function
+    }
+
+    /// The live trace overlay: the table-start anchor point plus a dot at each table row along the
+    /// curve, all computed from the same start/delta the function table shows.
+    private var traceOverlay: GraphTraceOverlay? {
+        guard isTracing,
+              let active = state.activeTable,
+              let index = state.expressions.firstIndex(where: { $0.id == active.equationID }),
+              let source = functionTableSource(for: active.equationID),
+              let compiled = try? engine.compile(source) else {
+            return nil
+        }
+
+        let settings = state.functionTableSettings(for: active.equationID)
+        let variables = graphVariableValues
+        guard settings.delta != 0 else {
+            return nil
+        }
+
+        let selectedX = state.traceSelectedX ?? settings.start
+        guard let anchorY = evaluate(compiled: compiled, at: selectedX, variableValues: variables) else {
+            return nil
+        }
+        let specialKind = traceSpecialKind(x: selectedX, y: anchorY)
+
+        // Dots match the table rows currently visible on the calculator screen.
+        var points: [GraphTracePoint] = []
+        for n in 0..<visibleTraceTableRows {
+            let x = settings.start + Double(n) * settings.delta
+            if let y = evaluate(compiled: compiled, at: x, variableValues: variables) {
+                points.append(GraphTracePoint(point: CGPoint(x: x, y: y), rowIndex: n))
+            }
+        }
+
+        let width = CGFloat(state.expressions[index].lineWidth ?? GraphCalculatorStyleDefaults.lineWidth)
+        let label = "(\(CalculatorResultFormatter.string(for: selectedX)), \(CalculatorResultFormatter.string(for: anchorY)))"
+        return GraphTraceOverlay(
+            anchor: CGPoint(x: selectedX, y: anchorY),
+            points: points,
+            color: graphColor(for: index),
+            lineWidth: width,
+            label: label,
+            specialKind: specialKind
+        )
+    }
+
+    /// Moves the trace when the touch is on a visible trace point or close to the curve.
+    /// Returns false for off-curve drags so normal graph panning can continue.
+    @discardableResult
+    private func updateTrace(at viewPoint: CGPoint, size: CGSize) -> Bool {
+        guard let active = state.activeTable,
+              active.kind == .function,
+              let source = functionTableSource(for: active.equationID),
+              let compiled = try? engine.compile(source) else {
+            return false
+        }
+        let settings = state.functionTableSettings(for: active.equationID)
+        guard settings.delta != 0 else { return false }
+
+        if let nearest = nearestTracePoint(to: viewPoint, size: size) {
+            state.selectedPoint = nil
+            selectVisibleTracePoint(nearest, settings: settings, equationID: active.equationID)
+            return true
+        }
+
+        let graphX = CalculatorGraphGeometry.graphPoint(forView: viewPoint, window: state.graphWindow, size: size).x
+        guard let graphY = evaluate(compiled: compiled, at: graphX, variableValues: graphVariableValues) else { return false }
+
+        let curvePoint = CalculatorGraphGeometry.viewPoint(
+            forGraph: CGPoint(x: graphX, y: graphY),
+            window: state.graphWindow,
+            size: size
+        )
+        guard curvePoint.x.isFinite,
+              curvePoint.y.isFinite,
+              hypot(curvePoint.x - viewPoint.x, curvePoint.y - viewPoint.y) <= interceptTapTolerance else {
+            return false
+        }
+
+        let selectedX = snappedTraceStart(for: graphX, delta: settings.delta)
+        state.selectedPoint = nil
+        state.traceSelectedX = selectedX
+        // A non-shown curve touch becomes the new first table value, matching the manual step precision.
+        state.setFunctionTableStart(selectedX, for: active.equationID)
+        return true
+    }
+
+    private func nearestTracePoint(to viewPoint: CGPoint, size: CGSize) -> (x: Double, rowIndex: Int)? {
+        guard let points = traceOverlay?.points, !points.isEmpty else { return nil }
+        var best: (x: Double, rowIndex: Int, distance: CGFloat)?
+
+        for tracePoint in points {
+            let screen = CalculatorGraphGeometry.viewPoint(forGraph: tracePoint.point, window: state.graphWindow, size: size)
+            guard screen.x.isFinite, screen.y.isFinite else { continue }
+            let distance = hypot(screen.x - viewPoint.x, screen.y - viewPoint.y)
+            guard distance <= interceptTapTolerance else { continue }
+            if best == nil || distance < best!.distance {
+                best = (Double(tracePoint.point.x), tracePoint.rowIndex, distance)
+            }
+        }
+
+        guard let best else { return nil }
+        return (best.x, best.rowIndex)
+    }
+
+    private func selectVisibleTracePoint(
+        _ point: (x: Double, rowIndex: Int),
+        settings: GraphFunctionTableSettings,
+        equationID: UUID
+    ) {
+        state.traceSelectedX = point.x
+        guard !preferredTraceSlotRange.contains(point.rowIndex) else { return }
+        let start = point.x - Double(preferredTraceSlotIndex) * settings.delta
+        state.setFunctionTableStart(snappedTraceStart(for: start, delta: settings.delta), for: equationID)
+    }
+
+    private func traceSpecialKind(
+        x: Double,
+        y: Double
+    ) -> GraphCalculatorPointReadout.Kind? {
+        if abs(y) <= notablePointYTolerance {
+            return .xIntercept
+        }
+        if abs(x) <= notablePointXTolerance {
+            return .yIntercept
+        }
+        return isTracePointIntersection(x: x, y: y) ? .intersection : nil
+    }
+
+    private var notablePointXTolerance: Double {
+        max(state.graphWindow.width * 1e-4, 1e-6)
+    }
+
+    private var notablePointYTolerance: Double {
+        max(state.graphWindow.height * 1e-4, 1e-6)
+    }
+
+    private func isTracePointIntersection(x: Double, y: Double) -> Bool {
+        let variables = graphVariableValues
+        var matchingCurveCount = 0
+
+        for row in resolvedRows {
+            guard state.expressions.indices.contains(row.index),
+                  let source = interceptSourceExpression(for: row.plot),
+                  let compiled = try? engine.compile(source),
+                  let value = evaluate(compiled: compiled, at: x, variableValues: variables),
+                  abs(value - y) <= notablePointYTolerance else {
+                continue
+            }
+            matchingCurveCount += 1
+            if matchingCurveCount >= 2 {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func snappedTraceStart(for x: Double, delta: Double) -> Double {
+        let scale = pow(10, Double(decimalPlaces(for: delta)))
+        return (x * scale).rounded() / scale
+    }
+
+    private func decimalPlaces(for value: Double) -> Int {
+        let text = String(format: "%.8f", abs(value))
+            .trimmingCharacters(in: CharacterSet(charactersIn: "0"))
+        guard let decimalIndex = text.firstIndex(of: ".") else { return 0 }
+        return text.distance(from: text.index(after: decimalIndex), to: text.endIndex)
+    }
+
+    /// Teacher-added points (from point-row tables) prepared for the renderer, styled per owning row.
+    private var attachedPointSets: [GraphAttachedPoints] {
+        state.pointRows.compactMap { id, pairs in
+            guard let index = state.expressions.firstIndex(where: { $0.id == id }) else { return nil }
+            let points = pairs.compactMap { pair -> CGPoint? in
+                guard let x = pair.x, let y = pair.y else { return nil }
+                return CGPoint(x: x, y: y)
+            }
+            guard !points.isEmpty else { return nil }
+            let width = CGFloat(state.expressions[index].lineWidth ?? GraphCalculatorStyleDefaults.lineWidth)
+            return GraphAttachedPoints(points: points, color: graphColor(for: index), lineWidth: width)
+        }
+    }
+
     private func expressionRow(_ index: Int, resolvedRows: [GraphCalculatorResolvedRow]) -> some View {
         let isSelected = state.selectedExpressionIndex == index
         let text = state.expressions.indices.contains(index) ? state.expressions[index].expression : ""
@@ -1059,6 +1128,9 @@ public struct GraphCalculatorView: View {
         let color = graphColor(for: index)
         let promptNames = sliderPromptNames(forExpression: text)
         let rowHeight: CGFloat = promptNames.isEmpty ? 50 : 82
+        let equationID = state.expressions.indices.contains(index) ? state.expressions[index].id : nil
+        let tableKind = tableKind(for: resolved?.plot)
+        let hasExtraPoints = equationID.map { !state.extraPoints(for: $0).isEmpty } ?? false
 
         return HStack(spacing: 0) {
             expressionStyleCell(index: index, isSelected: isSelected, isInvalid: isInvalid, color: color)
@@ -1067,6 +1139,12 @@ public struct GraphCalculatorView: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
                     expressionText(text, displayText: displayText, isSelected: isSelected)
+                    // A point row with attached table points shows an ellipsis to signal "more points".
+                    if tableKind == .points, hasExtraPoints {
+                        Text("…")
+                            .font(.system(size: 20, weight: .semibold, design: .serif))
+                            .foregroundStyle(.black.opacity(0.55))
+                    }
                     if let displayValue {
                         Text("= \(displayValue)")
                             .font(.system(size: 17, weight: .medium, design: .serif))
@@ -1088,6 +1166,10 @@ public struct GraphCalculatorView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 8)
 
+            if let equationID, let tableKind {
+                tableIconButton(equationID: equationID, kind: tableKind, rowHeight: rowHeight)
+            }
+
             Button { deleteExpression(index) } label: {
                 Image(systemName: "xmark")
                     .font(.title2.weight(.bold))
@@ -1104,6 +1186,43 @@ public struct GraphCalculatorView: View {
             if editingSliderBound != nil { commitSliderBoundEdit() }
             state.selectExpression(at: index)
         }
+    }
+
+    /// The kind of table a resolved row qualifies for, or nil if it does not get a table icon.
+    /// Single-valued functions of x get a function table; ordered pairs get a points table.
+    private func tableKind(for plot: GraphCalculatorPlot?) -> GraphActiveTable.Kind? {
+        switch plot {
+        case .curve, .yRelation(_, .equal):
+            return .function
+        case .point:
+            return .points
+        case .yRelation, .xRelation, .none:
+            return nil
+        }
+    }
+
+    /// The per-row table icon. Tapping it opens (or closes) that row's floating table window.
+    private func tableIconButton(equationID: UUID, kind: GraphActiveTable.Kind, rowHeight: CGFloat) -> some View {
+        let isOpen = state.activeTable?.equationID == equationID
+        return Button {
+            state.toggleTable(for: equationID, kind: kind)
+        } label: {
+            Image(systemName: "tablecells")
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(isOpen ? .white : GraphCalculatorTheme.blue)
+                .frame(width: 40, height: 34)
+                .background(
+                    isOpen ? GraphCalculatorTheme.blue : GraphCalculatorTheme.blue.opacity(0.12),
+                    in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7)
+                        .strokeBorder(GraphCalculatorTheme.blue.opacity(isOpen ? 0 : 0.35), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .frame(height: rowHeight)
+        .padding(.trailing, 2)
     }
 
     /// Inline "create slider:" prompt shown beneath an equation for each candidate variable.
@@ -1715,11 +1834,17 @@ public struct GraphCalculatorView: View {
         let height = min(containerSize.height - 24, detachedControlHeight)
         let size = CGSize(width: width, height: height)
         let center = detachedControlCenter(size: size, in: containerSize)
+        let placementRect = CGRect(
+            x: center.x - size.width / 2,
+            y: center.y - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
 
         return VStack(spacing: 0) {
             topBar
                 .gesture(detachedControlDragGesture(currentCenter: center, size: size, in: containerSize))
-            graphToolbar
+            graphToolbar(placementRect: placementRect, containerSize: containerSize)
             entryPanel
                 .frame(height: detachedEntryHeight(availableHeight: height))
                 .overlay(alignment: .bottom) {
@@ -1738,6 +1863,384 @@ public struct GraphCalculatorView: View {
         .compositingGroup()
         .position(center)
         .opacity(isDragging(.detachedControl) ? 0.14 : 1)
+    }
+
+    // MARK: - Floating table window
+
+    @ViewBuilder
+    private func tableWindow(in containerSize: CGSize) -> some View {
+        if let active = state.activeTable,
+           let equation = state.expressions.first(where: { $0.id == active.equationID }) {
+            let size = tableResizeLive?.size ?? clampTableSize(state.tableWindowSize, in: containerSize)
+            let center = tableResizeLive?.center ?? tableWindowCenter(size: size, in: containerSize)
+
+            VStack(spacing: 0) {
+                tableMenuBar(active: active, equation: equation, currentCenter: center, size: size, in: containerSize)
+                Divider()
+                if active.kind == .function {
+                    functionTableBody(equationID: active.equationID)
+                } else {
+                    pointsTableBody(equationID: active.equationID)
+                }
+            }
+            .frame(width: size.width, height: size.height)
+            .background(Color.white, in: Rectangle())
+            .overlay(Rectangle().strokeBorder(.black.opacity(0.32), lineWidth: 1))
+            .shadow(color: .black.opacity(0.28), radius: 14, y: 6)
+            .compositingGroup()
+            .overlay(alignment: .bottomTrailing) {
+                ResizeGrip()
+                    .frame(width: 24, height: 24)
+                    .padding(7)
+                    .contentShape(Rectangle())
+                    .highPriorityGesture(tableResizeGesture(currentCenter: center, in: containerSize))
+            }
+            .position(center)
+            .offset(tableWindowLiveOffset)
+        }
+    }
+
+    private func tableMenuBar(
+        active: GraphActiveTable,
+        equation: GraphEquation,
+        currentCenter: CGPoint,
+        size: CGSize,
+        in containerSize: CGSize
+    ) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "tablecells")
+                .font(.headline.weight(.semibold))
+            Text(GraphCalculatorExpressionDisplay.string(for: equation.expression))
+                .font(.system(size: 15, weight: .semibold, design: .serif))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            Spacer()
+
+            if active.kind == .function {
+                Button { state.isTraceActive.toggle() } label: {
+                    Image(systemName: "scope")
+                        .foregroundStyle(state.isTraceActive ? GraphCalculatorTheme.blue : .black.opacity(0.6))
+                }
+                .buttonStyle(.plain)
+                Button { isTableSettingsPresented.toggle() } label: {
+                    Image(systemName: "gearshape.fill")
+                        .foregroundStyle(isTableSettingsPresented ? GraphCalculatorTheme.blue : .black.opacity(0.6))
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $isTableSettingsPresented) {
+                    tableSettingsPopover(equationID: active.equationID)
+                }
+            } else {
+                Button { state.addExtraPoint(for: active.equationID) } label: {
+                    Image(systemName: "plus")
+                }
+                .buttonStyle(.plain)
+            }
+
+            Button { state.closeTable() } label: {
+                Image(systemName: "xmark.circle.fill")
+            }
+            .buttonStyle(.plain)
+        }
+        .font(.title3.weight(.semibold))
+        .foregroundStyle(.black.opacity(0.72))
+        .padding(.horizontal, 12)
+        .frame(height: 42)
+        .background(Color.white)
+        .contentShape(Rectangle())
+        .gesture(tableDragGesture(currentCenter: currentCenter, size: size, in: containerSize))
+    }
+
+    /// Function (`y = f(x)`) table: read-only x column generated from start/delta, computed f(x).
+    private func functionTableBody(equationID: UUID) -> some View {
+        let settings = state.functionTableSettings(for: equationID)
+        let compiled = functionTableSource(for: equationID).flatMap { try? engine.compile($0) }
+        let variables = graphVariableValues
+        let selectedRowIndex = selectedTraceTableRowIndex(equationID: equationID, settings: settings)
+        let selectedKind = selectedTraceTableKind(equationID: equationID, settings: settings, compiled: compiled, variables: variables)
+
+        return VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                tableHeaderCell("x")
+                tableHeaderCell("f(x)")
+            }
+            if let compiled {
+                ScrollView(.vertical) {
+                    LazyVStack(spacing: 0) {
+                        // Generous count; LazyVStack only builds visible rows.
+                        ForEach(0..<200, id: \.self) { n in
+                            let x = settings.start + Double(n) * settings.delta
+                            let isSelected = selectedRowIndex == n
+                            let highlightColor = isSelected ? tableHighlightColor(for: selectedKind) : nil
+                            HStack(spacing: 0) {
+                                tableValueCell(CalculatorResultFormatter.string(for: x), highlightColor: highlightColor)
+                                tableValueCell(functionTableValue(compiled: compiled, x: x, variables: variables), highlightColor: highlightColor)
+                            }
+                        }
+                    }
+                }
+            } else {
+                Text("Select a y-function")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.black.opacity(0.5))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    private func functionTableValue(compiled: CalculatorExpression, x: Double, variables: [String: Double]) -> String {
+        var vars = variables
+        vars["x"] = x
+        guard let value = try? engine.evaluate(compiled: compiled, angleMode: .radians, variables: vars) else {
+            return "undefined"
+        }
+        return CalculatorResultFormatter.string(for: value)
+    }
+
+    private func selectedTraceTableRowIndex(equationID: UUID, settings: GraphFunctionTableSettings) -> Int? {
+        guard isTracing,
+              state.activeTable?.equationID == equationID,
+              settings.delta != 0 else {
+            return nil
+        }
+        let selectedX = state.traceSelectedX ?? settings.start
+        let rawIndex = (selectedX - settings.start) / settings.delta
+        let roundedIndex = rawIndex.rounded()
+        guard abs(rawIndex - roundedIndex) < 1e-6 else { return nil }
+        let index = Int(roundedIndex)
+        return index >= 0 ? index : nil
+    }
+
+    private func selectedTraceTableKind(
+        equationID: UUID,
+        settings: GraphFunctionTableSettings,
+        compiled: CalculatorExpression?,
+        variables: [String: Double]
+    ) -> GraphCalculatorPointReadout.Kind? {
+        guard isTracing,
+              state.activeTable?.equationID == equationID,
+              let compiled else {
+            return nil
+        }
+        let selectedX = state.traceSelectedX ?? settings.start
+        guard let selectedY = evaluate(compiled: compiled, at: selectedX, variableValues: variables) else {
+            return nil
+        }
+        return traceSpecialKind(x: selectedX, y: selectedY)
+    }
+
+    private func tableHighlightColor(for kind: GraphCalculatorPointReadout.Kind?) -> Color {
+        guard let kind else { return GraphCalculatorTheme.blue }
+        return GraphHighlightPalette.color(for: kind)
+    }
+
+    /// Points table: the typed ordered pair (read-only) followed by editable teacher-added points.
+    private func pointsTableBody(equationID: UUID) -> some View {
+        let typed = typedPoint(for: equationID)
+        let extras = state.extraPoints(for: equationID)
+
+        return VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                tableHeaderCell("x")
+                tableHeaderCell("y")
+                tableHeaderCell("")
+            }
+            ScrollView(.vertical) {
+                LazyVStack(spacing: 0) {
+                    if let typed {
+                        HStack(spacing: 0) {
+                            tableValueCell(CalculatorResultFormatter.string(for: typed.0))
+                            tableValueCell(CalculatorResultFormatter.string(for: typed.1))
+                            Color.clear.frame(maxWidth: .infinity, minHeight: 44)
+                                .overlay(Rectangle().stroke(.black.opacity(0.10), lineWidth: 0.5))
+                        }
+                        .background(Color.black.opacity(0.03))
+                    }
+                    ForEach(extras) { pair in
+                        pointsTableEditRow(equationID: equationID, pair: pair)
+                    }
+                    Button { state.addExtraPoint(for: equationID) } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "plus")
+                            Text("Add point")
+                        }
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(GraphCalculatorTheme.blue)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private func pointsTableEditRow(equationID: UUID, pair: GraphOrderedPair) -> some View {
+        HStack(spacing: 0) {
+            pointsEditCell(
+                value: pair.x,
+                set: { state.updateExtraPointX(for: equationID, pairID: pair.id, value: $0) }
+            )
+            pointsEditCell(
+                value: pair.y,
+                set: { state.updateExtraPointY(for: equationID, pairID: pair.id, value: $0) }
+            )
+            Button { state.deleteExtraPoint(for: equationID, pairID: pair.id) } label: {
+                Image(systemName: "xmark")
+                    .font(.body.weight(.bold))
+                    .foregroundStyle(.black.opacity(0.35))
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            .overlay(Rectangle().stroke(.black.opacity(0.10), lineWidth: 0.5))
+        }
+    }
+
+    private func pointsEditCell(value: Double?, set: @escaping (Double?) -> Void) -> some View {
+        TextField(
+            "",
+            text: Binding(
+                get: { value.map { CalculatorResultFormatter.string(for: $0) } ?? "" },
+                set: { set(Double($0.replacingOccurrences(of: "−", with: "-"))) }
+            )
+        )
+        .font(.system(size: 18, weight: .regular, design: .serif))
+        .foregroundStyle(.black.opacity(0.82))
+        .multilineTextAlignment(.center)
+        .keyboardType(.numbersAndPunctuation)
+        .lineLimit(1)
+        .minimumScaleFactor(0.55)
+        .padding(.horizontal, 2)
+        .frame(maxWidth: .infinity, minHeight: 44)
+        .overlay(Rectangle().stroke(.black.opacity(0.10), lineWidth: 0.5))
+    }
+
+    private func tableSettingsPopover(equationID: UUID) -> some View {
+        let settings = state.functionTableSettings(for: equationID)
+        return VStack(alignment: .leading, spacing: 14) {
+            Text("Table Settings")
+                .font(.headline)
+            tableSettingField(
+                title: "Table start",
+                value: settings.start,
+                set: { state.setFunctionTableStart($0, for: equationID) }
+            )
+            tableSettingField(
+                title: "Table step (Δ)",
+                value: settings.delta,
+                set: { state.setFunctionTableDelta($0, for: equationID) }
+            )
+            Text("These also set the graph trace step.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(18)
+        .frame(width: 260)
+    }
+
+    private func tableSettingField(title: String, value: Double, set: @escaping (Double) -> Void) -> some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(.black.opacity(0.8))
+            Spacer()
+            TextField(
+                "",
+                text: Binding(
+                    get: { CalculatorResultFormatter.string(for: value) },
+                    set: { if let v = Double($0.replacingOccurrences(of: "−", with: "-")) { set(v) } }
+                )
+            )
+            .font(.system(size: 15, weight: .semibold, design: .serif))
+            .multilineTextAlignment(.trailing)
+            .keyboardType(.numbersAndPunctuation)
+            .frame(width: 90)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(Color.black.opacity(0.05), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.black.opacity(0.14), lineWidth: 0.5))
+        }
+    }
+
+    /// The graphable `y = f(x)` source for a row that qualifies for a function table.
+    private func functionTableSource(for equationID: UUID) -> String? {
+        guard let index = state.expressions.firstIndex(where: { $0.id == equationID }) else { return nil }
+        switch resolvedRows.first(where: { $0.index == index })?.plot {
+        case .curve(let source), .yRelation(let source, .equal):
+            return source
+        default:
+            return nil
+        }
+    }
+
+    /// The ordered pair typed into a point row, if the row resolves to a point.
+    private func typedPoint(for equationID: UUID) -> (Double, Double)? {
+        guard let index = state.expressions.firstIndex(where: { $0.id == equationID }) else { return nil }
+        if case .point(let x, let y)? = resolvedRows.first(where: { $0.index == index })?.plot {
+            return (x, y)
+        }
+        return nil
+    }
+
+    private func clampTableSize(_ size: CGSize, in containerSize: CGSize) -> CGSize {
+        CGSize(
+            width: min(max(size.width, 260), max(260, containerSize.width - 24)),
+            height: min(max(size.height, 240), max(240, containerSize.height - 24))
+        )
+    }
+
+    private func tableWindowCenter(size: CGSize, in containerSize: CGSize) -> CGPoint {
+        let fallback = CGPoint(x: containerSize.width * 0.5, y: containerSize.height * 0.42)
+        return clamp(center: state.tableWindowPosition ?? fallback, size: size, in: containerSize)
+    }
+
+    private func tableDragGesture(currentCenter: CGPoint, size: CGSize, in containerSize: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 1)
+            .onChanged { value in
+                let base = tableDragStartCenter ?? currentCenter
+                if tableDragStartCenter == nil { tableDragStartCenter = base }
+                let proposed = CGPoint(x: base.x + value.translation.width, y: base.y + value.translation.height)
+                let clamped = clamp(center: proposed, size: size, in: containerSize)
+                setWithoutAnimation {
+                    tableWindowLiveOffset = CGSize(width: clamped.x - currentCenter.x, height: clamped.y - currentCenter.y)
+                }
+            }
+            .onEnded { _ in
+                state.tableWindowPosition = CGPoint(
+                    x: currentCenter.x + tableWindowLiveOffset.width,
+                    y: currentCenter.y + tableWindowLiveOffset.height
+                )
+                tableWindowLiveOffset = .zero
+                tableDragStartCenter = nil
+            }
+    }
+
+    private func tableResizeGesture(currentCenter: CGPoint, in containerSize: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 1, coordinateSpace: .global)
+            .onChanged { value in
+                let start = tableResizeStart ?? (
+                    size: state.tableWindowSize,
+                    topLeft: CGPoint(x: currentCenter.x - state.tableWindowSize.width / 2, y: currentCenter.y - state.tableWindowSize.height / 2)
+                )
+                if tableResizeStart == nil { tableResizeStart = start }
+                let proposed = CGSize(width: start.size.width + value.translation.width, height: start.size.height + value.translation.height)
+                let clamped = clampTableSize(proposed, in: containerSize)
+                let center = clamp(
+                    center: CGPoint(x: start.topLeft.x + clamped.width / 2, y: start.topLeft.y + clamped.height / 2),
+                    size: clamped,
+                    in: containerSize
+                )
+                setWithoutAnimation {
+                    tableResizeLive = (size: clamped, center: center)
+                }
+            }
+            .onEnded { _ in
+                if let live = tableResizeLive {
+                    state.tableWindowSize = live.size
+                    state.tableWindowPosition = live.center
+                }
+                tableResizeLive = nil
+                tableResizeStart = nil
+            }
     }
 
     private func dragProxyView(_ proxy: GraphCalculatorDragProxy) -> some View {
@@ -1850,6 +2353,11 @@ public struct GraphCalculatorView: View {
     private func graphPanGesture(size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 1)
             .onChanged { value in
+                // While tracing, drags on the curve/trace points move the trace; off-curve drags pan.
+                if isTracing, updateTrace(at: value.location, size: size) {
+                    graphPanStart = value.translation
+                    return
+                }
                 let delta = CGSize(
                     width: value.translation.width - graphPanStart.width,
                     height: value.translation.height - graphPanStart.height
@@ -1858,6 +2366,204 @@ public struct GraphCalculatorView: View {
                 state.graphWindow = CalculatorGraphGeometry.pan(window: state.graphWindow, byViewTranslation: delta, size: size)
             }
             .onEnded { _ in graphPanStart = .zero }
+    }
+
+    /// Tapping on or near an x-intercept of a graphed curve shows its ordered pair.
+    /// Tapping elsewhere on the graph clears the readout.
+    private func graphTapGesture(size: CGSize) -> some Gesture {
+        SpatialTapGesture()
+            .onEnded { value in
+                handleGraphTap(at: value.location, size: size)
+            }
+    }
+
+    /// Screen-space tolerance (points) for treating a tap as "on" an x-intercept.
+    private let interceptTapTolerance: CGFloat = 34
+
+    private func handleGraphTap(at viewPoint: CGPoint, size: CGSize) {
+        if isTracing {
+            updateTrace(at: viewPoint, size: size)
+            return
+        }
+
+        state.selectedPoint = nearestGraphReadout(
+            at: viewPoint,
+            size: size,
+            including: [.xIntercept, .yIntercept, .intersection, .plottedPoint]
+        )
+    }
+
+    private func nearestGraphReadout(
+        at viewPoint: CGPoint,
+        size: CGSize,
+        including includedKinds: Set<GraphCalculatorPointReadout.Kind>
+    ) -> GraphCalculatorPointReadout? {
+        let window = state.graphWindow
+        let variables = graphVariableValues
+        var best: (point: GraphCalculatorPointReadout, distance: CGFloat)?
+
+        func consider(x: Double, y: Double, index: Int?, kind: GraphCalculatorPointReadout.Kind) {
+            guard includedKinds.contains(kind) else { return }
+            let screen = CalculatorGraphGeometry.viewPoint(
+                forGraph: CGPoint(x: x, y: y),
+                window: window,
+                size: size
+            )
+            guard screen.x.isFinite, screen.y.isFinite else { return }
+            let distance = hypot(screen.x - viewPoint.x, screen.y - viewPoint.y)
+            guard distance <= interceptTapTolerance else { return }
+            if best == nil || distance < best!.distance {
+                best = (GraphCalculatorPointReadout(x: x, y: y, expressionIndex: index, kind: kind), distance)
+            }
+        }
+
+        // Compile every graphable y = f(x) row once so we can reuse them for both
+        // intercepts and pairwise intersections.
+        let curves: [(index: Int, source: String, compiled: CalculatorExpression)] = resolvedRows.compactMap { row in
+            guard let source = interceptSourceExpression(for: row.plot),
+                  let compiled = try? engine.compile(source) else {
+                return nil
+            }
+            return (row.index, source, compiled)
+        }
+
+        for curve in curves {
+            // x-intercepts: where the curve crosses y = 0.
+            for root in xIntercepts(of: curve.compiled, in: window, variableValues: variables) {
+                consider(x: root, y: 0, index: curve.index, kind: .xIntercept)
+            }
+
+            // y-intercept: the single point (0, f(0)), if the curve is defined at x = 0.
+            if let yValue = evaluate(compiled: curve.compiled, at: 0, variableValues: variables) {
+                consider(x: 0, y: yValue, index: curve.index, kind: .yIntercept)
+            }
+        }
+
+        if includedKinds.contains(.intersection) {
+            // Intersections: for each pair of curves, f(x) = g(x) where f(x) − g(x) crosses zero.
+            for i in curves.indices {
+                for j in (i + 1)..<curves.count {
+                    let a = curves[i]
+                    let b = curves[j]
+                    guard let difference = try? engine.compile("(\(a.source))-(\(b.source))") else { continue }
+                    for root in xIntercepts(of: difference, in: window, variableValues: variables) {
+                        guard let y = evaluate(compiled: a.compiled, at: root, variableValues: variables) else { continue }
+                        // Intersection points belong to both curves; they get a celebratory glowing marker.
+                        consider(x: root, y: y, index: nil, kind: .intersection)
+                    }
+                }
+            }
+        }
+
+        if includedKinds.contains(.plottedPoint) {
+            // Plotted points: typed ordered-pair rows plus any extra points attached from that row's table.
+            for row in resolvedRows {
+                guard state.expressions.indices.contains(row.index) else { continue }
+                let index = row.index
+                if case .point(let x, let y)? = row.plot {
+                    consider(x: x, y: y, index: index, kind: .plottedPoint)
+                }
+
+                let equationID = state.expressions[index].id
+                for pair in state.extraPoints(for: equationID) {
+                    guard let x = pair.x, let y = pair.y else { continue }
+                    consider(x: x, y: y, index: index, kind: .plottedPoint)
+                }
+            }
+        }
+
+        return best?.point
+    }
+
+    /// Evaluates a compiled `y = f(x)` at a specific x, returning nil when undefined or non-finite.
+    private func evaluate(
+        compiled: CalculatorExpression,
+        at x: Double,
+        variableValues: [String: Double]
+    ) -> Double? {
+        var variables = variableValues
+        variables["x"] = x
+        let value = try? engine.evaluate(compiled: compiled, angleMode: .radians, variables: variables)
+        guard let value, value.isFinite else { return nil }
+        return value
+    }
+
+    /// The `y = f(x)` expression body to search for x-intercepts, if this plot has one.
+    private func interceptSourceExpression(for plot: GraphCalculatorPlot?) -> String? {
+        switch plot {
+        case .curve(let source):
+            return source
+        case .yRelation(let source, .equal):
+            return source
+        default:
+            return nil
+        }
+    }
+
+    /// Finds x values where the compiled `y = f(x)` crosses zero within the visible window.
+    /// Samples densely, detects sign changes, and refines each with bisection. Sign changes
+    /// across asymptotes (where the refined value is not near zero) are discarded.
+    private func xIntercepts(
+        of compiled: CalculatorExpression,
+        in window: GraphWindow,
+        variableValues: [String: Double]
+    ) -> [Double] {
+        func evaluate(_ x: Double) -> Double? {
+            self.evaluate(compiled: compiled, at: x, variableValues: variableValues)
+        }
+
+        let samples = CalculatorGraphGeometry.sample(window: window, count: 600, eval: evaluate)
+        // A real root must refine to a value very close to zero. This rejects asymptote
+        // crossings (e.g. 1/x, tan x), where bisection lands on the asymptote x but |f| stays large.
+        let acceptTolerance = window.height * 1e-4
+        var roots: [Double] = []
+        var previous: CalculatorGraphGeometry.Sample?
+
+        for sample in samples {
+            defer { previous = sample }
+            guard let y = sample.y else { continue }
+            // Exact-zero sample: it is already the crossing, no refinement needed.
+            if y == 0 {
+                appendRoot(sample.x, to: &roots, window: window)
+                continue
+            }
+            guard let previous, let previousY = previous.y, previousY != 0 else { continue }
+            // Only a strict sign change brackets a crossing; always bisect to the true root
+            // rather than accepting a nearby sample, so the marker lands exactly on the line.
+            if (previousY < 0) != (y < 0) {
+                let root = bisectRoot(x0: previous.x, x1: sample.x, evaluate: evaluate)
+                if let value = evaluate(root), abs(value) < acceptTolerance {
+                    appendRoot(root, to: &roots, window: window)
+                }
+            }
+        }
+        return roots
+    }
+
+    /// Adds a root, skipping ones effectively coincident with an already-found root.
+    private func appendRoot(_ root: Double, to roots: inout [Double], window: GraphWindow) {
+        let minimumSeparation = window.width * 1e-4
+        if roots.contains(where: { abs($0 - root) <= minimumSeparation }) { return }
+        roots.append(root)
+    }
+
+    private func bisectRoot(x0: Double, x1: Double, evaluate: (Double) -> Double?) -> Double {
+        var low = x0
+        var high = x1
+        guard var lowValue = evaluate(low) else { return (x0 + x1) / 2 }
+
+        for _ in 0..<48 {
+            let mid = (low + high) / 2
+            guard let midValue = evaluate(mid) else { return mid }
+            if midValue == 0 { return mid }
+            if (lowValue < 0) == (midValue < 0) {
+                low = mid
+                lowValue = midValue
+            } else {
+                high = mid
+            }
+        }
+        return (low + high) / 2
     }
 
     private func graphMagnifyGesture(size: CGSize) -> some Gesture {
@@ -2189,7 +2895,6 @@ private enum FunctionMenuCategory: CaseIterable {
         case .stats:
             return [
                 FunctionMenuItem(label: "point", insertion: "(,)"),
-                FunctionMenuItem(label: "table", insertion: ""),
                 FunctionMenuItem(label: "min", insertion: "min("),
                 FunctionMenuItem(label: "max", insertion: "max("),
                 FunctionMenuItem(label: "round", insertion: "round("),
@@ -2563,6 +3268,52 @@ private struct SliderBoundEdit: Identifiable, Equatable {
         }()
     )
     .frame(width: 900, height: 820)
+    .padding()
+    .background(Color(white: 0.93))
+}
+
+#Preview("Function Table Window") {
+    GraphCalculatorView(
+        state: {
+            let equation = GraphEquation(expression: "y=x^2-5", colorIndex: 0)
+            let state = GraphCalculatorState(expressions: [equation])
+            state.activeTable = GraphActiveTable(equationID: equation.id, kind: .function)
+            return state
+        }()
+    )
+    .frame(width: 560, height: 900)
+    .padding()
+    .background(Color(white: 0.93))
+}
+
+#Preview("Trace") {
+    GraphCalculatorView(
+        state: {
+            let equation = GraphEquation(expression: "y=x^2-5", colorIndex: 0)
+            let state = GraphCalculatorState(expressions: [equation])
+            state.activeTable = GraphActiveTable(equationID: equation.id, kind: .function)
+            state.isTraceActive = true
+            state.functionTableSettings[equation.id] = GraphFunctionTableSettings(start: -3, delta: 1)
+            state.tableWindowPosition = CGPoint(x: 280, y: 720)
+            return state
+        }()
+    )
+    .frame(width: 560, height: 900)
+    .padding()
+    .background(Color(white: 0.93))
+}
+
+#Preview("Points Table Window") {
+    GraphCalculatorView(
+        state: {
+            let equation = GraphEquation(expression: "(3,4)", colorIndex: 1)
+            let state = GraphCalculatorState(expressions: [equation])
+            state.pointRows[equation.id] = [GraphOrderedPair(x: 5, y: 6), GraphOrderedPair(x: -2, y: 1)]
+            state.activeTable = GraphActiveTable(equationID: equation.id, kind: .points)
+            return state
+        }()
+    )
+    .frame(width: 560, height: 900)
     .padding()
     .background(Color(white: 0.93))
 }

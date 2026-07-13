@@ -11,30 +11,76 @@ import Observation
 import Calculator
 
 enum GraphCalculatorStyleDefaults {
-    static let lineWidth: Double = 3.0
+    static let lineWidth: Double = 4.5
     static let minimumLineWidth: Double = 1.25
-    static let maximumLineWidth: Double = 7.5
+    static let maximumLineWidth: Double = 9.0
 }
 
-public struct GraphCalculatorDataTable: Identifiable, Codable, Hashable, Sendable {
-    public var id: UUID
-    public var columnNames: [String]
-    public var rows: [[Double?]]
+/// A point readout the teacher has tapped out on the graph, such as an x-intercept.
+/// Rendered on the canvas as a highlighted dot with its ordered-pair label.
+public struct GraphCalculatorPointReadout: Equatable, Sendable {
+    /// What kind of notable point this is. Each kind gets its own glowing-dot color.
+    public enum Kind: Hashable, Sendable {
+        case xIntercept
+        case yIntercept
+        case intersection
+        case plottedPoint
+    }
 
-    public init(
-        id: UUID = UUID(),
-        columnNames: [String] = ["x_1", "y_1"],
-        rows: [[Double?]] = [
-            [nil, nil],
-            [nil, nil],
-            [nil, nil],
-            [nil, nil],
-            [nil, nil]
-        ]
-    ) {
+    public var x: Double
+    public var y: Double
+    /// Index of the expression row this point belongs to, used to color the marker.
+    public var expressionIndex: Int?
+    public var kind: Kind
+
+    public init(x: Double, y: Double, expressionIndex: Int? = nil, kind: Kind = .xIntercept) {
+        self.x = x
+        self.y = y
+        self.expressionIndex = expressionIndex
+        self.kind = kind
+    }
+}
+
+/// A single editable ordered pair in a point row's attached data table. Values are optional so
+/// cells can be blank while the teacher is typing.
+public struct GraphOrderedPair: Identifiable, Codable, Hashable, Sendable {
+    public var id: UUID
+    public var x: Double?
+    public var y: Double?
+
+    public init(id: UUID = UUID(), x: Double? = nil, y: Double? = nil) {
         self.id = id
-        self.columnNames = Array(columnNames.prefix(4))
-        self.rows = rows.map { Array($0.prefix(4)) }
+        self.x = x
+        self.y = y
+    }
+}
+
+/// Start/step settings for a function (`y = f(x)`) table. These also seed the graph trace step.
+public struct GraphFunctionTableSettings: Equatable, Sendable {
+    public var start: Double
+    public var delta: Double
+
+    public init(start: Double = 0, delta: Double = 1) {
+        self.start = start
+        self.delta = delta
+    }
+}
+
+/// The single table window that is currently open, tied to the equation row that owns it.
+public struct GraphActiveTable: Equatable, Sendable {
+    public enum Kind: Sendable, Equatable {
+        /// `y = f(x)` — auto-generated x | f(x) rows with a settings gear.
+        case function
+        /// A typed ordered pair with teacher-added extra points — editable x | y rows, no gear.
+        case points
+    }
+
+    public var equationID: UUID
+    public var kind: Kind
+
+    public init(equationID: UUID, kind: Kind) {
+        self.equationID = equationID
+        self.kind = kind
     }
 }
 
@@ -53,7 +99,6 @@ public struct GraphCalculatorFolder: Identifiable, Codable, Hashable, Sendable {
 public final class GraphCalculatorState {
     public var title: String = "Untitled Graph"
     public var expressions: [GraphEquation]
-    public var dataTables: [GraphCalculatorDataTable] = []
     public var folders: [GraphCalculatorFolder] = []
     public var selectedExpressionIndex: Int = 0
     public var graphWindow: GraphWindow = .default
@@ -63,7 +108,6 @@ public final class GraphCalculatorState {
     public var detachedGraphSize: CGSize = CGSize(width: 520, height: 390)
     public var detachedControlPosition: CGPoint?
     public var isKeypadCollapsed: Bool = false
-    public var isTableVisible: Bool = false
     public var isFunctionMenuVisible: Bool = false
     public var isAddMenuVisible: Bool = false
     public var isGraphSettingsVisible: Bool = false
@@ -71,6 +115,7 @@ public final class GraphCalculatorState {
     // Graph appearance settings (wired into the renderer).
     public var axisStrokeWidth: Double = 1.4
     public var gridlineThickness: Double = 0.8
+    public var gridlineOpacity: Double = 0.24
     public var isGridVisible: Bool = true
     public var xAxisLabel: String = ""
     public var yAxisLabel: String = ""
@@ -79,8 +124,27 @@ public final class GraphCalculatorState {
     public var sliderDecisions: [String: Bool] = [:]
     public var sliderMinimums: [String: Double] = [:]
     public var sliderMaximums: [String: Double] = [:]
-    public var tableXValues: [Double] = [-2, -1, 0, 1, 2]
     public var cursorOffset: Int = 0
+
+    /// The graph point the teacher last tapped out (e.g. an x-intercept), shown on the canvas.
+    public var selectedPoint: GraphCalculatorPointReadout?
+
+    /// The single open floating table window (one at a time), or nil when none is open.
+    public var activeTable: GraphActiveTable?
+    /// Persisted position/size of the floating table window.
+    public var tableWindowPosition: CGPoint?
+    public var tableWindowSize: CGSize = CGSize(width: 340, height: 420)
+    /// Per-equation function-table settings, keyed by `GraphEquation.id`.
+    public var functionTableSettings: [UUID: GraphFunctionTableSettings] = [:]
+    /// Extra teacher-added points for a point row, keyed by `GraphEquation.id`. Does not include
+    /// the ordered pair typed into the equation cell itself.
+    public var pointRows: [UUID: [GraphOrderedPair]] = [:]
+    /// Whether trace mode is on for the open function table. A finger drag on the graph then sets
+    /// the table start value, keeping the traced points and the table rows in sync.
+    public var isTraceActive: Bool = false
+    /// The x of the currently highlighted trace point (a table value `start + n·delta`). May differ
+    /// from the table start when the teacher selects a later shown point.
+    public var traceSelectedX: Double?
 
     public init(expressions: [GraphEquation] = [GraphEquation(expression: "", colorIndex: 0)]) {
         self.expressions = expressions.isEmpty ? [GraphEquation(expression: "", colorIndex: 0)] : expressions
@@ -109,11 +173,6 @@ public final class GraphCalculatorState {
         expressions.append(GraphEquation(expression: "", colorIndex: expressions.count))
         selectedExpressionIndex = expressions.count - 1
         cursorOffset = 0
-        isAddMenuVisible = false
-    }
-
-    public func addDataTable() {
-        dataTables.append(GraphCalculatorDataTable())
         isAddMenuVisible = false
     }
 
@@ -252,68 +311,70 @@ public final class GraphCalculatorState {
         min(max(cursorOffset, 0), text.count)
     }
 
-    public func updateTableXValue(at index: Int, by delta: Double) {
-        guard tableXValues.indices.contains(index) else { return }
-        tableXValues[index] += delta
-    }
+    // MARK: Floating table window
 
-    public func addTableXValue() {
-        let next = (tableXValues.last ?? 0) + 1
-        tableXValues.append(next)
-    }
-
-    public func deleteTableXValue(at index: Int) {
-        guard tableXValues.indices.contains(index), tableXValues.count > 1 else { return }
-        tableXValues.remove(at: index)
-    }
-
-    public func updateDataTableColumnName(tableID: UUID, columnIndex: Int, name: String) {
-        guard let tableIndex = dataTables.firstIndex(where: { $0.id == tableID }),
-              dataTables[tableIndex].columnNames.indices.contains(columnIndex) else {
-            return
+    /// Opens the table window for the given equation, or closes it if it is already open for that
+    /// equation. Only one table window is open at a time.
+    public func toggleTable(for equationID: UUID, kind: GraphActiveTable.Kind) {
+        if activeTable?.equationID == equationID {
+            activeTable = nil
+        } else {
+            activeTable = GraphActiveTable(equationID: equationID, kind: kind)
         }
-        dataTables[tableIndex].columnNames[columnIndex] = name
+        isTraceActive = false
+        traceSelectedX = nil
     }
 
-    public func updateDataTableValue(tableID: UUID, rowIndex: Int, columnIndex: Int, value: Double?) {
-        guard let tableIndex = dataTables.firstIndex(where: { $0.id == tableID }) else { return }
-        while dataTables[tableIndex].rows.count <= rowIndex {
-            dataTables[tableIndex].rows.append(Array(repeating: nil, count: dataTables[tableIndex].columnNames.count))
-        }
-        while dataTables[tableIndex].rows[rowIndex].count < dataTables[tableIndex].columnNames.count {
-            dataTables[tableIndex].rows[rowIndex].append(nil)
-        }
-        guard dataTables[tableIndex].rows[rowIndex].indices.contains(columnIndex) else { return }
-        dataTables[tableIndex].rows[rowIndex][columnIndex] = value
+    public func closeTable() {
+        activeTable = nil
+        isTraceActive = false
+        traceSelectedX = nil
     }
 
-    public func addDataTableColumn(tableID: UUID) {
-        guard let tableIndex = dataTables.firstIndex(where: { $0.id == tableID }),
-              dataTables[tableIndex].columnNames.count < 4 else {
-            return
-        }
-        let next = dataTables[tableIndex].columnNames.count + 1
-        dataTables[tableIndex].columnNames.append("x\(next)")
-        for rowIndex in dataTables[tableIndex].rows.indices {
-            dataTables[tableIndex].rows[rowIndex].append(nil)
-        }
+    // MARK: Function-table settings
+
+    public func functionTableSettings(for id: UUID) -> GraphFunctionTableSettings {
+        functionTableSettings[id] ?? GraphFunctionTableSettings()
     }
 
-    public func addDataTableRow(tableID: UUID) {
-        guard let tableIndex = dataTables.firstIndex(where: { $0.id == tableID }) else { return }
-        dataTables[tableIndex].rows.append(Array(repeating: nil, count: dataTables[tableIndex].columnNames.count))
+    public func setFunctionTableStart(_ value: Double, for id: UUID) {
+        var settings = functionTableSettings(for: id)
+        settings.start = value
+        functionTableSettings[id] = settings
     }
 
-    public func deleteDataTableRow(tableID: UUID, rowIndex: Int) {
-        guard let tableIndex = dataTables.firstIndex(where: { $0.id == tableID }),
-              dataTables[tableIndex].rows.indices.contains(rowIndex),
-              dataTables[tableIndex].rows.count > 1 else {
-            return
+    public func setFunctionTableDelta(_ value: Double, for id: UUID) {
+        // A zero step would generate an infinite column of the same x; ignore it.
+        guard value != 0 else { return }
+        var settings = functionTableSettings(for: id)
+        settings.delta = value
+        functionTableSettings[id] = settings
+    }
+
+    // MARK: Point-row attached points
+
+    public func extraPoints(for id: UUID) -> [GraphOrderedPair] {
+        pointRows[id] ?? []
+    }
+
+    public func addExtraPoint(for id: UUID) {
+        pointRows[id, default: []].append(GraphOrderedPair())
+    }
+
+    public func updateExtraPointX(for id: UUID, pairID: UUID, value: Double?) {
+        guard let index = pointRows[id]?.firstIndex(where: { $0.id == pairID }) else { return }
+        pointRows[id]?[index].x = value
+    }
+
+    public func updateExtraPointY(for id: UUID, pairID: UUID, value: Double?) {
+        guard let index = pointRows[id]?.firstIndex(where: { $0.id == pairID }) else { return }
+        pointRows[id]?[index].y = value
+    }
+
+    public func deleteExtraPoint(for id: UUID, pairID: UUID) {
+        pointRows[id]?.removeAll { $0.id == pairID }
+        if pointRows[id]?.isEmpty == true {
+            pointRows.removeValue(forKey: id)
         }
-        dataTables[tableIndex].rows.remove(at: rowIndex)
-    }
-
-    public func deleteDataTable(tableID: UUID) {
-        dataTables.removeAll { $0.id == tableID }
     }
 }

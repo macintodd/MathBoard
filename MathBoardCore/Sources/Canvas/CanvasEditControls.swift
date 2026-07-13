@@ -112,6 +112,8 @@ public struct CanvasObjectCommand: Sendable, Equatable, Identifiable {
 
     public enum Action: Sendable, Equatable {
         case insertText(CanvasTextInsertion)
+        case insertImage(CanvasImageInsertion)
+        case insertImageNearViewport(CanvasViewportImageInsertion)
         case updateText(CanvasTextUpdate)
         case updateGeometry(CanvasGeometryUpdate)
         case clearSelection
@@ -131,6 +133,53 @@ public struct CanvasObjectCommand: Sendable, Equatable, Identifiable {
     public init(_ action: Action) {
         self.id = UUID()
         self.action = action
+    }
+}
+
+public struct CanvasImageInsertion: Sendable, Equatable {
+    public var pngData: Data
+    public var frame: CGRect
+    public var selectAfterInsert: Bool
+    public var isLocked: Bool
+
+    public init(
+        pngData: Data,
+        frame: CGRect,
+        selectAfterInsert: Bool = true,
+        isLocked: Bool = false
+    ) {
+        self.pngData = pngData
+        self.frame = frame
+        self.selectAfterInsert = selectAfterInsert
+        self.isLocked = isLocked
+    }
+}
+
+public struct CanvasViewportImageInsertion: Sendable, Equatable {
+    public var pngData: Data
+    public var displaySize: CGSize
+    public var referenceRect: CGRect?
+    public var containerSize: CGSize?
+    public var margin: CGFloat
+    public var selectAfterInsert: Bool
+    public var isLocked: Bool
+
+    public init(
+        pngData: Data,
+        displaySize: CGSize,
+        referenceRect: CGRect? = nil,
+        containerSize: CGSize? = nil,
+        margin: CGFloat = 20,
+        selectAfterInsert: Bool = true,
+        isLocked: Bool = false
+    ) {
+        self.pngData = pngData
+        self.displaySize = displaySize
+        self.referenceRect = referenceRect
+        self.containerSize = containerSize
+        self.margin = margin
+        self.selectAfterInsert = selectAfterInsert
+        self.isLocked = isLocked
     }
 }
 
@@ -215,13 +264,14 @@ public struct CanvasTextUpdate: Sendable, Equatable {
 public struct CanvasToolCommand: Sendable, Equatable, Identifiable {
     public enum Action: Sendable, Equatable {
         case idle
-        case select(target: SelectionTarget, mode: SelectionMode, behavior: SelectionBehavior)
+        case select(target: SelectionTarget, mode: SelectionMode, behavior: SelectionBehavior, extractAction: ExtractAction?)
         case copySelection
         case pasteSelection
         case duplicateSelection
         case deleteSelection
         case extractSelectionAsImageSticker
         case sendSelectionToNextSlide
+        case setExtractAction(ExtractAction)
         case pen(color: CanvasStrokeColor, width: CGFloat)
         case marker(color: CanvasStrokeColor, width: CGFloat)
         case eraser(mode: EraserMode, width: CGFloat)
@@ -255,6 +305,14 @@ public struct CanvasToolCommand: Sendable, Equatable, Identifiable {
     public enum SelectionBehavior: Sendable, Equatable {
         case single
         case multi
+    }
+
+    public enum ExtractAction: Sendable, Equatable {
+        case copy
+        case clone
+        case send
+        case sticker
+        case delete
     }
 
     public let id: UUID

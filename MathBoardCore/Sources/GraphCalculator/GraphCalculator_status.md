@@ -404,6 +404,153 @@ Verification notes (2026-07-07):
 - Preview render confirmed evenly-spaced gridlines (5 minor per major) and three graphs in distinct palette colors (blue/red/green) with matching row dots on the paper background.
 - Full project build passed after the grid-spacing fix and color restoration.
 
+## 2026-07-12
+
+- Completed first-pass tap-to-read x-intercepts:
+  - the graph canvas now recognizes a tap (via `SpatialTapGesture`, added as a simultaneous gesture alongside pan/zoom so it does not interfere),
+  - tapping on or near where a graphed curve crosses the x-axis shows that intercept's ordered pair, e.g. `(2, 0)`,
+  - tapping elsewhere on the graph clears the readout,
+  - intercepts are found by densely sampling each `y = f(x)` row (`.curve` and `y=` `.yRelation` rows) across the visible window, detecting sign changes, and refining each with bisection,
+  - sign changes across asymptotes are rejected by requiring the refined value to be near zero (within 2% of the window height),
+  - the nearest intercept within a 34pt screen tolerance is chosen when several are in range,
+  - the readout is drawn by `GraphCalculatorRenderer` as a ringed dot in the owning row's color plus a colored ordered-pair label bubble that flips above/below the dot and clamps to the canvas width,
+  - added `GraphCalculatorPointReadout` and `GraphCalculatorState.selectedPoint`; the marker mirrors to the external display because the TV renders the same shared state,
+  - `GraphCalculatorRenderer.draw` gained an optional `highlightedPoint` parameter (defaulted, so no other call sites changed).
+- Extended tap-to-read to y-intercepts:
+  - tapping on or near where a curve crosses the y-axis now shows its ordered pair, e.g. `(0, -4)`,
+  - the y-intercept is the single point `(0, f(0))` for each `y = f(x)` row, skipped when the curve is undefined at `x = 0`,
+  - x-intercepts and the y-intercept are gathered as candidates per row and the nearest to the tap (within the 34pt tolerance) wins, so overlapping intercepts resolve to whichever the teacher tapped closest to,
+  - refactored evaluation into a shared `evaluate(compiled:at:variableValues:)` helper used by both intercept paths.
+
+Verification notes (2026-07-12):
+
+- Xcode live diagnostics passed for `GraphCalculatorView`, `GraphCalculatorRenderer`, and `GraphCalculatorState` after the tap-to-read intercept pass.
+- Full project build passed after the tap-to-read intercept pass.
+- Xcode live diagnostics passed and full project build passed after adding the y-intercept readout.
+- Fixed x-intercept marker accuracy:
+  - the root finder previously accepted the first sample whose magnitude fell under a zoom-scaled tolerance, which biased the marker to the left (approaching) side of the true crossing, visibly off the line when zoomed in,
+  - it now always bisects the bracketed sign change to the true root and only uses a tight magnitude check (`window.height * 1e-4`) to reject asymptote/discontinuity crossings,
+  - the marker now sits centered on the line at the crossing.
+- Full project build passed after the x-intercept accuracy fix.
+- Added curve–curve intersection readouts:
+  - tapping on or near where two graphed curves cross now shows that intersection's ordered pair, e.g. `(1.5, 2.25)`,
+  - each `y = f(x)` row is compiled once per tap and reused for intercepts and intersections,
+  - for each pair of curves the difference `f(x) − g(x)` is compiled and run through the same bisection root finder; the intersection y comes from evaluating the first curve at each root,
+  - intersection markers use the neutral accent color (they belong to both curves), while intercepts keep their owning row's color,
+  - x-intercepts, the y-intercept, and intersections are all gathered as candidates and the nearest to the tap (within the 34pt tolerance) wins.
+- Full project build passed after the intersection readout pass.
+- Made intersection points a celebratory "glowing dot":
+  - `GraphCalculatorPointReadout` gained a `kind` (`.intercept` / `.intersection`); the tap handler tags intersections,
+  - intersections now render in a warm gold (`GraphHighlightPalette.intersection`), distinct from every curve palette color, instead of the accent,
+  - the marker is drawn with layered blurred halos (via a `.blur` filter on a copied `GraphicsContext`) plus a bright white core pip so it reads as lit,
+  - the ordered-pair bubble for an intersection uses dark text on the gold fill for contrast; intercepts keep white text on their curve color,
+  - intercepts are visually unchanged.
+- Full project build passed after the glowing intersection marker pass.
+- Gave each notable-point type its own glowing-dot color:
+  - `GraphCalculatorPointReadout.Kind` split into `.xIntercept`, `.yIntercept`, and `.intersection`; the tap handler tags each candidate,
+  - all three now render as glowing dots (blurred halos + white core pip), no longer just intersections,
+  - colors are fixed per kind in `GraphHighlightPalette`: x-intercept = cyan/teal, y-intercept = violet, intersection = gold (they no longer borrow the curve's palette color),
+  - label bubble text is dark on the bright gold intersection bubble and white on the cyan/violet intercept bubbles,
+  - no animation, per request.
+- Full project build passed after the per-kind glow-color pass.
+- Added plotted-point tap readouts:
+  - tapping on or near a typed ordered-pair row such as `(3,5)` now shows that point's ordered-pair label,
+  - tapping on or near teacher-added points from a point row's floating table shows the same readout,
+  - plotted points use their own coral glowing-dot color so they are distinct from x-intercepts, y-intercepts, and curve intersections,
+  - plotted points participate in the same nearest-tap candidate selection as intercepts/intersections, so overlapping points resolve by touch proximity.
+- Xcode live diagnostics passed for `GraphCalculatorView`, `GraphCalculatorRenderer`, and `GraphCalculatorState` after adding plotted-point tap readouts.
+- Full project build passed after adding plotted-point tap readouts.
+
+## 2026-07-12 (table feature rework)
+
+Replaced the crowded inline-table behavior with per-row table icons that open a floating, draggable/resizable table window (one at a time), matching the graph-eject windowing style.
+
+Decisions (confirmed with teacher): one table window open at a time; the old inline tables removed entirely; function-table x column auto-generated read-only from start/delta; external-display mirroring deferred.
+
+- State (`GraphCalculatorState`):
+  - added `GraphOrderedPair` (editable x/y, optional while typing), `GraphFunctionTableSettings` (start default 0, delta default 1), and `GraphActiveTable` (`.function` / `.points`, tied to the owning `GraphEquation.id`),
+  - added `activeTable`, `tableWindowPosition`, `tableWindowSize`, `functionTableSettings[UUID]`, and `pointRows[UUID]` (extra points beyond the typed one),
+  - helpers: `toggleTable`/`closeTable`, function-table start/delta setters (delta ≠ 0 guard), and add/update/delete for extra points,
+  - table data is keyed by `GraphEquation.id` so nothing outside the GraphCalculator folder was touched (the model lives in the Calculator module).
+- Equation rows:
+  - each eligible row shows a table icon just left of the ✕ — a single-valued function of x (`.curve` / `y=` `.yRelation(.equal)`) gets a function table; an ordered `.point` gets a points table; inequalities/`x=` rows get none,
+  - tapping the icon opens/closes that row's table window (opening one replaces any other),
+  - a point row with attached extra points shows a trailing `…` ellipsis.
+- Floating table window (reuses the drag-proxy/clamp/resize-grip infra):
+  - menu bar with title, a settings gear (function tables only) or a `+` add button (points tables), and a close button; the bar is the drag handle,
+  - function body: read-only `x | f(x)` generated as `start + n·delta`, evaluated through the engine with current slider/scalar values, lazy + scrollable,
+  - points body: the typed pair as a shaded read-only first row, then editable `x | y` rows with delete and an "Add point" button,
+  - gear popover edits table start and step (also seeds the future graph trace step).
+- Graphing: teacher-added points plot via a new `attachedPoints` parameter on `GraphCalculatorRenderer.draw`, styled in the owning row's color/width.
+- Removals: the + menu "Table" option, the funcs Stats "table" item, the inline `dataTableCard`/headers/value cells, the dormant compact `tablePanel`, and all `dataTables`/`tableXValues` state and `GraphCalculatorDataTable` (plus the renderer's `drawDataTables`).
+- Added DEBUG previews for the function-table and points-table windows.
+
+Deferred follow-ups: external-display mirroring of table windows.
+
+## 2026-07-12 (graph trace)
+
+Added finger-driven trace for function tables, wired to the table's start/delta so the traced points and the table rows stay in sync.
+
+- A `scope` trace toggle sits in the function-table window menu bar (next to the gear). Turning it on puts the graph into trace mode; `GraphCalculatorState.isTraceActive` holds the mode and is reset whenever the table is closed or switched.
+- While tracing, a finger tap or drag on the graph sets the table **start** value to the touched x (`setFunctionTableStart`), so the table regenerates live and the traced anchor sits under the finger. The table **delta** controls the spacing of the traced points. Panning is suppressed during trace; pinch-zoom still works; intercept taps are disabled (and the tapped-intercept readout is cleared).
+- Rendering: `GraphCalculatorRenderer.draw` gained a `trace: GraphTraceOverlay?` parameter. The overlay draws a faint dashed vertical guide at the start x, a small dot at each table row along the curve (row color), and a larger ringed, labeled anchor marker at `(start, f(start))`. The ordered-pair label bubble was factored into a shared `drawLabelBubble` helper used by both the trace anchor and the tapped-point readout.
+- The trace overlay is computed in the view from the same start/delta the function table shows, capped at 400 points and clipped to the visible x-range.
+- Added a DEBUG "Trace" preview.
+- Refined trace point-picking:
+  - tapping near an already-shown trace point snaps the table start to that point, with closest visible point winning between points,
+  - tapping near the first or last visible trace point chooses that endpoint instead of jumping past it,
+  - tapping the curve away from visible trace points snaps the new table start to the precision implied by the table step (`step = 3` makes `x = 1.3` become start `1`; `step = 0.1` keeps `1.3`),
+  - off-curve touches no longer move the table start,
+  - x- and y-intercepts remain special readouts during trace mode and do not change the table start.
+- Completed visible-row trace selection refinement:
+  - trace dots now represent the function-table rows visible on the calculator screen instead of every in-window step along the graph,
+  - the selected trace point can be any visible table point, not only the table-start point,
+  - tapping a visible trace point shows its coordinate label without forcing that point to become row 1,
+  - if the selected point is outside table slots 5-7, the table start recenters so the selected point lands back in slots 5-7,
+  - tapping a non-shown point on the curve still follows the explicit start-reset rule from the prior pass,
+  - off-curve drags in trace mode now fall through to normal graph panning, restoring pan while keeping trace movement on curve/point drags.
+- Completed trace table highlight and row-size pass:
+  - while trace is active, the function table highlights the row for the selected trace point,
+  - the trace overlay now plots the same 10 function-table rows visible in the table body,
+  - function-table value cells, point-table read-only cells, point edit fields, delete controls, and add-point rows use larger 44pt row heights,
+  - table numbers use larger text with tighter horizontal padding and scaling so values still fit in the wider touch targets.
+- Completed trace special-point highlight pass:
+  - intersection readouts continue to use the same glowing-point renderer as x- and y-intercepts, with a warm gold intersection color,
+  - trace-selected points are classified as x-intercepts, y-intercepts, or curve intersections when applicable,
+  - trace-selected special points now render with the matching glowing marker instead of the plain trace marker,
+  - the highlighted function-table row uses the matching notable-point color (teal x-intercept, violet y-intercept, gold intersection),
+  - trace taps now route through trace selection so special points can still highlight the table row while tracing.
+- Completed first-pass graph snapshot/photo feature:
+  - the graph toolbar now has a camera button when `GraphCalculatorView` is mounted with a snapshot callback,
+  - pressing it renders the graph-only view at high resolution using the same `GraphCalculatorRenderer` inputs as the live graph,
+  - `GraphCalculatorSnapshot` carries PNG data and image size back to the presentation layer,
+  - `CanvasObjectCommand` gained an `insertImage` action backed by the existing `CanvasImageObject` PNG persistence path,
+  - `PresentingCanvasView` inserts the snapshot near the current visible canvas center and selects it so it can be moved/resized like other canvas images,
+  - this reuses the existing image-object layer/persistence/selection system instead of adding a parallel image model.
+- External-display reminder: verify trace snapping, shown-point selection, and special intercept readouts on the TV/external mirror after the next visual pass.
+
+Verification notes (2026-07-12):
+
+- Xcode live diagnostics passed for `GraphCalculatorState`, `GraphCalculatorRenderer`, and `GraphCalculatorView` after the trace pass.
+- Full project build passed after the trace pass.
+- Preview render of `y=x²-5` with trace on and start −3 / delta 1 showed dots at each table x along the parabola, a ringed `(−3, 4)` anchor with a dashed guide, and the table rows (−3→4, −2→−1, 0→−5, 3→4…) matching the on-curve dots exactly.
+- Xcode live diagnostics passed for `GraphCalculatorState`, `GraphCalculatorRenderer`, and `GraphCalculatorView` after the trace point-picking refinement.
+- Full project build passed after the trace point-picking refinement.
+- Xcode live diagnostics passed for `GraphCalculatorState`, `GraphCalculatorRenderer`, and `GraphCalculatorView` after the visible-row trace selection and pan restoration pass.
+- Full project build passed after the visible-row trace selection and pan restoration pass.
+- Xcode live diagnostics passed for `GraphCalculatorState`, `GraphCalculatorRenderer`, and `GraphCalculatorView` after the trace table highlight and row-size pass.
+- Full project build passed after the trace table highlight and row-size pass.
+- Xcode live diagnostics passed for `GraphCalculatorView` and `GraphCalculatorRenderer` after the trace special-point highlight pass.
+- Full project build passed after the trace special-point highlight pass.
+- Xcode live diagnostics passed for `GraphCalculatorView`, `PresentingCanvasView`, `CanvasEditControls`, and `PencilKitCanvas` after the graph snapshot/photo feature pass.
+- Full project build passed after the graph snapshot/photo feature pass.
+
+Verification notes (2026-07-12):
+
+- Xcode live diagnostics passed for `GraphCalculatorState`, `GraphCalculatorRenderer`, and `GraphCalculatorView` through every phase.
+- Full project build passed after the table-window rework.
+- Preview render confirmed the per-row table icon on function rows, the function-table window generating correct `x | f(x)` values for `y=x²-5` (0→−5, 1→−4, 2→−1, 3→4…), and the points-table window showing the typed pair plus editable added points with an "Add point" control.
+
 ## Engine / Behavior Direction
 
 The goal for this tool is Desmos-style teaching behavior, not just raw expression evaluation. The important compatibility surface is:
@@ -493,3 +640,21 @@ Verification notes:
 - Function-definition graphing check passed for `g(k)=5k`, `g(2)`, `h(t)=g(t)+4`, `h(2)`, and rejection of `p(g)=g+1`.
 - Xcode live diagnostics passed after function definition graph substitution update.
 - Full project build passed after function definition graph substitution update.
+- Completed graph snapshot placement refinement:
+  - graph snapshot insertions now pass the calculator's on-screen bounds to the canvas,
+  - `PencilKitCanvas` places the static image in screen space beside the calculator on whichever side has more room, clamps it inside the visible iPad bounds, then converts it to canvas source coordinates at the current zoom,
+  - graph photos default to a roughly 2-inch on-screen width at normal zoom while preserving graph aspect ratio.
+- Xcode live diagnostics passed for graph snapshot placement changes.
+- Full project build passed after graph snapshot placement changes.
+- Completed calculator ellipsis display controls:
+  - the top-bar `...` button now opens a compact graph display popover,
+  - added an `Axis boldness` slider bound to the existing axis stroke width,
+  - added a separate `Grid darkness` slider backed by new gridline opacity state so teachers can darken grid lines without changing grid thickness.
+- Xcode live diagnostics passed for the graph display popover changes.
+- Full project build passed after the graph display popover changes.
+- Completed graph style default adjustment:
+  - default equation graph line width increased from `3.0` to `4.5`,
+  - maximum per-equation line width increased from `7.5` to `9.0`,
+  - grid darkness slider maximum increased to `0.75`, with renderer clamping raised to support the darker range.
+- Xcode live diagnostics passed for the graph style default adjustment.
+- Full project build passed after the graph style default adjustment.
