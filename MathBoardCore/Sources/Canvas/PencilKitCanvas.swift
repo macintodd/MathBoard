@@ -3893,6 +3893,12 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     return
                 }
 
+                if activeSelectionBehavior == .single,
+                   let object = topObjectHit(at: startLocation, on: canvas, includeLockedImages: false) {
+                    beginSingleSelectionObjectDrag(object, at: startLocation, on: canvas)
+                    return
+                }
+
                 let textObjectHitID = hitSelectedTextObjectID(at: startLocation, on: canvas)
                 guard let id = textObjectHitID,
                       let object = parent.textObjects.first(where: { $0.id == id }) else {
@@ -4224,6 +4230,50 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 publishImageFromModel()
             default:
                 break
+            }
+        }
+
+        private func beginSingleSelectionObjectDrag(
+            _ object: CanvasSelectionState.Object,
+            at startLocation: CGPoint,
+            on canvas: PKCanvasView
+        ) {
+            if let group = savedObjectGroup(containing: object) {
+                selectSavedObjectGroup(group, on: canvas)
+                beginGroupTransform(.move, at: startLocation, on: canvas)
+                return
+            }
+
+            parent.onInteractionBegan?()
+            clearRegionSelection()
+            clearLastSingleObjectSelection()
+            clearObjectDragState()
+
+            switch object {
+            case .text(let id):
+                guard let object = parent.textObjects.first(where: { $0.id == id }) else { return }
+                setSelectedTextObjectID(id)
+                movingTextObjectID = id
+                movingTextObjectStartOrigin = CGPoint(x: object.x, y: object.y)
+                movingTextStartSourcePoint = sourcePoint(forCanvasPoint: startLocation, on: canvas)
+                updateHostTextObjects(using: canvas)
+            case .image(let id):
+                guard let object = parent.imageObjects.first(where: { $0.id == id }),
+                      object.isLocked != true else { return }
+                setSelectedImageObjectID(id)
+                movingImageObjectID = id
+                movingImageObjectStartOrigin = CGPoint(x: object.x, y: object.y)
+                movingImageStartSourcePoint = sourcePoint(forCanvasPoint: startLocation, on: canvas)
+                updateHostImageObjects(using: canvas)
+            case .geometry(let id):
+                guard let object = parent.geometryObjects.first(where: { $0.id == id }),
+                      object.isLocked != true else { return }
+                setSelectedGeometryObjectID(id)
+                movingGeometryObjectID = id
+                movingGeometryObjectStartOrigin = CGPoint(x: object.x, y: object.y)
+                movingGeometryObjectStartPivot = (object.pivotX != nil || object.pivotY != nil) ? object.pivot : nil
+                movingGeometryStartSourcePoint = sourcePoint(forCanvasPoint: startLocation, on: canvas)
+                updateHostGeometryObjects(using: canvas)
             }
         }
 
@@ -6453,11 +6503,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 context.clear(destinationRect)
                 context.saveGState()
                 applyRegionClip(selection, sourceBounds: sourceBounds, in: context)
-                drawBackground(
-                    in: context,
-                    sourceRect: canvasSourceRect,
-                    destinationRect: destinationRect
-                )
+                // Keep extracted copies transparent so white ink pastes without a gray paper halo.
                 drawContentObjectLayers(
                     in: context,
                     sourceRect: canvasSourceRect,
@@ -7337,6 +7383,8 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     || hitSelectedTextObjectID(at: startLocation, on: canvas) != nil
                     || hitSelectedGeometryObjectID(at: startLocation, on: canvas) != nil
                     || hitSelectedImageObjectID(at: startLocation, on: canvas) != nil
+                    || (activeSelectionBehavior == .single
+                        && topObjectHit(at: startLocation, on: canvas, includeLockedImages: false) != nil)
             }
             return true
         }

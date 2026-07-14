@@ -731,7 +731,8 @@ public struct PresentingCanvasView: View {
     @MainActor
     private func insertGraphSnapshot(_ snapshot: GraphCalculatorSnapshot) {
         let aspect = snapshot.size.width / max(snapshot.size.height, 1)
-        let displayWidth: CGFloat = 160
+        let baseDisplayWidth: CGFloat = 160
+        let displayWidth = baseDisplayWidth * 3
         objectCommand = CanvasObjectCommand(
             .insertImageNearViewport(
                 CanvasViewportImageInsertion(

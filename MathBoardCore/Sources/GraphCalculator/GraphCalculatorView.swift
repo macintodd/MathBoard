@@ -7,8 +7,11 @@
 
 import SwiftUI
 import Calculator
+@_spi(Textual) import SwiftUIMath
 #if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
 #endif
 
 public struct GraphCalculatorSnapshot: Sendable, Equatable {
@@ -46,27 +49,43 @@ public struct GraphCalculatorView: View {
     @State private var graphMagnifyStartWindow: GraphWindow?
     @State private var functionMenuCategory: FunctionMenuCategory = .basic
     @State private var stylingExpressionIndex: Int?
+    @State private var swatchActionExpressionIndex: Int?
     @State private var isAlphabetKeypadVisible: Bool = false
     @State private var editingSliderBound: SliderBoundEdit?
     @State private var editingSliderBoundText: String = ""
     @State private var editingSliderBoundReplacesOnInput: Bool = false
+    @State private var editingPointCell: PointTableCellEdit?
+    @State private var editingPointCellText: String = ""
+    @State private var editingPointCellReplacesOnInput: Bool = false
     @State private var playingSliders: Set<String> = []
     @State private var sliderPlayDirections: [String: Double] = [:]
     @State private var sliderPlaybackTask: Task<Void, Never>?
     @State private var keypadHiddenEntryExtra: CGFloat = 260
+    @State private var keypadVisibleEntryExtra: CGFloat = 0
     @State private var entryResizeStartExtra: CGFloat?
+    @State private var entryResizeStartCenter: CGPoint?
+    @State private var entryResizeLive: (extra: CGFloat, center: CGPoint)?
     @State private var tableDragStartCenter: CGPoint?
-    @State private var tableWindowLiveOffset: CGSize = .zero
     @State private var tableResizeStart: (size: CGSize, topLeft: CGPoint)?
     @State private var tableResizeLive: (size: CGSize, center: CGPoint)?
     @State private var isTableSettingsPresented: Bool = false
     @State private var isCalculatorMenuPresented: Bool = false
+    @State private var keystrokeWindowDragStart: CGPoint?
+    @State private var keystrokeWindowResizeStart: (size: CGSize, topLeft: CGPoint)?
+    @State private var keystrokeWindowResizeLive: (size: CGSize, center: CGPoint)?
+    @State private var didApplyInitialWindow = false
+    @State private var currentGraphPlotSize: CGSize = CGSize(width: 400, height: 400)
+    @State private var fractionCursorExitedAt: Int?
 
     private let engine = CalculatorEngine()
-    private let minimumGraphSpan: Double = 0.2
-    private let maximumGraphSpan: Double = 240
-    private let keypadHeight: CGFloat = 260
-    private let baseEntryHeight: CGFloat = 150
+    private let minimumGraphSpan: Double = 0.02
+    private let maximumGraphSpan: Double = 2400
+    private let keypadHeight: CGFloat = 180
+    private let expandedHeaderHeight: CGFloat = 58
+    private let compactHeaderHeight: CGFloat = 18
+    private let expandedFloatingHeaderHeight: CGFloat = 42
+    private let preferredDockedGraphHeight: CGFloat = 440
+    private let baseEntryHeight: CGFloat = 58
     private let baseDetachedEntryHeight: CGFloat = 170
     private let entryHandleHeight: CGFloat = 22
     private let visibleTraceTableRows = 10
@@ -102,21 +121,30 @@ public struct GraphCalculatorView: View {
                     detachedControlPanel(in: proxy.size)
                     detachedGraphPanel(in: proxy.size)
                 } else {
-                    let size = dockedCalculatorSize(in: proxy.size)
-                    let center = dockedCalculatorCenter(size: size, in: proxy.size)
+                    let layout = dockedCalculatorLayout(in: proxy.size)
                     calculatorBody(in: proxy.size)
-                        .frame(width: size.width, height: size.height)
-                        .position(center)
+                        .frame(width: layout.size.width, height: layout.size.height)
+                        .position(layout.center)
                         .opacity(isDragging(.docked) ? 0.14 : 1)
                 }
 
                 tableWindow(in: proxy.size)
+
+                if state.isKeystrokeDisplayEnabled {
+                    keystrokeWindow(in: proxy.size)
+                }
 
                 if let dragProxy {
                     dragProxyView(dragProxy)
                         .frame(width: dragProxy.size.width, height: dragProxy.size.height)
                         .position(dragProxy.center)
                         .offset(dragProxy.offset)
+                        .allowsHitTesting(false)
+                } else if let dragPresentation = state.activeDragPresentation {
+                    dragProxyView(GraphCalculatorDragProxy(presentation: dragPresentation))
+                        .frame(width: dragPresentation.size.width, height: dragPresentation.size.height)
+                        .position(dragPresentation.center)
+                        .offset(dragPresentation.offset)
                         .allowsHitTesting(false)
                 }
             }
@@ -125,12 +153,17 @@ public struct GraphCalculatorView: View {
                 sliderPlaybackTask?.cancel()
                 sliderPlaybackTask = nil
             }
+            .onAppear {
+                applyInitialGraphWindowIfNeeded()
+            }
         }
     }
 
     private func calculatorBody(in containerSize: CGSize) -> some View {
-        let size = dockedCalculatorSize(in: containerSize)
-        let center = dockedCalculatorCenter(size: size, in: containerSize)
+        let layout = dockedCalculatorLayout(in: containerSize)
+        let size = layout.size
+        let center = layout.center
+        let graphHeight = dockedGraphHeight(in: containerSize)
         let placementRect = CGRect(
             x: center.x - size.width / 2,
             y: center.y - size.height / 2,
@@ -139,21 +172,23 @@ public struct GraphCalculatorView: View {
         )
 
         return VStack(spacing: 0) {
-            topBar
-                .gesture(dockedCalculatorDragGesture(currentCenter: center, size: size, in: containerSize))
-            graphRegion
-                .frame(height: 285)
-            graphToolbar(placementRect: placementRect, containerSize: containerSize)
-            entryPanel
-                .frame(height: dockedEntryHeight)
-                .overlay(alignment: .bottom) {
-                    if state.isKeypadCollapsed {
-                        entryResizeHandle
+            calculatorTopBar(.docked)
+                .gesture(dockedCalculatorDragGesture(currentCenter: center, size: size, expandedSize: layout.expandedSize, in: containerSize))
+            if !state.isDockedHeaderCollapsed {
+                graphRegion(placementRect: placementRect, containerSize: containerSize)
+                    .frame(height: graphHeight)
+                graphToolbar(placementRect: placementRect, containerSize: containerSize)
+                entryPanel
+                    .frame(height: dockedEntryHeight)
+                    .overlay(alignment: .bottom) {
+                        if state.isKeypadCollapsed {
+                            entryResizeHandle()
+                        }
                     }
-                }
-            keypad
-                .frame(height: state.isKeypadCollapsed ? 0 : keypadHeight)
-                .clipped()
+                keypad
+                    .frame(height: state.isKeypadCollapsed ? 0 : keypadHeight)
+                    .clipped()
+            }
         }
         .background(GraphCalculatorTheme.panel, in: Rectangle())
         .overlay(Rectangle().strokeBorder(.black.opacity(0.12), lineWidth: 1))
@@ -161,43 +196,45 @@ public struct GraphCalculatorView: View {
         .compositingGroup()
     }
 
-    private var topBar: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "chart.xyaxis.line")
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.9))
+    private func calculatorTopBar(_ kind: CalculatorHeaderKind) -> some View {
+        let isCollapsed = isCalculatorHeaderCollapsed(kind)
+        return Group {
+            if isCollapsed {
+                collapsedDragBar(tint: .white.opacity(0.74), background: GraphCalculatorTheme.header) {
+                    setCalculatorHeaderCollapsed(false, kind: kind)
+                }
+                .frame(height: compactHeaderHeight)
+            } else {
+                HStack(spacing: 10) {
+                    Image(systemName: "chart.xyaxis.line")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.9))
 
-            Text(state.title)
-                .font(.system(size: 18, weight: .medium))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                    Text(state.title)
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
 
-            Spacer()
+                    Spacer()
 
-            Button("Save") {}
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 18)
-                .padding(.vertical, 8)
-                .background(GraphCalculatorTheme.blue, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    Button("Save") {}
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 8)
+                        .background(GraphCalculatorTheme.blue, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
-            Button { isCalculatorMenuPresented.toggle() } label: {
-                Image(systemName: "ellipsis")
-                    .font(.title2.weight(.bold))
-                    .foregroundStyle(.white.opacity(0.88))
-                    .frame(width: 32, height: 32)
-                    .overlay(Circle().strokeBorder(.white.opacity(0.8), lineWidth: 2))
-            }
-            .buttonStyle(.plain)
-            .popover(isPresented: $isCalculatorMenuPresented, arrowEdge: .top) {
-                calculatorMenu
-                    .presentationCompactAdaptation(.popover)
+                }
+                .padding(.horizontal, 14)
+                .frame(height: expandedHeaderHeight)
+                .background(GraphCalculatorTheme.header)
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) {
+                    setCalculatorHeaderCollapsed(true, kind: kind)
+                }
             }
         }
-        .padding(.horizontal, 14)
-        .frame(height: 58)
-        .background(GraphCalculatorTheme.header)
     }
 
     private var calculatorMenu: some View {
@@ -219,13 +256,28 @@ public struct GraphCalculatorView: View {
                 range: 0.08...0.75,
                 display: String(format: "%.2f", state.gridlineOpacity)
             )
+
+            Toggle(isOn: Binding(
+                get: { state.isKeystrokeDisplayEnabled },
+                set: { isEnabled in
+                    state.isKeystrokeDisplayEnabled = isEnabled
+                    if isEnabled {
+                        state.isKeystrokeRecordingPaused = false
+                    }
+                }
+            )) {
+                Text("Display keystrokes")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.black.opacity(0.8))
+            }
+            .tint(GraphCalculatorTheme.blue)
         }
         .padding(16)
         .frame(width: 300)
         .background(Color.white)
     }
 
-    private var graphRegion: some View {
+    private func graphRegion(placementRect: CGRect?, containerSize: CGSize?) -> some View {
         ZStack {
             if state.isGraphDetached {
                 VStack(spacing: 6) {
@@ -241,15 +293,11 @@ public struct GraphCalculatorView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.white)
             } else {
-                graphCanvas
+                graphCanvas(keepsSquarePlot: true)
             }
         }
         .overlay(alignment: .topTrailing) {
-            VStack(spacing: 10) {
-                graphIconButton("plus") { zoom(by: 1.35) }
-                graphIconButton("minus") { zoom(by: 1 / 1.35) }
-            }
-            .padding(10)
+            graphControlOverlay(placementRect: placementRect, containerSize: containerSize)
         }
         .overlay(alignment: .bottomTrailing) {
             graphIconButton("eject.fill", style: .destructive) { ejectGraph() }
@@ -257,16 +305,29 @@ public struct GraphCalculatorView: View {
         }
     }
 
-    private var graphCanvas: some View {
+    private func graphCanvas(keepsSquarePlot: Bool) -> some View {
         GeometryReader { proxy in
+            let plotSize = keepsSquarePlot
+                ? CGSize(width: min(proxy.size.width, proxy.size.height), height: min(proxy.size.width, proxy.size.height))
+                : proxy.size
             Canvas { context, size in
                 drawGraph(in: context, size: size)
             }
+            .frame(width: plotSize.width, height: plotSize.height)
             .background(state.isHandDrawnStyle ? GraphPaperPalette.paper : Color.white)
             .contentShape(Rectangle())
-            .gesture(graphPanGesture(size: proxy.size))
-            .simultaneousGesture(graphMagnifyGesture(size: proxy.size))
-            .simultaneousGesture(graphTapGesture(size: proxy.size))
+            .gesture(graphPanGesture(size: plotSize))
+            .simultaneousGesture(graphMagnifyGesture(size: plotSize))
+            .simultaneousGesture(graphTapGesture(size: plotSize))
+            .position(x: proxy.size.width / 2, y: proxy.size.height / 2)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(state.isHandDrawnStyle ? GraphPaperPalette.paper : Color.white)
+            .onAppear {
+                currentGraphPlotSize = plotSize
+            }
+            .onChange(of: plotSize) { _, newValue in
+                currentGraphPlotSize = newValue
+            }
         }
     }
 
@@ -300,14 +361,19 @@ public struct GraphCalculatorView: View {
         }
         .frame(width: size.width, height: size.height)
         .background(state.isHandDrawnStyle ? GraphPaperPalette.paper : Color.white)
+        .overlay(alignment: .topLeading) {
+            detachedGraphEquationOverlay
+        }
+        .overlay(Rectangle().strokeBorder(Color.black, lineWidth: 1))
     }
 
     private func captureGraphSnapshot(placementRect: CGRect?, containerSize: CGSize?) {
         guard let onGraphSnapshot else { return }
         #if os(iOS)
-        let size = CGSize(width: 1200, height: 800)
+        let side = max(1, min(currentGraphPlotSize.width, currentGraphPlotSize.height).rounded())
+        let size = CGSize(width: side, height: side)
         let renderer = ImageRenderer(content: graphSnapshotView(size: size))
-        renderer.scale = 2
+        renderer.scale = 3
         guard let image = renderer.uiImage,
               let pngData = image.pngData() else {
             return
@@ -332,14 +398,9 @@ public struct GraphCalculatorView: View {
             Button {} label: { Image(systemName: "arrow.uturn.forward").opacity(0.35) }
             Spacer()
             Button { state.isKeypadCollapsed.toggle() } label: {
-                Image(systemName: state.isKeypadCollapsed ? "chevron.up.2" : "chevron.down.2")
+                Image(systemName: state.isKeypadCollapsed ? "keyboard.badge.eye" : "keyboard.badge.eye.fill")
                     .foregroundStyle(state.isKeypadCollapsed ? GraphCalculatorTheme.blue : .black.opacity(0.62))
             }
-            Button { captureGraphSnapshot(placementRect: placementRect, containerSize: containerSize) } label: {
-                Image(systemName: "camera.fill")
-                    .foregroundStyle(onGraphSnapshot == nil ? .black.opacity(0.28) : .black.opacity(0.62))
-            }
-            .disabled(onGraphSnapshot == nil)
             Button { state.resetWindow() } label: { Image(systemName: "house") }
             Button { toggleGraphSettings() } label: {
                 Image(systemName: "gearshape.fill")
@@ -480,9 +541,17 @@ public struct GraphCalculatorView: View {
         return baseEntryHeight + min(max(keypadHiddenEntryExtra, 0), keypadHeight)
     }
 
-    /// Grab handle shown at the bottom edge of the entry panel while the keypad is hidden.
-    /// Dragging it resizes the entry area within the space freed by the hidden keypad.
-    private var entryResizeHandle: some View {
+    private var detachedVisibleEntryExtra: CGFloat {
+        min(max(entryResizeLive?.extra ?? keypadVisibleEntryExtra, 0), keypadHeight)
+    }
+
+    private var detachedHiddenEntryExtra: CGFloat {
+        min(max(entryResizeLive?.extra ?? keypadHiddenEntryExtra, 0), keypadHeight)
+    }
+
+    /// Grab handle at the entry panel edge. Dragging down expands the entry area; in detached mode
+    /// the panel center shifts down by half the height change so the top edge stays fixed.
+    private func entryResizeHandle(anchoredCenter: CGPoint? = nil, containerSize: CGSize? = nil) -> some View {
         ZStack {
             Color.white
             Capsule()
@@ -494,17 +563,47 @@ public struct GraphCalculatorView: View {
         .overlay(Rectangle().fill(Color.black.opacity(0.10)).frame(height: 0.5), alignment: .top)
         .overlay(Rectangle().fill(Color.black.opacity(0.20)).frame(height: 1), alignment: .bottom)
         .contentShape(Rectangle())
-        .gesture(entryResizeGesture)
+        .gesture(entryResizeGesture(isKeypadVisible: !state.isKeypadCollapsed, anchoredCenter: anchoredCenter, containerSize: containerSize))
     }
 
-    private var entryResizeGesture: some Gesture {
-        DragGesture(minimumDistance: 1)
+    private func entryResizeGesture(isKeypadVisible: Bool, anchoredCenter: CGPoint?, containerSize: CGSize?) -> some Gesture {
+        DragGesture(minimumDistance: 1, coordinateSpace: .global)
             .onChanged { value in
-                let start = entryResizeStartExtra ?? keypadHiddenEntryExtra
-                if entryResizeStartExtra == nil { entryResizeStartExtra = start }
-                keypadHiddenEntryExtra = min(max(start + value.translation.height, 0), keypadHeight)
+                let start = entryResizeStartExtra ?? (isKeypadVisible ? keypadVisibleEntryExtra : keypadHiddenEntryExtra)
+                if entryResizeStartExtra == nil {
+                    entryResizeStartExtra = start
+                    entryResizeStartCenter = anchoredCenter
+                }
+                let next = min(max(start + value.translation.height, 0), keypadHeight)
+
+                if let startCenter = entryResizeStartCenter, containerSize != nil {
+                    let delta = next - start
+                    entryResizeLive = (
+                        extra: next,
+                        center: CGPoint(x: startCenter.x, y: startCenter.y + delta / 2)
+                    )
+                } else if isKeypadVisible {
+                    keypadVisibleEntryExtra = next
+                } else {
+                    keypadHiddenEntryExtra = next
+                }
             }
-            .onEnded { _ in entryResizeStartExtra = nil }
+            .onEnded { _ in
+                if let live = entryResizeLive {
+                    if isKeypadVisible {
+                        keypadVisibleEntryExtra = live.extra
+                    } else {
+                        keypadHiddenEntryExtra = live.extra
+                    }
+                    if let containerSize {
+                        let size = CGSize(width: min(containerSize.width - 24, 440), height: min(containerSize.height - 24, detachedControlHeight))
+                        state.detachedControlPosition = clamp(center: live.center, size: size, in: containerSize)
+                    }
+                }
+                entryResizeLive = nil
+                entryResizeStartExtra = nil
+                entryResizeStartCenter = nil
+            }
     }
 
     private var addMenuPanel: some View {
@@ -942,8 +1041,8 @@ public struct GraphCalculatorView: View {
         guard isTracing,
               let active = state.activeTable,
               let index = state.expressions.firstIndex(where: { $0.id == active.equationID }),
-              let source = functionTableSource(for: active.equationID),
-              let compiled = try? engine.compile(source) else {
+              let primary = functionTableDescriptor(for: active.equationID),
+              let compiled = try? engine.compile(primary.source) else {
             return nil
         }
 
@@ -969,14 +1068,55 @@ public struct GraphCalculatorView: View {
         }
 
         let width = CGFloat(state.expressions[index].lineWidth ?? GraphCalculatorStyleDefaults.lineWidth)
-        let label = "(\(CalculatorResultFormatter.string(for: selectedX)), \(CalculatorResultFormatter.string(for: anchorY)))"
+        let label = "\(primary.label)=\(CalculatorResultFormatter.string(for: anchorY))"
+        let secondarySeries = secondaryTraceSeries(
+            primaryID: active.equationID,
+            selectedX: selectedX,
+            settings: settings,
+            variables: variables
+        )
         return GraphTraceOverlay(
             anchor: CGPoint(x: selectedX, y: anchorY),
             points: points,
             color: graphColor(for: index),
             lineWidth: width,
             label: label,
-            specialKind: specialKind
+            specialKind: specialKind,
+            secondary: secondarySeries
+        )
+    }
+
+    private func secondaryTraceSeries(
+        primaryID: UUID,
+        selectedX: Double,
+        settings: GraphFunctionTableSettings,
+        variables: [String: Double]
+    ) -> GraphTraceSeries? {
+        guard let secondary = secondaryFunctionTableDescriptor(for: primaryID),
+              let compiled = try? engine.compile(secondary.source),
+              let anchorY = evaluate(compiled: compiled, at: selectedX, variableValues: variables) else {
+            return nil
+        }
+
+        var points: [GraphTracePoint] = []
+        for n in 0..<visibleTraceTableRows {
+            let x = settings.start + Double(n) * settings.delta
+            if let y = evaluate(compiled: compiled, at: x, variableValues: variables) {
+                points.append(GraphTracePoint(point: CGPoint(x: x, y: y), rowIndex: n))
+            }
+        }
+
+        let width = state.expressions.indices.contains(secondary.index)
+            ? CGFloat(state.expressions[secondary.index].lineWidth ?? GraphCalculatorStyleDefaults.lineWidth)
+            : CGFloat(GraphCalculatorStyleDefaults.lineWidth)
+        let label = "\(secondary.label)=\(CalculatorResultFormatter.string(for: anchorY))"
+        return GraphTraceSeries(
+            anchor: CGPoint(x: selectedX, y: anchorY),
+            points: points,
+            color: graphColor(for: secondary.index),
+            lineWidth: width,
+            label: label,
+            specialKind: traceSpecialKind(x: selectedX, y: anchorY)
         )
     }
 
@@ -1097,11 +1237,55 @@ public struct GraphCalculatorView: View {
         return (x * scale).rounded() / scale
     }
 
+    private func applyInitialGraphWindowIfNeeded() {
+        guard !didApplyInitialWindow else { return }
+        didApplyInitialWindow = true
+        state.graphWindow = .default
+    }
+
     private func decimalPlaces(for value: Double) -> Int {
         let text = String(format: "%.8f", abs(value))
             .trimmingCharacters(in: CharacterSet(charactersIn: "0"))
         guard let decimalIndex = text.firstIndex(of: ".") else { return 0 }
         return text.distance(from: text.index(after: decimalIndex), to: text.endIndex)
+    }
+
+    private var dockedHeaderHeight: CGFloat {
+        state.isDockedHeaderCollapsed ? compactHeaderHeight : expandedHeaderHeight
+    }
+
+    private var detachedControlHeaderHeight: CGFloat {
+        state.isDetachedControlHeaderCollapsed ? compactHeaderHeight : expandedHeaderHeight
+    }
+
+    private func isCalculatorHeaderCollapsed(_ kind: CalculatorHeaderKind) -> Bool {
+        switch kind {
+        case .docked:
+            return state.isDockedHeaderCollapsed
+        case .detachedControl:
+            return state.isDetachedControlHeaderCollapsed
+        }
+    }
+
+    private func setCalculatorHeaderCollapsed(_ isCollapsed: Bool, kind: CalculatorHeaderKind) {
+        switch kind {
+        case .docked:
+            state.isDockedHeaderCollapsed = isCollapsed
+        case .detachedControl:
+            state.isDetachedControlHeaderCollapsed = isCollapsed
+        }
+    }
+
+    private func collapsedDragBar(tint: Color, background: Color, onDoubleTap: @escaping () -> Void) -> some View {
+        Rectangle()
+            .fill(background)
+            .overlay {
+                Capsule()
+                    .fill(tint)
+                    .frame(width: 66, height: 4)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2, perform: onDoubleTap)
     }
 
     /// Teacher-added points (from point-row tables) prepared for the renderer, styled per owning row.
@@ -1127,10 +1311,23 @@ public struct GraphCalculatorView: View {
         let displayText = GraphCalculatorExpressionDisplay.string(for: text)
         let color = graphColor(for: index)
         let promptNames = sliderPromptNames(forExpression: text)
-        let rowHeight: CGFloat = promptNames.isEmpty ? 50 : 82
         let equationID = state.expressions.indices.contains(index) ? state.expressions[index].id : nil
+        let formalFraction = formalFractionExpression(text)
+        let fractionCandidate = fractionConversionCandidate(source: text, resolved: resolved)
+        let isFractionResultShown = equationID.map { state.fractionResultRowIDs.contains($0) } ?? false
+        let regressionRow = equationID.flatMap { state.regressionRows[$0] }
+        let expressionTokens = editableExpressionTokens(for: text)
+        let hasStackedMath = formalFraction != nil
+            || (expressionTokens?.contains { token in
+                if case .fraction = token { return true }
+                return false
+            } ?? false)
+            || isFractionResultShown
+        let baseRowHeight: CGFloat = promptNames.isEmpty ? (hasStackedMath ? 74 : 50) : 82
+        let rowHeight: CGFloat = regressionRow == nil ? baseRowHeight : max(baseRowHeight, 72)
         let tableKind = tableKind(for: resolved?.plot)
         let hasExtraPoints = equationID.map { !state.extraPoints(for: $0).isEmpty } ?? false
+        let completePointCount = equationID.map { completePointTablePoints(for: $0).count } ?? 0
 
         return HStack(spacing: 0) {
             expressionStyleCell(index: index, isSelected: isSelected, isInvalid: isInvalid, color: color)
@@ -1138,19 +1335,58 @@ public struct GraphCalculatorView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    expressionText(text, displayText: displayText, isSelected: isSelected)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            if isPureNumericCalculation(text), let displayValue {
+                                numericExpressionLine(
+                                    text: text,
+                                    displayText: displayText,
+                                    displayValue: displayValue,
+                                    isSelected: isSelected,
+                                    formalFraction: formalFraction,
+                                    tokens: expressionTokens,
+                                    fractionResult: isFractionResultShown ? fractionCandidate ?? numericValue(for: text).flatMap(rationalFraction(for:)) : nil
+                                )
+                            } else {
+                                expressionText(text, displayText: displayText, isSelected: isSelected, formalFraction: formalFraction)
+                                if let displayValue {
+                                    Text("= \(displayValue)")
+                                        .font(.system(size: 17, weight: .medium, design: .serif))
+                                        .foregroundStyle(.black.opacity(0.62))
+                                        .lineLimit(1)
+                                }
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .clipped()
                     // A point row with attached table points shows an ellipsis to signal "more points".
                     if tableKind == .points, hasExtraPoints {
                         Text("…")
                             .font(.system(size: 20, weight: .semibold, design: .serif))
                             .foregroundStyle(.black.opacity(0.55))
                     }
-                    if let displayValue {
-                        Text("= \(displayValue)")
-                            .font(.system(size: 17, weight: .medium, design: .serif))
-                            .foregroundStyle(.black.opacity(0.62))
-                            .lineLimit(1)
+                    if let equationID, canShowFractionButton(source: text, resolved: resolved, isFractionResultShown: isFractionResultShown) {
+                        Button {
+                            toggleFractionDisplay(index: index, equationID: equationID, candidate: fractionCandidate)
+                        } label: {
+                            Image(systemName: "textformat.123")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 30, height: 26)
+                                .background(
+                                    fractionButtonColor(isFractionResultShown: isFractionResultShown, source: text),
+                                    in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                )
+                        }
+                        .buttonStyle(.plain)
                     }
+                }
+                if let regressionRow {
+                    Text("R² = \(regressionCoefficientNumber(regressionRow.rSquared))")
+                        .font(.system(size: 13, weight: .semibold, design: .serif))
+                        .foregroundStyle(color.opacity(0.82))
+                        .lineLimit(1)
                 }
                 if let error = resolved?.errorMessage, !text.isEmpty {
                     Text(error)
@@ -1168,6 +1404,12 @@ public struct GraphCalculatorView: View {
 
             if let equationID, let tableKind {
                 tableIconButton(equationID: equationID, kind: tableKind, rowHeight: rowHeight)
+                if tableKind == .points, completePointCount >= 2 {
+                    fitPointDataButton(equationID: equationID, rowHeight: rowHeight)
+                }
+                if tableKind == .points, canShowRegressionMenu(equationID: equationID) {
+                    regressionMenuButton(equationID: equationID, sourceIndex: index, rowHeight: rowHeight)
+                }
             }
 
             Button { deleteExpression(index) } label: {
@@ -1196,7 +1438,7 @@ public struct GraphCalculatorView: View {
             return .function
         case .point:
             return .points
-        case .yRelation, .xRelation, .none:
+        case .yRelation, .xRelation, .implicitRelation, .none:
             return nil
         }
     }
@@ -1205,7 +1447,13 @@ public struct GraphCalculatorView: View {
     private func tableIconButton(equationID: UUID, kind: GraphActiveTable.Kind, rowHeight: CGFloat) -> some View {
         let isOpen = state.activeTable?.equationID == equationID
         return Button {
+            if editingPointCell != nil {
+                finishPointCellEdit()
+            }
             state.toggleTable(for: equationID, kind: kind)
+            if kind == .points, state.activeTable?.equationID == equationID {
+                preparePointTableForEntry(equationID: equationID)
+            }
         } label: {
             Image(systemName: "tablecells")
                 .font(.system(size: 19, weight: .semibold))
@@ -1223,6 +1471,378 @@ public struct GraphCalculatorView: View {
         .buttonStyle(.plain)
         .frame(height: rowHeight)
         .padding(.trailing, 2)
+    }
+
+    private func fitPointDataButton(equationID: UUID, rowHeight: CGFloat) -> some View {
+        Button {
+            zoomToDataPoints(equationID: equationID)
+        } label: {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(GraphCalculatorTheme.blue)
+                .frame(width: 36, height: 34)
+                .background(GraphCalculatorTheme.blue.opacity(0.10), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(GraphCalculatorTheme.blue.opacity(0.30), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .frame(height: rowHeight)
+        .padding(.trailing, 2)
+    }
+
+    private func regressionMenuButton(equationID: UUID, sourceIndex: Int, rowHeight: CGFloat) -> some View {
+        Menu {
+            Button("Linear") {
+                insertRegression(.linear, equationID: equationID, after: sourceIndex)
+            }
+            let completePointCount = completePointTablePoints(for: equationID).count
+            if completePointCount >= 3 {
+                Button("Quadratic") {
+                    insertRegression(.quadratic, equationID: equationID, after: sourceIndex)
+                }
+            }
+            if completePointCount >= 4 {
+                Button("Cubic") {
+                    insertRegression(.cubic, equationID: equationID, after: sourceIndex)
+                }
+            }
+            if completePointCount >= 5 {
+                Button("Quartic") {
+                    insertRegression(.quartic, equationID: equationID, after: sourceIndex)
+                }
+            }
+        } label: {
+            Image(systemName: "chart.xyaxis.line")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(GraphCalculatorTheme.blue)
+                .frame(width: 36, height: 34)
+                .background(GraphCalculatorTheme.blue.opacity(0.10), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(GraphCalculatorTheme.blue.opacity(0.30), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .frame(height: rowHeight)
+        .padding(.trailing, 2)
+    }
+
+    private func toggleFractionDisplay(index: Int, equationID: UUID, candidate: RationalFraction?) {
+        state.ensureExpression(at: index)
+        state.selectExpression(at: index)
+        let source = state.expressions[index].expression.trimmingCharacters(in: .whitespacesAndNewlines)
+        if state.fractionResultRowIDs.contains(equationID) {
+            state.fractionResultRowIDs.remove(equationID)
+            return
+        }
+        if let formalFraction = formalFractionExpression(source),
+           let value = numericValue(for: source) {
+            let decimal = CalculatorResultFormatter.string(for: value)
+            state.expressions[index].expression = decimal
+            state.cursorOffset = decimal.count
+            state.fractionResultRowIDs.remove(equationID)
+            _ = formalFraction
+            return
+        }
+        guard candidate != nil else { return }
+        state.fractionResultRowIDs.insert(equationID)
+        state.cursorOffset = state.expressions[index].expression.count
+    }
+
+    private func canShowFractionButton(
+        source: String,
+        resolved: GraphCalculatorResolvedRow?,
+        isFractionResultShown: Bool
+    ) -> Bool {
+        isFractionResultShown
+            || fractionConversionCandidate(source: source, resolved: resolved) != nil
+            || formalFractionExpression(source.trimmingCharacters(in: .whitespacesAndNewlines)) != nil
+    }
+
+    private func fractionButtonColor(isFractionResultShown: Bool, source: String) -> Color {
+        if isFractionResultShown || formalFractionExpression(source.trimmingCharacters(in: .whitespacesAndNewlines)) != nil {
+            return Color(red: 0.94, green: 0.58, blue: 0.16)
+        }
+        return GraphCalculatorTheme.blue
+    }
+
+    private func fractionConversionCandidate(source: String, resolved: GraphCalculatorResolvedRow?) -> RationalFraction? {
+        let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard formalFractionExpression(trimmed) == nil,
+              isPureNumericCalculation(trimmed),
+              let value = numericValue(for: trimmed),
+              hasRationalDecimalShape(source: trimmed, resolved: resolved) else {
+            return nil
+        }
+        return rationalFraction(for: value)
+    }
+
+    private func hasRationalDecimalShape(source: String, resolved: GraphCalculatorResolvedRow?) -> Bool {
+        if source.contains(".") { return true }
+        guard let displayValue = resolved?.displayValue else { return false }
+        return displayValue.contains(".") || displayValue.contains("−")
+    }
+
+    private func isPureNumericCalculation(_ source: String) -> Bool {
+        guard !source.isEmpty else { return false }
+        let allowed = CharacterSet(charactersIn: "0123456789.+-*/^() ")
+        return source.unicodeScalars.allSatisfy { allowed.contains($0) }
+            && !source.contains(",")
+            && !source.contains("=")
+    }
+
+    private func numericValue(for source: String) -> Double? {
+        guard let compiled = try? engine.compile(source),
+              let value = try? engine.evaluate(compiled: compiled, angleMode: .radians, variables: [:]),
+              value.isFinite else {
+            return nil
+        }
+        return value
+    }
+
+    private func numericExpressionTokens(for source: String) -> [NumericExpressionToken]? {
+        let compact = source.replacingOccurrences(of: " ", with: "")
+        guard isPureNumericCalculation(compact), !compact.isEmpty else { return nil }
+        var tokens: [NumericExpressionToken] = []
+        var index = compact.startIndex
+
+        func isOperatorBeforeFraction(_ character: Character) -> Bool {
+            character == "+" || character == "-" || character == "*" || character == "/" || character == "^" || character == "("
+        }
+
+        while index < compact.endIndex {
+            let character = compact[index]
+            let isSignedNumber = (character == "-" || character == "+")
+                && (index == compact.startIndex || isOperatorBeforeFraction(compact[compact.index(before: index)]))
+                && compact.index(after: index) < compact.endIndex
+                && compact[compact.index(after: index)].isNumber
+
+            if character.isNumber || isSignedNumber {
+                let start = index
+                index = compact.index(after: index)
+                while index < compact.endIndex, compact[index].isNumber {
+                    index = compact.index(after: index)
+                }
+
+                if index < compact.endIndex, compact[index] == "/" {
+                    let denominatorStart = compact.index(after: index)
+                    var denominatorEnd = denominatorStart
+                    while denominatorEnd < compact.endIndex, compact[denominatorEnd].isNumber {
+                        denominatorEnd = compact.index(after: denominatorEnd)
+                    }
+                    if denominatorEnd > denominatorStart,
+                       let numerator = Int(compact[start..<index]),
+                       let denominator = Int(compact[denominatorStart..<denominatorEnd]),
+                       denominator != 0 {
+                        let normalized = normalizedFraction(numerator: numerator, denominator: denominator)
+                        tokens.append(.fraction(normalized))
+                        index = denominatorEnd
+                        continue
+                    }
+                }
+
+                tokens.append(.text(GraphCalculatorExpressionDisplay.string(for: String(compact[start..<index]))))
+                continue
+            }
+
+            tokens.append(.text(GraphCalculatorExpressionDisplay.string(for: String(character))))
+            index = compact.index(after: index)
+        }
+
+        return tokens
+    }
+
+    private func normalizedFraction(numerator: Int, denominator: Int) -> RationalFraction {
+        let divisor = greatestCommonDivisor(abs(numerator), abs(denominator))
+        let normalizedSign = denominator < 0 ? -1 : 1
+        return RationalFraction(
+            numerator: normalizedSign * numerator / divisor,
+            denominator: abs(denominator) / divisor
+        )
+    }
+
+    private func editableExpressionTokens(for source: String) -> [EditableExpressionToken]? {
+        guard source.contains("/") else { return nil }
+        let characters = Array(source)
+        var tokens: [EditableExpressionToken] = []
+        var scanIndex = 0
+        var textStart = 0
+
+        while scanIndex < characters.count {
+            guard characters[scanIndex] == "/" else {
+                scanIndex += 1
+                continue
+            }
+
+            let fraction = editableFractionToken(aroundSlashAt: scanIndex, in: characters)
+            if textStart < fraction.sourceRange.lowerBound {
+                tokens.append(.text(String(characters[textStart..<fraction.sourceRange.lowerBound])))
+            }
+            tokens.append(.fraction(fraction))
+            scanIndex = max(fraction.sourceRange.upperBound, scanIndex + 1)
+            textStart = scanIndex
+        }
+
+        if textStart < characters.count {
+            tokens.append(.text(String(characters[textStart..<characters.count])))
+        }
+
+        return tokens.isEmpty ? nil : tokens
+    }
+
+    private func editableFractionToken(aroundSlashAt slashOffset: Int, in characters: [Character]) -> EditableFractionToken {
+        let numeratorBounds = numeratorBounds(beforeSlashAt: slashOffset, in: characters)
+        let denominatorBounds = denominatorBounds(afterSlashAt: slashOffset, in: characters)
+        return EditableFractionToken(
+            numerator: String(characters[numeratorBounds.displayRange]),
+            denominator: String(characters[denominatorBounds]),
+            numeratorRange: numeratorBounds.editRange,
+            denominatorRange: denominatorBounds,
+            slashOffset: slashOffset,
+            sourceRange: numeratorBounds.sourceRange.lowerBound..<denominatorBounds.upperBound
+        )
+    }
+
+    private func numeratorBounds(
+        beforeSlashAt slashOffset: Int,
+        in characters: [Character]
+    ) -> (sourceRange: Range<Int>, displayRange: Range<Int>, editRange: Range<Int>) {
+        guard slashOffset > 0 else {
+            return (slashOffset..<slashOffset, slashOffset..<slashOffset, slashOffset..<slashOffset)
+        }
+
+        if isFractionBoundaryOperator(characters[slashOffset - 1]) {
+            return (slashOffset..<slashOffset, slashOffset..<slashOffset, slashOffset..<slashOffset)
+        }
+
+        if characters[slashOffset - 1] == ")",
+           let openParen = matchingOpenParen(before: slashOffset - 1, in: characters) {
+            let functionStart = functionIdentifierStart(before: openParen, in: characters) ?? openParen
+            if functionStart < openParen {
+                return (
+                    functionStart..<slashOffset,
+                    functionStart..<slashOffset,
+                    functionStart..<slashOffset
+                )
+            }
+            return (
+                openParen..<slashOffset,
+                min(openParen + 1, slashOffset)..<max(openParen + 1, slashOffset - 1),
+                min(openParen + 1, slashOffset)..<max(openParen + 1, slashOffset - 1)
+            )
+        }
+
+        var start = slashOffset - 1
+        var depth = 0
+        while start > 0 {
+            let previousIndex = start - 1
+            let character = characters[previousIndex]
+            if character == ")" {
+                depth += 1
+            } else if character == "(" {
+                if depth == 0 { break }
+                depth -= 1
+            } else if depth == 0 && isFractionBoundaryOperator(character) {
+                break
+            }
+            start = previousIndex
+        }
+
+        return (start..<slashOffset, start..<slashOffset, start..<slashOffset)
+    }
+
+    private func denominatorBounds(afterSlashAt slashOffset: Int, in characters: [Character]) -> Range<Int> {
+        let start = min(slashOffset + 1, characters.count)
+        var end = start
+        var depth = 0
+
+        while end < characters.count {
+            let character = characters[end]
+            if character == "(" {
+                depth += 1
+            } else if character == ")" {
+                if depth == 0 { break }
+                depth -= 1
+            } else if depth == 0 && isFractionBoundaryOperator(character) {
+                break
+            }
+            end += 1
+        }
+
+        return start..<end
+    }
+
+    private func functionIdentifierStart(before openParenIndex: Int, in characters: [Character]) -> Int? {
+        guard openParenIndex > 0 else { return nil }
+        var start = openParenIndex
+        while start > 0, characters[start - 1].isLetter {
+            start -= 1
+        }
+        guard start < openParenIndex else { return nil }
+        return start
+    }
+
+    private func matchingOpenParen(before closeParenIndex: Int, in characters: [Character]) -> Int? {
+        var depth = 0
+        var index = closeParenIndex
+        while index >= 0 {
+            let character = characters[index]
+            if character == ")" {
+                depth += 1
+            } else if character == "(" {
+                depth -= 1
+                if depth == 0 { return index }
+            }
+            index -= 1
+        }
+        return nil
+    }
+
+    private func isFractionBoundaryOperator(_ character: Character) -> Bool {
+        character == "+" || character == "-" || character == "*" || character == "=" || character == "," || character == "<" || character == ">"
+    }
+
+    private func displayString(_ characters: [Character], in range: Range<Int>) -> String {
+        guard range.lowerBound >= 0,
+              range.upperBound <= characters.count,
+              range.lowerBound <= range.upperBound else {
+            return ""
+        }
+        return GraphCalculatorExpressionDisplay.string(for: String(characters[range]))
+    }
+
+    private func rationalFraction(for value: Double) -> RationalFraction? {
+        let maxDenominator = 10_000
+        let sign = value < 0 ? -1 : 1
+        let target = abs(value)
+        guard abs(target.rounded() - target) > 1e-10 else { return nil }
+
+        var lowerN = 0
+        var lowerD = 1
+        var upperN = 1
+        var upperD = 0
+
+        while true {
+            let middleN = lowerN + upperN
+            let middleD = lowerD + upperD
+            guard middleD <= maxDenominator else { break }
+            let middle = Double(middleN) / Double(middleD)
+            if abs(middle - target) <= 1e-10 {
+                return RationalFraction(numerator: sign * middleN, denominator: middleD)
+            }
+            if middle < target {
+                lowerN = middleN
+                lowerD = middleD
+            } else {
+                upperN = middleN
+                upperD = middleD
+            }
+        }
+
+        let lower = Double(lowerN) / Double(lowerD)
+        let upper = upperD == 0 ? Double.infinity : Double(upperN) / Double(upperD)
+        let best = abs(lower - target) <= abs(upper - target)
+            ? RationalFraction(numerator: sign * lowerN, denominator: lowerD)
+            : RationalFraction(numerator: sign * upperN, denominator: upperD)
+        let approximation = Double(best.numerator) / Double(best.denominator)
+        guard abs(approximation - value) <= 1e-8 else { return nil }
+        return best
     }
 
     /// Inline "create slider:" prompt shown beneath an equation for each candidate variable.
@@ -1334,8 +1954,20 @@ public struct GraphCalculatorView: View {
     }
 
     @ViewBuilder
-    private func expressionText(_ text: String, displayText: String, isSelected: Bool) -> some View {
-        if isSelected {
+    private func expressionText(
+        _ text: String,
+        displayText: String,
+        isSelected: Bool,
+        formalFraction: RationalFraction?
+    ) -> some View {
+        if let tokens = editableExpressionTokens(for: text), tokens.contains(where: { token in
+            if case .fraction = token { return true }
+            return false
+        }) {
+            editableTokenSequence(tokens, isSelected: isSelected, color: .black)
+        } else if let formalFraction {
+            formalFractionView(formalFraction)
+        } else if isSelected {
             let splitText = split(text, at: state.cursorOffset)
             HStack(spacing: 1) {
                 Text(GraphCalculatorExpressionDisplay.string(for: splitText.before))
@@ -1352,12 +1984,209 @@ public struct GraphCalculatorView: View {
             .lineLimit(1)
             .minimumScaleFactor(0.65)
         } else {
-            Text(displayText)
-                .font(.system(size: 20, weight: .regular, design: .serif))
+            GraphCalculatorMathDisplay(source: text, fallback: displayText, fontSize: 20)
                 .foregroundStyle(.black)
-                .lineLimit(1)
-                .minimumScaleFactor(0.65)
         }
+    }
+
+    private func numericExpressionLine(
+        text: String,
+        displayText: String,
+        displayValue: String,
+        isSelected: Bool,
+        formalFraction: RationalFraction?,
+        tokens: [EditableExpressionToken]?,
+        fractionResult: RationalFraction?
+    ) -> some View {
+        let hasEditableFraction = tokens?.contains { token in
+            if case .fraction = token { return true }
+            return false
+        } ?? false
+        return HStack(alignment: .center, spacing: 5) {
+            if let tokens, hasEditableFraction {
+                editableTokenSequence(tokens, isSelected: isSelected, color: .black)
+            } else {
+                expressionText(text, displayText: displayText, isSelected: false, formalFraction: formalFraction)
+            }
+
+            if isSelected && (!hasEditableFraction || isCursorVisuallyAfterEditableFraction(tokens)) {
+                Rectangle()
+                    .fill(GraphCalculatorTheme.blue)
+                    .frame(width: 2, height: 24)
+            }
+
+            Text("=")
+                .font(.system(size: 20, weight: .semibold, design: .serif))
+                .foregroundStyle(.red.opacity(0.82))
+
+            if let fractionResult {
+                formalFractionView(fractionResult, color: Color(red: 0.07, green: 0.63, blue: 0.36))
+            } else {
+                Text(displayValue)
+                    .font(.system(size: 18, weight: .medium, design: .serif))
+                    .foregroundStyle(Color(red: 0.07, green: 0.63, blue: 0.36))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.55)
+            }
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.65)
+    }
+
+    private func editableTokenSequence(_ tokens: [EditableExpressionToken], isSelected: Bool, color: Color) -> some View {
+        HStack(alignment: .center, spacing: 4) {
+            ForEach(Array(tokens.enumerated()), id: \.offset) { _, token in
+                switch token {
+                case .text(let value):
+                    GraphCalculatorMathDisplay(
+                        source: value,
+                        fallback: GraphCalculatorExpressionDisplay.string(for: value),
+                        fontSize: 20
+                    )
+                    .foregroundStyle(color)
+                case .fraction(let fraction):
+                    editableFractionView(fraction, isSelected: isSelected, color: color)
+                }
+            }
+        }
+    }
+
+    private func editableFractionView(_ fraction: EditableFractionToken, isSelected: Bool, color: Color) -> some View {
+        let numeratorText = GraphCalculatorExpressionDisplay.string(for: fraction.numerator)
+        let denominatorText = GraphCalculatorExpressionDisplay.string(for: fraction.denominator)
+        let characterCount = max(max(numeratorText.count, denominatorText.count), 1)
+        let barWidth = max(28, CGFloat(characterCount) * 11 + 14)
+        let numeratorActive = isSelected
+            && state.cursorOffset >= fraction.numeratorRange.lowerBound
+            && state.cursorOffset <= fraction.slashOffset
+        let denominatorIsEmpty = fraction.denominatorRange.isEmpty
+        let denominatorActive = isSelected
+            && fractionCursorExitedAt != state.cursorOffset
+            && state.cursorOffset >= fraction.denominatorRange.lowerBound
+            && (denominatorIsEmpty ? state.cursorOffset == fraction.denominatorRange.lowerBound : state.cursorOffset <= fraction.denominatorRange.upperBound)
+
+        return VStack(spacing: 2) {
+            editableFractionPart(
+                sourceText: fraction.numerator,
+                displayText: numeratorText,
+                range: fraction.numeratorRange,
+                isActive: numeratorActive,
+                placeholderHeight: 22,
+                color: color
+            )
+            Rectangle()
+                .fill(color.opacity(0.86))
+                .frame(width: barWidth, height: 1.4)
+            editableFractionPart(
+                sourceText: fraction.denominator,
+                displayText: denominatorText,
+                range: fraction.denominatorRange,
+                isActive: denominatorActive,
+                placeholderHeight: 22,
+                color: color
+            )
+        }
+        .frame(width: barWidth)
+        .padding(.vertical, 3)
+    }
+
+    private func editableFractionPart(
+        sourceText: String,
+        displayText: String,
+        range: Range<Int>,
+        isActive: Bool,
+        placeholderHeight: CGFloat,
+        color: Color
+    ) -> some View {
+        let cursorOffset = min(max(state.cursorOffset - range.lowerBound, 0), displayText.count)
+        let splitText = split(displayText, at: cursorOffset)
+
+        return HStack(spacing: 1) {
+            if sourceText.isEmpty {
+                if isActive {
+                    Rectangle()
+                        .fill(GraphCalculatorTheme.blue)
+                        .frame(width: 2, height: placeholderHeight)
+                }
+                Rectangle()
+                    .fill(Color.black.opacity(0.14))
+                    .frame(width: 16, height: placeholderHeight)
+            } else if isActive {
+                Text(splitText.before)
+                Rectangle()
+                    .fill(GraphCalculatorTheme.blue)
+                    .frame(width: 2, height: placeholderHeight)
+                Text(splitText.after)
+            } else {
+                GraphCalculatorMathDisplay(source: sourceText, fallback: displayText, fontSize: 20)
+            }
+        }
+        .font(.system(size: 20, weight: .regular, design: .serif))
+        .foregroundStyle(color)
+        .lineLimit(1)
+        .minimumScaleFactor(0.65)
+        .frame(minWidth: 18, minHeight: placeholderHeight)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            fractionCursorExitedAt = nil
+            state.cursorOffset = range.upperBound
+        }
+    }
+
+    private func isCursorVisuallyAfterEditableFraction(_ tokens: [EditableExpressionToken]?) -> Bool {
+        guard let tokens, fractionCursorExitedAt == state.cursorOffset else { return false }
+        return tokens.contains { token in
+            guard case .fraction(let fraction) = token else { return false }
+            return !fraction.denominatorRange.isEmpty && state.cursorOffset == fraction.denominatorRange.upperBound
+        }
+    }
+
+    private func formalFractionView(_ fraction: RationalFraction, color: Color = .black) -> some View {
+        let numeratorText = "\(fraction.numerator)"
+        let denominatorText = "\(fraction.denominator)"
+        let characterCount = max(numeratorText.count, denominatorText.count)
+        let barWidth = max(24, CGFloat(characterCount) * 11 + 12)
+
+        return VStack(spacing: 2) {
+            Text(numeratorText)
+            Rectangle()
+                .fill(color.opacity(0.86))
+                .frame(width: barWidth, height: 1.4)
+            Text(denominatorText)
+        }
+        .font(.system(size: 20, weight: .regular, design: .serif))
+        .foregroundStyle(color)
+        .lineLimit(1)
+        .frame(width: barWidth)
+        .padding(.vertical, 3)
+    }
+
+    private func formalFractionExpression(_ text: String) -> RationalFraction? {
+        let compact = text.replacingOccurrences(of: " ", with: "")
+        let parts = compact.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 2,
+              let numerator = Int(parts[0]),
+              let denominator = Int(parts[1]),
+              denominator != 0 else {
+            return nil
+        }
+        let divisor = greatestCommonDivisor(abs(numerator), abs(denominator))
+        let normalizedSign = denominator < 0 ? -1 : 1
+        return RationalFraction(
+            numerator: normalizedSign * numerator / divisor,
+            denominator: abs(denominator) / divisor
+        )
+    }
+
+    private func greatestCommonDivisor(_ a: Int, _ b: Int) -> Int {
+        var x = a
+        var y = b
+        while y != 0 {
+            let remainder = x % y
+            x = y
+            y = remainder
+        }
+        return max(x, 1)
     }
 
     private func split(_ text: String, at offset: Int) -> (before: String, after: String) {
@@ -1367,13 +2196,26 @@ public struct GraphCalculatorView: View {
     }
 
     private func expressionStyleCell(index: Int, isSelected: Bool, isInvalid: Bool, color: Color) -> some View {
-        ZStack {
+        let isEnabled = state.expressions.indices.contains(index) ? state.expressions[index].isEnabled : true
+        return ZStack {
             Circle()
-                .fill(color.opacity(isInvalid ? 0.35 : 1))
+                .fill(color.opacity(isInvalid || !isEnabled ? 0.35 : 1))
                 .frame(width: 28, height: 28)
                 .overlay(Circle().strokeBorder(isSelected ? .white.opacity(0.84) : .black.opacity(0.08), lineWidth: 1.5))
                 .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
                 .contentShape(Circle())
+                .overlay {
+                    swatchWaveMark(isEnabled: isEnabled)
+                        .frame(width: 20, height: 13)
+                }
+                .onTapGesture {
+                    state.ensureExpression(at: index)
+                    if isSelected {
+                        swatchActionExpressionIndex = index
+                    } else {
+                        state.selectExpression(at: index)
+                    }
+                }
                 .onLongPressGesture {
                     state.ensureExpression(at: index)
                     state.selectExpression(at: index)
@@ -1391,6 +2233,18 @@ public struct GraphCalculatorView: View {
                 ) {
                     expressionStylePopover(index: index)
                 }
+                .popover(
+                    isPresented: Binding(
+                        get: { swatchActionExpressionIndex == index },
+                        set: { isPresented in
+                            if !isPresented, swatchActionExpressionIndex == index {
+                                swatchActionExpressionIndex = nil
+                            }
+                        }
+                    )
+                ) {
+                    swatchActionPopover(index: index)
+                }
             if isInvalid {
                 Image(systemName: "xmark")
                     .font(.system(size: 28, weight: .black))
@@ -1400,6 +2254,77 @@ public struct GraphCalculatorView: View {
         }
         .frame(width: 52)
         .background(isSelected ? GraphCalculatorTheme.blue : Color.black.opacity(0.06))
+    }
+
+    private func swatchWaveMark(isEnabled: Bool) -> some View {
+        Canvas { context, size in
+            var path = Path()
+            let midY = size.height * 0.5
+            path.move(to: CGPoint(x: 0, y: midY))
+            path.addCurve(
+                to: CGPoint(x: size.width * 0.5, y: midY),
+                control1: CGPoint(x: size.width * 0.18, y: -size.height * 0.15),
+                control2: CGPoint(x: size.width * 0.32, y: size.height * 1.15)
+            )
+            path.addCurve(
+                to: CGPoint(x: size.width, y: midY),
+                control1: CGPoint(x: size.width * 0.68, y: -size.height * 0.15),
+                control2: CGPoint(x: size.width * 0.82, y: size.height * 1.15)
+            )
+            context.stroke(
+                path,
+                with: .color(.white.opacity(isEnabled ? 0.95 : 0.55)),
+                style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round)
+            )
+            if !isEnabled {
+                var slash = Path()
+                slash.move(to: CGPoint(x: size.width * 0.08, y: size.height * 0.92))
+                slash.addLine(to: CGPoint(x: size.width * 0.92, y: size.height * 0.08))
+                context.stroke(slash, with: .color(.white.opacity(0.82)), style: StrokeStyle(lineWidth: 2.1, lineCap: .round))
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func toggleExpressionEnabled(_ index: Int) {
+        state.ensureExpression(at: index)
+        state.expressions[index].isEnabled.toggle()
+        state.selectExpression(at: index)
+    }
+
+    private func swatchActionPopover(index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                toggleExpressionEnabled(index)
+                swatchActionExpressionIndex = nil
+            } label: {
+                Label(
+                    state.expressions.indices.contains(index) && state.expressions[index].isEnabled ? "Turn Off" : "Turn On",
+                    systemImage: "power"
+                )
+            }
+            Button {
+                copyExpression(at: index)
+                swatchActionExpressionIndex = nil
+            } label: {
+                Label("Copy Equation", systemImage: "doc.on.doc")
+            }
+        }
+        .buttonStyle(.plain)
+        .font(.system(size: 15, weight: .semibold))
+        .padding(14)
+        .frame(minWidth: 170, alignment: .leading)
+    }
+
+    private func copyExpression(at index: Int) {
+        guard state.expressions.indices.contains(index) else { return }
+        let expression = state.expressions[index].expression
+        #if os(iOS)
+        UIPasteboard.general.string = expression
+        #elseif os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(expression, forType: .string)
+        #endif
     }
 
     private func expressionStylePopover(index: Int) -> some View {
@@ -1546,8 +2471,8 @@ public struct GraphCalculatorView: View {
         .background(GraphCalculatorTheme.keypad)
     }
 
-    /// Computes key sizing so the keys fill the whole keypad frame (no dark bands, no wide center gap).
-    /// The overall calculator size is unchanged; only the key area is resized.
+    /// Computes key sizing so normal keys are square. Wide keys span two columns but keep the same
+    /// height as the rest of the row.
     private func keypadMetrics(for size: CGSize) -> KeypadMetrics {
         let spacing: CGFloat = 7
         let groupSpacing: CGFloat = 12
@@ -1555,12 +2480,10 @@ public struct GraphCalculatorView: View {
         let verticalPadding: CGFloat = 9
         let columns: CGFloat = 10          // 4 left keys + 6 right keys
         let interKeyGaps: CGFloat = 8      // 3 gaps in the left group + 5 gaps in the right group
-        let rows: CGFloat = 4
 
         let availableWidth = max(0, size.width - horizontalPadding * 2)
-        let availableHeight = max(0, size.height - verticalPadding * 2)
         let columnWidth = max(30, (availableWidth - spacing * interKeyGaps - groupSpacing) / columns)
-        let rowHeight = max(38, (availableHeight - spacing * (rows - 1)) / rows)
+        let rowHeight = columnWidth
 
         return KeypadMetrics(
             columnWidth: columnWidth,
@@ -1597,7 +2520,7 @@ public struct GraphCalculatorView: View {
                 key("6", style: .number, metrics: metrics) { insert("6") }
                 key("×", metrics: metrics) { insert("*") }
                 key("←", metrics: metrics) { state.moveCursorLeft() }
-                key("→", metrics: metrics) { state.moveCursorRight() }
+                key("→", metrics: metrics) { moveExpressionCursorRight() }
             }
             HStack(spacing: metrics.spacing) {
                 key("|a|", metrics: metrics) { insert("abs(") }
@@ -1613,15 +2536,7 @@ public struct GraphCalculatorView: View {
             }
             HStack(spacing: metrics.spacing) {
                 key("ABC", metrics: metrics) { isAlphabetKeypadVisible = true }
-                Menu {
-                    Button("g(x)") { insert("g(") }
-                    Button("h(x)") { insert("h(") }
-                } label: {
-                    keyLabel("f(x)", emphasized: true, metrics: metrics)
-                } primaryAction: {
-                    insert("f(")
-                }
-                .buttonStyle(GraphKeyButtonStyle(fill: keyFill(style: .plain, emphasized: true), emphasized: true))
+                functionKey(metrics: metrics)
                 key("√", metrics: metrics) { insert("sqrt(") }
                 key("π", metrics: metrics) { insert("pi") }
                 Spacer(minLength: metrics.groupSpacing)
@@ -1635,6 +2550,14 @@ public struct GraphCalculatorView: View {
         .frame(maxHeight: .infinity, alignment: .top)
         .padding(.horizontal, metrics.horizontalPadding)
         .padding(.vertical, metrics.verticalPadding)
+    }
+
+    private func functionKey(metrics: KeypadMetrics) -> some View {
+        key("f(x)", emphasized: true, metrics: metrics) { insert("f(") }
+            .contextMenu {
+                Button("g(x)") { insert("g(") }
+                Button("h(x)") { insert("h(") }
+            }
     }
 
     private func alphabetKeypad(metrics: KeypadMetrics) -> some View {
@@ -1651,7 +2574,7 @@ public struct GraphCalculatorView: View {
                 Spacer(minLength: metrics.groupSpacing)
                 key(",", metrics: metrics) { insert(",") }
                 key("←", metrics: metrics) { state.moveCursorLeft() }
-                key("→", metrics: metrics) { state.moveCursorRight() }
+                key("→", metrics: metrics) { moveExpressionCursorRight() }
                 key("⌫", wide: true, emphasized: true, metrics: metrics) { keypadDelete() }
             }
         }
@@ -1680,7 +2603,10 @@ public struct GraphCalculatorView: View {
         metrics: KeypadMetrics,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
+        Button {
+            recordKeyStroke(label: label, style: style, wide: wide, emphasized: emphasized)
+            action()
+        } label: {
             keyLabel(label, wide: wide, emphasized: emphasized, metrics: metrics)
         }
         .buttonStyle(GraphKeyButtonStyle(fill: keyFill(style: style, emphasized: emphasized), emphasized: emphasized))
@@ -1705,7 +2631,10 @@ public struct GraphCalculatorView: View {
     }
 
     private func fractionKey(metrics: KeypadMetrics, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        Button {
+            recordKeyStroke(label: "a⁄b", style: .plain, wide: false, emphasized: false)
+            action()
+        } label: {
             VStack(spacing: 1) {
                 Text("a")
                 Rectangle()
@@ -1786,54 +2715,14 @@ public struct GraphCalculatorView: View {
     }
 
     private func detachedGraphPanel(in containerSize: CGSize) -> some View {
-        let size = detachedResizeLive?.size ?? clampGraphSize(state.detachedGraphSize, in: containerSize)
-        let center = detachedResizeLive?.center ?? detachedGraphCenter(size: size, in: containerSize)
-
-        return VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Text("Graph")
-                    .font(.headline)
-                    .foregroundStyle(.black)
-                Spacer()
-                Button { state.isGraphDetached = false } label: {
-                    Image(systemName: "arrow.down.to.line.compact")
-                }
-                Button { state.isGraphDetached = false } label: {
-                    Image(systemName: "xmark.circle.fill")
-                }
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.black.opacity(0.72))
-            .padding(.horizontal, 12)
-            .frame(height: 42)
-            .background(Color.white)
-            .overlay(Rectangle().fill(.black.opacity(0.18)).frame(height: 1), alignment: .bottom)
-            .contentShape(Rectangle())
-            .gesture(detachedDragGesture(currentCenter: center, size: size, in: containerSize))
-
-            graphCanvas
-        }
-        .frame(width: size.width, height: size.height)
-        .background(Color.white, in: Rectangle())
-        .overlay(Rectangle().strokeBorder(.black.opacity(0.32), lineWidth: 1))
-        .shadow(color: .black.opacity(0.28), radius: 14, y: 6)
-        .compositingGroup()
-        .overlay(alignment: .bottomTrailing) {
-            ResizeGrip()
-                .frame(width: 24, height: 24)
-                .padding(7)
-                .contentShape(Rectangle())
-                .highPriorityGesture(detachedResizeGesture(currentCenter: center, in: containerSize))
-        }
-        .position(center)
-        .opacity(isDragging(.detachedGraph) ? 0.14 : 1)
-    }
-
-    private func detachedControlPanel(in containerSize: CGSize) -> some View {
-        let width = min(containerSize.width - 24, 440)
-        let height = min(containerSize.height - 24, detachedControlHeight)
-        let size = CGSize(width: width, height: height)
-        let center = detachedControlCenter(size: size, in: containerSize)
+        let expandedSize = detachedResizeLive?.size ?? clampGraphSize(state.detachedGraphSize, in: containerSize)
+        let expandedCenter = detachedResizeLive?.center ?? detachedGraphCenter(size: expandedSize, in: containerSize)
+        let size = state.isDetachedGraphHeaderCollapsed
+            ? collapsedPanelSize(forExpandedSize: expandedSize, in: containerSize)
+            : expandedSize
+        let center = state.isDetachedGraphHeaderCollapsed
+            ? collapsedCenterPreservingTop(expandedCenter: expandedCenter, expandedSize: expandedSize, collapsedSize: size, in: containerSize)
+            : expandedCenter
         let placementRect = CGRect(
             x: center.x - size.width / 2,
             y: center.y - size.height / 2,
@@ -1841,28 +2730,454 @@ public struct GraphCalculatorView: View {
             height: size.height
         )
 
-        return VStack(spacing: 0) {
-            topBar
-                .gesture(detachedControlDragGesture(currentCenter: center, size: size, in: containerSize))
-            graphToolbar(placementRect: placementRect, containerSize: containerSize)
-            entryPanel
-                .frame(height: detachedEntryHeight(availableHeight: height))
-                .overlay(alignment: .bottom) {
-                    if state.isKeypadCollapsed {
-                        entryResizeHandle
+        return detachedGraphPanelContent(size: size, center: center, placementRect: placementRect, containerSize: containerSize)
+        .frame(width: size.width, height: size.height)
+        .background(Color.white, in: Rectangle())
+        .overlay(Rectangle().strokeBorder(.black.opacity(0.32), lineWidth: 1))
+        .shadow(color: .black.opacity(0.28), radius: 14, y: 6)
+        .compositingGroup()
+        .overlay(alignment: .bottomTrailing) {
+            if !state.isDetachedGraphHeaderCollapsed {
+                ResizeGrip()
+                    .frame(width: 24, height: 24)
+                    .padding(7)
+                    .contentShape(Rectangle())
+                    .highPriorityGesture(detachedResizeGesture(currentCenter: center, in: containerSize))
+            }
+        }
+        .position(center)
+        .opacity(isDragging(.detachedGraph) ? 0.14 : 1)
+    }
+
+    private func detachedGraphPanelContent(
+        size: CGSize,
+        center: CGPoint,
+        placementRect: CGRect,
+        containerSize: CGSize
+    ) -> some View {
+        VStack(spacing: 0) {
+            detachedGraphTopBar
+            .gesture(detachedDragGesture(currentCenter: center, size: size, expandedSize: size.height == compactHeaderHeight ? state.detachedGraphSize : size, in: containerSize))
+
+            if !state.isDetachedGraphHeaderCollapsed {
+                graphCanvas(keepsSquarePlot: false)
+                    .overlay(alignment: .topLeading) {
+                        detachedGraphEquationOverlay
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        graphControlOverlay(placementRect: placementRect, containerSize: containerSize) {
+                            squareDetachedGraphWindow(currentSize: size, currentCenter: center, in: containerSize)
+                        }
+                    }
+            }
+        }
+    }
+
+    private var detachedGraphTopBar: some View {
+        Group {
+            if state.isDetachedGraphHeaderCollapsed {
+                collapsedDragBar(tint: .black.opacity(0.45), background: .white) {
+                    state.isDetachedGraphHeaderCollapsed = false
+                }
+                .frame(height: compactHeaderHeight)
+                .overlay(Rectangle().fill(.black.opacity(0.18)).frame(height: 1), alignment: .bottom)
+            } else {
+                HStack(spacing: 8) {
+                    Text("Graph")
+                        .font(.headline)
+                        .foregroundStyle(.black)
+                    Spacer()
+                    Button { state.isGraphDetached = false } label: {
+                        Image(systemName: "arrow.down.to.line.compact")
+                    }
+                    Button { state.isGraphDetached = false } label: {
+                        Image(systemName: "xmark.circle.fill")
                     }
                 }
-            keypad
-                .frame(height: state.isKeypadCollapsed ? 0 : keypadHeight)
-                .clipped()
+                .buttonStyle(.plain)
+                .foregroundStyle(.black.opacity(0.72))
+                .padding(.horizontal, 12)
+                .frame(height: expandedFloatingHeaderHeight)
+                .background(Color.white)
+                .overlay(Rectangle().fill(.black.opacity(0.18)).frame(height: 1), alignment: .bottom)
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) {
+                    state.isDetachedGraphHeaderCollapsed = true
+                }
+            }
         }
+    }
+
+    private var detachedGraphEquationOverlay: some View {
+        let rows = state.expressions.enumerated().compactMap { index, equation -> (index: Int, source: String, fallback: String)? in
+            let text = equation.expression.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard equation.isEnabled, !text.isEmpty else { return nil }
+            return (index, text, GraphCalculatorExpressionDisplay.string(for: text))
+        }
+
+        return VStack(alignment: .leading, spacing: 6) {
+            ForEach(rows.prefix(6), id: \.index) { row in
+                GraphCalculatorMathDisplay(source: row.source, fallback: row.fallback, fontSize: 18)
+                    .foregroundStyle(graphColor(for: row.index))
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: 230, alignment: .leading)
+        .background(.white.opacity(0.82), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.black.opacity(0.14), lineWidth: 0.5))
+        .padding(10)
+        .allowsHitTesting(false)
+    }
+
+    private func detachedControlPanel(in containerSize: CGSize) -> some View {
+        let width = min(containerSize.width - 24, 440)
+        let expandedHeight = min(containerSize.height - 24, detachedControlHeight)
+        let expandedSize = CGSize(width: width, height: expandedHeight)
+        let size = state.isDetachedControlHeaderCollapsed
+            ? collapsedPanelSize(forExpandedSize: expandedSize, in: containerSize)
+            : expandedSize
+        let expandedCenter = detachedControlCenter(size: expandedSize, in: containerSize)
+        let center = state.isDetachedControlHeaderCollapsed
+            ? collapsedCenterPreservingTop(expandedCenter: expandedCenter, expandedSize: expandedSize, collapsedSize: size, in: containerSize)
+            : entryResizeLive?.center ?? expandedCenter
+        let height = size.height
+        let placementRect = CGRect(
+            x: center.x - size.width / 2,
+            y: center.y - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+
+        return detachedControlPanelContent(size: size, height: height, center: center, placementRect: placementRect, containerSize: containerSize)
         .frame(width: size.width, height: size.height)
         .background(GraphCalculatorTheme.panel, in: Rectangle())
         .overlay(Rectangle().strokeBorder(.black.opacity(0.14), lineWidth: 1))
+        .overlay(detachedControlPanelBorder)
         .shadow(color: .black.opacity(0.26), radius: 16, y: 7)
         .compositingGroup()
         .position(center)
         .opacity(isDragging(.detachedControl) ? 0.14 : 1)
+    }
+
+    private func detachedControlPanelContent(
+        size: CGSize,
+        height: CGFloat,
+        center: CGPoint,
+        placementRect: CGRect,
+        containerSize: CGSize
+    ) -> some View {
+        VStack(spacing: 0) {
+            calculatorTopBar(.detachedControl)
+                .gesture(detachedControlDragGesture(currentCenter: center, size: size, expandedHeight: detachedControlHeight, in: containerSize))
+            if !state.isDetachedControlHeaderCollapsed {
+                graphToolbar(placementRect: placementRect, containerSize: containerSize)
+                entryPanel
+                    .frame(height: detachedEntryHeight(availableHeight: height))
+                entryResizeHandle(anchoredCenter: center, containerSize: containerSize)
+                keypad
+                    .frame(height: state.isKeypadCollapsed ? 0 : keypadHeight)
+                    .clipped()
+            }
+        }
+    }
+
+    private var detachedControlPanelBorder: some View {
+        GeometryReader { proxy in
+            let lineWidth: CGFloat = 3
+            let size = proxy.size
+            Path { path in
+                path.move(to: CGPoint(x: lineWidth / 2, y: 0))
+                path.addLine(to: CGPoint(x: lineWidth / 2, y: size.height - lineWidth / 2))
+                path.addLine(to: CGPoint(x: size.width - lineWidth / 2, y: size.height - lineWidth / 2))
+                path.addLine(to: CGPoint(x: size.width - lineWidth / 2, y: 0))
+            }
+            .stroke(.black.opacity(0.9), style: StrokeStyle(lineWidth: lineWidth, lineCap: .square, lineJoin: .miter))
+        }
+        .allowsHitTesting(false)
+    }
+
+    // MARK: - Keystroke display window
+
+    private func keystrokeWindow(in containerSize: CGSize) -> some View {
+        let size = keystrokeWindowResizeLive?.size ?? clampKeystrokeWindowSize(state.keystrokeWindowSize, in: containerSize)
+        let center = keystrokeWindowResizeLive?.center ?? keystrokeWindowCenter(size: size, in: containerSize)
+
+        return VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: "keyboard")
+                    .font(.headline.weight(.semibold))
+                Text("Key Strokes")
+                    .font(.headline)
+                Spacer()
+                Button {
+                    state.isKeystrokeRecordingPaused.toggle()
+                } label: {
+                    Image(systemName: state.isKeystrokeRecordingPaused ? "record.circle" : "pause.fill")
+                        .foregroundStyle(state.isKeystrokeRecordingPaused ? GraphCalculatorTheme.blue : .black.opacity(0.7))
+                }
+                Button {
+                    if !state.recordedKeystrokes.isEmpty {
+                        state.recordedKeystrokes.removeLast()
+                    }
+                } label: {
+                    Image(systemName: "delete.left")
+                }
+                .disabled(state.recordedKeystrokes.isEmpty)
+                Button {
+                    state.recordedKeystrokes.removeAll()
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .disabled(state.recordedKeystrokes.isEmpty)
+                Button {
+                    makeKeystrokeSticker(size: size)
+                } label: {
+                    Image(systemName: "square.on.square")
+                }
+                .disabled(onGraphSnapshot == nil || state.recordedKeystrokes.isEmpty)
+                Button {
+                    state.isKeystrokeDisplayEnabled = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                }
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.black.opacity(0.72))
+            .padding(.horizontal, 12)
+            .frame(height: expandedFloatingHeaderHeight)
+            .background(Color.white)
+            .overlay(Rectangle().fill(.black.opacity(0.18)).frame(height: 1), alignment: .bottom)
+            .contentShape(Rectangle())
+            .gesture(keystrokeWindowDragGesture(currentCenter: center, size: size, in: containerSize))
+
+            keystrokeSequenceContent(size: CGSize(width: size.width, height: max(1, size.height - expandedFloatingHeaderHeight)))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(red: 0.985, green: 0.985, blue: 0.975))
+        }
+        .frame(width: size.width, height: size.height)
+        .background(Color.white, in: Rectangle())
+        .overlay(Rectangle().strokeBorder(.black.opacity(0.32), lineWidth: 1))
+        .shadow(color: .black.opacity(0.24), radius: 12, y: 6)
+        .overlay(alignment: .bottomTrailing) {
+            ResizeGrip()
+                .frame(width: 24, height: 24)
+                .padding(7)
+                .contentShape(Rectangle())
+                .highPriorityGesture(keystrokeWindowResizeGesture(currentCenter: center, in: containerSize))
+        }
+        .position(center)
+    }
+
+    private func keystrokeSequenceContent(size: CGSize) -> some View {
+        let isVertical = size.height > size.width * 0.92
+        let items = keystrokeDisplayItems()
+        return Group {
+            if isVertical {
+                ScrollView(.horizontal) {
+                    LazyHGrid(rows: [GridItem(.adaptive(minimum: 58), spacing: 10, alignment: .center)], spacing: 10) {
+                        ForEach(items) { item in
+                            keystrokeDisplayItemView(item, isVertical: true)
+                        }
+                    }
+                    .padding(14)
+                    .frame(minHeight: size.height, alignment: .leading)
+                }
+            } else {
+                ScrollView(.vertical) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 76), spacing: 10, alignment: .center)], spacing: 10) {
+                        ForEach(items) { item in
+                            keystrokeDisplayItemView(item, isVertical: false)
+                        }
+                    }
+                    .padding(14)
+                    .frame(minWidth: size.width, alignment: .topLeading)
+                }
+            }
+        }
+    }
+
+    private func keystrokeDisplayItems() -> [KeystrokeDisplayItem] {
+        var items: [KeystrokeDisplayItem] = [
+            KeystrokeDisplayItem(kind: .start(1))
+        ]
+        if state.recordedKeystrokes.isEmpty {
+            items.append(KeystrokeDisplayItem(kind: .placeholder))
+        } else {
+            for (index, stroke) in state.recordedKeystrokes.enumerated() {
+                items.append(KeystrokeDisplayItem(id: stroke.id, kind: .key(stroke)))
+                items.append(KeystrokeDisplayItem(kind: .connector(index + 2)))
+            }
+            items.append(KeystrokeDisplayItem(kind: .placeholder))
+        }
+        return items
+    }
+
+    @ViewBuilder
+    private func keystrokeDisplayItemView(_ item: KeystrokeDisplayItem, isVertical: Bool) -> some View {
+        switch item.kind {
+        case .start(let number):
+            numberedStartCircle(number)
+        case .key(let stroke):
+            recordedKeystrokeView(stroke)
+        case .connector(let number):
+            keystrokeConnector(number: number, isVertical: isVertical)
+        case .placeholder:
+            keystrokePlaceholder()
+        }
+    }
+
+    private struct KeystrokeDisplayItem: Identifiable {
+        enum Kind {
+            case start(Int)
+            case key(GraphRecordedKeyStroke)
+            case connector(Int)
+            case placeholder
+        }
+
+        var id: UUID = UUID()
+        var kind: Kind
+    }
+
+    private func numberedStartCircle(_ number: Int) -> some View {
+        Text("\(number)")
+            .font(.system(size: 14, weight: .bold).monospacedDigit())
+            .foregroundStyle(.white)
+            .frame(width: 26, height: 26)
+            .background(GraphCalculatorTheme.blue, in: Circle())
+    }
+
+    private func keystrokeConnector(number: Int, isVertical: Bool) -> some View {
+        VStack(spacing: 2) {
+            Text("\(number)")
+                .font(.system(size: 12, weight: .bold).monospacedDigit())
+                .foregroundStyle(.black.opacity(0.58))
+            Image(systemName: isVertical ? "arrow.down" : "arrow.right")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(.black.opacity(0.48))
+        }
+        .frame(width: isVertical ? 70 : 34, height: isVertical ? 34 : 54)
+    }
+
+    private func keystrokePlaceholder() -> some View {
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .stroke(.black.opacity(0.18), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+            .frame(width: 70, height: 54)
+    }
+
+    private func recordedKeystrokeView(_ stroke: GraphRecordedKeyStroke) -> some View {
+        let metrics = KeypadMetrics(
+            columnWidth: 62,
+            rowHeight: 46,
+            spacing: 7,
+            groupSpacing: 12,
+            horizontalPadding: 0,
+            verticalPadding: 0
+        )
+        return keyLabel(stroke.label, wide: stroke.isWide, emphasized: stroke.isEmphasized, metrics: metrics)
+            .background {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(.black.opacity(0.22))
+                        .offset(y: 3)
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    keyFill(style: stroke.style == .number ? .number : .plain, emphasized: stroke.isEmphasized),
+                                    keyFill(style: stroke.style == .number ? .number : .plain, emphasized: stroke.isEmphasized).opacity(0.84)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .overlay(alignment: .top) {
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .stroke(.white.opacity(stroke.isEmphasized ? 0.28 : 0.72), lineWidth: 1)
+                                .padding(1)
+                        }
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .strokeBorder(.black.opacity(0.20), lineWidth: 0.6)
+                        )
+                }
+            }
+            .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
+    }
+
+    private func recordKeyStroke(label: String, style: KeyStyle, wide: Bool, emphasized: Bool) {
+        guard state.isKeystrokeDisplayEnabled, !state.isKeystrokeRecordingPaused else { return }
+        let recordedStyle: GraphRecordedKeyStyle = style == .number ? .number : .plain
+        state.recordedKeystrokes.append(GraphRecordedKeyStroke(
+            label: label,
+            style: recordedStyle,
+            isWide: wide,
+            isEmphasized: emphasized
+        ))
+    }
+
+    private func keystrokeWindowCenter(size: CGSize, in containerSize: CGSize) -> CGPoint {
+        let fallback = CGPoint(x: containerSize.width * 0.52, y: max(size.height / 2 + 32, containerSize.height * 0.22))
+        return clamp(center: state.keystrokeWindowPosition ?? fallback, size: size, in: containerSize)
+    }
+
+    private func clampKeystrokeWindowSize(_ proposed: CGSize, in containerSize: CGSize) -> CGSize {
+        CGSize(
+            width: min(max(proposed.width, 180), max(180, containerSize.width - 24)),
+            height: min(max(proposed.height, 120), max(120, containerSize.height - 24))
+        )
+    }
+
+    private func keystrokeWindowDragGesture(currentCenter: CGPoint, size: CGSize, in containerSize: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 1)
+            .onChanged { value in
+                let base = keystrokeWindowDragStart ?? currentCenter
+                if keystrokeWindowDragStart == nil { keystrokeWindowDragStart = base }
+                state.keystrokeWindowPosition = clamp(
+                    center: CGPoint(x: base.x + value.translation.width, y: base.y + value.translation.height),
+                    size: size,
+                    in: containerSize
+                )
+            }
+            .onEnded { _ in
+                keystrokeWindowDragStart = nil
+            }
+    }
+
+    private func keystrokeWindowResizeGesture(currentCenter: CGPoint, in containerSize: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 1, coordinateSpace: .global)
+            .onChanged { value in
+                let start = keystrokeWindowResizeStart ?? (
+                    size: state.keystrokeWindowSize,
+                    topLeft: CGPoint(x: currentCenter.x - state.keystrokeWindowSize.width / 2, y: currentCenter.y - state.keystrokeWindowSize.height / 2)
+                )
+                if keystrokeWindowResizeStart == nil { keystrokeWindowResizeStart = start }
+                let size = clampKeystrokeWindowSize(
+                    CGSize(width: start.size.width + value.translation.width, height: start.size.height + value.translation.height),
+                    in: containerSize
+                )
+                let center = clamp(center: CGPoint(x: start.topLeft.x + size.width / 2, y: start.topLeft.y + size.height / 2), size: size, in: containerSize)
+                keystrokeWindowResizeLive = (size, center)
+            }
+            .onEnded { _ in
+                if let live = keystrokeWindowResizeLive {
+                    state.keystrokeWindowSize = live.size
+                    state.keystrokeWindowPosition = live.center
+                }
+                keystrokeWindowResizeLive = nil
+                keystrokeWindowResizeStart = nil
+            }
+    }
+
+    private func makeKeystrokeSticker(size: CGSize) {
+        guard let onGraphSnapshot, !state.recordedKeystrokes.isEmpty else { return }
+        #if os(iOS)
+        let stickerSize = CGSize(width: max(220, size.width), height: max(120, size.height - expandedFloatingHeaderHeight))
+        let renderer = ImageRenderer(content: keystrokeSequenceContent(size: stickerSize).frame(width: stickerSize.width, height: stickerSize.height).background(Color.white))
+        renderer.scale = 3
+        guard let image = renderer.uiImage, let pngData = image.pngData() else { return }
+        onGraphSnapshot(GraphCalculatorSnapshot(pngData: pngData, size: stickerSize, placementRect: nil, containerSize: nil))
+        #endif
     }
 
     // MARK: - Floating table window
@@ -1871,11 +3186,42 @@ public struct GraphCalculatorView: View {
     private func tableWindow(in containerSize: CGSize) -> some View {
         if let active = state.activeTable,
            let equation = state.expressions.first(where: { $0.id == active.equationID }) {
-            let size = tableResizeLive?.size ?? clampTableSize(state.tableWindowSize, in: containerSize)
+            let expandedSize = tableResizeLive?.size ?? clampTableSize(state.tableWindowSize, in: containerSize)
+            let size = state.isTableHeaderCollapsed
+                ? CGSize(width: expandedSize.width, height: compactHeaderHeight)
+                : expandedSize
             let center = tableResizeLive?.center ?? tableWindowCenter(size: size, in: containerSize)
 
-            VStack(spacing: 0) {
-                tableMenuBar(active: active, equation: equation, currentCenter: center, size: size, in: containerSize)
+            tableWindowContent(active: active, equation: equation, currentCenter: center, size: size, in: containerSize)
+            .frame(width: size.width, height: size.height)
+            .background(Color.white, in: Rectangle())
+            .overlay(Rectangle().strokeBorder(.black.opacity(0.32), lineWidth: 1))
+            .shadow(color: .black.opacity(0.28), radius: 14, y: 6)
+            .compositingGroup()
+            .overlay(alignment: .bottomTrailing) {
+                if !state.isTableHeaderCollapsed {
+                    ResizeGrip()
+                        .frame(width: 24, height: 24)
+                        .padding(7)
+                        .contentShape(Rectangle())
+                        .highPriorityGesture(tableResizeGesture(currentCenter: center, in: containerSize))
+                }
+            }
+            .position(center)
+            .opacity(isDragging(.table) ? 0.14 : 1)
+        }
+    }
+
+    private func tableWindowContent(
+        active: GraphActiveTable,
+        equation: GraphEquation,
+        currentCenter: CGPoint,
+        size: CGSize,
+        in containerSize: CGSize
+    ) -> some View {
+        VStack(spacing: 0) {
+            tableMenuBar(active: active, equation: equation, currentCenter: currentCenter, size: size, in: containerSize)
+            if !state.isTableHeaderCollapsed {
                 Divider()
                 if active.kind == .function {
                     functionTableBody(equationID: active.equationID)
@@ -1883,20 +3229,6 @@ public struct GraphCalculatorView: View {
                     pointsTableBody(equationID: active.equationID)
                 }
             }
-            .frame(width: size.width, height: size.height)
-            .background(Color.white, in: Rectangle())
-            .overlay(Rectangle().strokeBorder(.black.opacity(0.32), lineWidth: 1))
-            .shadow(color: .black.opacity(0.28), radius: 14, y: 6)
-            .compositingGroup()
-            .overlay(alignment: .bottomTrailing) {
-                ResizeGrip()
-                    .frame(width: 24, height: 24)
-                    .padding(7)
-                    .contentShape(Rectangle())
-                    .highPriorityGesture(tableResizeGesture(currentCenter: center, in: containerSize))
-            }
-            .position(center)
-            .offset(tableWindowLiveOffset)
         }
     }
 
@@ -1907,54 +3239,94 @@ public struct GraphCalculatorView: View {
         size: CGSize,
         in containerSize: CGSize
     ) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "tablecells")
-                .font(.headline.weight(.semibold))
-            Text(GraphCalculatorExpressionDisplay.string(for: equation.expression))
-                .font(.system(size: 15, weight: .semibold, design: .serif))
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-            Spacer()
-
-            if active.kind == .function {
-                Button { state.isTraceActive.toggle() } label: {
-                    Image(systemName: "scope")
-                        .foregroundStyle(state.isTraceActive ? GraphCalculatorTheme.blue : .black.opacity(0.6))
+        Group {
+            if state.isTableHeaderCollapsed {
+                collapsedDragBar(tint: .black.opacity(0.45), background: .white) {
+                    state.isTableHeaderCollapsed = false
                 }
-                .buttonStyle(.plain)
-                Button { isTableSettingsPresented.toggle() } label: {
-                    Image(systemName: "gearshape.fill")
-                        .foregroundStyle(isTableSettingsPresented ? GraphCalculatorTheme.blue : .black.opacity(0.6))
-                }
-                .buttonStyle(.plain)
-                .popover(isPresented: $isTableSettingsPresented) {
-                    tableSettingsPopover(equationID: active.equationID)
-                }
+                .frame(height: compactHeaderHeight)
             } else {
-                Button { state.addExtraPoint(for: active.equationID) } label: {
-                    Image(systemName: "plus")
-                }
-                .buttonStyle(.plain)
-            }
+                HStack(spacing: 8) {
+                    Image(systemName: "tablecells")
+                        .font(.headline.weight(.semibold))
+                    Text(GraphCalculatorExpressionDisplay.string(for: equation.expression))
+                        .font(.system(size: 15, weight: .semibold, design: .serif))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    Spacer()
 
-            Button { state.closeTable() } label: {
-                Image(systemName: "xmark.circle.fill")
+                    if active.kind == .function {
+                        Button { state.isTraceActive.toggle() } label: {
+                            Image(systemName: "scope")
+                                .foregroundStyle(state.isTraceActive ? GraphCalculatorTheme.blue : .black.opacity(0.6))
+                        }
+                        .buttonStyle(.plain)
+                        Menu {
+                            if state.secondaryFunctionTableEquationIDs[active.equationID] != nil {
+                                Button("Remove second column") {
+                                    state.secondaryFunctionTableEquationIDs.removeValue(forKey: active.equationID)
+                                }
+                                Divider()
+                            }
+                            let candidates = secondaryFunctionTableCandidates(for: active.equationID)
+                            if candidates.isEmpty {
+                                Text("No compatible rows")
+                            } else {
+                                ForEach(candidates) { candidate in
+                                    Button(candidate.label) {
+                                        state.secondaryFunctionTableEquationIDs[active.equationID] = candidate.equationID
+                                    }
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "rectangle.split.3x1")
+                                .foregroundStyle(state.secondaryFunctionTableEquationIDs[active.equationID] == nil ? .black.opacity(0.6) : GraphCalculatorTheme.blue)
+                        }
+                        .buttonStyle(.plain)
+                        Button { isTableSettingsPresented.toggle() } label: {
+                            Image(systemName: "gearshape.fill")
+                                .foregroundStyle(isTableSettingsPresented ? GraphCalculatorTheme.blue : .black.opacity(0.6))
+                        }
+                        .buttonStyle(.plain)
+                        .popover(isPresented: $isTableSettingsPresented) {
+                            tableSettingsPopover(equationID: active.equationID)
+                        }
+                    } else {
+                        Button { addPointRowAndBeginEditing(equationID: active.equationID) } label: {
+                            Image(systemName: "plus")
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    Button {
+                        finishPointCellEdit()
+                        state.closeTable()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.plain)
+                }
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.black.opacity(0.72))
+                .padding(.horizontal, 12)
+                .frame(height: expandedFloatingHeaderHeight)
+                .background(Color.white)
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) {
+                    state.isTableHeaderCollapsed = true
+                }
             }
-            .buttonStyle(.plain)
         }
-        .font(.title3.weight(.semibold))
-        .foregroundStyle(.black.opacity(0.72))
-        .padding(.horizontal, 12)
-        .frame(height: 42)
-        .background(Color.white)
-        .contentShape(Rectangle())
         .gesture(tableDragGesture(currentCenter: currentCenter, size: size, in: containerSize))
     }
 
     /// Function (`y = f(x)`) table: read-only x column generated from start/delta, computed f(x).
     private func functionTableBody(equationID: UUID) -> some View {
         let settings = state.functionTableSettings(for: equationID)
-        let compiled = functionTableSource(for: equationID).flatMap { try? engine.compile($0) }
+        let primary = functionTableDescriptor(for: equationID)
+        let secondary = secondaryFunctionTableDescriptor(for: equationID)
+        let compiled = primary.flatMap { try? engine.compile($0.source) }
+        let secondaryCompiled = secondary.flatMap { try? engine.compile($0.source) }
         let variables = graphVariableValues
         let selectedRowIndex = selectedTraceTableRowIndex(equationID: equationID, settings: settings)
         let selectedKind = selectedTraceTableKind(equationID: equationID, settings: settings, compiled: compiled, variables: variables)
@@ -1962,7 +3334,10 @@ public struct GraphCalculatorView: View {
         return VStack(spacing: 0) {
             HStack(spacing: 0) {
                 tableHeaderCell("x")
-                tableHeaderCell("f(x)")
+                tableHeaderCell(primary?.label ?? "f(x)")
+                if let secondary {
+                    tableHeaderCell(secondary.label)
+                }
             }
             if let compiled {
                 ScrollView(.vertical) {
@@ -1972,9 +3347,18 @@ public struct GraphCalculatorView: View {
                             let x = settings.start + Double(n) * settings.delta
                             let isSelected = selectedRowIndex == n
                             let highlightColor = isSelected ? tableHighlightColor(for: selectedKind) : nil
+                            let y = evaluate(compiled: compiled, at: x, variableValues: variables)
+                            let secondaryY = secondaryCompiled.flatMap { evaluate(compiled: $0, at: x, variableValues: variables) }
                             HStack(spacing: 0) {
                                 tableValueCell(CalculatorResultFormatter.string(for: x), highlightColor: highlightColor)
-                                tableValueCell(functionTableValue(compiled: compiled, x: x, variables: variables), highlightColor: highlightColor)
+                                tableValueCell(functionTableValue(y), highlightColor: highlightColor)
+                                if secondary != nil {
+                                    tableValueCell(functionTableValue(secondaryY), highlightColor: highlightColor)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                selectTraceTablePoint(x: x, y: y, secondaryY: secondaryY, equationID: equationID)
                             }
                         }
                     }
@@ -1988,13 +3372,44 @@ public struct GraphCalculatorView: View {
         }
     }
 
-    private func functionTableValue(compiled: CalculatorExpression, x: Double, variables: [String: Double]) -> String {
-        var vars = variables
-        vars["x"] = x
-        guard let value = try? engine.evaluate(compiled: compiled, angleMode: .radians, variables: vars) else {
-            return "undefined"
-        }
+    private func functionTableValue(_ value: Double?) -> String {
+        guard let value else { return "undefined" }
         return CalculatorResultFormatter.string(for: value)
+    }
+
+    private func selectTraceTablePoint(x: Double, y: Double?, secondaryY: Double?, equationID: UUID) {
+        guard isTracing,
+              state.activeTable?.equationID == equationID,
+              let y else {
+            return
+        }
+        state.selectedPoint = nil
+        state.traceSelectedX = x
+        ensureTracePointVisible(x: x, y: y)
+        if let secondaryY {
+            ensureTracePointVisible(x: x, y: secondaryY)
+        }
+    }
+
+    private func ensureTracePointVisible(x: Double, y: Double) {
+        let window = state.graphWindow
+        guard x.isFinite, y.isFinite else { return }
+        let containsX = x >= window.xMin && x <= window.xMax
+        let containsY = y >= window.yMin && y <= window.yMax
+        guard !containsX || !containsY else { return }
+
+        let centerX = (window.xMin + window.xMax) / 2
+        let centerY = (window.yMin + window.yMax) / 2
+        let marginFactor = 1.14
+        let halfWidth = max(window.width / 2, abs(x - centerX) * marginFactor, minimumGraphSpan / 2)
+        let halfHeight = max(window.height / 2, abs(y - centerY) * marginFactor, minimumGraphSpan / 2)
+
+        state.graphWindow = limitedGraphWindow(GraphWindow(
+            xMin: centerX - halfWidth,
+            xMax: centerX + halfWidth,
+            yMin: centerY - halfHeight,
+            yMax: centerY + halfHeight
+        ))
     }
 
     private func selectedTraceTableRowIndex(equationID: UUID, settings: GraphFunctionTableSettings) -> Int? {
@@ -2059,7 +3474,7 @@ public struct GraphCalculatorView: View {
                     ForEach(extras) { pair in
                         pointsTableEditRow(equationID: equationID, pair: pair)
                     }
-                    Button { state.addExtraPoint(for: equationID) } label: {
+                    Button { addPointRowAndBeginEditing(equationID: equationID) } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "plus")
                             Text("Add point")
@@ -2077,12 +3492,18 @@ public struct GraphCalculatorView: View {
     private func pointsTableEditRow(equationID: UUID, pair: GraphOrderedPair) -> some View {
         HStack(spacing: 0) {
             pointsEditCell(
+                equationID: equationID,
+                pairID: pair.id,
+                column: .x,
                 value: pair.x,
-                set: { state.updateExtraPointX(for: equationID, pairID: pair.id, value: $0) }
+                placeholder: "x"
             )
             pointsEditCell(
+                equationID: equationID,
+                pairID: pair.id,
+                column: .y,
                 value: pair.y,
-                set: { state.updateExtraPointY(for: equationID, pairID: pair.id, value: $0) }
+                placeholder: "y"
             )
             Button { state.deleteExtraPoint(for: equationID, pairID: pair.id) } label: {
                 Image(systemName: "xmark")
@@ -2095,23 +3516,393 @@ public struct GraphCalculatorView: View {
         }
     }
 
-    private func pointsEditCell(value: Double?, set: @escaping (Double?) -> Void) -> some View {
-        TextField(
-            "",
-            text: Binding(
-                get: { value.map { CalculatorResultFormatter.string(for: $0) } ?? "" },
-                set: { set(Double($0.replacingOccurrences(of: "−", with: "-"))) }
+    private func pointsEditCell(
+        equationID: UUID,
+        pairID: UUID,
+        column: PointTableCellEdit.Column,
+        value: Double?,
+        placeholder: String
+    ) -> some View {
+        let cell = PointTableCellEdit(equationID: equationID, pairID: pairID, column: column)
+        let isEditing = editingPointCell == cell
+        let display = isEditing ? editingPointCellText : value.map { CalculatorResultFormatter.string(for: $0) } ?? ""
+
+        return Button {
+            beginPointCellEdit(cell, currentValue: value)
+        } label: {
+            Text(display.isEmpty ? placeholder : display)
+                .font(.system(size: 18, weight: isEditing ? .semibold : .regular, design: .serif))
+                .foregroundStyle(display.isEmpty ? .black.opacity(0.30) : .black.opacity(0.82))
+                .lineLimit(1)
+                .minimumScaleFactor(0.55)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .padding(.horizontal, 2)
+                .background(isEditing ? GraphCalculatorTheme.blue.opacity(0.16) : Color.clear)
+        }
+        .buttonStyle(.plain)
+        .overlay(
+            Rectangle()
+                .stroke(isEditing ? GraphCalculatorTheme.blue.opacity(0.95) : .black.opacity(0.10), lineWidth: isEditing ? 1.5 : 0.5)
+        )
+    }
+
+    private func beginPointCellEdit(_ cell: PointTableCellEdit, currentValue: Double?) {
+        if editingPointCell != nil {
+            commitPointCellEdit()
+        }
+        editingPointCell = cell
+        editingPointCellText = currentValue.map { CalculatorResultFormatter.string(for: $0) } ?? ""
+        editingPointCellReplacesOnInput = true
+    }
+
+    private func commitPointCellEdit() {
+        guard let editingPointCell else { return }
+        let value = Double(editingPointCellText.replacingOccurrences(of: "−", with: "-"))
+        switch editingPointCell.column {
+        case .x:
+            state.updateExtraPointX(for: editingPointCell.equationID, pairID: editingPointCell.pairID, value: value)
+        case .y:
+            state.updateExtraPointY(for: editingPointCell.equationID, pairID: editingPointCell.pairID, value: value)
+        }
+    }
+
+    private func cancelPointCellEdit() {
+        editingPointCell = nil
+        editingPointCellText = ""
+        editingPointCellReplacesOnInput = false
+    }
+
+    private func finishPointCellEdit() {
+        commitPointCellEdit()
+        cancelPointCellEdit()
+    }
+
+    private func commitPointCellEditAndAdvance() {
+        guard let editingPointCell else { return }
+        commitPointCellEdit()
+        advancePointCellEdit(from: editingPointCell)
+    }
+
+    private func appendPointCellInput(_ text: String) {
+        guard editingPointCell != nil else { return }
+        switch text {
+        case "0"..."9", ".":
+            if editingPointCellReplacesOnInput {
+                editingPointCellText = text
+            } else {
+                editingPointCellText += text
+            }
+            editingPointCellReplacesOnInput = false
+        case "-":
+            if editingPointCellReplacesOnInput {
+                editingPointCellText = "-"
+                editingPointCellReplacesOnInput = false
+            } else if editingPointCellText.hasPrefix("-") || editingPointCellText.hasPrefix("−") {
+                editingPointCellText.removeFirst()
+            } else {
+                editingPointCellText = "-" + editingPointCellText
+            }
+        default:
+            break
+        }
+    }
+
+    private func deletePointCellInput() {
+        guard editingPointCell != nil else { return }
+        if editingPointCellReplacesOnInput {
+            editingPointCellText = ""
+            editingPointCellReplacesOnInput = false
+        } else if !editingPointCellText.isEmpty {
+            editingPointCellText.removeLast()
+        }
+    }
+
+    private func advancePointCellEdit(from cell: PointTableCellEdit) {
+        guard let rows = state.pointRows[cell.equationID],
+              let index = rows.firstIndex(where: { $0.id == cell.pairID }) else {
+            cancelPointCellEdit()
+            return
+        }
+
+        switch cell.column {
+        case .x:
+            beginNextPointCellEdit(equationID: cell.equationID, after: index, column: .x)
+        case .y:
+            let nextIndex = rows.index(after: index)
+            if rows.indices.contains(nextIndex) {
+                let nextRow = rows[nextIndex]
+                let next = PointTableCellEdit(equationID: cell.equationID, pairID: nextRow.id, column: .y)
+                beginPointCellEdit(next, currentValue: nextRow.y)
+            } else {
+                cancelPointCellEdit()
+            }
+        }
+    }
+
+    private func preparePointTableForEntry(equationID: UUID) {
+        let rows = state.extraPoints(for: equationID)
+        if rows.isEmpty {
+            addPointRowAndBeginEditing(equationID: equationID)
+            return
+        }
+        if let incomplete = rows.first(where: { $0.x == nil || $0.y == nil }) {
+            let column: PointTableCellEdit.Column = incomplete.x == nil ? .x : .y
+            let cell = PointTableCellEdit(equationID: equationID, pairID: incomplete.id, column: column)
+            beginPointCellEdit(cell, currentValue: column == .x ? incomplete.x : incomplete.y)
+        }
+    }
+
+    private func addPointRowAndBeginEditing(equationID: UUID) {
+        state.addExtraPoint(for: equationID)
+        guard let newRow = state.pointRows[equationID]?.last else { return }
+        let cell = PointTableCellEdit(equationID: equationID, pairID: newRow.id, column: .x)
+        beginPointCellEdit(cell, currentValue: newRow.x)
+    }
+
+    private func beginNextPointCellEdit(equationID: UUID, after index: Int, column: PointTableCellEdit.Column) {
+        let predictedX = column == .x ? nextPredictedX(for: equationID) : nil
+        let nextIndex = index + 1
+        if let rows = state.pointRows[equationID], rows.indices.contains(nextIndex) {
+            let nextRow = rows[nextIndex]
+            if column == .x, nextRow.x == nil, let predictedX {
+                state.updateExtraPointX(for: equationID, pairID: nextRow.id, value: predictedX)
+            }
+            let next = PointTableCellEdit(equationID: equationID, pairID: nextRow.id, column: column)
+            let value = column == .x ? (state.pointRows[equationID]?[nextIndex].x ?? nextRow.x) : nextRow.y
+            beginPointCellEdit(next, currentValue: value)
+            return
+        }
+
+        state.addExtraPoint(for: equationID)
+        guard let newRow = state.pointRows[equationID]?.last else {
+            cancelPointCellEdit()
+            return
+        }
+        if column == .x, let predictedX {
+            state.updateExtraPointX(for: equationID, pairID: newRow.id, value: predictedX)
+        }
+        let next = PointTableCellEdit(equationID: equationID, pairID: newRow.id, column: column)
+        let value = column == .x ? predictedX : newRow.y
+        beginPointCellEdit(next, currentValue: value)
+    }
+
+    private func pointTableXValuesInDisplayOrder(for equationID: UUID) -> [Double] {
+        var values: [Double] = []
+        if let typed = typedPoint(for: equationID) {
+            values.append(typed.0)
+        }
+        values.append(contentsOf: state.extraPoints(for: equationID).compactMap(\.x))
+        return values
+    }
+
+    private func nextPredictedX(for equationID: UUID) -> Double? {
+        let values = pointTableXValuesInDisplayOrder(for: equationID)
+        guard values.count >= 3 else { return nil }
+        let tail = Array(values.suffix(3))
+        let firstDelta = tail[1] - tail[0]
+        let secondDelta = tail[2] - tail[1]
+        let tolerance = max(abs(firstDelta), abs(secondDelta), 1) * 1e-8
+        guard abs(firstDelta - secondDelta) <= tolerance else { return nil }
+        return tail[2] + secondDelta
+    }
+
+    private func completePointTablePoints(for equationID: UUID) -> [CGPoint] {
+        var points: [CGPoint] = []
+        if let typed = typedPoint(for: equationID) {
+            points.append(CGPoint(x: typed.0, y: typed.1))
+        }
+        points.append(contentsOf: state.extraPoints(for: equationID).compactMap { pair in
+            guard let x = pair.x, let y = pair.y else { return nil }
+            return CGPoint(x: x, y: y)
+        })
+        return points
+    }
+
+    private func hasIncompletePointRows(for equationID: UUID) -> Bool {
+        state.extraPoints(for: equationID).contains { pair in
+            pair.x == nil || pair.y == nil
+        }
+    }
+
+    private func canShowRegressionMenu(equationID: UUID) -> Bool {
+        completePointTablePoints(for: equationID).count >= 2 && !hasIncompletePointRows(for: equationID)
+    }
+
+    private func zoomToDataPoints(equationID: UUID) {
+        let points = completePointTablePoints(for: equationID)
+        guard points.count >= 2 else { return }
+        let xs = points.map(\.x)
+        let ys = points.map(\.y)
+        let minX = xs.min() ?? -10
+        let maxX = xs.max() ?? 10
+        let minY = ys.min() ?? -10
+        let maxY = ys.max() ?? 10
+        let xSpan = max(maxX - minX, 2)
+        let ySpan = max(maxY - minY, 2)
+        let xPadding = xSpan * 0.18
+        let yPadding = ySpan * 0.18
+        state.graphWindow = limitedGraphWindow(
+            GraphWindow(
+                xMin: minX - xPadding,
+                xMax: maxX + xPadding,
+                yMin: minY - yPadding,
+                yMax: maxY + yPadding
             )
         )
-        .font(.system(size: 18, weight: .regular, design: .serif))
-        .foregroundStyle(.black.opacity(0.82))
-        .multilineTextAlignment(.center)
-        .keyboardType(.numbersAndPunctuation)
-        .lineLimit(1)
-        .minimumScaleFactor(0.55)
-        .padding(.horizontal, 2)
-        .frame(maxWidth: .infinity, minHeight: 44)
-        .overlay(Rectangle().stroke(.black.opacity(0.10), lineWidth: 0.5))
+    }
+
+    private func insertRegression(_ kind: RegressionKind, equationID: UUID, after sourceIndex: Int) {
+        let points = completePointTablePoints(for: equationID)
+        guard !hasIncompletePointRows(for: equationID),
+              let result = regressionResult(kind, points: points) else {
+            return
+        }
+        let regressionID = state.insertExpression(result.expression, after: sourceIndex, matchingStyleOf: sourceIndex)
+        state.regressionRows[regressionID] = GraphRegressionRow(rSquared: result.rSquared, sourceEquationID: equationID)
+    }
+
+    private func regressionResult(_ kind: RegressionKind, points: [CGPoint]) -> (expression: String, rSquared: Double)? {
+        guard points.count >= kind.minimumPointCount,
+              let coefficients = polynomialRegression(points, degree: kind.degree) else {
+            return nil
+        }
+        let expression = polynomialExpression(coefficients)
+        let rSquared = regressionRSquared(points: points, coefficients: coefficients)
+        return (expression, rSquared)
+    }
+
+    private func polynomialRegression(_ points: [CGPoint], degree: Int) -> [Double]? {
+        let size = degree + 1
+        var matrix = Array(repeating: Array(repeating: 0.0, count: size + 1), count: size)
+
+        for row in 0..<size {
+            for column in 0..<size {
+                matrix[row][column] = points.reduce(0) { partial, point in
+                    partial + pow(point.x, Double(row + column))
+                }
+            }
+            matrix[row][size] = points.reduce(0) { partial, point in
+                partial + point.y * pow(point.x, Double(row))
+            }
+        }
+
+        guard let ascending = solveLinearSystem(matrix) else { return nil }
+        return ascending.reversed()
+    }
+
+    private func solveLinearSystem(_ input: [[Double]]) -> [Double]? {
+        guard let width = input.first?.count, width == input.count + 1 else { return nil }
+        var matrix = input
+        let size = matrix.count
+
+        for pivot in 0..<size {
+            guard let bestRow = (pivot..<size).max(by: { abs(matrix[$0][pivot]) < abs(matrix[$1][pivot]) }),
+                  abs(matrix[bestRow][pivot]) > 1e-10 else {
+                return nil
+            }
+            if bestRow != pivot {
+                matrix.swapAt(bestRow, pivot)
+            }
+
+            let divisor = matrix[pivot][pivot]
+            for column in pivot...size {
+                matrix[pivot][column] /= divisor
+            }
+            for row in 0..<size where row != pivot {
+                let factor = matrix[row][pivot]
+                for column in pivot...size {
+                    matrix[row][column] -= factor * matrix[pivot][column]
+                }
+            }
+        }
+
+        return matrix.map { $0[size] }
+    }
+
+    private func polynomialExpression(_ descendingCoefficients: [Double]) -> String {
+        let degree = descendingCoefficients.count - 1
+        var expression = "y="
+        var hasTerm = false
+        for (offset, coefficient) in descendingCoefficients.enumerated() {
+            guard abs(coefficient) >= 1e-10 else { continue }
+            let power = degree - offset
+            if power == 0 {
+                expression += hasTerm ? regressionConstantText(coefficient) : regressionCoefficientNumber(coefficient)
+            } else {
+                let variable = power == 1 ? "x" : "x^\(power)"
+                expression += regressionCoefficientText(coefficient, variable: variable, includesLeadingSign: hasTerm)
+            }
+            hasTerm = true
+        }
+        return hasTerm ? expression : "y=0"
+    }
+
+    private func regressionCoefficientText(_ value: Double, variable: String, includesLeadingSign: Bool = false) -> String {
+        let rounded = abs(value) < 0.00005 ? 0 : value
+        let magnitude = abs(rounded)
+        let number = regressionCoefficientNumber(magnitude)
+        let sign: String
+        if includesLeadingSign {
+            sign = rounded < 0 ? "-" : "+"
+        } else {
+            sign = rounded < 0 ? "-" : ""
+        }
+        if abs(magnitude - 1) < 0.00005 {
+            return "\(sign)\(variable)"
+        }
+        return "\(sign)\(number)*\(variable)"
+    }
+
+    private func regressionConstantText(_ value: Double) -> String {
+        guard abs(value) >= 0.00005 else { return "" }
+        let sign = value < 0 ? "-" : "+"
+        return "\(sign)\(regressionCoefficientNumber(abs(value)))"
+    }
+
+    private func regressionCoefficientNumber(_ value: Double) -> String {
+        let rounded = (value * 10_000).rounded() / 10_000
+        return String(format: "%.4f", rounded)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "0"))
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+    }
+
+    private func regressionRSquared(points: [CGPoint], coefficients: [Double]) -> Double {
+        let meanY = points.reduce(0) { $0 + $1.y } / Double(points.count)
+        let total = points.reduce(0) { $0 + pow($1.y - meanY, 2) }
+        guard total > 1e-12 else { return 1 }
+        let residual = points.reduce(0) { partial, point in
+            let predicted = evaluatePolynomial(coefficients, at: point.x)
+            return partial + pow(point.y - predicted, 2)
+        }
+        return min(max(1 - residual / total, 0), 1)
+    }
+
+    private func evaluatePolynomial(_ descendingCoefficients: [Double], at x: Double) -> Double {
+        descendingCoefficients.reduce(0) { partial, coefficient in
+            partial * x + coefficient
+        }
+    }
+
+    private func coefficientText(_ value: Double, variable: String, includesLeadingSign: Bool = false) -> String {
+        let rounded = abs(value) < 1e-10 ? 0 : value
+        let magnitude = abs(rounded)
+        let number = CalculatorResultFormatter.string(for: magnitude)
+        let sign: String
+        if includesLeadingSign {
+            sign = rounded < 0 ? "-" : "+"
+        } else {
+            sign = rounded < 0 ? "-" : ""
+        }
+        if abs(magnitude - 1) < 1e-10 {
+            return "\(sign)\(variable)"
+        }
+        return "\(sign)\(number)*\(variable)"
+    }
+
+    private func constantText(_ value: Double) -> String {
+        guard abs(value) >= 1e-10 else { return "" }
+        let sign = value < 0 ? "-" : "+"
+        return "\(sign)\(CalculatorResultFormatter.string(for: abs(value)))"
     }
 
     private func tableSettingsPopover(equationID: UUID) -> some View {
@@ -2161,15 +3952,137 @@ public struct GraphCalculatorView: View {
         }
     }
 
+    private struct FunctionTableDescriptor: Identifiable {
+        enum Kind: Equatable {
+            case yEquation
+            case namedFunction(String)
+            case expression
+        }
+
+        var equationID: UUID
+        var index: Int
+        var label: String
+        var source: String
+        var kind: Kind
+
+        var id: UUID { equationID }
+    }
+
     /// The graphable `y = f(x)` source for a row that qualifies for a function table.
     private func functionTableSource(for equationID: UUID) -> String? {
+        functionTableDescriptor(for: equationID)?.source
+    }
+
+    private func functionTableDescriptor(for equationID: UUID) -> FunctionTableDescriptor? {
         guard let index = state.expressions.firstIndex(where: { $0.id == equationID }) else { return nil }
+        let expression = state.expressions[index].expression
+        let trimmed = expression.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parsedFunction = parsedFunctionDefinition(from: trimmed)
+        let isYEquation = isYEquationSource(trimmed)
+
         switch resolvedRows.first(where: { $0.index == index })?.plot {
-        case .curve(let source), .yRelation(let source, .equal):
-            return source
+        case .yRelation(let source, .equal):
+            return FunctionTableDescriptor(
+                equationID: equationID,
+                index: index,
+                label: "y",
+                source: source,
+                kind: .yEquation
+            )
+        case .curve(let source):
+            if isYEquation {
+                return FunctionTableDescriptor(
+                    equationID: equationID,
+                    index: index,
+                    label: "y",
+                    source: source,
+                    kind: .yEquation
+                )
+            }
+            if let parsedFunction, parsedFunction.variable == "x" {
+                return FunctionTableDescriptor(
+                    equationID: equationID,
+                    index: index,
+                    label: "\(parsedFunction.name)(x)",
+                    source: source,
+                    kind: .namedFunction(parsedFunction.name)
+                )
+            }
+            return FunctionTableDescriptor(
+                equationID: equationID,
+                index: index,
+                label: "f(x)",
+                source: source,
+                kind: .expression
+            )
         default:
             return nil
         }
+    }
+
+    private func isYEquationSource(_ source: String) -> Bool {
+        let compact = source.replacingOccurrences(of: " ", with: "")
+        guard let equals = compact.firstIndex(of: "=") else { return false }
+        let left = String(compact[..<equals])
+        let right = String(compact[compact.index(after: equals)...])
+        return left == "y" || right == "y"
+    }
+
+    private func secondaryFunctionTableDescriptor(for primaryID: UUID) -> FunctionTableDescriptor? {
+        guard let secondaryID = state.secondaryFunctionTableEquationIDs[primaryID] else { return nil }
+        guard let descriptor = functionTableDescriptor(for: secondaryID),
+              secondaryFunctionTableCandidates(for: primaryID).contains(where: { $0.equationID == secondaryID }) else { return nil }
+        return descriptor
+    }
+
+    private func secondaryFunctionTableCandidates(for primaryID: UUID) -> [FunctionTableDescriptor] {
+        guard let primary = functionTableDescriptor(for: primaryID) else { return [] }
+        return state.expressions.compactMap { equation -> FunctionTableDescriptor? in
+            guard equation.id != primaryID,
+                  equation.isEnabled,
+                  let candidate = functionTableDescriptor(for: equation.id),
+                  isCompatibleSecondaryFunctionTableColumn(primary: primary, candidate: candidate) else {
+                return nil
+            }
+            return candidate
+        }
+    }
+
+    private func isCompatibleSecondaryFunctionTableColumn(
+        primary: FunctionTableDescriptor,
+        candidate: FunctionTableDescriptor
+    ) -> Bool {
+        switch candidate.kind {
+        case .namedFunction(let candidateName):
+            if case .namedFunction(let primaryName) = primary.kind {
+                return primaryName != candidateName
+            }
+            return true
+        case .yEquation:
+            if case .yEquation = primary.kind { return false }
+            return true
+        case .expression:
+            return false
+        }
+    }
+
+    private func parsedFunctionDefinition(from source: String) -> (name: String, variable: String)? {
+        let compact = source.replacingOccurrences(of: " ", with: "")
+        guard let equals = compact.firstIndex(of: "="),
+              let openParen = compact.firstIndex(of: "("),
+              let closeParen = compact.firstIndex(of: ")"),
+              openParen < closeParen,
+              closeParen < equals else {
+            return nil
+        }
+
+        let name = String(compact[..<openParen])
+        let variable = String(compact[compact.index(after: openParen)..<closeParen])
+        guard name.count == 1,
+              variable == "x" else {
+            return nil
+        }
+        return (name, variable)
     }
 
     /// The ordered pair typed into a point row, if the row resolves to a point.
@@ -2200,16 +4113,32 @@ public struct GraphCalculatorView: View {
                 if tableDragStartCenter == nil { tableDragStartCenter = base }
                 let proposed = CGPoint(x: base.x + value.translation.width, y: base.y + value.translation.height)
                 let clamped = clamp(center: proposed, size: size, in: containerSize)
+                let snapshotImage = dragProxy?.snapshotImage ?? tableDragSnapshot(size: size, center: currentCenter, in: containerSize)
+                let presentation = GraphCalculatorDragPresentation(
+                    kind: .table,
+                    title: "Table",
+                    systemImage: "tablecells",
+                    center: base,
+                    offset: CGSize(width: clamped.x - base.x, height: clamped.y - base.y),
+                    size: size,
+                    snapshotPNGData: state.activeDragPresentation?.snapshotPNGData ?? snapshotPNGData(from: snapshotImage)
+                )
                 setWithoutAnimation {
-                    tableWindowLiveOffset = CGSize(width: clamped.x - currentCenter.x, height: clamped.y - currentCenter.y)
+                    state.activeDragPresentation = presentation
+                    dragProxy = GraphCalculatorDragProxy(
+                        presentation: presentation,
+                        snapshotImage: snapshotImage
+                    )
                 }
             }
             .onEnded { _ in
+                let offset = dragProxy?.offset ?? .zero
                 state.tableWindowPosition = CGPoint(
-                    x: currentCenter.x + tableWindowLiveOffset.width,
-                    y: currentCenter.y + tableWindowLiveOffset.height
+                    x: currentCenter.x + offset.width,
+                    y: currentCenter.y + offset.height
                 )
-                tableWindowLiveOffset = .zero
+                dragProxy = nil
+                state.activeDragPresentation = nil
                 tableDragStartCenter = nil
             }
     }
@@ -2244,6 +4173,25 @@ public struct GraphCalculatorView: View {
     }
 
     private func dragProxyView(_ proxy: GraphCalculatorDragProxy) -> some View {
+        Group {
+            #if os(iOS)
+            if let snapshotImage = proxy.snapshotImage {
+                Image(uiImage: snapshotImage)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                fallbackDragProxyView(proxy)
+            }
+            #else
+            fallbackDragProxyView(proxy)
+            #endif
+        }
+        .clipShape(RoundedRectangle(cornerRadius: proxy.cornerRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: proxy.cornerRadius, style: .continuous).strokeBorder(proxy.stroke, lineWidth: 1.5))
+        .shadow(color: .black.opacity(0.24), radius: 12, y: 5)
+    }
+
+    private func fallbackDragProxyView(_ proxy: GraphCalculatorDragProxy) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: proxy.systemImage)
@@ -2269,14 +4217,46 @@ public struct GraphCalculatorView: View {
                     .foregroundStyle(proxy.labelForeground)
                 }
         }
-        .clipShape(RoundedRectangle(cornerRadius: proxy.cornerRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: proxy.cornerRadius, style: .continuous).strokeBorder(proxy.stroke, lineWidth: 1.5))
-        .shadow(color: .black.opacity(0.24), radius: 12, y: 5)
     }
 
     private enum GraphIconButtonStyle {
         case standard
         case destructive
+    }
+
+    private func graphControlOverlay(
+        placementRect: CGRect? = nil,
+        containerSize: CGSize? = nil,
+        onHome: (() -> Void)? = nil
+    ) -> some View {
+        VStack(spacing: 10) {
+            Button { isCalculatorMenuPresented.toggle() } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(.black.opacity(0.65))
+                    .frame(width: 40, height: 40)
+                    .background(Color.white.opacity(0.92), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.black.opacity(0.15), lineWidth: 0.5))
+            }
+            .buttonStyle(.plain)
+            .popover(isPresented: $isCalculatorMenuPresented, arrowEdge: .trailing) {
+                calculatorMenu
+                    .presentationCompactAdaptation(.popover)
+            }
+
+            graphIconButton("camera.fill") {
+                captureGraphSnapshot(placementRect: placementRect, containerSize: containerSize)
+            }
+            .disabled(onGraphSnapshot == nil)
+            .opacity(onGraphSnapshot == nil ? 0.45 : 1)
+
+            graphIconButton("plus") { zoom(by: 1.35) }
+            graphIconButton("minus") { zoom(by: 1 / 1.35) }
+            if let onHome {
+                graphIconButton("house.fill") { onHome() }
+            }
+        }
+        .padding(10)
     }
 
     private func graphIconButton(
@@ -2304,16 +4284,61 @@ public struct GraphCalculatorView: View {
     }
 
     private func insert(_ text: String) {
-        if editingSliderBound != nil {
+        if editingPointCell != nil {
+            appendPointCellInput(text)
+        } else if editingSliderBound != nil {
             appendSliderBoundInput(text)
+        } else if text == "/" {
+            fractionCursorExitedAt = nil
+            insertDivision()
         } else {
+            fractionCursorExitedAt = nil
             state.insert(text)
         }
     }
 
+    private func insertDivision() {
+        let expression = state.selectedExpression
+        if expression.isEmpty {
+            state.insert("/")
+            state.cursorOffset = 0
+        } else {
+            state.insert("/")
+        }
+    }
+
+    private func moveExpressionCursorRight() {
+        let expression = state.selectedExpression
+        let currentOffset = min(max(state.cursorOffset, 0), expression.count)
+        let fractions = editableExpressionTokens(for: expression)?.compactMap { token -> EditableFractionToken? in
+            if case .fraction(let fraction) = token { return fraction }
+            return nil
+        } ?? []
+        if let fraction = fractions.first(where: { fraction in
+            !fraction.denominatorRange.isEmpty && currentOffset == fraction.denominatorRange.upperBound
+        }) {
+            fractionCursorExitedAt = fraction.denominatorRange.upperBound
+            return
+        }
+        if let fraction = editableExpressionTokens(for: expression)?.compactMap({ token -> EditableFractionToken? in
+            if case .fraction(let fraction) = token { return fraction }
+            return nil
+        }).first(where: { fraction in
+            currentOffset >= fraction.numeratorRange.lowerBound && currentOffset <= fraction.slashOffset
+        }) {
+            fractionCursorExitedAt = nil
+            state.cursorOffset = fraction.denominatorRange.lowerBound
+            return
+        }
+        fractionCursorExitedAt = nil
+        state.moveCursorRight()
+    }
+
     /// Keypad delete: edits the active slider bound if one is open, otherwise the expression.
     private func keypadDelete() {
-        if editingSliderBound != nil {
+        if editingPointCell != nil {
+            deletePointCellInput()
+        } else if editingSliderBound != nil {
             deleteSliderBoundInput()
         } else {
             state.deleteLastCharacter()
@@ -2322,7 +4347,9 @@ public struct GraphCalculatorView: View {
 
     /// Keypad return: commits an active slider-bound edit, otherwise adds a new expression row.
     private func keypadReturn() {
-        if editingSliderBound != nil {
+        if editingPointCell != nil {
+            commitPointCellEditAndAdvance()
+        } else if editingSliderBound != nil {
             commitSliderBoundEdit()
         } else {
             state.addExpression()
@@ -2417,10 +4444,16 @@ public struct GraphCalculatorView: View {
             }
         }
 
-        // Compile every graphable y = f(x) row once so we can reuse them for both
-        // intercepts and pairwise intersections.
+        // Compile graphable rows once so intercepts and intersections can share the same inputs.
         let curves: [(index: Int, source: String, compiled: CalculatorExpression)] = resolvedRows.compactMap { row in
             guard let source = interceptSourceExpression(for: row.plot),
+                  let compiled = try? engine.compile(source) else {
+                return nil
+            }
+            return (row.index, source, compiled)
+        }
+        let implicitCurves: [(index: Int, source: String, compiled: CalculatorExpression)] = resolvedRows.compactMap { row in
+            guard case .implicitRelation(let source)? = row.plot,
                   let compiled = try? engine.compile(source) else {
                 return nil
             }
@@ -2439,8 +4472,17 @@ public struct GraphCalculatorView: View {
             }
         }
 
+        for implicit in implicitCurves {
+            for root in implicitAxisRoots(of: implicit.compiled, fixedY: 0, in: window, variableValues: variables) {
+                consider(x: root, y: 0, index: implicit.index, kind: .xIntercept)
+            }
+            for root in implicitAxisRoots(of: implicit.compiled, fixedX: 0, in: window, variableValues: variables) {
+                consider(x: 0, y: root, index: implicit.index, kind: .yIntercept)
+            }
+        }
+
         if includedKinds.contains(.intersection) {
-            // Intersections: for each pair of curves, f(x) = g(x) where f(x) − g(x) crosses zero.
+            // Intersections: for each pair of explicit curves, f(x) = g(x) where f(x) - g(x) crosses zero.
             for i in curves.indices {
                 for j in (i + 1)..<curves.count {
                     let a = curves[i]
@@ -2448,8 +4490,23 @@ public struct GraphCalculatorView: View {
                     guard let difference = try? engine.compile("(\(a.source))-(\(b.source))") else { continue }
                     for root in xIntercepts(of: difference, in: window, variableValues: variables) {
                         guard let y = evaluate(compiled: a.compiled, at: root, variableValues: variables) else { continue }
-                        // Intersection points belong to both curves; they get a celebratory glowing marker.
                         consider(x: root, y: y, index: nil, kind: .intersection)
+                    }
+                }
+            }
+
+            for curve in curves {
+                for implicit in implicitCurves {
+                    for point in intersections(of: curve.compiled, withImplicit: implicit.compiled, in: window, variableValues: variables) {
+                        consider(x: point.x, y: point.y, index: nil, kind: .intersection)
+                    }
+                }
+            }
+
+            for i in implicitCurves.indices {
+                for j in (i + 1)..<implicitCurves.count {
+                    for point in intersections(ofImplicit: implicitCurves[i].compiled, and: implicitCurves[j].compiled, in: window, variableValues: variables) {
+                        consider(x: point.x, y: point.y, index: nil, kind: .intersection)
                     }
                 }
             }
@@ -2486,6 +4543,142 @@ public struct GraphCalculatorView: View {
         let value = try? engine.evaluate(compiled: compiled, angleMode: .radians, variables: variables)
         guard let value, value.isFinite else { return nil }
         return value
+    }
+
+    private func evaluateImplicit(
+        compiled: CalculatorExpression,
+        x: Double,
+        y: Double,
+        variableValues: [String: Double]
+    ) -> Double? {
+        var variables = variableValues
+        variables["x"] = x
+        variables["y"] = y
+        let value = try? engine.evaluate(compiled: compiled, angleMode: .radians, variables: variables)
+        guard let value, value.isFinite else { return nil }
+        return value
+    }
+
+    private func implicitAxisRoots(
+        of compiled: CalculatorExpression,
+        fixedY y: Double,
+        in window: GraphWindow,
+        variableValues: [String: Double]
+    ) -> [Double] {
+        zeroes(in: window.xMin...window.xMax, window: window) { x in
+            evaluateImplicit(compiled: compiled, x: x, y: y, variableValues: variableValues)
+        }
+    }
+
+    private func implicitAxisRoots(
+        of compiled: CalculatorExpression,
+        fixedX x: Double,
+        in window: GraphWindow,
+        variableValues: [String: Double]
+    ) -> [Double] {
+        zeroes(in: window.yMin...window.yMax, window: window) { y in
+            evaluateImplicit(compiled: compiled, x: x, y: y, variableValues: variableValues)
+        }
+    }
+
+    private func intersections(
+        of curve: CalculatorExpression,
+        withImplicit implicit: CalculatorExpression,
+        in window: GraphWindow,
+        variableValues: [String: Double]
+    ) -> [CGPoint] {
+        let roots = zeroes(in: window.xMin...window.xMax, window: window) { x in
+            guard let y = evaluate(compiled: curve, at: x, variableValues: variableValues) else { return nil }
+            return evaluateImplicit(compiled: implicit, x: x, y: y, variableValues: variableValues)
+        }
+        return roots.compactMap { x in
+            guard let y = evaluate(compiled: curve, at: x, variableValues: variableValues),
+                  y >= window.yMin,
+                  y <= window.yMax else {
+                return nil
+            }
+            return CGPoint(x: x, y: y)
+        }
+    }
+
+    private func intersections(
+        ofImplicit first: CalculatorExpression,
+        and second: CalculatorExpression,
+        in window: GraphWindow,
+        variableValues: [String: Double]
+    ) -> [CGPoint] {
+        let segments = implicitContourSegments(of: first, in: window, variableValues: variableValues)
+        var points: [CGPoint] = []
+        for segment in segments {
+            guard let aValue = evaluateImplicit(compiled: second, x: segment.start.x, y: segment.start.y, variableValues: variableValues),
+                  let bValue = evaluateImplicit(compiled: second, x: segment.end.x, y: segment.end.y, variableValues: variableValues) else {
+                continue
+            }
+            if abs(aValue) < 1e-8 {
+                appendPoint(segment.start, to: &points, window: window)
+            } else if abs(bValue) < 1e-8 {
+                appendPoint(segment.end, to: &points, window: window)
+            } else if (aValue < 0) != (bValue < 0) {
+                let t = abs(aValue) / (abs(aValue) + abs(bValue))
+                let x = segment.start.x + (segment.end.x - segment.start.x) * t
+                let y = segment.start.y + (segment.end.y - segment.start.y) * t
+                appendPoint(CGPoint(x: x, y: y), to: &points, window: window)
+            }
+        }
+        return points
+    }
+
+    private func implicitContourSegments(
+        of compiled: CalculatorExpression,
+        in window: GraphWindow,
+        variableValues: [String: Double]
+    ) -> [(start: CGPoint, end: CGPoint)] {
+        let columns = 140
+        let rows = 140
+        let dx = window.width / Double(columns)
+        let dy = window.height / Double(rows)
+        guard dx.isFinite, dy.isFinite, dx > 0, dy > 0 else { return [] }
+
+        var values = Array(repeating: Array<Double?>(repeating: nil, count: rows + 1), count: columns + 1)
+        for ix in 0...columns {
+            let x = window.xMin + Double(ix) * dx
+            for iy in 0...rows {
+                let y = window.yMin + Double(iy) * dy
+                values[ix][iy] = evaluateImplicit(compiled: compiled, x: x, y: y, variableValues: variableValues)
+            }
+        }
+
+        var segments: [(start: CGPoint, end: CGPoint)] = []
+        for ix in 0..<columns {
+            for iy in 0..<rows {
+                guard let bottomLeft = values[ix][iy],
+                      let bottomRight = values[ix + 1][iy],
+                      let topRight = values[ix + 1][iy + 1],
+                      let topLeft = values[ix][iy + 1] else {
+                    continue
+                }
+
+                let x0 = window.xMin + Double(ix) * dx
+                let x1 = x0 + dx
+                let y0 = window.yMin + Double(iy) * dy
+                let y1 = y0 + dy
+                let corners = [
+                    (value: bottomLeft, point: CGPoint(x: x0, y: y0)),
+                    (value: bottomRight, point: CGPoint(x: x1, y: y0)),
+                    (value: topRight, point: CGPoint(x: x1, y: y1)),
+                    (value: topLeft, point: CGPoint(x: x0, y: y1))
+                ]
+                let edgePairs = [(0, 1), (1, 2), (2, 3), (3, 0)]
+                let crossings = edgePairs.compactMap { a, b -> CGPoint? in
+                    zeroCrossing(from: corners[a], to: corners[b])
+                }
+                guard crossings.count >= 2 else { continue }
+                for pairIndex in stride(from: 0, to: crossings.count - 1, by: 2) {
+                    segments.append((crossings[pairIndex], crossings[pairIndex + 1]))
+                }
+            }
+        }
+        return segments
     }
 
     /// The `y = f(x)` expression body to search for x-intercepts, if this plot has one.
@@ -2538,6 +4731,65 @@ public struct GraphCalculatorView: View {
             }
         }
         return roots
+    }
+
+    private func zeroes(
+        in range: ClosedRange<Double>,
+        window: GraphWindow,
+        sampleCount: Int = 720,
+        evaluate: (Double) -> Double?
+    ) -> [Double] {
+        guard range.lowerBound.isFinite,
+              range.upperBound.isFinite,
+              range.upperBound > range.lowerBound else {
+            return []
+        }
+
+        let step = (range.upperBound - range.lowerBound) / Double(sampleCount)
+        let acceptTolerance = max(window.width, window.height) * 1e-4
+        var roots: [Double] = []
+        var previousX: Double?
+        var previousValue: Double?
+
+        for sampleIndex in 0...sampleCount {
+            let x = range.lowerBound + Double(sampleIndex) * step
+            guard let value = evaluate(x), value.isFinite else {
+                previousX = nil
+                previousValue = nil
+                continue
+            }
+            if abs(value) < acceptTolerance {
+                appendRoot(x, to: &roots, window: window)
+            } else if let previousX, let previousValue, (previousValue < 0) != (value < 0) {
+                let root = bisectRoot(x0: previousX, x1: x, evaluate: evaluate)
+                if let refinedValue = evaluate(root), abs(refinedValue) < acceptTolerance {
+                    appendRoot(root, to: &roots, window: window)
+                }
+            }
+            previousX = x
+            previousValue = value
+        }
+        return roots
+    }
+
+    private func appendPoint(_ point: CGPoint, to points: inout [CGPoint], window: GraphWindow) {
+        let minimumSeparation = min(window.width, window.height) * 1e-3
+        guard !points.contains(where: { hypot($0.x - point.x, $0.y - point.y) <= minimumSeparation }) else { return }
+        points.append(point)
+    }
+
+    private func zeroCrossing(
+        from a: (value: Double, point: CGPoint),
+        to b: (value: Double, point: CGPoint)
+    ) -> CGPoint? {
+        if abs(a.value) < 1e-9 { return a.point }
+        if abs(b.value) < 1e-9 { return b.point }
+        guard (a.value < 0) != (b.value < 0) else { return nil }
+        let t = abs(a.value) / (abs(a.value) + abs(b.value))
+        return CGPoint(
+            x: a.point.x + (b.point.x - a.point.x) * t,
+            y: a.point.y + (b.point.y - a.point.y) * t
+        )
     }
 
     /// Adds a root, skipping ones effectively coincident with an already-found root.
@@ -2601,7 +4853,46 @@ public struct GraphCalculatorView: View {
     }
 
     private func dockedCalculatorSize(in containerSize: CGSize) -> CGSize {
-        CGSize(width: min(containerSize.width, 440), height: min(containerSize.height, 820))
+        if state.isDockedHeaderCollapsed { return collapsedPanelSize(forExpandedSize: dockedCalculatorExpandedSize(in: containerSize), in: containerSize) }
+        return dockedCalculatorExpandedSize(in: containerSize)
+    }
+
+    private func dockedCalculatorExpandedSize(in containerSize: CGSize) -> CGSize {
+        let verticalMargin: CGFloat = 28
+        let graphHeight = dockedGraphHeight(in: containerSize)
+        let preferredHeight = expandedHeaderHeight + graphHeight + 48 + baseEntryHeight + keypadHeight
+        return CGSize(
+            width: min(containerSize.width, 440),
+            height: min(max(containerSize.height - verticalMargin * 2, 0), preferredHeight)
+        )
+    }
+
+    private func dockedCalculatorLayout(in containerSize: CGSize) -> (size: CGSize, center: CGPoint, expandedSize: CGSize) {
+        let expandedSize = dockedCalculatorExpandedSize(in: containerSize)
+        let expandedCenter = dockedCalculatorCenter(size: expandedSize, in: containerSize)
+        let size = state.isDockedHeaderCollapsed
+            ? collapsedPanelSize(forExpandedSize: expandedSize, in: containerSize)
+            : expandedSize
+        let center = state.isDockedHeaderCollapsed
+            ? collapsedCenterPreservingTop(expandedCenter: expandedCenter, expandedSize: expandedSize, collapsedSize: size, in: containerSize)
+            : expandedCenter
+        return (size, center, expandedSize)
+    }
+
+    private func collapsedPanelSize(forExpandedSize expandedSize: CGSize, in containerSize: CGSize) -> CGSize {
+        let maximumWidth = max(1, containerSize.width - 24)
+        return CGSize(
+            width: min(maximumWidth, expandedSize.width * 1.5),
+            height: compactHeaderHeight
+        )
+    }
+
+    private func dockedGraphHeight(in containerSize: CGSize) -> CGFloat {
+        let verticalMargin: CGFloat = 28
+        let fixedHeight = dockedHeaderHeight + 48 + baseEntryHeight + keypadHeight
+        let availableHeight = max(containerSize.height - verticalMargin * 2 - fixedHeight, 220)
+        let availableWidth = min(containerSize.width, 440)
+        return min(preferredDockedGraphHeight, availableWidth, availableHeight)
     }
 
     private func dockedCalculatorCenter(size: CGSize, in containerSize: CGSize) -> CGPoint {
@@ -2611,98 +4902,206 @@ public struct GraphCalculatorView: View {
 
     private var detachedControlHeight: CGFloat {
         let entry: CGFloat = state.isKeypadCollapsed
-            ? baseDetachedEntryHeight + min(max(keypadHiddenEntryExtra, 0), keypadHeight)
-            : baseDetachedEntryHeight
-        return 58 + 48 + entry + (state.isKeypadCollapsed ? 0 : keypadHeight)
+            ? baseDetachedEntryHeight + detachedHiddenEntryExtra
+            : baseDetachedEntryHeight + detachedVisibleEntryExtra
+        return detachedControlHeaderHeight + 48 + entryHandleHeight + entry + (state.isKeypadCollapsed ? 0 : keypadHeight)
     }
 
-    /// Height for the detached control panel's entry area. When the keypad is hidden the entry
-    /// expands into the freed keypad space (drag-adjustable via the grab handle); otherwise it
-    /// keeps its normal size above the keypad.
+    /// Height for the detached control panel's entry area. The handle just above the keypad can
+    /// expand this section vertically so more expression cells remain visible while typing.
     private func detachedEntryHeight(availableHeight: CGFloat) -> CGFloat {
         if state.isKeypadCollapsed {
-            return max(120, availableHeight - 58 - 48)
+            return max(120, availableHeight - detachedControlHeaderHeight - 48 - entryHandleHeight)
         }
-        return min(baseDetachedEntryHeight, max(120, availableHeight - 58 - 48 - keypadHeight))
+        let availableEntryHeight = availableHeight - detachedControlHeaderHeight - 48 - entryHandleHeight - keypadHeight
+        return min(baseDetachedEntryHeight + detachedVisibleEntryExtra, max(120, availableEntryHeight))
     }
 
-    private func dockedCalculatorDragGesture(currentCenter: CGPoint, size: CGSize, in containerSize: CGSize) -> some Gesture {
+    private func dockedCalculatorDragSnapshot(size: CGSize, in containerSize: CGSize) -> GraphCalculatorDragSnapshotImage? {
+        renderedDragSnapshot(size: size) {
+            calculatorBody(in: containerSize)
+        }
+    }
+
+    private func detachedGraphDragSnapshot(size: CGSize, center: CGPoint, in containerSize: CGSize) -> GraphCalculatorDragSnapshotImage? {
+        let placementRect = CGRect(
+            x: center.x - size.width / 2,
+            y: center.y - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+        return renderedDragSnapshot(size: size) {
+            detachedGraphPanelContent(size: size, center: center, placementRect: placementRect, containerSize: containerSize)
+                .background(Color.white)
+                .overlay(Rectangle().strokeBorder(.black.opacity(0.32), lineWidth: 1))
+        }
+    }
+
+    private func detachedControlDragSnapshot(size: CGSize, center: CGPoint, height: CGFloat, in containerSize: CGSize) -> GraphCalculatorDragSnapshotImage? {
+        let placementRect = CGRect(
+            x: center.x - size.width / 2,
+            y: center.y - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+        return renderedDragSnapshot(size: size) {
+            detachedControlPanelContent(size: size, height: height, center: center, placementRect: placementRect, containerSize: containerSize)
+                .background(GraphCalculatorTheme.panel)
+                .overlay(Rectangle().strokeBorder(.black.opacity(0.14), lineWidth: 1))
+                .overlay(detachedControlPanelBorder)
+        }
+    }
+
+    private func tableDragSnapshot(size: CGSize, center: CGPoint, in containerSize: CGSize) -> GraphCalculatorDragSnapshotImage? {
+        guard let active = state.activeTable,
+              let equation = state.expressions.first(where: { $0.id == active.equationID }) else {
+            return nil
+        }
+
+        return renderedDragSnapshot(size: size) {
+            tableWindowContent(active: active, equation: equation, currentCenter: center, size: size, in: containerSize)
+                .background(Color.white)
+                .overlay(Rectangle().strokeBorder(.black.opacity(0.32), lineWidth: 1))
+        }
+    }
+
+    private func renderedDragSnapshot<Content: View>(
+        size: CGSize,
+        @ViewBuilder content: () -> Content
+    ) -> GraphCalculatorDragSnapshotImage? {
+        #if os(iOS)
+        let renderer = ImageRenderer(content: content().frame(width: size.width, height: size.height))
+        renderer.scale = UIScreen.main.scale
+        return renderer.uiImage
+        #else
+        return nil
+        #endif
+    }
+
+    private func snapshotPNGData(from image: GraphCalculatorDragSnapshotImage?) -> Data? {
+        #if os(iOS)
+        image?.pngData()
+        #else
+        nil
+        #endif
+    }
+
+    private func dockedCalculatorDragGesture(currentCenter: CGPoint, size: CGSize, expandedSize: CGSize, in containerSize: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 1)
             .onChanged { value in
                 let base = dragStartCenter ?? currentCenter
                 if dragStartCenter == nil { dragStartCenter = base }
                 let proposed = CGPoint(x: base.x + value.translation.width, y: base.y + value.translation.height)
                 let clamped = clamp(center: proposed, size: size, in: containerSize)
+                let snapshotImage = dragProxy?.snapshotImage ?? dockedCalculatorDragSnapshot(size: size, in: containerSize)
+                let presentation = GraphCalculatorDragPresentation(
+                    kind: .docked,
+                    title: state.title,
+                    systemImage: "chart.xyaxis.line",
+                    center: base,
+                    offset: CGSize(width: clamped.x - base.x, height: clamped.y - base.y),
+                    size: size,
+                    snapshotPNGData: state.activeDragPresentation?.snapshotPNGData ?? snapshotPNGData(from: snapshotImage)
+                )
                 setWithoutAnimation {
+                    state.activeDragPresentation = presentation
                     dragProxy = GraphCalculatorDragProxy(
-                        kind: .docked,
-                        title: state.title,
-                        systemImage: "chart.xyaxis.line",
-                        center: base,
-                        offset: CGSize(width: clamped.x - base.x, height: clamped.y - base.y),
-                        size: size
+                        presentation: presentation,
+                        snapshotImage: snapshotImage
                     )
                 }
             }
             .onEnded { _ in
                 let offset = dragProxy?.offset ?? .zero
-                state.calculatorPosition = CGPoint(x: currentCenter.x + offset.width, y: currentCenter.y + offset.height)
+                let finalCenter = CGPoint(x: currentCenter.x + offset.width, y: currentCenter.y + offset.height)
+                state.calculatorPosition = state.isDockedHeaderCollapsed
+                    ? expandedCenterPreservingTop(collapsedCenter: finalCenter, expandedSize: expandedSize, collapsedSize: size, in: containerSize)
+                    : finalCenter
                 dockedLiveOffset = .zero
                 dragProxy = nil
+                state.activeDragPresentation = nil
                 dragStartCenter = nil
             }
     }
 
-    private func detachedDragGesture(currentCenter: CGPoint, size: CGSize, in containerSize: CGSize) -> some Gesture {
+    private func detachedDragGesture(currentCenter: CGPoint, size: CGSize, expandedSize: CGSize, in containerSize: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 1)
             .onChanged { value in
                 let base = detachedDragStartCenter ?? currentCenter
                 if detachedDragStartCenter == nil { detachedDragStartCenter = base }
                 let proposed = CGPoint(x: base.x + value.translation.width, y: base.y + value.translation.height)
                 let clamped = clamp(center: proposed, size: size, in: containerSize)
+                let snapshotImage = dragProxy?.snapshotImage ?? detachedGraphDragSnapshot(size: size, center: currentCenter, in: containerSize)
+                let presentation = GraphCalculatorDragPresentation(
+                    kind: .detachedGraph,
+                    title: "Graph",
+                    systemImage: "chart.xyaxis.line",
+                    center: base,
+                    offset: CGSize(width: clamped.x - base.x, height: clamped.y - base.y),
+                    size: size,
+                    snapshotPNGData: state.activeDragPresentation?.snapshotPNGData ?? snapshotPNGData(from: snapshotImage)
+                )
                 setWithoutAnimation {
+                    state.activeDragPresentation = presentation
                     dragProxy = GraphCalculatorDragProxy(
-                        kind: .detachedGraph,
-                        title: "Graph",
-                        systemImage: "chart.xyaxis.line",
-                        center: base,
-                        offset: CGSize(width: clamped.x - base.x, height: clamped.y - base.y),
-                        size: size
+                        presentation: presentation,
+                        snapshotImage: snapshotImage
                     )
                 }
             }
             .onEnded { _ in
                 let offset = dragProxy?.offset ?? .zero
-                state.detachedGraphPosition = CGPoint(x: currentCenter.x + offset.width, y: currentCenter.y + offset.height)
+                let finalCenter = CGPoint(x: currentCenter.x + offset.width, y: currentCenter.y + offset.height)
+                state.detachedGraphPosition = state.isDetachedGraphHeaderCollapsed
+                    ? expandedCenterPreservingTop(collapsedCenter: finalCenter, expandedSize: expandedSize, collapsedSize: size, in: containerSize)
+                    : finalCenter
                 detachedGraphLiveOffset = .zero
                 dragProxy = nil
+                state.activeDragPresentation = nil
                 detachedDragStartCenter = nil
             }
     }
 
-    private func detachedControlDragGesture(currentCenter: CGPoint, size: CGSize, in containerSize: CGSize) -> some Gesture {
+    private func detachedControlDragGesture(currentCenter: CGPoint, size: CGSize, expandedHeight: CGFloat, in containerSize: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 1)
             .onChanged { value in
                 let base = dragStartCenter ?? currentCenter
                 if dragStartCenter == nil { dragStartCenter = base }
                 let proposed = CGPoint(x: base.x + value.translation.width, y: base.y + value.translation.height)
                 let clamped = clamp(center: proposed, size: size, in: containerSize)
+                let snapshotImage = dragProxy?.snapshotImage ?? detachedControlDragSnapshot(
+                    size: size,
+                    center: currentCenter,
+                    height: min(containerSize.height - 24, detachedControlHeight),
+                    in: containerSize
+                )
+                let presentation = GraphCalculatorDragPresentation(
+                    kind: .detachedControl,
+                    title: state.title,
+                    systemImage: "keyboard",
+                    center: base,
+                    offset: CGSize(width: clamped.x - base.x, height: clamped.y - base.y),
+                    size: size,
+                    snapshotPNGData: state.activeDragPresentation?.snapshotPNGData ?? snapshotPNGData(from: snapshotImage)
+                )
                 setWithoutAnimation {
+                    state.activeDragPresentation = presentation
                     dragProxy = GraphCalculatorDragProxy(
-                        kind: .detachedControl,
-                        title: state.title,
-                        systemImage: "keyboard",
-                        center: base,
-                        offset: CGSize(width: clamped.x - base.x, height: clamped.y - base.y),
-                        size: size
+                        presentation: presentation,
+                        snapshotImage: snapshotImage
                     )
                 }
             }
             .onEnded { _ in
                 let offset = dragProxy?.offset ?? .zero
-                state.detachedControlPosition = CGPoint(x: currentCenter.x + offset.width, y: currentCenter.y + offset.height)
+                let finalCenter = CGPoint(x: currentCenter.x + offset.width, y: currentCenter.y + offset.height)
+                let expandedSize = CGSize(width: size.width, height: min(containerSize.height - 24, expandedHeight))
+                state.detachedControlPosition = state.isDetachedControlHeaderCollapsed
+                    ? expandedCenterPreservingTop(collapsedCenter: finalCenter, expandedSize: expandedSize, collapsedSize: size, in: containerSize)
+                    : finalCenter
                 detachedControlLiveOffset = .zero
                 dragProxy = nil
+                state.activeDragPresentation = nil
                 dragStartCenter = nil
             }
     }
@@ -2744,6 +5143,49 @@ public struct GraphCalculatorView: View {
         return clamp(center: state.detachedGraphPosition ?? fallback, size: size, in: containerSize)
     }
 
+    private func collapsedCenterPreservingTop(
+        expandedCenter: CGPoint,
+        expandedSize: CGSize,
+        collapsedSize: CGSize,
+        in containerSize: CGSize
+    ) -> CGPoint {
+        let topY = expandedCenter.y - expandedSize.height / 2
+        return clamp(
+            center: CGPoint(x: expandedCenter.x, y: topY + collapsedSize.height / 2),
+            size: collapsedSize,
+            in: containerSize
+        )
+    }
+
+    private func expandedCenterPreservingTop(
+        collapsedCenter: CGPoint,
+        expandedSize: CGSize,
+        collapsedSize: CGSize,
+        in containerSize: CGSize
+    ) -> CGPoint {
+        let topY = collapsedCenter.y - collapsedSize.height / 2
+        return clamp(
+            center: CGPoint(x: collapsedCenter.x, y: topY + expandedSize.height / 2),
+            size: expandedSize,
+            in: containerSize
+        )
+    }
+
+    private func squareDetachedGraphWindow(currentSize: CGSize, currentCenter: CGPoint, in containerSize: CGSize) {
+        state.resetWindow()
+        let headerHeight: CGFloat = state.isDetachedGraphHeaderCollapsed ? compactHeaderHeight : expandedFloatingHeaderHeight
+        let graphHeight = max(currentSize.height - headerHeight, 1)
+        let side = min(currentSize.width, graphHeight)
+        let squaredSize = clampGraphSize(
+            CGSize(width: side, height: side + headerHeight),
+            in: containerSize
+        )
+        state.detachedGraphSize = squaredSize
+        state.detachedGraphPosition = clamp(center: currentCenter, size: squaredSize, in: containerSize)
+        detachedResizeLive = nil
+        detachedResizeStart = nil
+    }
+
     private func detachedControlCenter(size: CGSize, in containerSize: CGSize) -> CGPoint {
         let fallback = CGPoint(
             x: min(containerSize.width - size.width / 2 - 16, containerSize.width * 0.74),
@@ -2778,29 +5220,78 @@ public struct GraphCalculatorView: View {
     }
 
     private func isDragging(_ kind: GraphCalculatorDragKind) -> Bool {
-        dragProxy?.kind == kind
+        dragProxy?.kind == kind || state.activeDragPresentation?.kind == kind
     }
 }
 
-private struct GraphCalculatorDragProxy: Equatable {
+#if os(iOS)
+private typealias GraphCalculatorDragSnapshotImage = UIImage
+#else
+private struct GraphCalculatorDragSnapshotImage {}
+#endif
+
+private struct GraphCalculatorDragProxy {
     let kind: GraphCalculatorDragKind
     let title: String
     let systemImage: String
     let center: CGPoint
     let offset: CGSize
     let size: CGSize
+    let snapshotImage: GraphCalculatorDragSnapshotImage?
+
+    init(
+        kind: GraphCalculatorDragKind,
+        title: String,
+        systemImage: String,
+        center: CGPoint,
+        offset: CGSize,
+        size: CGSize,
+        snapshotImage: GraphCalculatorDragSnapshotImage?
+    ) {
+        self.kind = kind
+        self.title = title
+        self.systemImage = systemImage
+        self.center = center
+        self.offset = offset
+        self.size = size
+        self.snapshotImage = snapshotImage
+    }
+
+    init(presentation: GraphCalculatorDragPresentation, snapshotImage: GraphCalculatorDragSnapshotImage? = nil) {
+        self.kind = presentation.kind
+        self.title = presentation.title
+        self.systemImage = presentation.systemImage
+        self.center = presentation.center
+        self.offset = presentation.offset
+        self.size = presentation.size
+        #if os(iOS)
+        self.snapshotImage = snapshotImage ?? presentation.snapshotPNGData.flatMap { UIImage(data: $0) }
+        #else
+        self.snapshotImage = snapshotImage
+        #endif
+    }
 
     var headerHeight: CGFloat {
-        kind == .detachedGraph ? 42 : 58
+        switch kind {
+        case .detachedGraph, .table:
+            return 42
+        case .docked, .detachedControl:
+            return 58
+        }
     }
 
     var cornerRadius: CGFloat {
-        kind == .detachedGraph ? 12 : 24
+        switch kind {
+        case .detachedGraph, .table:
+            return 12
+        case .docked, .detachedControl:
+            return 24
+        }
     }
 
     var headerFill: Color {
         switch kind {
-        case .detachedGraph:
+        case .detachedGraph, .table:
             return Color.white
         case .docked, .detachedControl:
             return GraphCalculatorTheme.header
@@ -2809,7 +5300,7 @@ private struct GraphCalculatorDragProxy: Equatable {
 
     var bodyFill: Color {
         switch kind {
-        case .detachedGraph:
+        case .detachedGraph, .table:
             return Color.white.opacity(0.86)
         case .docked, .detachedControl:
             return GraphCalculatorTheme.panel.opacity(0.86)
@@ -2818,7 +5309,7 @@ private struct GraphCalculatorDragProxy: Equatable {
 
     var stroke: Color {
         switch kind {
-        case .detachedGraph:
+        case .detachedGraph, .table:
             return Color.black.opacity(0.35)
         case .docked, .detachedControl:
             return Color.white.opacity(0.32)
@@ -2826,17 +5317,28 @@ private struct GraphCalculatorDragProxy: Equatable {
     }
 
     var headerForeground: Color {
-        kind == .detachedGraph ? Color.black.opacity(0.78) : Color.white.opacity(0.92)
+        switch kind {
+        case .detachedGraph, .table:
+            return Color.black.opacity(0.78)
+        case .docked, .detachedControl:
+            return Color.white.opacity(0.92)
+        }
     }
 
     var labelForeground: Color {
-        kind == .detachedGraph ? Color.black.opacity(0.45) : Color.white.opacity(0.58)
+        switch kind {
+        case .detachedGraph, .table:
+            return Color.black.opacity(0.45)
+        case .docked, .detachedControl:
+            return Color.white.opacity(0.58)
+        }
     }
 }
 
-private enum GraphCalculatorDragKind: Equatable {
+private typealias GraphCalculatorDragKind = GraphCalculatorDragPresentation.Kind
+
+private enum CalculatorHeaderKind {
     case docked
-    case detachedGraph
     case detachedControl
 }
 
@@ -2917,6 +5419,201 @@ private enum FunctionMenuCategory: CaseIterable {
     }
 }
 
+private struct GraphCalculatorMathDisplay: View {
+    let source: String
+    let fallback: String
+    let fontSize: CGFloat
+
+    private var latex: String {
+        GraphCalculatorLaTeXConverter.latex(for: source)
+    }
+
+    private var mathFont: Math.Font {
+        Math.Font(name: .latinModern, size: fontSize)
+    }
+
+    private var canTypeset: Bool {
+        guard !latex.isEmpty else { return false }
+        let bounds = Math.typographicBounds(
+            for: latex,
+            fitting: ProposedViewSize(width: 2_000, height: 200),
+            font: mathFont,
+            style: .display
+        )
+        return bounds.size.width > 0 && bounds.size.height > 0
+    }
+
+    @ViewBuilder
+    var body: some View {
+        if canTypeset {
+            Math(latex)
+                .mathTypesettingStyle(.display)
+                .mathFont(mathFont)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(maxHeight: fontSize * 1.8, alignment: .center)
+        } else {
+            Text(fallback)
+                .font(.system(size: fontSize, weight: .regular, design: .serif))
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
+        }
+    }
+}
+
+private enum GraphCalculatorLaTeXConverter {
+    static func latex(for source: String) -> String {
+        let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        return convert(trimmed)
+    }
+
+    private static func convert(_ source: String) -> String {
+        var output = ""
+        var index = source.startIndex
+
+        while index < source.endIndex {
+            if let argument = functionArgument(named: "sqrt", in: source, at: index) {
+                output += "\\sqrt{" + convert(argument.body) + "}"
+                index = argument.end
+                continue
+            }
+
+            if let argument = functionArgument(named: "abs", in: source, at: index) {
+                output += "\\left|" + convert(argument.body) + "\\right|"
+                index = argument.end
+                continue
+            }
+
+            if hasPrefix("<=", in: source, at: index) {
+                output += "\\le "
+                index = source.index(index, offsetBy: 2)
+                continue
+            }
+
+            if hasPrefix(">=", in: source, at: index) {
+                output += "\\ge "
+                index = source.index(index, offsetBy: 2)
+                continue
+            }
+
+            if hasIdentifier("theta", in: source, at: index) {
+                output += "\\theta "
+                index = source.index(index, offsetBy: 5)
+                continue
+            }
+
+            if hasIdentifier("pi", in: source, at: index) {
+                output += "\\pi "
+                index = source.index(index, offsetBy: 2)
+                continue
+            }
+
+            let character = source[index]
+            switch character {
+            case "^":
+                let next = source.index(after: index)
+                if let exponent = groupedArgument(in: source, startingAt: next) {
+                    output += "^{" + convert(exponent.body) + "}"
+                    index = exponent.end
+                } else if let exponent = simpleArgument(in: source, startingAt: next) {
+                    output += "^{" + convert(exponent.body) + "}"
+                    index = exponent.end
+                } else {
+                    output.append("^")
+                    index = next
+                }
+            case "*", "×":
+                output += "\\cdot "
+                index = source.index(after: index)
+            case "≤":
+                output += "\\le "
+                index = source.index(after: index)
+            case "≥":
+                output += "\\ge "
+                index = source.index(after: index)
+            case "π":
+                output += "\\pi "
+                index = source.index(after: index)
+            case "θ":
+                output += "\\theta "
+                index = source.index(after: index)
+            case "_":
+                output += "\\_"
+                index = source.index(after: index)
+            default:
+                output += String(character)
+                index = source.index(after: index)
+            }
+        }
+
+        return output
+    }
+
+    private static func functionArgument(named name: String, in source: String, at index: String.Index) -> (body: String, end: String.Index)? {
+        let prefix = name + "("
+        guard hasPrefix(prefix, in: source, at: index) else { return nil }
+        let openParen = source.index(index, offsetBy: name.count)
+        return groupedArgument(in: source, startingAt: openParen)
+    }
+
+    private static func groupedArgument(in source: String, startingAt index: String.Index) -> (body: String, end: String.Index)? {
+        guard index < source.endIndex, source[index] == "(" else { return nil }
+        var depth = 0
+        var scan = index
+        while scan < source.endIndex {
+            if source[scan] == "(" {
+                depth += 1
+            } else if source[scan] == ")" {
+                depth -= 1
+                if depth == 0 {
+                    let bodyStart = source.index(after: index)
+                    let body = String(source[bodyStart..<scan])
+                    return (body, source.index(after: scan))
+                }
+            }
+            scan = source.index(after: scan)
+        }
+        return nil
+    }
+
+    private static func simpleArgument(in source: String, startingAt index: String.Index) -> (body: String, end: String.Index)? {
+        var scan = index
+        while scan < source.endIndex, source[scan].isWhitespace {
+            scan = source.index(after: scan)
+        }
+        guard scan < source.endIndex else { return nil }
+
+        let start = scan
+        if source[scan] == "-" || source[scan] == "+" {
+            scan = source.index(after: scan)
+        }
+        while scan < source.endIndex, source[scan].isNumber || source[scan].isLetter || source[scan] == "." || source[scan] == "π" || source[scan] == "θ" {
+            scan = source.index(after: scan)
+        }
+
+        if scan == start {
+            scan = source.index(after: start)
+        }
+        return (String(source[start..<scan]), scan)
+    }
+
+    private static func hasPrefix(_ prefix: String, in source: String, at index: String.Index) -> Bool {
+        source[index...].hasPrefix(prefix)
+    }
+
+    private static func hasIdentifier(_ identifier: String, in source: String, at index: String.Index) -> Bool {
+        guard hasPrefix(identifier, in: source, at: index) else { return false }
+        let end = source.index(index, offsetBy: identifier.count)
+        let beforeIsIdentifier = index > source.startIndex && isIdentifierCharacter(source[source.index(before: index)])
+        let afterIsIdentifier = end < source.endIndex && isIdentifierCharacter(source[end])
+        return !beforeIsIdentifier && !afterIsIdentifier
+    }
+
+    private static func isIdentifierCharacter(_ character: Character) -> Bool {
+        character.isLetter || character.isNumber || character == "_"
+    }
+}
+
 private enum GraphCalculatorExpressionDisplay {
     static func string(for source: String) -> String {
         var display = superscriptExponents(in: source)
@@ -2926,7 +5623,7 @@ private enum GraphCalculatorExpressionDisplay {
         display = display.replacingOccurrences(of: "pi", with: "π")
         display = display.replacingOccurrences(of: "<=", with: "≤")
         display = display.replacingOccurrences(of: ">=", with: "≥")
-        display = display.replacingOccurrences(of: "*", with: "×")
+        display = display.replacingOccurrences(of: "*", with: "·")
         display = display.replacingOccurrences(of: "/", with: "⁄")
         return display
     }
@@ -3252,6 +5949,63 @@ private struct SliderBoundEdit: Identifiable, Equatable {
     var title: String {
         endpoint == .minimum ? "\(name) minimum" : "\(name) maximum"
     }
+}
+
+private struct PointTableCellEdit: Identifiable, Equatable {
+    enum Column {
+        case x
+        case y
+    }
+
+    let equationID: UUID
+    let pairID: UUID
+    let column: Column
+
+    var id: String {
+        "\(equationID)-\(pairID)-\(column)"
+    }
+}
+
+private enum RegressionKind {
+    case linear
+    case quadratic
+    case cubic
+    case quartic
+
+    var degree: Int {
+        switch self {
+        case .linear: return 1
+        case .quadratic: return 2
+        case .cubic: return 3
+        case .quartic: return 4
+        }
+    }
+
+    var minimumPointCount: Int { degree + 1 }
+}
+
+private struct RationalFraction: Equatable {
+    let numerator: Int
+    let denominator: Int
+}
+
+private enum NumericExpressionToken: Equatable {
+    case text(String)
+    case fraction(RationalFraction)
+}
+
+private enum EditableExpressionToken: Equatable {
+    case text(String)
+    case fraction(EditableFractionToken)
+}
+
+private struct EditableFractionToken: Equatable {
+    let numerator: String
+    let denominator: String
+    let numeratorRange: Range<Int>
+    let denominatorRange: Range<Int>
+    let slashOffset: Int
+    let sourceRange: Range<Int>
 }
 
 #if DEBUG

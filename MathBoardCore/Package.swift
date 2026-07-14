@@ -75,7 +75,13 @@ let package = Package(
         // Self-contained Desmos-style graph calculator prototype. It reuses the
         // Calculator target's expression engine and graph geometry, but remains
         // isolated from the MathBoard app until explicitly integrated.
-        .target(name: "GraphCalculator", dependencies: ["Calculator"]),
+        .target(
+            name: "GraphCalculator",
+            dependencies: [
+                "Calculator",
+                .product(name: "SwiftUIMath", package: "swiftui-math")
+            ]
+        ),
 
         // Radial drawing palette. Now linked into `Presentation` for the
         // phased, feature-flagged integration (see ToolPalette_integration.md);

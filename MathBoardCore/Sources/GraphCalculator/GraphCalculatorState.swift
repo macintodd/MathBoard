@@ -56,6 +56,16 @@ public struct GraphOrderedPair: Identifiable, Codable, Hashable, Sendable {
 }
 
 /// Start/step settings for a function (`y = f(x)`) table. These also seed the graph trace step.
+public struct GraphRegressionRow: Equatable, Sendable {
+    public var rSquared: Double
+    public var sourceEquationID: UUID
+
+    public init(rSquared: Double, sourceEquationID: UUID) {
+        self.rSquared = rSquared
+        self.sourceEquationID = sourceEquationID
+    }
+}
+
 public struct GraphFunctionTableSettings: Equatable, Sendable {
     public var start: Double
     public var delta: Double
@@ -84,6 +94,71 @@ public struct GraphActiveTable: Equatable, Sendable {
     }
 }
 
+public enum GraphRecordedKeyStyle: String, Codable, Hashable, Sendable {
+    case plain
+    case number
+}
+
+public struct GraphRecordedKeyStroke: Identifiable, Codable, Hashable, Sendable {
+    public var id: UUID
+    public var label: String
+    public var style: GraphRecordedKeyStyle
+    public var isWide: Bool
+    public var isEmphasized: Bool
+
+    public init(
+        id: UUID = UUID(),
+        label: String,
+        style: GraphRecordedKeyStyle = .plain,
+        isWide: Bool = false,
+        isEmphasized: Bool = false
+    ) {
+        self.id = id
+        self.label = label
+        self.style = style
+        self.isWide = isWide
+        self.isEmphasized = isEmphasized
+    }
+}
+
+/// Presentation metadata for a graph-calculator drag in progress.
+/// The iPad captures the optional PNG snapshot once at drag start; the external display reuses
+/// that single image while following the lightweight position/size metadata.
+public struct GraphCalculatorDragPresentation: Equatable, Sendable {
+    public enum Kind: Equatable, Sendable {
+        case docked
+        case detachedGraph
+        case detachedControl
+        case table
+    }
+
+    public var kind: Kind
+    public var title: String
+    public var systemImage: String
+    public var center: CGPoint
+    public var offset: CGSize
+    public var size: CGSize
+    public var snapshotPNGData: Data?
+
+    public init(
+        kind: Kind,
+        title: String,
+        systemImage: String,
+        center: CGPoint,
+        offset: CGSize,
+        size: CGSize,
+        snapshotPNGData: Data? = nil
+    ) {
+        self.kind = kind
+        self.title = title
+        self.systemImage = systemImage
+        self.center = center
+        self.offset = offset
+        self.size = size
+        self.snapshotPNGData = snapshotPNGData
+    }
+}
+
 public struct GraphCalculatorFolder: Identifiable, Codable, Hashable, Sendable {
     public var id: UUID
     public var name: String
@@ -108,9 +183,18 @@ public final class GraphCalculatorState {
     public var detachedGraphSize: CGSize = CGSize(width: 520, height: 390)
     public var detachedControlPosition: CGPoint?
     public var isKeypadCollapsed: Bool = false
+    public var isDockedHeaderCollapsed: Bool = false
+    public var isDetachedGraphHeaderCollapsed: Bool = false
+    public var isDetachedControlHeaderCollapsed: Bool = false
+    public var isTableHeaderCollapsed: Bool = false
     public var isFunctionMenuVisible: Bool = false
     public var isAddMenuVisible: Bool = false
     public var isGraphSettingsVisible: Bool = false
+    public var isKeystrokeDisplayEnabled: Bool = false
+    public var isKeystrokeRecordingPaused: Bool = false
+    public var recordedKeystrokes: [GraphRecordedKeyStroke] = []
+    public var keystrokeWindowPosition: CGPoint?
+    public var keystrokeWindowSize: CGSize = CGSize(width: 430, height: 180)
 
     // Graph appearance settings (wired into the renderer).
     public var axisStrokeWidth: Double = 1.4
@@ -125,6 +209,10 @@ public final class GraphCalculatorState {
     public var sliderMinimums: [String: Double] = [:]
     public var sliderMaximums: [String: Double] = [:]
     public var cursorOffset: Int = 0
+    /// Rows whose numeric calculation result is currently displayed as a stacked fraction.
+    public var fractionResultRowIDs: Set<UUID> = []
+    /// Regression metadata keyed by the inserted regression equation row.
+    public var regressionRows: [UUID: GraphRegressionRow] = [:]
 
     /// The graph point the teacher last tapped out (e.g. an x-intercept), shown on the canvas.
     public var selectedPoint: GraphCalculatorPointReadout?
@@ -136,6 +224,8 @@ public final class GraphCalculatorState {
     public var tableWindowSize: CGSize = CGSize(width: 340, height: 420)
     /// Per-equation function-table settings, keyed by `GraphEquation.id`.
     public var functionTableSettings: [UUID: GraphFunctionTableSettings] = [:]
+    /// Optional second function column for a function table, keyed by the primary equation id.
+    public var secondaryFunctionTableEquationIDs: [UUID: UUID] = [:]
     /// Extra teacher-added points for a point row, keyed by `GraphEquation.id`. Does not include
     /// the ordered pair typed into the equation cell itself.
     public var pointRows: [UUID: [GraphOrderedPair]] = [:]
@@ -145,6 +235,9 @@ public final class GraphCalculatorState {
     /// The x of the currently highlighted trace point (a table value `start + n·delta`). May differ
     /// from the table start when the teacher selects a later shown point.
     public var traceSelectedX: Double?
+    /// Transient drag proxy metadata mirrored to the external display. The optional snapshot is
+    /// captured once at drag start and then translated by metadata during the drag.
+    public var activeDragPresentation: GraphCalculatorDragPresentation?
 
     public init(expressions: [GraphEquation] = [GraphEquation(expression: "", colorIndex: 0)]) {
         self.expressions = expressions.isEmpty ? [GraphEquation(expression: "", colorIndex: 0)] : expressions
@@ -157,6 +250,8 @@ public final class GraphCalculatorState {
         }
         set {
             ensureExpression(at: selectedExpressionIndex)
+            fractionResultRowIDs.remove(expressions[selectedExpressionIndex].id)
+            regressionRows.removeValue(forKey: expressions[selectedExpressionIndex].id)
             expressions[selectedExpressionIndex].expression = newValue
             cursorOffset = min(cursorOffset, newValue.count)
         }
@@ -174,6 +269,22 @@ public final class GraphCalculatorState {
         selectedExpressionIndex = expressions.count - 1
         cursorOffset = 0
         isAddMenuVisible = false
+    }
+
+    @discardableResult
+    public func insertExpression(_ expression: String, after index: Int, matchingStyleOf sourceIndex: Int? = nil) -> UUID {
+        let insertionIndex = min(max(index + 1, 0), expressions.count)
+        var equation = GraphEquation(expression: expression, colorIndex: expressions.count)
+        if let sourceIndex, expressions.indices.contains(sourceIndex) {
+            equation.colorIndex = expressions[sourceIndex].colorIndex
+            equation.lineHue = expressions[sourceIndex].lineHue
+            equation.lineWidth = expressions[sourceIndex].lineWidth
+        }
+        expressions.insert(equation, at: insertionIndex)
+        selectedExpressionIndex = insertionIndex
+        cursorOffset = expression.count
+        isAddMenuVisible = false
+        return equation.id
     }
 
     public func addFolder() {
@@ -202,12 +313,16 @@ public final class GraphCalculatorState {
         }
 
         if expressions.count == 1 {
+            fractionResultRowIDs.remove(expressions[0].id)
+            regressionRows.removeValue(forKey: expressions[0].id)
             expressions[0].expression = ""
             selectedExpressionIndex = 0
             cursorOffset = 0
             return
         }
 
+        fractionResultRowIDs.remove(expressions[index].id)
+        regressionRows.removeValue(forKey: expressions[index].id)
         expressions.remove(at: index)
         selectedExpressionIndex = min(max(0, index), expressions.count - 1)
         cursorOffset = expressions[selectedExpressionIndex].expression.count
@@ -215,6 +330,8 @@ public final class GraphCalculatorState {
 
     public func clearSelectedExpression() {
         ensureExpression(at: selectedExpressionIndex)
+        fractionResultRowIDs.remove(expressions[selectedExpressionIndex].id)
+        regressionRows.removeValue(forKey: expressions[selectedExpressionIndex].id)
         expressions[selectedExpressionIndex].expression = ""
         cursorOffset = 0
     }

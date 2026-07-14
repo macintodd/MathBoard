@@ -658,3 +658,100 @@ Verification notes:
   - grid darkness slider maximum increased to `0.75`, with renderer clamping raised to support the darker range.
 - Xcode live diagnostics passed for the graph style default adjustment.
 - Full project build passed after the graph style default adjustment.
+- Completed docked graph sizing refinement:
+  - graphCalc applies the default `-10...10` x/y window when the calculator first mounts,
+  - the docked graph region now grows into the space saved by showing only one expression row while the keyboard is visible,
+  - the live graph draws into a centered square plot area so `1` unit on x and `1` unit on y have matching screen size,
+  - graph snapshots now render square as well, preserving the same unit scale in photo exports,
+  - the docked calculator height is computed from available present-view space so it keeps top/bottom margin instead of forcing itself edge-to-edge.
+- Xcode live diagnostics passed for the docked square-grid layout changes.
+- Full project build passed after the docked square-grid layout changes.
+- Completed square keypad refinement:
+  - keypad height was shortened so the graph can keep more vertical space,
+  - normal keypad keys now render square using the calculated column width for both width and height,
+  - wide keys still span two columns but keep the same height as the other keys in their row.
+- Xcode live diagnostics passed for the square keypad refinement.
+- Full project build passed after the square keypad refinement.
+- Completed graph-surface control relocation:
+  - graph display `...`, graph photo camera, zoom in, and zoom out now sit as graph-surface overlay buttons,
+  - the duplicate calculator-title `...` and toolbar camera button were removed,
+  - detached graph windows use the same graph-surface controls over the graph canvas,
+  - graph snapshot PNGs now include a black border around the exported graph image,
+  - the detached equation/keypad controller keeps a stronger black border on the side edges and bottom edge.
+- Xcode live diagnostics passed for the graph-surface control relocation.
+- Full project build passed after the graph-surface control relocation.
+- Completed graph snapshot scale matching:
+  - graph photos now render at the current on-screen square plot size instead of a fixed large logical size,
+  - `ImageRenderer.scale` is used for sharpness so the renderer's grid-step calculation matches the live calculator graph,
+  - this keeps major/minor grid spacing and tick labels consistent between the calculator graph and the inserted photo.
+- Xcode live diagnostics passed for the graph snapshot scale matching.
+- Full project build passed after the graph snapshot scale matching.
+- Completed detached graph equation overlay:
+  - when the graph is separated from the equation/keypad controller, enabled non-empty equations are shown in the top-left of the graph canvas,
+  - overlay text uses the same expression display formatter as the equation rows,
+  - each overlay equation is colored with its graphed line color,
+  - the overlay ignores hit testing so graph pan/zoom/tap interactions continue to work.
+- Xcode live diagnostics passed for the detached graph equation overlay.
+- Full project build passed after the detached graph equation overlay.
+- Completed graph snapshot equation overlay:
+  - graph photo exports now include the same top-left colored equation overlay as the detached graph screen,
+  - the overlay is rendered beneath the black snapshot border so exported graph photos show both the equations and the frame.
+- Xcode live diagnostics passed for the graph snapshot equation overlay.
+- Full project build passed after the graph snapshot equation overlay.
+- Completed detached graph resize behavior:
+  - docked graph remains a centered square plot so x/y unit sizes match in the full calculator,
+  - detached graph windows now render into the full resized graph area, so stretching the detached frame horizontally or vertically stretches the graph instead of forcing a square plot,
+  - detached graph overlay controls now include a home button below zoom out,
+  - detached home resets the graph window to the default origin-centered view and resizes the detached graph area to a square using the smaller current graph dimension.
+- Xcode live diagnostics passed for detached graph resize behavior.
+- Full project build passed after detached graph resize behavior.
+- Completed image-based drag proxy refinement:
+  - docked calculator, detached graph window, detached equation/keypad controller, and floating graph tables now capture a SwiftUI `ImageRenderer` snapshot when dragging begins,
+  - the live heavy panel/table dims while the captured image follows the drag as the lightweight proxy,
+  - drag end commits the final center back into `GraphCalculatorState` and swaps the live interactive view back in,
+  - graph-table dragging no longer moves the live table view on every drag frame, reducing jitter for the generated tables.
+- Xcode live diagnostics passed for the image-based drag proxy refinement.
+- Full project build passed after the image-based drag proxy refinement.
+- Completed external-display drag proxy parity:
+  - `GraphCalculatorState` now publishes transient drag metadata plus one optional PNG snapshot captured at drag start for the active calculator/table drag,
+  - the iPad view still uses its local `ImageRenderer` snapshot for the smooth drag proxy,
+  - the external-display graph calculator view decodes that single shared snapshot and moves it with the shared offset metadata,
+  - the black vector proxy remains only as a fallback if snapshot capture or decoding fails, avoiding repeated hierarchy/layer snapshot mirroring during drag.
+- Xcode live diagnostics passed for the external-display drag proxy parity.
+- Full project build passed after the external-display drag proxy parity.
+- Completed point-table data-entry and regression pass:
+  - ordered-pair point tables now use calculator-keypad editing for x/y cells instead of iPad keyboard text fields,
+  - opening a new point table creates and focuses the first editable x row, and Add point focuses the new row's x cell,
+  - Enter while editing x moves down the x column, adding rows as needed; after three constant-interval x-values, new x rows auto-fill the next value in the sequence,
+  - only complete ordered pairs graph; regression controls stay hidden while any point-table row is incomplete,
+  - point rows with at least two complete points show a magnifying-glass fit button that zooms the graph to all data points,
+  - point rows with enough complete data show a regression menu beside the table button; Linear and Quadratic regressions insert their equation directly under the source ordered-pair row.
+- Xcode live diagnostics passed for point-table data entry and regression changes.
+- Full project build passed after point-table data entry and regression changes.
+- Completed calculator UI interaction polish:
+  - replaced the `f(x)` keypad `Menu` with a snapshot-stable key plus context menu so drag-proxy snapshots no longer show a transient system fallback icon,
+  - docked calculator, detached graph, detached equation/keypad controller, and floating table headers now double-tap collapse into thin draggable bars; double-tapping the thin bar restores the full header,
+  - expression color swatches now use the existing `isEnabled` row flag: tapping the selected swatch toggles graphing, double-tapping toggles directly, and long-press still opens graph style controls,
+  - enabled swatches draw a small white sine-wave mark; disabled swatches dim and show the mark with a slash.
+- Xcode live diagnostics passed for calculator UI interaction polish.
+- Full project build passed after calculator UI interaction polish.
+- Completed numeric fraction conversion and true hide-to-bar collapse:
+  - calculator/table double-tap collapse now hides the whole window body into the draggable bar instead of only shortening the header,
+  - collapsed docked calculator, detached graph, detached equation/keypad controller, and floating tables keep a thin draggable bar that can be double-tapped to restore the full view,
+  - pure numeric calculation rows with rational non-integer decimal values now show a compact convert-to-fraction button,
+  - conversion replaces the row with an integer-over-integer expression and simple converted fractions render as stacked formal fractions with taller row height,
+  - fraction conversion intentionally stays hidden for graph equations, function definitions, relations, ordered pairs, variables, and already-converted simple fraction rows.
+- Xcode live diagnostics passed for numeric fraction conversion and true hide-to-bar collapse.
+- Full project build passed after numeric fraction conversion and true hide-to-bar collapse.
+- Completed extended graph calculator polish before parking calculator work:
+  - display-layer math formatting now uses SwiftUIMath for calculator row rendering where appropriate, while editing/storage remain parser-friendly plain text,
+  - multiplication renders as a dot in display mode and edit mode,
+  - stacked fraction editing handles empty numerator templates, denominator exit cursor placement, and `=` followed by division without pulling the left side into the numerator,
+  - implicit x/y equations such as `3x+2y=12` and `x^2+y^2=5` graph and support touch-discoverable x-intercepts, y-intercepts, and intersections,
+  - detached equation/keypad resizing was corrected so the top stays anchored and the keyboard slides down to reveal more expression rows,
+  - point/function tables gained shared-x multi-equation support and table-to-graph point highlighting behavior,
+  - linear/quadratic/cubic/quartic regressions now show rounded equations plus `R^2`, and regression rows inherit the source data color for rows, graph curves, and graph-photo overlays,
+  - the keystroke display window can record calculator keypad presses, pause/delete/clear the sequence, wrap into rows or columns based on window shape, and make a sticker,
+  - graph photos now capture the original visible graph content, place onto the canvas at a larger 3x display size, and use a thin snapshot border instead of a scaled-heavy stroke.
+- Xcode live diagnostics and full project builds passed during the final graph photo sizing pass.
+- Calculator work is intentionally parked so the next pass can resume the Compact tool palette review.

@@ -21,7 +21,7 @@ struct GraphCalculatorResolvedRow: Identifiable, Equatable {
 
     var plotExpression: String? {
         switch plot {
-        case .curve(let expression), .yRelation(let expression, _), .xRelation(let expression, _):
+        case .curve(let expression), .yRelation(let expression, _), .xRelation(let expression, _), .implicitRelation(let expression):
             return expression
         case .point(let x, let y):
             return "(\(x),\(y))"
@@ -35,6 +35,7 @@ enum GraphCalculatorPlot: Equatable {
     case curve(String)
     case yRelation(String, GraphCalculatorYRelation)
     case xRelation(String, GraphCalculatorXRelation)
+    case implicitRelation(String)
     case point(Double, Double)
 }
 
@@ -300,6 +301,8 @@ enum GraphCalculatorExpressionResolver {
             return .yRelation(expandFunctionCalls(in: expression, definitions: definitions), relation)
         case .xRelation(let expression, let relation):
             return .xRelation(expandFunctionCalls(in: expression, definitions: definitions), relation)
+        case .implicitRelation(let expression):
+            return .implicitRelation(expandFunctionCalls(in: expression, definitions: definitions))
         case .point:
             return plot
         }
@@ -313,6 +316,8 @@ enum GraphCalculatorExpressionResolver {
             return .yRelation(normalizeImplicitVariableProducts(in: expression), relation)
         case .xRelation(let expression, let relation):
             return .xRelation(normalizeImplicitVariableProducts(in: expression), relation)
+        case .implicitRelation(let expression):
+            return .implicitRelation(normalizeImplicitVariableProducts(in: expression))
         case .point:
             return plot
         }
@@ -506,9 +511,19 @@ enum GraphCalculatorExpressionResolver {
                 plot = .xRelation(right, GraphCalculatorXRelation(match.relation))
             } else if right == "x" {
                 plot = .xRelation(left, GraphCalculatorXRelation(match.relation.inverted))
+            } else if match.relation == .equal,
+                      Self.isXYOnlyRelation(left: left, right: right) {
+                plot = .implicitRelation("(\(left))-(\(right))")
             } else {
                 return nil
             }
+        }
+
+        private static func isXYOnlyRelation(left: String, right: String) -> Bool {
+            let names = Set(GraphCalculatorExpressionResolver.identifiers(in: "\(left) \(right)"))
+            return !names.isEmpty
+                && names.isSubset(of: ["x", "y", "e", "pi"])
+                && (names.contains("x") || names.contains("y"))
         }
 
         private static func firstRelation(in source: String) -> (range: Range<String.Index>, relation: GraphCalculatorYRelation)? {
@@ -620,7 +635,7 @@ enum GraphCalculatorExpressionResolver {
 private extension GraphCalculatorPlot {
     var expression: String {
         switch self {
-        case .curve(let expression), .yRelation(let expression, _), .xRelation(let expression, _):
+        case .curve(let expression), .yRelation(let expression, _), .xRelation(let expression, _), .implicitRelation(let expression):
             return expression
         case .point(let x, let y):
             return "(\(x),\(y))"

@@ -51,6 +51,16 @@ struct GraphTraceOverlay {
     var lineWidth: CGFloat
     var label: String
     var specialKind: GraphCalculatorPointReadout.Kind?
+    var secondary: GraphTraceSeries? = nil
+}
+
+struct GraphTraceSeries {
+    var anchor: CGPoint
+    var points: [GraphTracePoint]
+    var color: Color
+    var lineWidth: CGFloat
+    var label: String
+    var specialKind: GraphCalculatorPointReadout.Kind?
 }
 
 enum GraphHighlightPalette {
@@ -237,6 +247,10 @@ enum GraphCalculatorRenderer {
             context.stroke(Path(ellipseIn: rect), with: .color(.white.opacity(0.9)), lineWidth: 1)
         }
 
+        if let secondary = trace.secondary {
+            drawTraceSeries(in: context, size: size, window: window, series: secondary)
+        }
+
         if let specialKind = trace.specialKind {
             drawHighlightedPoint(
                 in: context,
@@ -263,6 +277,52 @@ enum GraphCalculatorRenderer {
             size: size,
             text: trace.label,
             fill: trace.color,
+            textColor: .white
+        )
+    }
+
+    private static func drawTraceSeries(
+        in context: GraphicsContext,
+        size: CGSize,
+        window: GraphWindow,
+        series: GraphTraceSeries
+    ) {
+        for tracePoint in series.points {
+            let view = CalculatorGraphGeometry.viewPoint(forGraph: tracePoint.point, window: window, size: size)
+            guard view.x.isFinite, view.y.isFinite else { continue }
+            let r: CGFloat = 4
+            let rect = CGRect(x: view.x - r, y: view.y - r, width: r * 2, height: r * 2)
+            context.fill(Path(ellipseIn: rect), with: .color(series.color))
+            context.stroke(Path(ellipseIn: rect), with: .color(.white.opacity(0.9)), lineWidth: 1)
+        }
+
+        if let specialKind = series.specialKind {
+            drawHighlightedPoint(
+                in: context,
+                size: size,
+                window: window,
+                point: GraphCalculatorPointReadout(
+                    x: Double(series.anchor.x),
+                    y: Double(series.anchor.y),
+                    kind: specialKind
+                )
+            )
+            return
+        }
+
+        let anchorView = CalculatorGraphGeometry.viewPoint(forGraph: series.anchor, window: window, size: size)
+        guard anchorView.x.isFinite, anchorView.y.isFinite else { return }
+        let radius: CGFloat = 7
+        let dotRect = CGRect(x: anchorView.x - radius, y: anchorView.y - radius, width: radius * 2, height: radius * 2)
+        context.fill(Path(ellipseIn: dotRect), with: .color(series.color))
+        context.stroke(Path(ellipseIn: dotRect), with: .color(.white), lineWidth: 2)
+        drawLabelBubble(
+            in: context,
+            near: anchorView,
+            markerRadius: radius,
+            size: size,
+            text: series.label,
+            fill: series.color,
             textColor: .white
         )
     }
@@ -542,6 +602,9 @@ enum GraphCalculatorRenderer {
                 return
             }
             drawXRelation(in: context, size: size, window: window, x: x, relation: relation, color: color, lineWidth: lineWidth)
+        case .implicitRelation(let source):
+            guard let compiled = try? engine.compile(source) else { return }
+            drawImplicitRelation(in: context, size: size, window: window, compiled: compiled, engine: engine, variableValues: variableValues, color: color, lineWidth: lineWidth, handDrawn: handDrawn)
         case .point(let x, let y):
             drawPoint(in: context, size: size, window: window, x: x, y: y, color: color, lineWidth: lineWidth)
         }
@@ -675,6 +738,118 @@ enum GraphCalculatorRenderer {
             }
         }
         drawVerticalLine(in: context, size: size, window: window, x: x, color: color, lineWidth: lineWidth, dashed: relation.isStrict)
+    }
+
+    private static func drawImplicitRelation(
+        in context: GraphicsContext,
+        size: CGSize,
+        window: GraphWindow,
+        compiled: CalculatorExpression,
+        engine: CalculatorEngine,
+        variableValues: [String: Double],
+        color: Color,
+        lineWidth: CGFloat,
+        handDrawn: Bool
+    ) {
+        let columns = max(36, min(140, Int(size.width / 5)))
+        let rows = max(36, min(140, Int(size.height / 5)))
+        let dx = window.width / Double(columns)
+        let dy = window.height / Double(rows)
+        guard dx.isFinite, dy.isFinite, dx > 0, dy > 0 else { return }
+
+        var values = Array(repeating: Array<Double?>(repeating: nil, count: rows + 1), count: columns + 1)
+        for ix in 0...columns {
+            let x = window.xMin + Double(ix) * dx
+            for iy in 0...rows {
+                let y = window.yMin + Double(iy) * dy
+                values[ix][iy] = evaluateImplicit(compiled: compiled, engine: engine, x: x, y: y, values: variableValues)
+            }
+        }
+
+        var path = Path()
+        var inkRuns: [[CGPoint]] = []
+
+        for ix in 0..<columns {
+            for iy in 0..<rows {
+                guard let bottomLeft = values[ix][iy],
+                      let bottomRight = values[ix + 1][iy],
+                      let topRight = values[ix + 1][iy + 1],
+                      let topLeft = values[ix][iy + 1] else {
+                    continue
+                }
+
+                let x0 = window.xMin + Double(ix) * dx
+                let x1 = x0 + dx
+                let y0 = window.yMin + Double(iy) * dy
+                let y1 = y0 + dy
+                let corners = [
+                    (value: bottomLeft, point: CGPoint(x: x0, y: y0)),
+                    (value: bottomRight, point: CGPoint(x: x1, y: y0)),
+                    (value: topRight, point: CGPoint(x: x1, y: y1)),
+                    (value: topLeft, point: CGPoint(x: x0, y: y1))
+                ]
+                let edgePairs = [(0, 1), (1, 2), (2, 3), (3, 0)]
+                let crossings = edgePairs.compactMap { a, b -> CGPoint? in
+                    zeroCrossing(from: corners[a], to: corners[b])
+                }
+
+                guard crossings.count >= 2 else { continue }
+                let screenPoints = crossings.map {
+                    CalculatorGraphGeometry.viewPoint(forGraph: $0, window: window, size: size)
+                }.filter { $0.x.isFinite && $0.y.isFinite }
+                guard screenPoints.count >= 2 else { continue }
+
+                for pairIndex in stride(from: 0, to: screenPoints.count - 1, by: 2) {
+                    let start = screenPoints[pairIndex]
+                    let end = screenPoints[pairIndex + 1]
+                    if handDrawn {
+                        inkRuns.append([start, end])
+                    } else {
+                        path.move(to: start)
+                        path.addLine(to: end)
+                    }
+                }
+            }
+        }
+
+        if handDrawn {
+            for run in inkRuns {
+                strokeInkRun(in: context, points: run, baseWidth: lineWidth, color: color)
+            }
+        } else {
+            context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
+        }
+    }
+
+    private static func evaluateImplicit(
+        compiled: CalculatorExpression,
+        engine: CalculatorEngine,
+        x: Double,
+        y: Double,
+        values: [String: Double]
+    ) -> Double? {
+        var variables = values
+        variables["x"] = x
+        variables["y"] = y
+        guard let value = try? engine.evaluate(compiled: compiled, angleMode: .radians, variables: variables),
+              value.isFinite else {
+            return nil
+        }
+        return value
+    }
+
+    private static func zeroCrossing(
+        from a: (value: Double, point: CGPoint),
+        to b: (value: Double, point: CGPoint)
+    ) -> CGPoint? {
+        if abs(a.value) < 1e-9 { return a.point }
+        if abs(b.value) < 1e-9 { return b.point }
+        guard a.value.sign != b.value.sign else { return nil }
+        let t = abs(a.value) / (abs(a.value) + abs(b.value))
+        return CGPoint(
+            x: a.point.x + (b.point.x - a.point.x) * t,
+            y: a.point.y + (b.point.y - a.point.y) * t
+        )
     }
 
     private static func graphVariables(x: Double, values: [String: Double]) -> [String: Double] {
