@@ -98,7 +98,7 @@ enum GraphCalculatorExpressionResolver {
         sliderCandidateNames: Set<String> = []
     ) -> [GraphCalculatorResolvedRow] {
         let definitionContext = functionDefinitionContext(from: expressions)
-        let scalarValues = scalarVariableValues(in: expressions, engine: engine, variableValues: variableValues)
+        let scalarValues = scalarVariableValues(in: expressions, engine: engine, variableValues: variableValues, definitionContext: definitionContext)
         let effectiveVariableValues = variableValues.merging(scalarValues) { current, _ in current }
 
         return expressions.enumerated().map { index, expression in
@@ -118,6 +118,20 @@ enum GraphCalculatorExpressionResolver {
         engine: CalculatorEngine,
         variableValues: [String: Double] = [:]
     ) -> [String: Double] {
+        scalarVariableValues(
+            in: expressions,
+            engine: engine,
+            variableValues: variableValues,
+            definitionContext: functionDefinitionContext(from: expressions)
+        )
+    }
+
+    private static func scalarVariableValues(
+        in expressions: [GraphEquation],
+        engine: CalculatorEngine,
+        variableValues: [String: Double],
+        definitionContext: FunctionDefinitionContext
+    ) -> [String: Double] {
         var values = variableValues
         var scalarValues: [String: Double] = [:]
 
@@ -126,7 +140,7 @@ enum GraphCalculatorExpressionResolver {
             for expression in expressions {
                 guard let definition = ScalarDefinition(source: expression.expression),
                       scalarValues[definition.name] == nil,
-                      let compiled = try? engine.compile(normalizeImplicitVariableProducts(in: expandFunctionCalls(in: definition.body, definitions: functionDefinitionContext(from: expressions).definitions))),
+                      let compiled = try? engine.compile(normalizeImplicitVariableProducts(in: expandFunctionCalls(in: definition.body, definitions: definitionContext.definitions))),
                       let value = try? engine.evaluate(compiled: compiled, angleMode: .radians, variables: values) else {
                     continue
                 }
@@ -209,6 +223,9 @@ enum GraphCalculatorExpressionResolver {
                 displayValue = CalculatorResultFormatter.string(for: value)
             } else {
                 displayValue = nil
+            }
+            if case .curve = plot, !hasX {
+                return GraphCalculatorResolvedRow(index: index, source: source, plot: nil, displayValue: displayValue, errorMessage: nil)
             }
             return GraphCalculatorResolvedRow(index: index, source: source, plot: plot, displayValue: displayValue, errorMessage: nil)
         } catch {

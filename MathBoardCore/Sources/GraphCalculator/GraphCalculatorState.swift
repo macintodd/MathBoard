@@ -94,6 +94,39 @@ public struct GraphActiveTable: Equatable, Sendable {
     }
 }
 
+public enum GraphCalculatorSection: String, Codable, Hashable, CaseIterable, Sendable {
+    case graph
+    case equations
+    case keyboard
+}
+
+public enum GraphCalculatorSectionPlacement: String, Codable, Hashable, Sendable {
+    case attached
+    case detached
+    case hidden
+}
+
+public enum GraphCalculatorKeyboardDisplayMode: String, Codable, Hashable, Sendable {
+    case hidden
+    case iPadOnly
+    case iPadAndSecondary
+}
+
+public enum GraphCalculatorHomeEdge: String, Codable, Hashable, Sendable {
+    case left
+    case right
+}
+
+public struct GraphCalculatorSectionLink: Codable, Hashable, Sendable {
+    public var parent: GraphCalculatorSection
+    public var child: GraphCalculatorSection
+
+    public init(parent: GraphCalculatorSection, child: GraphCalculatorSection) {
+        self.parent = parent
+        self.child = child
+    }
+}
+
 public enum GraphRecordedKeyStyle: String, Codable, Hashable, Sendable {
     case plain
     case number
@@ -178,9 +211,26 @@ public final class GraphCalculatorState {
     public var selectedExpressionIndex: Int = 0
     public var graphWindow: GraphWindow = .default
     public var calculatorPosition: CGPoint?
-    public var isGraphDetached: Bool = false
+    public var calculatorHomeEdge: GraphCalculatorHomeEdge = .right
+    public var graphSectionPlacement: GraphCalculatorSectionPlacement = .attached
+    public var equationSectionPlacement: GraphCalculatorSectionPlacement = .attached
+    public var keyboardSectionPlacement: GraphCalculatorSectionPlacement = .attached
+    public var keyboardDisplayMode: GraphCalculatorKeyboardDisplayMode = .iPadAndSecondary
+    public var sectionLinks: Set<GraphCalculatorSectionLink> = [
+        GraphCalculatorSectionLink(parent: .graph, child: .equations),
+        GraphCalculatorSectionLink(parent: .equations, child: .keyboard)
+    ]
+    public var sectionHasLeftHomeBase: [GraphCalculatorSection: Bool] = [:]
+    public var isGraphDetached: Bool {
+        get { graphSectionPlacement == .detached }
+        set { graphSectionPlacement = newValue ? .detached : .attached }
+    }
     public var detachedGraphPosition: CGPoint?
     public var detachedGraphSize: CGSize = CGSize(width: 520, height: 390)
+    public var detachedEquationPosition: CGPoint?
+    public var detachedEquationSize: CGSize = CGSize(width: 440, height: 260)
+    public var detachedKeyboardPosition: CGPoint?
+    public var detachedKeyboardSize: CGSize = CGSize(width: 440, height: 250)
     public var detachedControlPosition: CGPoint?
     public var isKeypadCollapsed: Bool = false
     public var isDockedHeaderCollapsed: Bool = false
@@ -214,8 +264,14 @@ public final class GraphCalculatorState {
     /// Regression metadata keyed by the inserted regression equation row.
     public var regressionRows: [UUID: GraphRegressionRow] = [:]
 
-    /// The graph point the teacher last tapped out (e.g. an x-intercept), shown on the canvas.
-    public var selectedPoint: GraphCalculatorPointReadout?
+    /// The graph points the teacher has tapped out (e.g. x-intercepts), shown on the canvas.
+    public var selectedPoints: [GraphCalculatorPointReadout] = []
+
+    /// Compatibility accessor for older single-point call sites.
+    public var selectedPoint: GraphCalculatorPointReadout? {
+        get { selectedPoints.first }
+        set { selectedPoints = newValue.map { [$0] } ?? [] }
+    }
 
     /// The single open floating table window (one at a time), or nil when none is open.
     public var activeTable: GraphActiveTable?

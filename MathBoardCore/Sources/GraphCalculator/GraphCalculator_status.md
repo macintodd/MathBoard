@@ -16,8 +16,8 @@ Non-goals for now:
 
 Architecture rules for future agents:
 
-- Keep all GraphCalculator-specific code isolated under `MathBoardCore/Sources/GraphCalculator`.
-- The only current app integration is the `graphCalc` test mount in `PresentingCanvasView`.
+- Keep GraphCalculator-specific behavior isolated under `MathBoardCore/Sources/GraphCalculator` where practical.
+- App integration is limited to GraphCalculator mounts and display context flags needed by presentation surfaces.
 - Prefer extending the existing native `Calculator` engine/AST over adding a third-party evaluator unless a dependency clearly solves Desmos-like visual behavior, not just numeric evaluation.
 - Update this file after each meaningful implementation pass.
 
@@ -27,6 +27,80 @@ Acceptance standard:
 - The in-app `graphCalc` menu item must remain usable.
 - Expression rows must preserve what the student typed, even when invalid.
 - Invalid rows should not crash or disappear; they should show row-level feedback.
+
+## 2026-07-14 Sectioned Calculator Layout Pass
+
+Completed:
+
+- Added explicit graph/equations/keyboard section state with attached, detached, and hidden placement.
+- Added a home-base model with greater-than-50-percent overlap detection and outside-home history tracking so deliberate ejects do not immediately reconnect.
+- Graph eject now keeps the equation/keyboard stack in the calculator home area and places the graph inward toward the canvas center.
+- Added standalone equation and keyboard panels with their own headers, drag gestures, resize handles, and section controls.
+- Added keyboard display modes for hidden, iPad-only, and iPad-plus-secondary behavior; the external display graph calculator mount now identifies itself as external.
+- Full project build passed after this pass.
+
+Keyboard refinement pass:
+
+- Changed the toolbar keyboard control from collapse/hide behavior to detach-keyboard behavior.
+- Detached keyboard now renders as its own resizable window even when the graph remains attached.
+- The main calculator only reserves keypad space when the keyboard section is attached.
+- Detached keyboard keeps two visible states: iPad plus secondary display, or iPad only.
+- Detached keyboard header now includes a close action that hides the keyboard completely on both displays.
+
+Drag smoothing pass:
+
+- Detached equation and keyboard windows now use local live offsets while dragging and commit their model positions only when the drag ends.
+- This avoids refreshing the whole observed calculator state on every drag tick, reducing visible jitter while preserving home-base snap checks.
+
+Section close/connect pass:
+
+- Detached graph, equations, and keyboard sections now expose a red close button that removes that section from view.
+- Section buttons are source-aware: pressing a section button in a window brings only that requested section to the caller and snaps it adjacent to that window.
+- The graph window no longer shows a graph button; it can request equations or keyboard and can be closed.
+- If all sections are closed, the calculator leaves the canvas and must be reopened from the app menu, which restores the home-base starting state.
+- Home-base drag reconnect is pairwise: the dragged section connects only to a visible section currently more than half inside home base, and does not pull in a third section outside home base.
+
+Linked section drag pass:
+
+- Added explicit adjacent section links so icons can represent which neighboring section is physically linked.
+- Whole-calculator form starts as graph-to-equations and equations-to-keyboard links only.
+- Pressing an unlinked adjacent section icon calls that section over and creates the appropriate pairwise link; pressing either side of a linked neighbor icon removes that same shared link.
+- Lit icons now indicate direct adjacency, not drag ownership: graph lights `f(x)`, equations lights graph and keyboard, and the attached keyboard keeps its original visual form.
+- Dragging any detached section now moves the connected component formed by the active adjacent links; disconnected sections remain independent.
+- Home-base snaps now create only the appropriate adjacent pairwise link and prune stale links to sections outside home base.
+
+Whole-calculator start configuration pass:
+
+- Removed the red graph eject button from the initial whole-calculator graph face.
+- Removed the old reconnect/down-arrow toolbar button from the whole-calculator toolbar.
+- The graph title bar now shows only the connected `f(x)` indicator before Save.
+- The equation toolbar now shows connected graph and keyboard indicators.
+- The bottom toolbar keyboard control reflects linked keyboard state in blue while still detaching the keyboard when pressed.
+- The home/reset toolbar button is now blue in the initial whole-calculator configuration.
+
+Function/keyboard controller correction:
+
+- Disconnecting graph from equations now leaves equations and keyboard in the original combined controller window instead of splitting them into standalone panels.
+- The combined function/keyboard controller remains the equation section geometry for calls, snaps, home-base checks, and graph reconnection while keyboard is still attached.
+- The graph header only exposes the `f(x)` adjacency control; graph no longer offers a non-adjacent keyboard control.
+- The combined controller now has a bottom-corner resize grip that expands the function-cell area while preserving the attached keyboard below it.
+- Called sections resize their width to the caller before snapping into the connected group.
+
+Detached graph drag smoothing:
+
+- Detached graph dragging no longer live-offsets the expensive graph canvas; a lightweight snapshot proxy follows the drag and the real graph commits once at gesture end.
+- Home-base history writes during drag are idempotent so they do not repeatedly invalidate observed state while the graph is already marked as having left home base.
+
+Home-base full restore rule:
+
+- When graph, equations, and keyboard are all visible in home base with both adjacent links active, the calculator now restores to the original single-window docked form.
+- The rule applies after either button-driven calls or drag-driven home-base regrouping.
+- An attached keyboard inside the combined function/keyboard controller counts as being in home base with the equation section.
+
+Known follow-up:
+
+- Calculator home edge is currently state-driven and defaults to the right edge; parent tool-palette edge wiring is still needed to automatically choose the opposite edge.
+- Manual iPad/secondary-display interaction testing is still needed for every detached-section combination.
 
 ## 2026-07-06
 
@@ -755,3 +829,20 @@ Verification notes:
   - graph photos now capture the original visible graph content, place onto the canvas at a larger 3x display size, and use a thin snapshot border instead of a scaled-heavy stroke.
 - Xcode live diagnostics and full project builds passed during the final graph photo sizing pass.
 - Calculator work is intentionally parked so the next pass can resume the Compact tool palette review.
+- Completed calculation-row paste-down controls:
+  - pure numeric calculation rows now show a paste-down button in the fixed third slot from the right,
+  - paste-down fills the next blank row or inserts a new row directly below when the next row already has content,
+  - the trailing control order is now fraction, paste-down, table, delete so delete/table/paste/fraction occupy the requested right-to-left positions,
+  - the fraction control now renders a real SwiftUIMath fraction template instead of the `123` text icon.
+- Xcode live diagnostics and full project build passed after calculation-row paste-down controls.
+- Completed user-defined function evaluation pass:
+  - function definitions are available to all rows, regardless of row order,
+  - value rows such as `f(7)` evaluate to a scalar result instead of graphing as a constant curve,
+  - nested definitions such as `g(x)=f(x)+1` and slider-backed definitions such as `h(x)=g(x)+f(x)+a` continue expanding into graphable expressions,
+  - paste-down controls now also appear for value-only resolved rows such as function evaluations.
+- Snippet verification, Xcode live diagnostics, and full project build passed after user-defined function evaluation changes.
+- Completed slider-deletion reset pass:
+  - deleting an expression now checks which slider variables belonged to that row,
+  - if a deleted variable is no longer referenced by any remaining expression, its approved slider state, value, bounds, and playback state are removed,
+  - typing that variable again later returns it to the `create slider` prompt state instead of silently reusing the old approved slider.
+- Xcode live diagnostics and full project build passed after slider-deletion reset changes.

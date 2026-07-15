@@ -102,6 +102,7 @@ enum GraphCalculatorRenderer {
         accent: Color,
         axisStyle: GraphAxisStyle = .default,
         highlightedPoint: GraphCalculatorPointReadout? = nil,
+        highlightedPoints: [GraphCalculatorPointReadout] = [],
         attachedPoints: [GraphAttachedPoints] = [],
         trace: GraphTraceOverlay? = nil
     ) {
@@ -131,7 +132,11 @@ enum GraphCalculatorRenderer {
             drawTrace(in: context, size: size, window: window, trace: trace)
         }
 
-        if let highlightedPoint {
+        for point in highlightedPoints {
+            drawHighlightedPoint(in: context, size: size, window: window, point: point)
+        }
+
+        if highlightedPoints.isEmpty, let highlightedPoint {
             drawHighlightedPoint(in: context, size: size, window: window, point: highlightedPoint)
         }
     }
