@@ -37,6 +37,10 @@ public struct ExternalCanvasView: View {
                     let aspect = CGFloat(frame.width) / CGFloat(frame.height)
                     let fitted = Self.fittedSize(forAspect: aspect, in: proxy.size)
                     ZStack(alignment: .topLeading) {
+                        let liveStrokes = broker.completedLiveStrokes + [broker.currentLiveStroke].compactMap { $0 }
+                        let inkStrokes = liveStrokes.filter { !$0.isTransient }
+                        let laserStrokes = liveStrokes.filter { $0.isTransient }
+
                         TransformedCanvasFrame(
                             frame: frame,
                             fittedSize: fitted,
@@ -44,9 +48,9 @@ public struct ExternalCanvasView: View {
                             viewportSourceRect: broker.currentViewportSourceRect
                         )
 
-                        if !broker.completedLiveStrokes.isEmpty || broker.currentLiveStroke != nil {
+                        if !inkStrokes.isEmpty {
                             LiveStrokeOverlay(
-                                strokes: broker.completedLiveStrokes + [broker.currentLiveStroke].compactMap { $0 },
+                                strokes: inkStrokes,
                                 viewportSourceRect: broker.currentViewportSourceRect,
                                 fallbackSourceSize: Self.liveStrokeSourceSize(
                                     frame: frame,
@@ -73,7 +77,7 @@ public struct ExternalCanvasView: View {
                                 fittedSize: fitted,
                                 visibleReferenceSize: Self.graphCalculatorSafeReferenceSize(visibleReferenceRect.size)
                             )
-                            GraphCalculatorView(state: broker.graphCalculator)
+                            GraphCalculatorView(state: broker.graphCalculator, isExternalDisplay: true)
                                 .frame(width: referenceSize.width, height: referenceSize.height)
                                 .offset(x: -visibleReferenceRect.minX, y: -visibleReferenceRect.minY)
                                 .scaleEffect(graphCalcScale, anchor: .topLeading)
@@ -112,6 +116,19 @@ public struct ExternalCanvasView: View {
                                 .scaleEffect(paletteScale, anchor: .topLeading)
                                 .allowsHitTesting(false)
                             }
+                        }
+
+                        if !laserStrokes.isEmpty {
+                            LiveStrokeOverlay(
+                                strokes: laserStrokes,
+                                viewportSourceRect: broker.currentViewportSourceRect,
+                                fallbackSourceSize: Self.liveStrokeSourceSize(
+                                    frame: frame,
+                                    frameSourceRect: broker.currentFrameSourceRect,
+                                    viewportSourceRect: broker.currentViewportSourceRect
+                                ),
+                                fittedSize: fitted
+                            )
                         }
                     }
                     .frame(width: fitted.width, height: fitted.height)
@@ -335,7 +352,7 @@ private struct LiveStrokeOverlay: View {
                     let samples = visibleScaledSamples(for: stroke, currentTime: currentTime)
                     guard let sample = samples.last else { continue }
                     let point = sample.location
-                    let diameter = max(scaledLineWidth(for: stroke), 4)
+                    let diameter = max(scaledLaserLineWidth(for: stroke), 4)
                     let alpha = laserAlpha(for: sample, in: stroke, currentTime: currentTime, maximum: 1)
                     let rect = CGRect(
                         x: point.x - diameter / 2,
@@ -350,7 +367,7 @@ private struct LiveStrokeOverlay: View {
                     guard !samples.isEmpty else { continue }
                     if samples.count == 1, let sample = samples.first {
                         let point = sample.location
-                        let diameter = max(scaledLineWidth(for: stroke), 4)
+                        let diameter = max(scaledLaserLineWidth(for: stroke), 4)
                         let alpha = laserAlpha(for: sample, in: stroke, currentTime: currentTime, maximum: 1)
                         let rect = CGRect(
                             x: point.x - diameter / 2,
@@ -366,37 +383,58 @@ private struct LiveStrokeOverlay: View {
                                 var path = Path()
                                 path.move(to: pair.0.location)
                                 path.addLine(to: pair.1.location)
-                                drawLaserPath(path, in: &layer, baseWidth: scaledLineWidth(for: stroke), color: color, alpha: alpha)
+                                drawLaserPath(path, in: &layer, baseWidth: scaledLaserLineWidth(for: stroke), color: color, alpha: alpha)
                             }
                         }
                     }
 
                 case .ink where stroke.color.alpha >= 0.95:
-                    context.stroke(
-                        CanvasVectorInk.smoothedPath(points: scaledPoints(for: stroke)),
-                        with: .color(color),
-                        style: StrokeStyle(
-                            lineWidth: CanvasVectorInk.crispLineWidth(baseLineWidth: scaledLineWidth(for: stroke)),
-                            lineCap: .round,
-                            lineJoin: .round
-                        )
-                    )
+                    drawPenStroke(stroke, color: color, in: &context)
 
                 case .ink:
-                    context.stroke(
-                        CanvasVectorInk.smoothedPath(points: scaledPoints(for: stroke)),
-                        with: .color(color),
-                        style: StrokeStyle(
-                            lineWidth: scaledLineWidth(for: stroke),
-                            lineCap: .round,
-                            lineJoin: .round
-                        )
-                    )
+                    drawMarkerStroke(stroke, color: color, in: &context)
                 }
             }
         }
         .frame(width: fittedSize.width, height: fittedSize.height)
         .allowsHitTesting(false)
+    }
+
+    private func drawPenStroke(
+        _ stroke: CanvasLiveStroke,
+        color: Color,
+        in context: inout GraphicsContext
+    ) {
+        context.stroke(
+            CanvasVectorInk.smoothedPath(points: scaledPoints(for: stroke)),
+            with: .color(color),
+            style: StrokeStyle(
+                lineWidth: CanvasVectorInk.crispLineWidth(baseLineWidth: scaledLineWidth(for: stroke)),
+                lineCap: .round,
+                lineJoin: .round
+            )
+        )
+    }
+
+    private func drawMarkerStroke(
+        _ stroke: CanvasLiveStroke,
+        color: Color,
+        in context: inout GraphicsContext
+    ) {
+        let path = CanvasVectorInk.smoothedPath(points: scaledPoints(for: stroke))
+        let lineWidth = max(scaledLineWidth(for: stroke), 1)
+        let markerWidthScale: CGFloat = 2.35
+        let markerOpacity: Double = 0.48
+
+        context.stroke(
+            path,
+            with: .color(color.opacity(markerOpacity)),
+            style: StrokeStyle(
+                lineWidth: lineWidth * markerWidthScale,
+                lineCap: .butt,
+                lineJoin: .round
+            )
+        )
     }
 
     private func drawLaserDot(
@@ -566,6 +604,10 @@ private struct LiveStrokeOverlay: View {
 
     private func scaledPoints(for stroke: CanvasLiveStroke) -> [CGPoint] {
         scaledSamples(for: stroke).map(\.location)
+    }
+
+    private func scaledLaserLineWidth(for stroke: CanvasLiveStroke) -> CGFloat {
+        scaledLineWidth(for: stroke) * 0.83
     }
 
     private func scaledLineWidth(for stroke: CanvasLiveStroke) -> CGFloat {

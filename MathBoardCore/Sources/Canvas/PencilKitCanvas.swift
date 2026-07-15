@@ -2742,7 +2742,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             case .laser(let color, let diameter, let duration, let mode):
                 finishTextEditing()
                 activeLiveStrokeColor = color
-                activeLiveStrokeWidth = min(max(diameter, 3), 56)
+                activeLiveStrokeWidth = min(max(diameter, 8), 84)
                 activeLiveStrokeTool = .laser
                 activeTextColor = nil
                 isTextSelectionEnabled = false
@@ -6503,7 +6503,13 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 context.clear(destinationRect)
                 context.saveGState()
                 applyRegionClip(selection, sourceBounds: sourceBounds, in: context)
-                // Keep extracted copies transparent so white ink pastes without a gray paper halo.
+                // Keep blank-canvas extracts transparent, but include any PDF paper/content
+                // that intersects the selected region so PDF snippets copy as visible images.
+                drawBackground(
+                    in: context,
+                    sourceRect: canvasSourceRect,
+                    destinationRect: destinationRect
+                )
                 drawContentObjectLayers(
                     in: context,
                     sourceRect: canvasSourceRect,
@@ -7178,26 +7184,11 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         }
 
         private var laserStrokeKind: CanvasLiveStroke.Kind {
-            guard activeLaserDuration > 0 else { return .laserDot }
-            switch activeLaserMode {
-            case .dot:
-                return .laserDot
-            case .trail:
-                return .laserTrail
-            }
+            activeLaserDuration > 0 ? .laserTrail : .laserDot
         }
 
         private func laserSamples(from samples: [CanvasLiveStrokePoint]) -> [CanvasLiveStrokePoint] {
-            guard activeLaserDuration > 0 else {
-                return samples.last.map { [$0] } ?? []
-            }
-
-            switch activeLaserMode {
-            case .dot:
-                return samples.last.map { [$0] } ?? []
-            case .trail:
-                return samples
-            }
+            activeLaserDuration > 0 ? samples : samples.last.map { [$0] } ?? []
         }
 
         private func scheduleLaserClear(after duration: TimeInterval) {
@@ -7518,8 +7509,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         }
 
         func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
-            // The final committed-state publish comes from
-            // canvasViewDrawingDidChange firing next.
+            // The live TV vector overlay carries inking while PencilKit owns local drawing.
         }
 
         // MARK: - Publish from model (non-stroke renders)
@@ -8011,6 +8001,14 @@ private final class PencilLiveStrokeGestureRecognizer: UIGestureRecognizer {
 
     override func reset() {
         resetStroke()
+    }
+
+    override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool {
+        false
+    }
+
+    override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool {
+        false
     }
 
     private func sample(for touch: UITouch, in view: UIView) -> CanvasLiveStrokePoint {

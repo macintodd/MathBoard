@@ -11,9 +11,9 @@ import CoreGraphics
 import SwiftUI
 
 public enum CanvasVectorInk {
-    private static let minimumPointSpacing: CGFloat = 1.25
+    private static let minimumPointSpacing: CGFloat = 2.0
     private static let smoothing: CGFloat = 0.18
-    private static let presentationWidthScale: CGFloat = 0.62
+    private static let presentationWidthScale: CGFloat = 0.82
     private static let minimumWidthScale: CGFloat = 0.18
     private static let maximumWidthScale: CGFloat = 0.78
 
@@ -36,21 +36,19 @@ public enum CanvasVectorInk {
 
             path.move(to: firstPoint)
 
-            for index in 0..<(points.count - 1) {
-                let previous = points[max(index - 1, 0)]
+            for index in 1..<(points.count - 1) {
                 let current = points[index]
                 let next = points[index + 1]
-                let following = points[min(index + 2, points.count - 1)]
+                let midpoint = CGPoint(
+                    x: (current.x + next.x) / 2,
+                    y: (current.y + next.y) / 2
+                )
+                path.addQuadCurve(to: midpoint, control: current)
+            }
 
-                let firstControl = CGPoint(
-                    x: current.x + (next.x - previous.x) * Self.smoothing,
-                    y: current.y + (next.y - previous.y) * Self.smoothing
-                )
-                let secondControl = CGPoint(
-                    x: next.x - (following.x - current.x) * Self.smoothing,
-                    y: next.y - (following.y - current.y) * Self.smoothing
-                )
-                path.addCurve(to: next, control1: firstControl, control2: secondControl)
+            if let penultimate = points.dropLast().last,
+               let last = points.last {
+                path.addQuadCurve(to: last, control: penultimate)
             }
         }
     }
