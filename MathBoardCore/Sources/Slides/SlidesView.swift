@@ -11,7 +11,13 @@
 
 import SwiftUI
 import Presentation
+import PDFKit
 import UniformTypeIdentifiers
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 public struct SlidesView: View {
     private let lessonURL: URL
@@ -51,6 +57,7 @@ public struct SlidesView: View {
                     onTextEditingEnded: handleCanvasTextEditingEnded,
                     onExtractedRegionSend: sendExtractedRegionToNextEmptySlide,
                     onImportPDF: { isShowingPDFImporter = true },
+                    onImportPDFObjects: importPDFPagesAsCanvasObjects,
                     onExportPDF: {
                         flushPendingViewportSave()
                         isShowingPDFExporter = true
@@ -262,6 +269,101 @@ public struct SlidesView: View {
         )
     }
 
+    private func importPDFPagesAsCanvasObjects(pdfURL: URL, pageIndices: [Int]) {
+        do {
+            flushPendingViewportSave()
+            let importedPages = try Self.renderPDFPagesAsCanvasImages(from: pdfURL, pageIndices: pageIndices)
+            guard !importedPages.isEmpty else {
+                throw SlideStoreError.noPDFPagesSelected
+            }
+
+            let targetSlides = try slidesForPDFObjectImport(count: importedPages.count)
+            for (page, slide) in zip(importedPages, targetSlides) {
+                try placePDFPageImage(page, on: slide)
+            }
+            if let firstTargetIndex = store.slides.firstIndex(where: { $0.id == targetSlides[0].id }) {
+                activeIndex = firstTargetIndex
+            }
+            try? FileManager.default.removeItem(at: pdfURL)
+        } catch {
+            slideErrorMessage = error.localizedDescription
+            try? FileManager.default.removeItem(at: pdfURL)
+        }
+    }
+
+    private func slidesForPDFObjectImport(count: Int) throws -> [SlideMetadata] {
+        guard count > 0 else { return [] }
+
+        if let activeSlide, isEmptyForExtractSend(activeSlide) {
+            let additionalSlides = try store.insertSlides(count: count - 1, afterSlideAt: activeIndex)
+            return [activeSlide] + additionalSlides
+        }
+
+        return try store.insertSlides(count: count, afterSlideAt: activeIndex)
+    }
+
+    private func placePDFPageImage(_ page: ImportedPDFPageImage, on slide: SlideMetadata) throws {
+        let drawingURL = store.drawingURL(for: slide)
+        let assetDirectoryURL = PresentationCanvasImageObject.assetDirectoryURL(forDrawingURL: drawingURL)
+        try FileManager.default.createDirectory(at: assetDirectoryURL, withIntermediateDirectories: true)
+
+        let fileName = "\(UUID().uuidString).png"
+        try page.pngData.write(to: assetDirectoryURL.appendingPathComponent(fileName), options: .atomic)
+
+        let frame = Self.centeredPDFPageFrame(for: page.displaySize)
+        let imageObject = PresentationCanvasImageObject(
+            imageFileName: fileName,
+            x: frame.minX,
+            y: frame.minY,
+            width: frame.width,
+            height: frame.height,
+            isLocked: true
+        )
+        try PresentationCanvasImageObject.save(
+            [imageObject],
+            to: PresentationCanvasImageObject.sidecarURL(forDrawingURL: drawingURL)
+        )
+    }
+
+    private static func centeredPDFPageFrame(for displaySize: CGSize) -> CGRect {
+        let boardSize = PresentationCanvasBoardMetrics.defaultUsableSize
+        let margin: CGFloat = 180
+        let availableSize = CGSize(
+            width: max(boardSize.width - margin * 2, 1),
+            height: max(boardSize.height - margin * 2, 1)
+        )
+        let scale = min(
+            availableSize.width / max(displaySize.width, 1),
+            availableSize.height / max(displaySize.height, 1)
+        )
+        let enlargedScale = min(
+            scale * 1.3,
+            min(
+                (boardSize.width - 48) / max(displaySize.width, 1),
+                (boardSize.height - 48) / max(displaySize.height, 1)
+            )
+        )
+        let fittedSize = CGSize(
+            width: displaySize.width * enlargedScale,
+            height: displaySize.height * enlargedScale
+        )
+        let centeredOrigin = CGPoint(
+            x: (boardSize.width - fittedSize.width) / 2,
+            y: (boardSize.height - fittedSize.height) / 2
+        )
+        let bottomWhitespace = max(boardSize.height - (centeredOrigin.y + fittedSize.height), 0)
+        let shiftedOrigin = CGPoint(
+            x: min(centeredOrigin.x + fittedSize.width / 2, max(boardSize.width - fittedSize.width - 24, 0)),
+            y: min(centeredOrigin.y + bottomWhitespace / 2, max(boardSize.height - fittedSize.height - 24, 0))
+        )
+        return CGRect(
+            x: max(shiftedOrigin.x, 24),
+            y: max(shiftedOrigin.y, 24),
+            width: fittedSize.width,
+            height: fittedSize.height
+        )
+    }
+
     private func handlePDFImport(_ result: Result<[URL], any Error>) {
         do {
             let urls = try result.get()
@@ -433,6 +535,90 @@ public struct SlidesView: View {
         return true
     }
 
+    private static func renderPDFPagesAsCanvasImages(from pdfURL: URL, pageIndices: [Int]) throws -> [ImportedPDFPageImage] {
+        guard let document = PDFDocument(url: pdfURL), document.pageCount > 0 else {
+            throw SlideStoreError.invalidPDF
+        }
+
+        let validPageIndices = pageIndices.filter { $0 >= 0 && $0 < document.pageCount }
+        guard !validPageIndices.isEmpty else {
+            throw SlideStoreError.noPDFPagesSelected
+        }
+
+        return try validPageIndices.map { pageIndex in
+            guard let page = document.page(at: pageIndex) else {
+                throw SlideStoreError.invalidPDF
+            }
+            return try renderPDFPageAsCanvasImage(page)
+        }
+    }
+
+    private static func renderPDFPageAsCanvasImage(_ page: PDFPage) throws -> ImportedPDFPageImage {
+        let pageBounds = page.bounds(for: .mediaBox)
+        let width = max(pageBounds.width, 1)
+        let height = max(pageBounds.height, 1)
+        let displaySize = CGSize(width: width, height: height)
+        let renderScale: CGFloat = 2
+        let renderSize = CGSize(width: width * renderScale, height: height * renderScale)
+
+        #if os(iOS)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let image = UIGraphicsImageRenderer(size: renderSize, format: format).image { rendererContext in
+            UIColor.white.setFill()
+            rendererContext.fill(CGRect(origin: .zero, size: renderSize))
+            let context = rendererContext.cgContext
+            context.saveGState()
+            context.scaleBy(x: renderScale, y: renderScale)
+            context.translateBy(x: -pageBounds.minX, y: pageBounds.height + pageBounds.minY)
+            context.scaleBy(x: 1, y: -1)
+            page.draw(with: .mediaBox, to: context)
+            context.restoreGState()
+        }
+        guard let pngData = image.pngData() else {
+            throw SlideStoreError.invalidPDF
+        }
+        return ImportedPDFPageImage(pngData: pngData, displaySize: displaySize)
+        #elseif os(macOS)
+        guard let representation = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(renderSize.width.rounded(.up)),
+            pixelsHigh: Int(renderSize.height.rounded(.up)),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
+            throw SlideStoreError.invalidPDF
+        }
+        representation.size = renderSize
+        NSGraphicsContext.saveGraphicsState()
+        guard let graphicsContext = NSGraphicsContext(bitmapImageRep: representation) else {
+            NSGraphicsContext.restoreGraphicsState()
+            throw SlideStoreError.invalidPDF
+        }
+        NSGraphicsContext.current = graphicsContext
+        NSColor.white.setFill()
+        NSRect(origin: .zero, size: renderSize).fill()
+        let context = graphicsContext.cgContext
+        context.saveGState()
+        context.scaleBy(x: renderScale, y: renderScale)
+        context.translateBy(x: -pageBounds.minX, y: pageBounds.height + pageBounds.minY)
+        context.scaleBy(x: 1, y: -1)
+        page.draw(with: .mediaBox, to: context)
+        context.restoreGState()
+        NSGraphicsContext.restoreGraphicsState()
+        guard let pngData = representation.representation(using: .png, properties: [:]) else {
+            throw SlideStoreError.invalidPDF
+        }
+        return ImportedPDFPageImage(pngData: pngData, displaySize: displaySize)
+        #endif
+    }
+
     private static var viewportPlatformIdentifier: String {
         #if os(macOS)
         "macOS"
@@ -463,6 +649,11 @@ public struct SlidesView: View {
     private struct PendingPDFImport: Identifiable {
         let id = UUID()
         let url: URL
+    }
+
+    private struct ImportedPDFPageImage {
+        let pngData: Data
+        let displaySize: CGSize
     }
 }
 

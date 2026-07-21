@@ -18,14 +18,25 @@ import SwiftUI
 import Canvas
 import Calculator
 import GraphCalculator
+import PDFKit
 import TextEngine
 import ToolPalette
+import UniformTypeIdentifiers
+import WidgetEngine
+
+#if os(iOS)
+import PhotosUI
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 public typealias PresentationViewportState = CanvasViewportState
 public typealias PresentationCanvasBackground = CanvasBackground
 public typealias PresentationCanvasTextObject = CanvasTextObject
 public typealias PresentationCanvasImageObject = CanvasImageObject
 public typealias PresentationCanvasGeometryObject = CanvasGeometryObject
+public typealias PresentationCanvasBoardMetrics = CanvasBoardMetrics
 public typealias PresentationGeometryRenderer = CanvasGeometryRenderer
 public typealias PresentationExtractedRegion = CanvasExtractedRegion
 
@@ -39,6 +50,7 @@ public struct PresentingCanvasView: View {
     private let onTextEditingEnded: (@MainActor () -> Void)?
     private let onExtractedRegionSend: (@MainActor (PresentationExtractedRegion) -> Void)?
     private let onImportPDF: (@MainActor () -> Void)?
+    private let onImportPDFObjects: (@MainActor (URL, [Int]) -> Void)?
     private let onExportPDF: (@MainActor () -> Void)?
     private let broker = DisplayBroker.shared
     private let calculator = CalculatorState.shared
@@ -55,6 +67,13 @@ public struct PresentingCanvasView: View {
     @State private var actionHUDOffset: CGSize = .zero
     @State private var actionHUDStoredOffset: CGSize = .zero
     @State private var isClearingGeometrySelectionForCreation = false
+    @State private var isImageFileImporterPresented = false
+    @State private var isPhotoImporterPresented = false
+    @State private var isCameraImporterPresented = false
+    @State private var isWidgetEditorPresented = false
+    @State private var pendingWidgetEdit: PendingWidgetEdit?
+    @State private var pendingPDFObjectImport: PendingPDFObjectImport?
+    @State private var imageFileImportError: ImageFileImportError?
 
     public init(
         drawingURL: URL,
@@ -66,6 +85,7 @@ public struct PresentingCanvasView: View {
         onTextEditingEnded: (@MainActor () -> Void)? = nil,
         onExtractedRegionSend: (@MainActor (PresentationExtractedRegion) -> Void)? = nil,
         onImportPDF: (@MainActor () -> Void)? = nil,
+        onImportPDFObjects: (@MainActor (URL, [Int]) -> Void)? = nil,
         onExportPDF: (@MainActor () -> Void)? = nil
     ) {
         self.drawingURL = drawingURL
@@ -77,6 +97,7 @@ public struct PresentingCanvasView: View {
         self.onTextEditingEnded = onTextEditingEnded
         self.onExtractedRegionSend = onExtractedRegionSend
         self.onImportPDF = onImportPDF
+        self.onImportPDFObjects = onImportPDFObjects
         self.onExportPDF = onExportPDF
     }
 
@@ -100,14 +121,16 @@ public struct PresentingCanvasView: View {
                 onFrameUpdate: broker.isExternalDisplayConnected ? Self.publishFrame : nil,
                 onViewportSourceRectChange: Self.publishViewportSourceRect,
                 onLiveStrokeUpdate: Self.publishLiveStroke,
+                onWidgetObjectsChange: Self.publishWidgets,
                 onViewportStateChange: publishViewportState,
                 onEditStateChange: publishEditState,
-                onInteractionBegan: onInteractionBegan,
+                onInteractionBegan: handleCanvasInteractionBegan,
                 onTextEditingBegan: handleTextEditingBegan,
                 onTextEditingEnded: handleTextEditingEnded,
                 onTextPlacementRequested: requestTextPlacement,
                 onExtractedRegionSend: onExtractedRegionSend,
-                onExtractActionCompleted: activateSelectToolAfterExtractAction
+                onExtractActionCompleted: activateSelectToolAfterExtractAction,
+                onWidgetEditRequested: requestWidgetEdit
             )
             ViewfinderOverlay()
                 .opacity(broker.mode == .present ? 1 : 0)
@@ -116,7 +139,7 @@ public struct PresentingCanvasView: View {
                 CalculatorView(state: calculator)
             }
 
-            if broker.isGraphCalculatorVisible {
+            if isGraphCalculatorVisibleToUser {
                 GraphCalculatorView(
                     state: broker.graphCalculator,
                     onGraphSnapshot: insertGraphSnapshot
@@ -204,6 +227,79 @@ public struct PresentingCanvasView: View {
                 activateSelectTool()
             }
         }
+        .fullScreenCover(isPresented: $isWidgetEditorPresented) {
+            WidgetEditorView(onInsertWidget: { insertion in
+                insertWidget(insertion)
+                isWidgetEditorPresented = false
+                activateSelectTool()
+            }, onCancel: {
+                isWidgetEditorPresented = false
+                activateSelectTool()
+            })
+        }
+        .fullScreenCover(item: $pendingWidgetEdit) { edit in
+            WidgetEditorView(
+                initialJSONSource: edit.widget.codeString,
+                insertButtonTitle: "Update Widget"
+            ) { insertion in
+                updateWidget(insertion, id: edit.widget.id)
+                pendingWidgetEdit = nil
+                activateSelectTool()
+            } onCancel: {
+                pendingWidgetEdit = nil
+                activateSelectTool()
+            }
+        }
+        #if os(iOS)
+        .sheet(isPresented: $isImageFileImporterPresented) {
+            ImageDocumentPicker { result in
+                isImageFileImporterPresented = false
+                handleImageFileImport(result)
+            } onCancel: {
+                isImageFileImporterPresented = false
+            }
+        }
+        .sheet(isPresented: $isPhotoImporterPresented) {
+            ImagePhotoPicker { result in
+                isPhotoImporterPresented = false
+                handlePhotoImport(result)
+            } onCancel: {
+                isPhotoImporterPresented = false
+            }
+        }
+        .sheet(isPresented: $isCameraImporterPresented) {
+            ImageCameraPicker { result in
+                isCameraImporterPresented = false
+                handleCameraImport(result)
+            } onCancel: {
+                isCameraImporterPresented = false
+            }
+        }
+        #elseif os(macOS)
+        .fileImporter(
+            isPresented: $isImageFileImporterPresented,
+            allowedContentTypes: [.image, .pdf],
+            allowsMultipleSelection: false
+        ) { result in
+            handleImageFileImport(result)
+        }
+        #endif
+        .sheet(item: $pendingPDFObjectImport) { pendingImport in
+            PDFObjectImportPreviewView(
+                pdfURL: pendingImport.url,
+                onCancel: clearPendingPDFObjectImport,
+                onImport: { pageIndices in
+                    importSelectedPDFPagesAsObjects(pageIndices, from: pendingImport)
+                }
+            )
+        }
+        .alert(item: $imageFileImportError) { error in
+            Alert(
+                title: Text("Image Import Failed"),
+                message: Text(error.message),
+                dismissButton: .default(Text("OK"))
+            )
+        }
     }
 
     // Floating overflow menu that replaces the former navigation-bar toolbar.
@@ -276,10 +372,15 @@ public struct PresentingCanvasView: View {
 
                 #if os(iOS)
                 Button {
-                    broker.isGraphCalculatorVisible.toggle()
+                    if isGraphCalculatorVisibleToUser {
+                        broker.isGraphCalculatorVisible = false
+                    } else {
+                        broker.graphCalculator.restoreCompositeHomeBase()
+                        broker.isGraphCalculatorVisible = true
+                    }
                 } label: {
                     Label(
-                        broker.isGraphCalculatorVisible ? "Hide graphCalc" : "Show graphCalc",
+                        isGraphCalculatorVisibleToUser ? "Hide graphCalc" : "Show graphCalc",
                         systemImage: "chart.xyaxis.line"
                     )
                 }
@@ -463,6 +564,10 @@ public struct PresentingCanvasView: View {
         return "\(Int((viewportState.zoomScale * 100).rounded()))%"
     }
 
+    private var isGraphCalculatorVisibleToUser: Bool {
+        broker.isGraphCalculatorVisible && broker.graphCalculator.hasVisibleSection
+    }
+
     private var canZoomIn: Bool {
         guard let viewportState = broker.viewportState else { return true }
         return viewportState.zoomScale < viewportState.maximumZoomScale - 0.01
@@ -520,6 +625,30 @@ public struct PresentingCanvasView: View {
     }
 
     private func handleToolPaletteCommand(_ command: ToolPaletteCommand, state: ToolPaletteState) {
+        if command == .addItem(.file) {
+            broker.toolPaletteState = state
+            presentImageFileImporter()
+            return
+        }
+
+        if command == .addItem(.photo) {
+            broker.toolPaletteState = state
+            presentPhotoImporter()
+            return
+        }
+
+        if command == .addItem(.camera) {
+            broker.toolPaletteState = state
+            presentCameraImporter()
+            return
+        }
+
+        if command == .addItem(.widget) {
+            broker.toolPaletteState = state
+            presentWidgetEditor()
+            return
+        }
+
         if case .geometry? = selectionState.selectedObject,
            command == .selectTool(.geometry) {
             isClearingGeometrySelectionForCreation = true
@@ -544,6 +673,64 @@ public struct PresentingCanvasView: View {
             return
         }
         applyToolPaletteState(state, triggering: command)
+    }
+
+    private func handleCanvasInteractionBegan() {
+        collapseCompactDrawerForCanvasInteraction()
+        onInteractionBegan?()
+    }
+
+    private func collapseCompactDrawerForCanvasInteraction() {
+        guard paletteSettings.isCustomPaletteEnabled,
+              paletteSettings.paletteStyle == .compact,
+              broker.toolPaletteState.isCompactDrawerOpen else {
+            return
+        }
+
+        var state = broker.toolPaletteState
+        ToolPaletteReducer.reduce(&state, command: .collapseCompactDrawerForCanvasInteraction)
+        broker.toolPaletteState = state
+    }
+
+    private func presentImageFileImporter() {
+        Task { @MainActor in
+            await Task.yield()
+            isImageFileImporterPresented = true
+        }
+    }
+
+    private func presentPhotoImporter() {
+        #if os(iOS)
+        Task { @MainActor in
+            await Task.yield()
+            isPhotoImporterPresented = true
+        }
+        #else
+        imageFileImportError = ImageFileImportError(message: "Photos import is available on iPad.")
+        #endif
+    }
+
+    private func presentCameraImporter() {
+        #if os(iOS)
+        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+            imageFileImportError = ImageFileImportError(message: "Camera is not available on this device.")
+            return
+        }
+
+        Task { @MainActor in
+            await Task.yield()
+            isCameraImporterPresented = true
+        }
+        #else
+        imageFileImportError = ImageFileImportError(message: "Camera import is available on iPad.")
+        #endif
+    }
+
+    private func presentWidgetEditor() {
+        Task { @MainActor in
+            await Task.yield()
+            isWidgetEditorPresented = true
+        }
     }
 
     private static func isGeometryEditCommand(_ command: ToolPaletteCommand) -> Bool {
@@ -684,6 +871,25 @@ public struct PresentingCanvasView: View {
         )))
     }
 
+    private func insertWidget(_ insertion: WidgetEditorInsertion) {
+        objectCommand = CanvasObjectCommand(.insertWidget(CanvasWidgetInsertion(
+            name: insertion.name,
+            codeString: insertion.codeString
+        )))
+    }
+
+    private func updateWidget(_ insertion: WidgetEditorInsertion, id: UUID) {
+        objectCommand = CanvasObjectCommand(.updateWidget(CanvasWidgetUpdate(
+            id: id,
+            name: insertion.name,
+            codeString: insertion.codeString
+        )))
+    }
+
+    private func requestWidgetEdit(_ widget: WidgetObject) {
+        pendingWidgetEdit = PendingWidgetEdit(widget: widget)
+    }
+
     private func activateSelectTool() {
         var state = broker.toolPaletteState
         ToolPaletteReducer.reduce(&state, command: .selectTool(.selection))
@@ -748,8 +954,254 @@ public struct PresentingCanvasView: View {
     }
 
     @MainActor
+    private func handleImageFileImport(_ result: Result<[URL], Error>) {
+        do {
+            guard let url = try result.get().first else { return }
+            if try Self.isPDFFile(url) {
+                pendingPDFObjectImport = try makePendingPDFObjectImport(from: url)
+                return
+            }
+
+            let importedImage = try Self.importedCanvasImage(from: url)
+            insertImportedCanvasImage(importedImage)
+            activateSelectTool()
+        } catch {
+            imageFileImportError = ImageFileImportError(message: error.localizedDescription)
+        }
+    }
+
+    @MainActor
+    private func handlePhotoImport(_ result: Result<Data, Error>) {
+        do {
+            let importedImage = try Self.importedCanvasImage(fromImageData: try result.get())
+            insertImportedCanvasImage(importedImage)
+            activateSelectTool()
+        } catch {
+            imageFileImportError = ImageFileImportError(message: error.localizedDescription)
+        }
+    }
+
+    @MainActor
+    private func handleCameraImport(_ result: Result<Data, Error>) {
+        do {
+            let importedImage = try Self.importedCanvasImage(fromImageData: try result.get())
+            insertImportedCanvasImage(importedImage)
+            activateSelectTool()
+        } catch {
+            imageFileImportError = ImageFileImportError(message: error.localizedDescription)
+        }
+    }
+
+    @MainActor
+    private func insertImportedCanvasImage(_ importedImage: ImportedCanvasImage) {
+        objectCommand = CanvasObjectCommand(
+            .insertImageNearViewport(
+                CanvasViewportImageInsertion(
+                    pngData: importedImage.pngData,
+                    displaySize: importedImage.displaySize,
+                    margin: 24,
+                    selectAfterInsert: true
+                )
+            )
+        )
+    }
+
+    @MainActor
+    private func importSelectedPDFPagesAsObjects(_ pageIndices: [Int], from pendingImport: PendingPDFObjectImport) {
+        if let onImportPDFObjects {
+            onImportPDFObjects(pendingImport.url, pageIndices)
+            pendingPDFObjectImport = nil
+            activateSelectTool()
+            return
+        }
+
+        do {
+            let importedPages = try Self.importedCanvasImages(fromPDFAt: pendingImport.url, pageIndices: pageIndices)
+            guard !importedPages.isEmpty else {
+                throw ImageFileImportError(message: "Select at least one PDF page to import.")
+            }
+
+            objectCommand = CanvasObjectCommand(
+                .insertImagesNearViewport(
+                    importedPages.map { page in
+                        CanvasViewportImageInsertion(
+                            pngData: page.pngData,
+                            displaySize: page.displaySize,
+                            margin: 24,
+                            selectAfterInsert: true
+                        )
+                    }
+                )
+            )
+            clearPendingPDFObjectImport()
+            activateSelectTool()
+        } catch {
+            imageFileImportError = ImageFileImportError(message: error.localizedDescription)
+        }
+    }
+
+    private func clearPendingPDFObjectImport() {
+        if let pendingPDFObjectImport {
+            try? FileManager.default.removeItem(at: pendingPDFObjectImport.url)
+        }
+        pendingPDFObjectImport = nil
+    }
+
+    private static func isPDFFile(_ url: URL) throws -> Bool {
+        if let contentType = try? url.resourceValues(forKeys: [.contentTypeKey]).contentType {
+            return contentType.conforms(to: .pdf)
+        }
+        return UTType(filenameExtension: url.pathExtension)?.conforms(to: .pdf) == true
+    }
+
+    private func makePendingPDFObjectImport(from sourceURL: URL) throws -> PendingPDFObjectImport {
+        let didStartAccessing = sourceURL.startAccessingSecurityScopedResource()
+        defer {
+            if didStartAccessing {
+                sourceURL.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        let temporaryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MathBoard-PDF-Object-\(UUID().uuidString).pdf")
+        try FileManager.default.copyItem(at: sourceURL, to: temporaryURL)
+        return PendingPDFObjectImport(url: temporaryURL)
+    }
+
+    private static func importedCanvasImage(from url: URL) throws -> ImportedCanvasImage {
+        let didStartAccessing = url.startAccessingSecurityScopedResource()
+        defer {
+            if didStartAccessing {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        let data = try Data(contentsOf: url)
+        return try importedCanvasImage(fromImageData: data)
+    }
+
+    private static func importedCanvasImage(fromImageData data: Data) throws -> ImportedCanvasImage {
+        #if os(iOS)
+        guard let image = UIImage(data: data),
+              let pngData = image.pngData() else {
+            throw ImageFileImportError(message: "MathBoard could not read this image file.")
+        }
+        return ImportedCanvasImage(pngData: pngData, imageSize: image.size)
+        #elseif os(macOS)
+        guard let image = NSImage(data: data),
+              let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmap.representation(using: .png, properties: [:]) else {
+            throw ImageFileImportError(message: "MathBoard could not read this image file.")
+        }
+        return ImportedCanvasImage(pngData: pngData, imageSize: image.size)
+        #endif
+    }
+
+    private static func importedCanvasImages(fromPDFAt url: URL, pageIndices: [Int]) throws -> [ImportedCanvasImage] {
+        guard let document = PDFDocument(url: url), document.pageCount > 0 else {
+            throw ImageFileImportError(message: "MathBoard could not read this PDF.")
+        }
+
+        let validPageIndices = pageIndices.filter { $0 >= 0 && $0 < document.pageCount }
+        guard !validPageIndices.isEmpty else {
+            throw ImageFileImportError(message: "Select at least one PDF page to import.")
+        }
+
+        return try validPageIndices.map { pageIndex in
+            guard let page = document.page(at: pageIndex) else {
+                throw ImageFileImportError(message: "MathBoard could not read page \(pageIndex + 1).")
+            }
+            return try importedCanvasImage(fromPDFPage: page)
+        }
+    }
+
+    private static func importedCanvasImage(fromPDFPage page: PDFPage) throws -> ImportedCanvasImage {
+        let pageBounds = page.bounds(for: .mediaBox)
+        let width = max(pageBounds.width, 1)
+        let height = max(pageBounds.height, 1)
+        let maxDisplaySide: CGFloat = 560
+        let displayScale = min(1, maxDisplaySide / max(width, height))
+        let displaySize = CGSize(width: width * displayScale, height: height * displayScale)
+        let renderScale: CGFloat = 2
+        let renderSize = CGSize(width: width * renderScale, height: height * renderScale)
+
+        #if os(iOS)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let image = UIGraphicsImageRenderer(size: renderSize, format: format).image { rendererContext in
+            UIColor.white.setFill()
+            rendererContext.fill(CGRect(origin: .zero, size: renderSize))
+            let context = rendererContext.cgContext
+            context.saveGState()
+            context.scaleBy(x: renderScale, y: renderScale)
+            context.translateBy(x: -pageBounds.minX, y: pageBounds.height + pageBounds.minY)
+            context.scaleBy(x: 1, y: -1)
+            page.draw(with: .mediaBox, to: context)
+            context.restoreGState()
+        }
+        guard let pngData = image.pngData() else {
+            throw ImageFileImportError(message: "MathBoard could not render this PDF page.")
+        }
+        return ImportedCanvasImage(pngData: pngData, displaySize: displaySize)
+        #elseif os(macOS)
+        guard let representation = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(renderSize.width.rounded(.up)),
+            pixelsHigh: Int(renderSize.height.rounded(.up)),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
+            throw ImageFileImportError(message: "MathBoard could not render this PDF page.")
+        }
+        representation.size = renderSize
+        NSGraphicsContext.saveGraphicsState()
+        guard let graphicsContext = NSGraphicsContext(bitmapImageRep: representation) else {
+            NSGraphicsContext.restoreGraphicsState()
+            throw ImageFileImportError(message: "MathBoard could not render this PDF page.")
+        }
+        NSGraphicsContext.current = graphicsContext
+        NSColor.white.setFill()
+        NSRect(origin: .zero, size: renderSize).fill()
+        let context = graphicsContext.cgContext
+        context.saveGState()
+        context.scaleBy(x: renderScale, y: renderScale)
+        context.translateBy(x: -pageBounds.minX, y: pageBounds.height + pageBounds.minY)
+        context.scaleBy(x: 1, y: -1)
+        page.draw(with: .mediaBox, to: context)
+        context.restoreGState()
+        NSGraphicsContext.restoreGraphicsState()
+        guard let pngData = representation.representation(using: .png, properties: [:]) else {
+            throw ImageFileImportError(message: "MathBoard could not render this PDF page.")
+        }
+        return ImportedCanvasImage(pngData: pngData, displaySize: displaySize)
+        #endif
+    }
+
+    @MainActor
     private static func publishLiveStroke(_ stroke: CanvasLiveStroke?) {
         DisplayBroker.shared.publishLiveStroke(stroke)
+    }
+
+    @MainActor
+    private static func publishWidgets(
+        _ widgets: [WidgetObject],
+        viewport: WidgetCanvasViewport,
+        referenceSize: CGSize,
+        canvasIdentity: String
+    ) {
+        DisplayBroker.shared.publishWidgets(
+            widgets,
+            viewport: viewport,
+            referenceSize: referenceSize,
+            canvasIdentity: canvasIdentity
+        )
     }
 
     @MainActor
@@ -768,6 +1220,377 @@ private struct PendingTextPlacement: Identifiable {
     let id = UUID()
     var sourcePoint: CGPoint
 }
+
+private struct PendingWidgetEdit: Identifiable {
+    var widget: WidgetObject
+
+    var id: UUID {
+        widget.id
+    }
+}
+
+private struct PendingPDFObjectImport: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+private struct ImportedCanvasImage {
+    let pngData: Data
+    let displaySize: CGSize
+
+    init(pngData: Data, imageSize: CGSize) {
+        self.pngData = pngData
+
+        let maxDisplaySide: CGFloat = 480
+        let width = max(imageSize.width, 1)
+        let height = max(imageSize.height, 1)
+        let scale = min(1, maxDisplaySide / max(width, height))
+        self.displaySize = CGSize(width: width * scale, height: height * scale)
+    }
+
+    init(pngData: Data, displaySize: CGSize) {
+        self.pngData = pngData
+        self.displaySize = displaySize
+    }
+}
+
+private struct ImageFileImportError: LocalizedError, Identifiable {
+    let id = UUID()
+    let message: String
+
+    var errorDescription: String? {
+        message
+    }
+}
+
+private struct PDFObjectImportPreviewView: View {
+    let pdfURL: URL
+    let onCancel: () -> Void
+    let onImport: ([Int]) -> Void
+
+    @State private var selectedPages: Set<Int>
+
+    private let document: PDFDocument?
+    private let pageCount: Int
+    private let columns = [
+        GridItem(.adaptive(minimum: 132, maximum: 180), spacing: 16)
+    ]
+
+    init(
+        pdfURL: URL,
+        onCancel: @escaping () -> Void,
+        onImport: @escaping ([Int]) -> Void
+    ) {
+        self.pdfURL = pdfURL
+        self.onCancel = onCancel
+        self.onImport = onImport
+
+        let document = PDFDocument(url: pdfURL)
+        self.document = document
+        self.pageCount = document?.pageCount ?? 0
+        _selectedPages = State(initialValue: Set(0..<(document?.pageCount ?? 0)))
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 18) {
+                    ForEach(0..<pageCount, id: \.self) { pageIndex in
+                        PDFObjectPageSelectionTile(
+                            document: document,
+                            pageIndex: pageIndex,
+                            isSelected: selectedPages.contains(pageIndex)
+                        ) {
+                            togglePage(pageIndex)
+                        }
+                    }
+                }
+                .padding(20)
+            }
+            .navigationTitle("Import PDF Pages")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", action: onCancel)
+                }
+
+                ToolbarItemGroup(placement: .secondaryAction) {
+                    Button("Select All") {
+                        selectedPages = Set(0..<pageCount)
+                    }
+                    .disabled(selectedPages.count == pageCount)
+
+                    Button("Select None") {
+                        selectedPages.removeAll()
+                    }
+                    .disabled(selectedPages.isEmpty)
+                }
+
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Import") {
+                        onImport(selectedPages.sorted())
+                    }
+                    .disabled(selectedPages.isEmpty)
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                HStack {
+                    Text("\(selectedPages.count) of \(pageCount) pages selected")
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("Canvas objects")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+                .background(.regularMaterial)
+            }
+        }
+    }
+
+    private func togglePage(_ pageIndex: Int) {
+        if selectedPages.contains(pageIndex) {
+            selectedPages.remove(pageIndex)
+        } else {
+            selectedPages.insert(pageIndex)
+        }
+    }
+}
+
+private struct PDFObjectPageSelectionTile: View {
+    let document: PDFDocument?
+    let pageIndex: Int
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                ZStack(alignment: .topTrailing) {
+                    PDFObjectThumbnailView(document: document, pageIndex: pageIndex)
+                        .aspectRatio(0.72, contentMode: .fit)
+                        .background(Color.white)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(
+                                    isSelected ? Color.accentColor : Color.secondary.opacity(0.28),
+                                    lineWidth: isSelected ? 3 : 1
+                                )
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .shadow(color: .black.opacity(0.12), radius: 5, y: 2)
+
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.title3)
+                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                        .background(.white, in: Circle())
+                        .padding(6)
+                }
+
+                Text("Page \(pageIndex + 1)")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.primary)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Page \(pageIndex + 1)")
+        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+    }
+}
+
+private struct PDFObjectThumbnailView: View {
+    let document: PDFDocument?
+    let pageIndex: Int
+
+    var body: some View {
+        Group {
+            if let image = thumbnailImage {
+                #if os(iOS)
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                #else
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFit()
+                #endif
+            } else {
+                Image(systemName: "doc")
+                    .font(.largeTitle)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    private var thumbnailImage: PlatformPDFThumbnailImage? {
+        guard let page = document?.page(at: pageIndex) else { return nil }
+        return page.thumbnail(of: CGSize(width: 220, height: 300), for: .mediaBox)
+    }
+}
+
+#if os(iOS)
+private typealias PlatformPDFThumbnailImage = UIImage
+#elseif os(macOS)
+private typealias PlatformPDFThumbnailImage = NSImage
+#endif
+
+#if os(iOS)
+private struct ImageDocumentPicker: UIViewControllerRepresentable {
+    var onPick: (Result<[URL], Error>) -> Void
+    var onCancel: () -> Void
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.image, .pdf], asCopy: true)
+        picker.allowsMultipleSelection = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onPick: onPick, onCancel: onCancel)
+    }
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        private let onPick: (Result<[URL], Error>) -> Void
+        private let onCancel: () -> Void
+
+        init(
+            onPick: @escaping (Result<[URL], Error>) -> Void,
+            onCancel: @escaping () -> Void
+        ) {
+            self.onPick = onPick
+            self.onCancel = onCancel
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            onPick(.success(urls))
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            onCancel()
+        }
+    }
+}
+
+private struct ImagePhotoPicker: UIViewControllerRepresentable {
+    var onPick: (Result<Data, Error>) -> Void
+    var onCancel: () -> Void
+
+    func makeUIViewController(context: Context) -> PHPickerViewController {
+        var configuration = PHPickerConfiguration()
+        configuration.filter = .images
+        configuration.selectionLimit = 1
+        configuration.preferredAssetRepresentationMode = .current
+
+        let picker = PHPickerViewController(configuration: configuration)
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onPick: onPick, onCancel: onCancel)
+    }
+
+    final class Coordinator: NSObject, PHPickerViewControllerDelegate {
+        private let onPick: (Result<Data, Error>) -> Void
+        private let onCancel: () -> Void
+
+        init(
+            onPick: @escaping (Result<Data, Error>) -> Void,
+            onCancel: @escaping () -> Void
+        ) {
+            self.onPick = onPick
+            self.onCancel = onCancel
+        }
+
+        func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+            guard let itemProvider = results.first?.itemProvider else {
+                onCancel()
+                return
+            }
+
+            guard itemProvider.hasItemConformingToTypeIdentifier(UTType.image.identifier) else {
+                onPick(.failure(ImageFileImportError(message: "MathBoard could not read this photo.")))
+                return
+            }
+
+            itemProvider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, error in
+                DispatchQueue.main.async {
+                    if let error {
+                        self.onPick(.failure(error))
+                        return
+                    }
+
+                    guard let data else {
+                        self.onPick(.failure(ImageFileImportError(message: "MathBoard could not read this photo.")))
+                        return
+                    }
+
+                    self.onPick(.success(data))
+                }
+            }
+        }
+    }
+}
+
+private struct ImageCameraPicker: UIViewControllerRepresentable {
+    var onCapture: (Result<Data, Error>) -> Void
+    var onCancel: () -> Void
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.cameraCaptureMode = .photo
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onCapture: onCapture, onCancel: onCancel)
+    }
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        private let onCapture: (Result<Data, Error>) -> Void
+        private let onCancel: () -> Void
+
+        init(
+            onCapture: @escaping (Result<Data, Error>) -> Void,
+            onCancel: @escaping () -> Void
+        ) {
+            self.onCapture = onCapture
+            self.onCancel = onCancel
+        }
+
+        func imagePickerController(
+            _ picker: UIImagePickerController,
+            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+        ) {
+            guard let image = info[.originalImage] as? UIImage,
+                  let pngData = image.pngData() else {
+                onCapture(.failure(ImageFileImportError(message: "MathBoard could not read the captured photo.")))
+                return
+            }
+
+            onCapture(.success(pngData))
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            onCancel()
+        }
+    }
+}
+#endif
 
 private struct PendingTextEdit: Identifiable {
     var object: CanvasTextObject

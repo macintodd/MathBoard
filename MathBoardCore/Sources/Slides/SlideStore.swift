@@ -59,6 +59,19 @@ public final class SlideStore {
         return newSlide
     }
 
+    /// Insert empty slides after the supplied index, preserving the current slide
+    /// when callers need to populate it themselves.
+    @discardableResult
+    public func insertSlides(count: Int, afterSlideAt index: Int) throws -> [SlideMetadata] {
+        try validateSlideIndex(index)
+        guard count > 0 else { return [] }
+
+        let newSlides = (0..<count).map { _ in SlideMetadata() }
+        slides.insert(contentsOf: newSlides, at: index + 1)
+        saveManifest()
+        return newSlides
+    }
+
     /// Delete a slide and its drawing file, returning the index that should
     /// become active after removal.
     @discardableResult

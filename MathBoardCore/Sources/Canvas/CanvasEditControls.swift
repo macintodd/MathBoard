@@ -5,6 +5,7 @@
 
 import CoreGraphics
 import Foundation
+import WidgetEngine
 
 public struct CanvasEditState: Sendable, Equatable {
     public let canUndo: Bool
@@ -114,6 +115,9 @@ public struct CanvasObjectCommand: Sendable, Equatable, Identifiable {
         case insertText(CanvasTextInsertion)
         case insertImage(CanvasImageInsertion)
         case insertImageNearViewport(CanvasViewportImageInsertion)
+        case insertImagesNearViewport([CanvasViewportImageInsertion])
+        case insertWidget(CanvasWidgetInsertion)
+        case updateWidget(CanvasWidgetUpdate)
         case updateText(CanvasTextUpdate)
         case updateGeometry(CanvasGeometryUpdate)
         case clearSelection
@@ -133,6 +137,58 @@ public struct CanvasObjectCommand: Sendable, Equatable, Identifiable {
     public init(_ action: Action) {
         self.id = UUID()
         self.action = action
+    }
+}
+
+public struct CanvasWidgetInsertion: Sendable, Equatable {
+    public var name: String
+    public var codeString: String
+    public var displaySize: CGSize
+    public var referenceRect: CGRect?
+    public var containerSize: CGSize?
+    public var margin: CGFloat
+
+    public init(
+        name: String,
+        codeString: String,
+        displaySize: CGSize = CGSize(width: 820, height: 420),
+        referenceRect: CGRect? = nil,
+        containerSize: CGSize? = nil,
+        margin: CGFloat = 24
+    ) {
+        self.name = name
+        self.codeString = codeString
+        self.displaySize = displaySize
+        self.referenceRect = referenceRect
+        self.containerSize = containerSize
+        self.margin = margin
+    }
+
+    public var widgetObject: WidgetObject {
+        WidgetObject(
+            name: name,
+            codeString: codeString,
+            frame: CGRect(origin: .zero, size: displaySize)
+        )
+    }
+}
+
+public struct CanvasWidgetUpdate: Sendable, Equatable {
+    public var id: UUID
+    public var name: String
+    public var codeString: String
+    public var resetsRuntimeState: Bool
+
+    public init(
+        id: UUID,
+        name: String,
+        codeString: String,
+        resetsRuntimeState: Bool = true
+    ) {
+        self.id = id
+        self.name = name
+        self.codeString = codeString
+        self.resetsRuntimeState = resetsRuntimeState
     }
 }
 

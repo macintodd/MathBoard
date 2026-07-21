@@ -60,10 +60,11 @@ let package = Package(
         .target(
             name: "Canvas",
             dependencies: [
+                "WidgetEngine",
                 .product(name: "SwiftUIMath", package: "swiftui-math")
             ]
         ),
-        .target(name: "Presentation", dependencies: ["Canvas", "Calculator", "GraphCalculator", "TextEngine", "ToolPalette"]),
+        .target(name: "Presentation", dependencies: ["Canvas", "Calculator", "GraphCalculator", "TextEngine", "ToolPalette", "WidgetEngine"]),
         .target(name: "Slides", dependencies: ["Presentation"]),
         .target(name: "Documents", dependencies: ["Slides"]),
 
@@ -82,6 +83,7 @@ let package = Package(
                 .product(name: "SwiftUIMath", package: "swiftui-math")
             ]
         ),
+        .testTarget(name: "GraphCalculatorTests", dependencies: ["GraphCalculator"]),
 
         // Radial drawing palette. Now linked into `Presentation` for the
         // phased, feature-flagged integration (see ToolPalette_integration.md);
@@ -89,11 +91,16 @@ let package = Package(
         .target(name: "ToolPalette"),
         .testTarget(name: "ToolPaletteTests", dependencies: ["ToolPalette"]),
 
-        // Interactive HTML/JS widget engine (prototype). Fully self-contained:
-        // zero dependencies on MathBoard.app or the other MathBoardCore modules.
-        // Previewed independently in Xcode; wired into the canvas later via a
-        // Coordinator. See WidgetEngine/ and Widget_Engine_status.md.
-        .target(name: "WidgetEngine"),
+        // Interactive widget engine (prototype). Fully self-contained from
+        // MathBoard.app and the other MathBoardCore modules; SwiftUIMath is used
+        // only for native LaTeX rendering inside widget math fields.
+        .target(
+            name: "WidgetEngine",
+            dependencies: [
+                .product(name: "SwiftUIMath", package: "swiftui-math")
+            ]
+        ),
+        .testTarget(name: "WidgetEngineTests", dependencies: ["WidgetEngine"]),
 
         // Standalone, previewable rich-text/LaTeX editor. Self-contained apart
         // from the SwiftUIMath renderer (used only for LaTeX preview); zero

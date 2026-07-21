@@ -3,9 +3,8 @@
 //  WidgetEngine
 //
 //  Renders a `WidgetObject` as a floating, draggable, resizable "object" on the
-//  whiteboard. All position/size state is owned internally here, completely
-//  independent of the main app canvas — a future Coordinator can read the final
-//  frame back out when it wires widgets into the real document.
+//  whiteboard. When initialized with a binding, frame and activity runtime state
+//  changes are written back to document storage.
 //
 
 import SwiftUI
@@ -74,9 +73,14 @@ extension WidgetWebView: NSViewRepresentable {
 
 /// A floating widget "object". Drag the header to move it; drag the bottom-right
 /// handle to resize it. The embedded web view always fills the container.
-struct WidgetContainerView: View {
+public struct WidgetContainerView: View {
     /// The widget being presented. Its code drives the rendered content.
-    let widget: WidgetObject
+    @Binding private var widget: WidgetObject
+    private let scoreSheet: WidgetActivityScoreSheet?
+    private let onEditWidget: (() -> Void)?
+    private let onDeleteWidget: (() -> Void)?
+    private let onInteractionChanged: ((Bool) -> Void)?
+    private let onDisplayFrameChanged: ((CGRect?) -> Void)?
 
     /// Live frame, seeded from `widget.frame`. This is the single source of
     /// truth for position and size while the object floats on the board.
@@ -90,22 +94,48 @@ struct WidgetContainerView: View {
     /// Whichever gesture is currently active, for subtle visual feedback.
     @State private var isDraggingHeader = false
     @State private var isResizing = false
+    @State private var dragStartOrigin: CGPoint?
+    @State private var resizeStartSize: CGSize?
 
     private let headerHeight: CGFloat = 34
     private let handleSize: CGFloat = 22
     private let minSize = CGSize(width: 200, height: 160)
 
-    init(widget: WidgetObject) {
-        self.widget = widget
+    public init(
+        widget: Binding<WidgetObject>,
+        scoreSheet: WidgetActivityScoreSheet? = nil,
+        onEditWidget: (() -> Void)? = nil,
+        onDeleteWidget: (() -> Void)? = nil,
+        onInteractionChanged: ((Bool) -> Void)? = nil,
+        onDisplayFrameChanged: ((CGRect?) -> Void)? = nil
+    ) {
+        _widget = widget
+        self.scoreSheet = scoreSheet
+        self.onEditWidget = onEditWidget
+        self.onDeleteWidget = onDeleteWidget
+        self.onInteractionChanged = onInteractionChanged
+        self.onDisplayFrameChanged = onDisplayFrameChanged
+        _frame = State(initialValue: widget.wrappedValue.frame)
+        _committedOrigin = State(initialValue: widget.wrappedValue.frame.origin)
+        _committedSize = State(initialValue: widget.wrappedValue.frame.size)
+    }
+
+    public init(widget: WidgetObject) {
+        _widget = .constant(widget)
+        self.scoreSheet = nil
+        self.onEditWidget = nil
+        self.onDeleteWidget = nil
+        self.onInteractionChanged = nil
+        self.onDisplayFrameChanged = nil
         _frame = State(initialValue: widget.frame)
         _committedOrigin = State(initialValue: widget.frame.origin)
         _committedSize = State(initialValue: widget.frame.size)
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(spacing: 0) {
             header
-            WidgetWebView(htmlString: widget.codeString)
+            renderedContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(.background)
@@ -114,11 +144,58 @@ struct WidgetContainerView: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
         )
-        .overlay(alignment: .bottomTrailing) { resizeHandle }
+        .overlay(alignment: .bottomTrailing) {
+            if !widget.isPinnedToCanvas {
+                resizeHandle
+            }
+        }
         .shadow(color: .black.opacity(0.18), radius: 12, x: 0, y: 6)
         .frame(width: frame.width, height: frame.height)
         .position(x: frame.midX, y: frame.midY)
-        .animation(.interactiveSpring(duration: 0.2), value: isDraggingHeader)
+        .onChange(of: widget.frame) { _, newFrame in
+            guard !isDraggingHeader && !isResizing else { return }
+            guard newFrame != frame else { return }
+            frame = newFrame
+            committedOrigin = newFrame.origin
+            committedSize = newFrame.size
+        }
+        .onAppear {
+            guard !isDraggingHeader && !isResizing else { return }
+            frame = widget.frame
+            committedOrigin = widget.frame.origin
+            committedSize = widget.frame.size
+            dragStartOrigin = nil
+            resizeStartSize = nil
+            onDisplayFrameChanged?(nil)
+        }
+        .onDisappear {
+            onInteractionChanged?(false)
+            onDisplayFrameChanged?(nil)
+        }
+    }
+
+    @ViewBuilder
+    private var renderedContent: some View {
+        if let document = widget.activityDocument {
+            WidgetActivityRenderer(
+                document: document,
+                scoreSheet: scoreSheet,
+                onEditWidget: onEditWidget,
+                runtimeState: activityRuntimeStateBinding(for: document)
+            )
+        } else {
+            WidgetWebView(htmlString: widget.codeString)
+        }
+    }
+
+    private func activityRuntimeStateBinding(for document: ActivityWidgetDocument) -> Binding<WidgetActivityRuntimeState> {
+        Binding {
+            widget.activityRuntimeState ?? WidgetActivityRuntimeState(
+                multipleChoice: WidgetMultipleChoiceRuntimeState.initial(for: document)
+            )
+        } set: { newValue in
+            widget.activityRuntimeState = newValue
+        }
     }
 
     // MARK: Header (drag to move)
@@ -132,9 +209,31 @@ struct WidgetContainerView: View {
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
             Spacer(minLength: 0)
-            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
+            Button {
+                widget.isPinnedToCanvas.toggle()
+            } label: {
+                Image(systemName: widget.isPinnedToCanvas ? "pin.fill" : "pin")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(widget.isPinnedToCanvas ? .blue : .secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(widget.isPinnedToCanvas ? "Unpin widget from canvas" : "Pin widget to canvas")
+            if !widget.isPinnedToCanvas {
+                Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+            if let onDeleteWidget {
+                Button(role: .destructive) {
+                    onDeleteWidget()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Delete widget")
+            }
         }
         .padding(.horizontal, 12)
         .frame(height: headerHeight)
@@ -145,17 +244,33 @@ struct WidgetContainerView: View {
     }
 
     private var headerDragGesture: some Gesture {
-        DragGesture()
+        DragGesture(minimumDistance: 1, coordinateSpace: .global)
             .onChanged { value in
-                isDraggingHeader = true
-                frame.origin = CGPoint(
-                    x: committedOrigin.x + value.translation.width,
-                    y: committedOrigin.y + value.translation.height
-                )
+                guard !widget.isPinnedToCanvas else { return }
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    let base = dragStartOrigin ?? committedOrigin
+                    if dragStartOrigin == nil {
+                        dragStartOrigin = base
+                        onInteractionChanged?(true)
+                    }
+                    isDraggingHeader = true
+                    frame.origin = CGPoint(
+                        x: base.x + value.translation.width,
+                        y: base.y + value.translation.height
+                    )
+                    onDisplayFrameChanged?(frame)
+                }
             }
             .onEnded { _ in
+                guard !widget.isPinnedToCanvas else { return }
                 committedOrigin = frame.origin
+                widget.frame = frame
+                onDisplayFrameChanged?(frame)
+                dragStartOrigin = nil
                 isDraggingHeader = false
+                onInteractionChanged?(false)
             }
     }
 
@@ -176,24 +291,40 @@ struct WidgetContainerView: View {
         )
         .padding(6)
         .contentShape(Rectangle())
-        .gesture(resizeGesture)
+        .highPriorityGesture(resizeGesture)
     }
 
     private var resizeGesture: some Gesture {
-        DragGesture()
+        DragGesture(minimumDistance: 1, coordinateSpace: .global)
             .onChanged { value in
-                isResizing = true
-                // Origin stays fixed; growing the size while `.position` tracks
-                // `midX/midY` keeps the top-left anchored, so the box expands
-                // toward the bottom-right handle.
-                frame.size = CGSize(
-                    width: max(minSize.width, committedSize.width + value.translation.width),
-                    height: max(minSize.height, committedSize.height + value.translation.height)
-                )
+                guard !widget.isPinnedToCanvas else { return }
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    let base = resizeStartSize ?? committedSize
+                    if resizeStartSize == nil {
+                        resizeStartSize = base
+                        onInteractionChanged?(true)
+                    }
+                    isResizing = true
+                    // Origin stays fixed; growing the size while `.position` tracks
+                    // `midX/midY` keeps the top-left anchored, so the box expands
+                    // toward the bottom-right handle.
+                    frame.size = CGSize(
+                        width: max(minSize.width, base.width + value.translation.width),
+                        height: max(minSize.height, base.height + value.translation.height)
+                    )
+                    onDisplayFrameChanged?(frame)
+                }
             }
             .onEnded { _ in
+                guard !widget.isPinnedToCanvas else { return }
                 committedSize = frame.size
+                widget.frame = frame
+                onDisplayFrameChanged?(frame)
+                resizeStartSize = nil
                 isResizing = false
+                onInteractionChanged?(false)
             }
     }
 }

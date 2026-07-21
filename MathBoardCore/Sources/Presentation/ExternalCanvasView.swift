@@ -20,6 +20,7 @@ import Canvas
 import Calculator
 import GraphCalculator
 import ToolPalette
+import WidgetEngine
 
 public struct ExternalCanvasView: View {
 
@@ -82,6 +83,32 @@ public struct ExternalCanvasView: View {
                                 .offset(x: -visibleReferenceRect.minX, y: -visibleReferenceRect.minY)
                                 .scaleEffect(graphCalcScale, anchor: .topLeading)
                                 .allowsHitTesting(false)
+                        }
+
+                        if !broker.widgetObjects.isEmpty,
+                           let widgetViewport = broker.widgetViewport {
+                            let referenceSize = broker.widgetReferenceSize ?? fitted
+                            let visibleReferenceRect = Self.widgetVisibleReferenceRect(
+                                mode: broker.mode,
+                                referenceSize: referenceSize
+                            )
+                            let widgetScale = Self.widgetScale(
+                                fittedSize: fitted,
+                                visibleReferenceSize: visibleReferenceRect.size
+                            )
+                            WidgetCanvasOverlayView(
+                                widgets: widgetObjectsBinding,
+                                viewport: widgetViewport,
+                                canvasIdentity: broker.widgetCanvasIdentity,
+                                scoreSheet: WidgetActivityScoreSheet(widgets: broker.widgetObjects),
+                                onEditWidget: { _ in },
+                                onWidgetInteractionChanged: nil,
+                                onWidgetDisplayFrameChanged: nil
+                            )
+                            .frame(width: referenceSize.width, height: referenceSize.height)
+                            .offset(x: -visibleReferenceRect.minX, y: -visibleReferenceRect.minY)
+                            .scaleEffect(widgetScale, anchor: .topLeading)
+                            .allowsHitTesting(false)
                         }
 
                         if broker.mode == .mirror, paletteSettings.isCustomPaletteEnabled {
@@ -192,6 +219,14 @@ public struct ExternalCanvasView: View {
         return min(fittedSize.width / visibleReferenceSize.width, fittedSize.height / visibleReferenceSize.height)
     }
 
+    private static func widgetScale(fittedSize: CGSize, visibleReferenceSize: CGSize) -> CGFloat {
+        guard fittedSize.width > 0,
+              fittedSize.height > 0,
+              visibleReferenceSize.width > 0,
+              visibleReferenceSize.height > 0 else { return 1 }
+        return min(fittedSize.width / visibleReferenceSize.width, fittedSize.height / visibleReferenceSize.height)
+    }
+
     private static let graphCalculatorTVSafeInset: CGFloat = 24
 
     private static func graphCalculatorSafeReferenceSize(_ size: CGSize) -> CGSize {
@@ -225,6 +260,39 @@ public struct ExternalCanvasView: View {
                 height: visibleSize.height
             )
         }
+    }
+
+    private static func widgetVisibleReferenceRect(mode: CanvasPresentationMode, referenceSize: CGSize) -> CGRect {
+        guard referenceSize.width > 0, referenceSize.height > 0 else {
+            return CGRect(origin: .zero, size: referenceSize)
+        }
+
+        switch mode {
+        case .mirror:
+            return CGRect(origin: .zero, size: referenceSize)
+        case .present:
+            let targetAspect: CGFloat = 16.0 / 9.0
+            let referenceAspect = referenceSize.width / referenceSize.height
+            let visibleSize: CGSize
+            if referenceAspect > targetAspect {
+                visibleSize = CGSize(width: referenceSize.height * targetAspect, height: referenceSize.height)
+            } else {
+                visibleSize = CGSize(width: referenceSize.width, height: referenceSize.width / targetAspect)
+            }
+            return CGRect(
+                x: (referenceSize.width - visibleSize.width) / 2,
+                y: (referenceSize.height - visibleSize.height) / 2,
+                width: visibleSize.width,
+                height: visibleSize.height
+            )
+        }
+    }
+
+    private var widgetObjectsBinding: Binding<[WidgetObject]> {
+        Binding(
+            get: { broker.widgetObjects },
+            set: { broker.widgetObjects = $0 }
+        )
     }
 
     private func scaledToolPaletteCenterBinding(fittedSize: CGSize, referenceSize: CGSize) -> Binding<CGPoint?> {
@@ -274,7 +342,7 @@ private struct TransformedCanvasFrame: View {
 
     var body: some View {
         ZStack {
-            Color.white
+            Color(red: 0.82, green: 0.90, blue: 0.95)
 
             Image(decorative: croppedFrame ?? frame, scale: 1.0)
                 .resizable()

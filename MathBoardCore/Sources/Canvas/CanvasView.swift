@@ -13,6 +13,7 @@
 
 import SwiftUI
 import CoreGraphics
+import WidgetEngine
 
 public struct CanvasView: View {
     private let drawingURL: URL
@@ -28,6 +29,7 @@ public struct CanvasView: View {
     private let onFrameUpdate: (@MainActor (CGImage, CGRect, CGRect) -> Void)?
     private let onViewportSourceRectChange: (@MainActor (CGRect) -> Void)?
     private let onLiveStrokeUpdate: (@MainActor (CanvasLiveStroke?) -> Void)?
+    private let onWidgetObjectsChange: (@MainActor ([WidgetObject], WidgetCanvasViewport, CGSize, String) -> Void)?
     private let onViewportStateChange: (@MainActor (CanvasViewportState) -> Void)?
     private let onEditStateChange: (@MainActor (CanvasEditState) -> Void)?
     private let onInteractionBegan: (@MainActor () -> Void)?
@@ -36,6 +38,7 @@ public struct CanvasView: View {
     private let onTextPlacementRequested: (@MainActor (CGPoint) -> Void)?
     private let onExtractedRegionSend: (@MainActor (CanvasExtractedRegion) -> Void)?
     private let onExtractActionCompleted: (@MainActor () -> Void)?
+    private let onWidgetEditRequested: (@MainActor (WidgetObject) -> Void)?
 
     public init(
         drawingURL: URL,
@@ -51,6 +54,7 @@ public struct CanvasView: View {
         onFrameUpdate: (@MainActor (CGImage, CGRect, CGRect) -> Void)? = nil,
         onViewportSourceRectChange: (@MainActor (CGRect) -> Void)? = nil,
         onLiveStrokeUpdate: (@MainActor (CanvasLiveStroke?) -> Void)? = nil,
+        onWidgetObjectsChange: (@MainActor ([WidgetObject], WidgetCanvasViewport, CGSize, String) -> Void)? = nil,
         onViewportStateChange: (@MainActor (CanvasViewportState) -> Void)? = nil,
         onEditStateChange: (@MainActor (CanvasEditState) -> Void)? = nil,
         onInteractionBegan: (@MainActor () -> Void)? = nil,
@@ -58,7 +62,8 @@ public struct CanvasView: View {
         onTextEditingEnded: (@MainActor () -> Void)? = nil,
         onTextPlacementRequested: (@MainActor (CGPoint) -> Void)? = nil,
         onExtractedRegionSend: (@MainActor (CanvasExtractedRegion) -> Void)? = nil,
-        onExtractActionCompleted: (@MainActor () -> Void)? = nil
+        onExtractActionCompleted: (@MainActor () -> Void)? = nil,
+        onWidgetEditRequested: (@MainActor (WidgetObject) -> Void)? = nil
     ) {
         self.drawingURL = drawingURL
         self.background = background
@@ -73,6 +78,7 @@ public struct CanvasView: View {
         self.onFrameUpdate = onFrameUpdate
         self.onViewportSourceRectChange = onViewportSourceRectChange
         self.onLiveStrokeUpdate = onLiveStrokeUpdate
+        self.onWidgetObjectsChange = onWidgetObjectsChange
         self.onViewportStateChange = onViewportStateChange
         self.onEditStateChange = onEditStateChange
         self.onInteractionBegan = onInteractionBegan
@@ -81,6 +87,7 @@ public struct CanvasView: View {
         self.onTextPlacementRequested = onTextPlacementRequested
         self.onExtractedRegionSend = onExtractedRegionSend
         self.onExtractActionCompleted = onExtractActionCompleted
+        self.onWidgetEditRequested = onWidgetEditRequested
     }
 
     public var body: some View {
@@ -99,6 +106,7 @@ public struct CanvasView: View {
             onFrameUpdate: onFrameUpdate,
             onViewportSourceRectChange: onViewportSourceRectChange,
             onLiveStrokeUpdate: onLiveStrokeUpdate,
+            onWidgetObjectsChange: onWidgetObjectsChange,
             onViewportStateChange: onViewportStateChange,
             onEditStateChange: onEditStateChange,
             onInteractionBegan: onInteractionBegan,
@@ -106,7 +114,8 @@ public struct CanvasView: View {
             onTextEditingEnded: onTextEditingEnded,
             onTextPlacementRequested: onTextPlacementRequested,
             onExtractedRegionSend: onExtractedRegionSend,
-            onExtractActionCompleted: onExtractActionCompleted
+            onExtractActionCompleted: onExtractActionCompleted,
+            onWidgetEditRequested: onWidgetEditRequested
         )
         #else
         MacCanvasPlaceholder(

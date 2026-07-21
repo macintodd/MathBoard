@@ -25,12 +25,16 @@ import SwiftUI
 import PencilKit
 import PDFKit
 import UIKit
+import WidgetEngine
 @_spi(Textual) import SwiftUIMath
 
 private enum PencilKitCanvasGeometry {
     static let drawingOriginOffset = CGPoint(x: 3000, y: 3000)
+    static let canvasDeskColor = UIColor(red: 0.82, green: 0.90, blue: 0.95, alpha: 1)
+    static let boardSurfaceColor = UIColor.white
     static let paperBorderColor = UIColor.black.withAlphaComponent(0.22)
     static let paperShadowColor = UIColor.black.withAlphaComponent(0.18)
+    static let canvasEdgeColor = UIColor(red: 0.35, green: 0.65, blue: 0.90, alpha: 0.72)
 
     static var storageToCanvasTransform: CGAffineTransform {
         CGAffineTransform(
@@ -164,6 +168,7 @@ struct PencilKitCanvasContainer: View {
     let onFrameUpdate: (@MainActor (CGImage, CGRect, CGRect) -> Void)?
     let onViewportSourceRectChange: (@MainActor (CGRect) -> Void)?
     let onLiveStrokeUpdate: (@MainActor (CanvasLiveStroke?) -> Void)?
+    let onWidgetObjectsChange: (@MainActor ([WidgetObject], WidgetCanvasViewport, CGSize, String) -> Void)?
     let onViewportStateChange: (@MainActor (CanvasViewportState) -> Void)?
     let onEditStateChange: (@MainActor (CanvasEditState) -> Void)?
     let onInteractionBegan: (@MainActor () -> Void)?
@@ -172,12 +177,14 @@ struct PencilKitCanvasContainer: View {
     let onTextPlacementRequested: (@MainActor (CGPoint) -> Void)?
     let onExtractedRegionSend: (@MainActor (CanvasExtractedRegion) -> Void)?
     let onExtractActionCompleted: (@MainActor () -> Void)?
+    let onWidgetEditRequested: (@MainActor (WidgetObject) -> Void)?
 
     @State private var drawing: PKDrawing = PKDrawing()
     @State private var textObjects: [CanvasTextObject] = []
     @State private var imageObjects: [CanvasImageObject] = []
     @State private var geometryObjects: [CanvasGeometryObject] = []
     @State private var coverObjects: [CanvasCoverObject] = []
+    @State private var widgetObjects: [WidgetObject] = []
     @State private var objectLayerState = CanvasObjectLayerState()
     @State private var didLoad = false
     @State private var saveTask: Task<Void, Never>?
@@ -185,12 +192,14 @@ struct PencilKitCanvasContainer: View {
     @State private var imageObjectSaveTask: Task<Void, Never>?
     @State private var geometryObjectSaveTask: Task<Void, Never>?
     @State private var coverObjectSaveTask: Task<Void, Never>?
+    @State private var widgetObjectSaveTask: Task<Void, Never>?
     @State private var objectLayerSaveTask: Task<Void, Never>?
     @State private var hasPendingSave = false
     @State private var hasPendingTextSave = false
     @State private var hasPendingImageObjectSave = false
     @State private var hasPendingGeometryObjectSave = false
     @State private var hasPendingCoverObjectSave = false
+    @State private var hasPendingWidgetObjectSave = false
     @State private var hasPendingObjectLayerSave = false
     @State private var undoStack: [PKDrawing] = []
     @State private var redoStack: [PKDrawing] = []
@@ -209,6 +218,7 @@ struct PencilKitCanvasContainer: View {
             imageObjects: $imageObjects,
             geometryObjects: $geometryObjects,
             coverObjects: $coverObjects,
+            widgetObjects: $widgetObjects,
             objectLayerState: $objectLayerState,
             background: background,
             presentationMode: presentationMode,
@@ -221,13 +231,15 @@ struct PencilKitCanvasContainer: View {
             onFrameUpdate: onFrameUpdate,
             onViewportSourceRectChange: onViewportSourceRectChange,
             onLiveStrokeUpdate: onLiveStrokeUpdate,
+            onWidgetObjectsChange: onWidgetObjectsChange,
             onViewportStateChange: onViewportStateChange,
             onInteractionBegan: onInteractionBegan,
             onTextEditingBegan: onTextEditingBegan,
             onTextEditingEnded: onTextEditingEnded,
             onTextPlacementRequested: onTextPlacementRequested,
             onExtractedRegionSend: onExtractedRegionSend,
-            onExtractActionCompleted: onExtractActionCompleted
+            onExtractActionCompleted: onExtractActionCompleted,
+            onWidgetEditRequested: onWidgetEditRequested
         )
             .background(Color.white)
             .task(id: drawingURL) {
@@ -240,18 +252,22 @@ struct PencilKitCanvasContainer: View {
                 geometryObjectSaveTask = nil
                 coverObjectSaveTask?.cancel()
                 coverObjectSaveTask = nil
+                widgetObjectSaveTask?.cancel()
+                widgetObjectSaveTask = nil
                 objectLayerSaveTask?.cancel()
                 objectLayerSaveTask = nil
                 hasPendingTextSave = false
                 hasPendingImageObjectSave = false
                 hasPendingGeometryObjectSave = false
                 hasPendingCoverObjectSave = false
+                hasPendingWidgetObjectSave = false
                 hasPendingObjectLayerSave = false
                 drawing = (try? Self.loadDrawing(at: drawingURL)) ?? PKDrawing()
                 textObjects = CanvasTextObject.load(from: CanvasTextObject.sidecarURL(forDrawingURL: drawingURL))
                 imageObjects = CanvasImageObject.load(from: CanvasImageObject.sidecarURL(forDrawingURL: drawingURL))
                 geometryObjects = CanvasGeometryObject.load(from: CanvasGeometryObject.sidecarURL(forDrawingURL: drawingURL))
                 coverObjects = CanvasCoverObject.load(from: CanvasCoverObject.sidecarURL(forDrawingURL: drawingURL))
+                widgetObjects = WidgetObject.load(from: WidgetObject.sidecarURL(forDrawingURL: drawingURL))
                 objectLayerState = CanvasObjectLayerState.load(from: CanvasObjectLayerState.sidecarURL(forDrawingURL: drawingURL))
                 undoStack = []
                 redoStack = []
@@ -276,6 +292,9 @@ struct PencilKitCanvasContainer: View {
             .onChange(of: coverObjects) { _, newCoverObjects in
                 handleCoverObjectsChange(newCoverObjects)
             }
+            .onChange(of: widgetObjects) { _, newWidgetObjects in
+                handleWidgetObjectsChange(newWidgetObjects)
+            }
             .onChange(of: objectLayerState) { _, newObjectLayerState in
                 handleObjectLayerStateChange(newObjectLayerState)
             }
@@ -283,13 +302,18 @@ struct PencilKitCanvasContainer: View {
                 applyEditCommandIfNeeded(command)
             }
             .onDisappear {
-                flushPendingSave()
-                flushPendingTextSave()
-                flushPendingImageObjectSave()
-                flushPendingGeometryObjectSave()
-                flushPendingCoverObjectSave()
-                flushPendingObjectLayerSave()
+                flushPendingCanvasState()
             }
+    }
+
+    private func flushPendingCanvasState() {
+        flushPendingSave()
+        flushPendingTextSave()
+        flushPendingImageObjectSave()
+        flushPendingGeometryObjectSave()
+        flushPendingCoverObjectSave()
+        flushPendingWidgetObjectSave()
+        flushPendingObjectLayerSave()
     }
 
     private func handleDrawingChange(from oldDrawing: PKDrawing, to newDrawing: PKDrawing) {
@@ -325,6 +349,11 @@ struct PencilKitCanvasContainer: View {
     private func handleCoverObjectsChange(_ newCoverObjects: [CanvasCoverObject]) {
         guard didLoad else { return }
         scheduleCoverObjectSave(of: newCoverObjects)
+    }
+
+    private func handleWidgetObjectsChange(_ newWidgetObjects: [WidgetObject]) {
+        guard didLoad else { return }
+        scheduleWidgetObjectSave(of: newWidgetObjects)
     }
 
     private func handleObjectLayerStateChange(_ newObjectLayerState: CanvasObjectLayerState) {
@@ -471,6 +500,25 @@ struct PencilKitCanvasContainer: View {
         hasPendingCoverObjectSave = false
     }
 
+    private func scheduleWidgetObjectSave(of newWidgetObjects: [WidgetObject]) {
+        hasPendingWidgetObjectSave = true
+        widgetObjectSaveTask?.cancel()
+        widgetObjectSaveTask = Task { @MainActor in
+            try? await Task.sleep(for: Self.saveDebounce)
+            guard !Task.isCancelled else { return }
+            saveWidgetObjects(newWidgetObjects, to: WidgetObject.sidecarURL(forDrawingURL: drawingURL))
+            hasPendingWidgetObjectSave = false
+        }
+    }
+
+    private func flushPendingWidgetObjectSave() {
+        widgetObjectSaveTask?.cancel()
+        widgetObjectSaveTask = nil
+        guard hasPendingWidgetObjectSave else { return }
+        saveWidgetObjects(widgetObjects, to: WidgetObject.sidecarURL(forDrawingURL: drawingURL))
+        hasPendingWidgetObjectSave = false
+    }
+
     private func scheduleObjectLayerSave(of newObjectLayerState: CanvasObjectLayerState) {
         hasPendingObjectLayerSave = true
         objectLayerSaveTask?.cancel()
@@ -599,6 +647,14 @@ struct PencilKitCanvasContainer: View {
         }
     }
 
+    private func saveWidgetObjects(_ widgetObjects: [WidgetObject], to url: URL) {
+        do {
+            try WidgetObject.save(widgetObjects, to: url)
+        } catch {
+            print("[Canvas] widget object save error: \(error)")
+        }
+    }
+
     private func saveObjectLayerState(_ state: CanvasObjectLayerState, to url: URL) {
         do {
             try CanvasObjectLayerState.save(state, to: url)
@@ -608,39 +664,81 @@ struct PencilKitCanvasContainer: View {
     }
 }
 
+private final class CanvasWidgetObjectsView: UIView {
+    var interactiveFrames: [CGRect] = []
+    var resizeHandleFrames: [CGRect] = []
+
+    func containsInteractiveFrame(at point: CGPoint) -> Bool {
+        interactiveFrames.contains { frame in
+            frame.insetBy(dx: -8, dy: -8).contains(point)
+        } || resizeHandleFrames.contains { frame in
+            frame.contains(point)
+        }
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        if let touches = event?.allTouches, touches.count > 1 {
+            return nil
+        }
+        if event?.allTouches?.contains(where: { $0.type == .pencil }) == true {
+            return nil
+        }
+        guard containsInteractiveFrame(at: point) else {
+            return nil
+        }
+        return super.hitTest(point, with: event)
+    }
+}
+
 private final class PencilKitCanvasHostView: UIView {
     let backgroundView = PDFCanvasBackgroundView()
+    let canvasEdgeView = CanvasEdgeBoundaryView()
     let canvas = PKCanvasView()
     let imageObjectsView = CanvasImageObjectsView()
     let geometryObjectsView = CanvasGeometryObjectsView()
     let textObjectsView = CanvasTextObjectsView()
+    let widgetObjectsView = CanvasWidgetObjectsView()
     let coverObjectsView = CanvasCoverObjectsView()
     let regionSelectionOverlayView = CanvasRegionSelectionOverlayView()
     let laserOverlayView = CanvasLaserOverlayView()
     let textPlacementOverlayView = CanvasTextPlacementOverlayView()
+    private var usableCanvasSize: CGSize?
+    private var widgetOverlayController: UIHostingController<WidgetCanvasOverlayView>?
+    private var widgetObjectsBinding: Binding<[WidgetObject]>?
+    private var widgetScoreSheet = WidgetActivityScoreSheet(records: [])
+    private var widgetInteractiveFrames: [CGRect] = []
+    private var widgetResizeHandleFrames: [CGRect] = []
+    private var activeWidgetDisplayFrames: [WidgetObject.ID: CGRect] = [:]
+    private var widgetCanvasIdentity = ""
+    private var onEditWidget: (@MainActor (WidgetObject) -> Void)?
+    private var onWidgetInteractionChanged: (@MainActor (Bool) -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = .white
+        backgroundColor = PencilKitCanvasGeometry.canvasDeskColor
         isOpaque = true
         overrideUserInterfaceStyle = .light
         clipsToBounds = true
         backgroundView.isUserInteractionEnabled = false
+        canvasEdgeView.isUserInteractionEnabled = false
         imageObjectsView.isUserInteractionEnabled = false
         geometryObjectsView.isUserInteractionEnabled = false
         textObjectsView.isUserInteractionEnabled = false
+        widgetObjectsView.backgroundColor = .clear
         coverObjectsView.isUserInteractionEnabled = false
         regionSelectionOverlayView.acceptsRegionSelectionInput = false
         laserOverlayView.acceptsLaserInput = false
         textPlacementOverlayView.acceptsTextPlacement = false
-        // Paint order (bottom → top): PDF paper, then the content object layers
-        // (images, geometry, text), then handwriting ink on top of the content,
-        // then the transient interaction overlays with the laser pointer topmost.
+        // Paint order (bottom → top): blue-gray desk, white board surface,
+        // optional PDF paper, content object layers, handwriting ink, covers,
+        // then transient interaction overlays with the laser pointer topmost.
+        addSubview(canvasEdgeView)
         addSubview(backgroundView)
         addSubview(imageObjectsView)
         addSubview(geometryObjectsView)
         addSubview(textObjectsView)
         addSubview(canvas)
+        addSubview(widgetObjectsView)
         // Tape covers paint above the ink/content so they can hide anything,
         // but below the transient overlays so the laser stays topmost.
         addSubview(coverObjectsView)
@@ -657,17 +755,22 @@ private final class PencilKitCanvasHostView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         canvas.frame = bounds
+        canvasEdgeView.frame = bounds
         imageObjectsView.frame = bounds
         geometryObjectsView.frame = bounds
         textObjectsView.frame = bounds
+        widgetObjectsView.frame = bounds
+        widgetOverlayController?.view.frame = widgetObjectsView.bounds
         coverObjectsView.frame = bounds
         regionSelectionOverlayView.frame = bounds
         laserOverlayView.frame = bounds
         textPlacementOverlayView.frame = bounds
         updateBackgroundFrame(using: canvas)
+        updateCanvasEdgeFrame(using: canvas)
         updateImageObjectFrame(using: canvas)
         updateGeometryObjectFrame(using: canvas)
         updateTextObjectFrame(using: canvas)
+        updateWidgetObjectFrame(using: canvas)
         updateCoverObjectFrame(using: canvas)
     }
 
@@ -719,10 +822,12 @@ private final class PencilKitCanvasHostView: UIView {
     }
 
     func updateObjectLayerState(_ state: CanvasObjectLayerState) {
-        backgroundView.layer.zPosition = 0
+        canvasEdgeView.layer.zPosition = 0
+        backgroundView.layer.zPosition = 5
         geometryObjectsView.layer.zPosition = 20
         textObjectsView.layer.zPosition = 40
         canvas.layer.zPosition = 60
+        widgetObjectsView.layer.zPosition = 95
         coverObjectsView.layer.zPosition = 70
         regionSelectionOverlayView.layer.zPosition = 80
         textPlacementOverlayView.layer.zPosition = 90
@@ -755,6 +860,33 @@ private final class PencilKitCanvasHostView: UIView {
         )
     }
 
+    func updateUsableCanvasSize(_ size: CGSize, using canvas: PKCanvasView) {
+        usableCanvasSize = size
+        updateCanvasEdgeFrame(using: canvas)
+    }
+
+    func updateCanvasEdgeFrame(using canvas: PKCanvasView) {
+        let zoomScale = canvas.zoomScale
+        let contentSize = canvas.contentSize
+        guard contentSize.width > 0, contentSize.height > 0 else {
+            canvasEdgeView.usableCanvasFrame = nil
+            return
+        }
+
+        let origin = PencilKitCanvasGeometry.drawingOriginOffset
+        let stableUsableCanvasSize = usableCanvasSize ?? CGSize(
+            width: max(contentSize.width - origin.x, 1),
+            height: max(contentSize.height - origin.y, 1)
+        )
+
+        canvasEdgeView.usableCanvasFrame = CGRect(
+            x: origin.x * zoomScale - canvas.contentOffset.x,
+            y: origin.y * zoomScale - canvas.contentOffset.y,
+            width: stableUsableCanvasSize.width * zoomScale,
+            height: stableUsableCanvasSize.height * zoomScale
+        )
+    }
+
     func updateTextObjectFrame(using canvas: PKCanvasView) {
         textObjectsView.updateViewport(
             zoomScale: canvas.zoomScale,
@@ -784,12 +916,148 @@ private final class PencilKitCanvasHostView: UIView {
         updateCoverObjectFrame(using: canvas)
     }
 
+    func updateWidgetObjects(
+        _ widgets: Binding<[WidgetObject]>,
+        scoreSheet: WidgetActivityScoreSheet,
+        using canvas: PKCanvasView,
+        canvasIdentity: String,
+        onEditWidget: (@MainActor (WidgetObject) -> Void)? = nil,
+        onWidgetInteractionChanged: (@MainActor (Bool) -> Void)? = nil
+    ) {
+        if widgetCanvasIdentity != canvasIdentity {
+            widgetCanvasIdentity = canvasIdentity
+            activeWidgetDisplayFrames = [:]
+        }
+        widgetObjectsBinding = widgets
+        widgetScoreSheet = scoreSheet
+        self.onEditWidget = onEditWidget
+        self.onWidgetInteractionChanged = onWidgetInteractionChanged
+        let viewport = WidgetCanvasViewport(
+            zoomScale: canvas.zoomScale,
+            contentOffset: canvas.contentOffset,
+            canvasOrigin: PencilKitCanvasGeometry.drawingOriginOffset
+        )
+        let interactiveFrames = widgets.wrappedValue.map { widget in
+            widget.isPinnedToCanvas
+                ? viewport.pinnedDisplayFrame(for: widget.frame)
+                : viewport.displayFrame(for: widget.frame)
+        }
+        let resizeHandleFrames = widgets.wrappedValue
+            .filter { !$0.isPinnedToCanvas }
+            .map { Self.resizeHandleFrame(for: viewport.displayFrame(for: $0.frame)) }
+        updateWidgetInteractiveFrames(interactiveFrames)
+        updateWidgetResizeHandleFrames(resizeHandleFrames)
+        let rootView = WidgetCanvasOverlayView(
+            widgets: widgets,
+            viewport: viewport,
+            canvasIdentity: canvasIdentity,
+            scoreSheet: scoreSheet,
+            onEditWidget: onEditWidget,
+            onWidgetInteractionChanged: onWidgetInteractionChanged,
+            onWidgetDisplayFrameChanged: { [weak self] id, frame in
+                self?.updateActiveWidgetDisplayFrame(id: id, frame: frame)
+            }
+        )
+
+        if let widgetOverlayController {
+            widgetOverlayController.rootView = rootView
+        } else {
+            let controller = UIHostingController(rootView: rootView)
+            controller.view.backgroundColor = .clear
+            controller.view.frame = widgetObjectsView.bounds
+            controller.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            widgetObjectsView.addSubview(controller.view)
+            widgetOverlayController = controller
+        }
+    }
+
+    func updateWidgetObjectFrame(using canvas: PKCanvasView) {
+        guard let widgetOverlayController, let widgetObjectsBinding else { return }
+        let viewport = WidgetCanvasViewport(
+            zoomScale: canvas.zoomScale,
+            contentOffset: canvas.contentOffset,
+            canvasOrigin: PencilKitCanvasGeometry.drawingOriginOffset
+        )
+        let interactiveFrames = widgetObjectsBinding.wrappedValue.map { widget in
+            widget.isPinnedToCanvas
+                ? viewport.pinnedDisplayFrame(for: widget.frame)
+                : viewport.displayFrame(for: widget.frame)
+        }
+        let resizeHandleFrames = widgetObjectsBinding.wrappedValue
+            .filter { !$0.isPinnedToCanvas }
+            .map { Self.resizeHandleFrame(for: viewport.displayFrame(for: $0.frame)) }
+        updateWidgetInteractiveFrames(interactiveFrames)
+        updateWidgetResizeHandleFrames(resizeHandleFrames)
+        widgetOverlayController.rootView = WidgetCanvasOverlayView(
+            widgets: widgetObjectsBinding,
+            viewport: viewport,
+            canvasIdentity: widgetCanvasIdentity,
+            scoreSheet: widgetScoreSheet,
+            onEditWidget: onEditWidget,
+            onWidgetInteractionChanged: onWidgetInteractionChanged,
+            onWidgetDisplayFrameChanged: { [weak self] id, frame in
+                self?.updateActiveWidgetDisplayFrame(id: id, frame: frame)
+            }
+        )
+    }
+
     func updateCoverObjectFrame(using canvas: PKCanvasView) {
         coverObjectsView.updateViewport(
             zoomScale: canvas.zoomScale,
             contentOffset: canvas.contentOffset,
             canvasOrigin: PencilKitCanvasGeometry.drawingOriginOffset
         )
+    }
+
+    func containsWidget(atHostPoint point: CGPoint) -> Bool {
+        let widgetPoint = convert(point, to: widgetObjectsView)
+        return widgetObjectsView.containsInteractiveFrame(at: widgetPoint)
+    }
+
+    private func updateWidgetInteractiveFrames(_ frames: [CGRect]) {
+        widgetInteractiveFrames = frames
+        for (id, frame) in activeWidgetDisplayFrames where frames.contains(where: { $0.isApproximatelyEqual(to: frame) }) {
+            activeWidgetDisplayFrames[id] = nil
+        }
+        refreshWidgetInteractionExclusions()
+    }
+
+    private func updateWidgetResizeHandleFrames(_ frames: [CGRect]) {
+        widgetResizeHandleFrames = frames
+        refreshWidgetInteractionExclusions()
+    }
+
+    private func updateActiveWidgetDisplayFrame(id: WidgetObject.ID, frame: CGRect?) {
+        activeWidgetDisplayFrames[id] = frame
+        refreshWidgetInteractionExclusions()
+    }
+
+    private func refreshWidgetInteractionExclusions() {
+        let activeFrames = Array(activeWidgetDisplayFrames.values)
+        let frames = widgetInteractiveFrames + activeFrames
+        let resizeHandleFrames = widgetResizeHandleFrames + activeFrames.map(Self.resizeHandleFrame(for:))
+        widgetObjectsView.interactiveFrames = frames
+        widgetObjectsView.resizeHandleFrames = resizeHandleFrames
+        regionSelectionOverlayView.excludedInteractiveFrames = frames + resizeHandleFrames
+    }
+
+    private static func resizeHandleFrame(for widgetFrame: CGRect) -> CGRect {
+        let hitSize: CGFloat = 72
+        return CGRect(
+            x: widgetFrame.maxX - hitSize,
+            y: widgetFrame.maxY - hitSize,
+            width: hitSize + 18,
+            height: hitSize + 18
+        )
+    }
+}
+
+private extension CGRect {
+    func isApproximatelyEqual(to other: CGRect, tolerance: CGFloat = 1) -> Bool {
+        abs(minX - other.minX) <= tolerance
+            && abs(minY - other.minY) <= tolerance
+            && abs(width - other.width) <= tolerance
+            && abs(height - other.height) <= tolerance
     }
 }
 
@@ -876,6 +1144,63 @@ private final class CanvasTextPlacementOverlayView: UIView {
     }
 }
 
+private final class CanvasEdgeBoundaryView: UIView {
+    var usableCanvasFrame: CGRect? {
+        didSet {
+            guard usableCanvasFrame != oldValue else { return }
+            setNeedsDisplay()
+        }
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        isOpaque = false
+        contentMode = .redraw
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(_ rect: CGRect) {
+        guard let usableCanvasFrame,
+              usableCanvasFrame.intersects(bounds.insetBy(dx: -12, dy: -12)),
+              let context = UIGraphicsGetCurrentContext() else {
+            return
+        }
+
+        context.saveGState()
+        context.setShadow(
+            offset: CGSize(width: 0, height: 5),
+            blur: 12,
+            color: PencilKitCanvasGeometry.paperShadowColor.cgColor
+        )
+        context.setFillColor(PencilKitCanvasGeometry.boardSurfaceColor.cgColor)
+        context.fill(usableCanvasFrame)
+        context.restoreGState()
+
+        context.saveGState()
+        context.setLineJoin(.round)
+        context.setLineCap(.round)
+        context.setShadow(
+            offset: .zero,
+            blur: 4,
+            color: PencilKitCanvasGeometry.canvasEdgeColor.withAlphaComponent(0.16).cgColor
+        )
+        context.setStrokeColor(PencilKitCanvasGeometry.canvasEdgeColor.cgColor)
+        context.setLineWidth(4)
+        context.stroke(usableCanvasFrame.insetBy(dx: 2, dy: 2))
+        context.restoreGState()
+
+        context.saveGState()
+        context.setStrokeColor(PencilKitCanvasGeometry.canvasEdgeColor.withAlphaComponent(0.38).cgColor)
+        context.setLineWidth(1)
+        context.stroke(usableCanvasFrame.insetBy(dx: 6, dy: 6))
+        context.restoreGState()
+    }
+}
+
 private final class CanvasRegionSelectionOverlayView: UIView {
     enum Mode {
         case lasso
@@ -887,6 +1212,7 @@ private final class CanvasRegionSelectionOverlayView: UIView {
             isUserInteractionEnabled = acceptsRegionSelectionInput
         }
     }
+    var excludedInteractiveFrames: [CGRect] = []
 
     private var mode: Mode = .marquee
     private var points: [CGPoint] = []
@@ -907,7 +1233,13 @@ private final class CanvasRegionSelectionOverlayView: UIView {
     }
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-        acceptsRegionSelectionInput && super.point(inside: point, with: event)
+        guard acceptsRegionSelectionInput,
+              super.point(inside: point, with: event) else {
+            return false
+        }
+        return !excludedInteractiveFrames.contains { frame in
+            frame.insetBy(dx: -8, dy: -8).contains(point)
+        }
     }
 
     func begin(at point: CGPoint, mode: Mode) {
@@ -2152,6 +2484,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
     @Binding var imageObjects: [CanvasImageObject]
     @Binding var geometryObjects: [CanvasGeometryObject]
     @Binding var coverObjects: [CanvasCoverObject]
+    @Binding var widgetObjects: [WidgetObject]
     @Binding var objectLayerState: CanvasObjectLayerState
     let background: CanvasBackground?
     let presentationMode: CanvasPresentationMode
@@ -2164,6 +2497,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
     let onFrameUpdate: (@MainActor (CGImage, CGRect, CGRect) -> Void)?
     let onViewportSourceRectChange: (@MainActor (CGRect) -> Void)?
     let onLiveStrokeUpdate: (@MainActor (CanvasLiveStroke?) -> Void)?
+    let onWidgetObjectsChange: (@MainActor ([WidgetObject], WidgetCanvasViewport, CGSize, String) -> Void)?
     let onViewportStateChange: (@MainActor (CanvasViewportState) -> Void)?
     let onInteractionBegan: (@MainActor () -> Void)?
     let onTextEditingBegan: (@MainActor () -> Void)?
@@ -2171,6 +2505,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
     let onTextPlacementRequested: (@MainActor (CGPoint) -> Void)?
     let onExtractedRegionSend: (@MainActor (CanvasExtractedRegion) -> Void)?
     let onExtractActionCompleted: (@MainActor () -> Void)?
+    let onWidgetEditRequested: (@MainActor (WidgetObject) -> Void)?
 
     func makeUIView(context: Context) -> PencilKitCanvasHostView {
         let hostView = PencilKitCanvasHostView()
@@ -2201,6 +2536,17 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         )
         hostView.updateGeometryObjects(geometryObjects, using: canvas)
         hostView.updateCoverObjects(coverObjects, using: canvas)
+        hostView.updateWidgetObjects(
+            $widgetObjects,
+            scoreSheet: WidgetActivityScoreSheet(widgets: widgetObjects),
+            using: canvas,
+            canvasIdentity: drawingURL.path,
+            onEditWidget: onWidgetEditRequested,
+            onWidgetInteractionChanged: { [weak canvas] isInteracting in
+                canvas?.isScrollEnabled = !isInteracting
+            }
+        )
+        context.coordinator.publishWidgetObjects(using: canvas)
         hostView.updateTextObjects(textObjects, using: canvas)
         hostView.updateObjectLayerState(objectLayerState)
 
@@ -2225,6 +2571,17 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 selectedGeometryObjectID: context.coordinator.selectedGeometryObjectForDisplayID
             )
             hostView.updateCoverObjects(self.coverObjects, using: canvas)
+            hostView.updateWidgetObjects(
+                self.$widgetObjects,
+                scoreSheet: WidgetActivityScoreSheet(widgets: self.widgetObjects),
+                using: canvas,
+                canvasIdentity: self.drawingURL.path,
+                onEditWidget: self.onWidgetEditRequested,
+                onWidgetInteractionChanged: { [weak canvas] isInteracting in
+                    canvas?.isScrollEnabled = !isInteracting
+                }
+            )
+            context.coordinator.publishWidgetObjects(using: canvas)
             hostView.updateTextObjects(
                 self.textObjects,
                 using: canvas,
@@ -2258,6 +2615,17 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             selectedGeometryObjectID: context.coordinator.selectedGeometryObjectForDisplayID
         )
         hostView.updateCoverObjects(coverObjects, using: canvas)
+        hostView.updateWidgetObjects(
+            $widgetObjects,
+            scoreSheet: WidgetActivityScoreSheet(widgets: widgetObjects),
+            using: canvas,
+            canvasIdentity: drawingURL.path,
+            onEditWidget: onWidgetEditRequested,
+            onWidgetInteractionChanged: { [weak canvas] isInteracting in
+                canvas?.isScrollEnabled = !isInteracting
+            }
+        )
+        context.coordinator.publishWidgetObjects(using: canvas)
         hostView.updateTextObjects(
             textObjects,
             using: canvas,
@@ -2316,8 +2684,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private static let publishScale: CGFloat = 2
         private static let minimumZoomScale: CGFloat = 0.1
         private static let maximumZoomScale: CGFloat = 4.0
-        private static let contentScaleMultiplier: CGFloat = 4.0
-        private static let minimumContentSize = CGSize(width: 4000, height: 3000)
+        private static let minimumContentSize = CanvasBoardMetrics.defaultUsableSize
         private static let viewportFramePublishDebounce: Duration = .milliseconds(120)
         private static let committedFrameOverscan: CGFloat = 2.0
         private static let minimumLiveStrokePublishInterval: TimeInterval = 1.0 / 30.0
@@ -2344,6 +2711,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private var didRestoreInitialViewport = false
         private var fittedBackground: CanvasBackground?
         private var configuredBoundsSize: CGSize = .zero
+        private var usableCanvasSize = CanvasBoardMetrics.defaultUsableSize
         private var didSetInitialContentOffset = false
         private var viewportFramePublishTask: Task<Void, Never>?
         private var lastLiveStrokePublishTime: TimeInterval = 0
@@ -2885,6 +3253,34 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                         using: canvas
                     )
                 }
+            case .insertImagesNearViewport(let insertions):
+                Task { @MainActor [weak self, weak canvas] in
+                    guard let self, let canvas else { return }
+                    let cascadeOffset = max(24 / max(canvas.zoomScale, 0.001), 12)
+                    for (index, insertion) in insertions.enumerated() {
+                        var frame = self.sourceFrame(forViewportImageInsertion: insertion, on: canvas)
+                        let offset = CGFloat(index) * cascadeOffset
+                        frame.origin.x += offset
+                        frame.origin.y += offset
+                        _ = self.saveImageObject(
+                            pngData: insertion.pngData,
+                            frame: frame,
+                            selectAfterInsert: insertion.selectAfterInsert && index == insertions.index(before: insertions.endIndex),
+                            isLocked: insertion.isLocked,
+                            using: canvas
+                        )
+                    }
+                }
+            case .insertWidget(let insertion):
+                Task { @MainActor [weak self, weak canvas] in
+                    guard let self, let canvas else { return }
+                    self.insertWidgetObject(insertion, using: canvas)
+                }
+            case .updateWidget(let update):
+                Task { @MainActor [weak self, weak canvas] in
+                    guard let self, let canvas else { return }
+                    self.updateWidgetObject(update, using: canvas)
+                }
             case .updateText(let update):
                 Task { @MainActor [weak self, weak canvas] in
                     guard let self, let canvas else { return }
@@ -3002,13 +3398,11 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
 
         private func configureContentArea(for canvas: PKCanvasView, boundsSize: CGSize) {
             let drawingOriginOffset = PencilKitCanvasGeometry.drawingOriginOffset
-            let drawableSize = CGSize(
-                width: max(boundsSize.width * Self.contentScaleMultiplier, Self.minimumContentSize.width),
-                height: max(boundsSize.height * Self.contentScaleMultiplier, Self.minimumContentSize.height)
-            )
+            let drawableSize = Self.minimumContentSize
+            usableCanvasSize = drawableSize
             let contentSize = CGSize(
-                width: drawingOriginOffset.x + drawableSize.width,
-                height: drawingOriginOffset.y + drawableSize.height
+                width: drawingOriginOffset.x * 2 + drawableSize.width,
+                height: drawingOriginOffset.y * 2 + drawableSize.height
             )
             if canvas.contentSize != contentSize {
                 canvas.contentSize = contentSize
@@ -3020,11 +3414,49 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             if canvas.scrollIndicatorInsets != .zero {
                 canvas.scrollIndicatorInsets = .zero
             }
+            hostView?.updateUsableCanvasSize(drawableSize, using: canvas)
 
             if !didSetInitialContentOffset {
                 didSetInitialContentOffset = true
-                canvas.contentOffset = drawingOriginOffset
+                let initialZoom = initialBoardZoom(
+                    for: canvas,
+                    drawableSize: drawableSize
+                )
+                canvas.setZoomScale(initialZoom, animated: false)
+                canvas.contentOffset = centeredBoardContentOffset(
+                    for: canvas,
+                    drawableSize: drawableSize,
+                    zoomScale: initialZoom
+                )
             }
+        }
+
+        private func initialBoardZoom(for canvas: PKCanvasView, drawableSize: CGSize) -> CGFloat {
+            let viewportSize = canvas.bounds.size
+            guard viewportSize.width > 0, viewportSize.height > 0 else { return canvas.zoomScale }
+
+            let horizontalMargin: CGFloat = 0.24
+            let verticalMargin: CGFloat = 0.10
+            let targetWidth = viewportSize.width * (1 - horizontalMargin)
+            let targetHeight = viewportSize.height * (1 - verticalMargin)
+            let fittedZoom = min(
+                targetWidth / max(drawableSize.width, 1),
+                targetHeight / max(drawableSize.height, 1)
+            )
+            return min(max(fittedZoom, canvas.minimumZoomScale), canvas.maximumZoomScale)
+        }
+
+        private func centeredBoardContentOffset(
+            for canvas: PKCanvasView,
+            drawableSize: CGSize,
+            zoomScale: CGFloat
+        ) -> CGPoint {
+            let origin = PencilKitCanvasGeometry.drawingOriginOffset
+            let viewportSize = canvas.bounds.size
+            return CGPoint(
+                x: origin.x * zoomScale + drawableSize.width * zoomScale / 2 - viewportSize.width / 2,
+                y: origin.y * zoomScale + drawableSize.height * zoomScale / 2 - viewportSize.height / 2
+            )
         }
 
         private func restoreInitialViewportIfNeeded(on canvas: PKCanvasView) {
@@ -3057,8 +3489,16 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             case .zoomOut:
                 setZoomScale(canvas.zoomScale / 1.25, on: canvas, animated: true)
             case .reset:
-                setZoomScale(1, on: canvas, animated: true)
-                canvas.setContentOffset(PencilKitCanvasGeometry.drawingOriginOffset, animated: true)
+                let resetZoom = initialBoardZoom(for: canvas, drawableSize: usableCanvasSize)
+                canvas.setZoomScale(resetZoom, animated: true)
+                canvas.setContentOffset(
+                    centeredBoardContentOffset(
+                        for: canvas,
+                        drawableSize: usableCanvasSize,
+                        zoomScale: resetZoom
+                    ),
+                    animated: true
+                )
             case .fitToViewfinder:
                 fitContentToViewfinder(on: canvas)
             }
@@ -3132,7 +3572,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             canvas.setZoomScale(targetZoom, animated: animated)
             canvas.setContentOffset(newContentOffset, animated: animated)
             hostView?.updateBackgroundFrame(using: canvas)
+            hostView?.updateCanvasEdgeFrame(using: canvas)
             hostView?.updateTextObjectFrame(using: canvas)
+            hostView?.updateWidgetObjectFrame(using: canvas)
         }
 
         private func combinedTeachingContentBounds() -> CGRect? {
@@ -3208,6 +3650,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
 
             let recognizer = PencilLiveStrokeGestureRecognizer { [weak self, weak overlayView, weak canvas] samples, phase in
                 guard let self, let overlayView, let canvas else { return }
+                if phase == .began {
+                    self.parent.onInteractionBegan?()
+                }
                 let convertedSamples = self.canvasSamples(from: samples, overlayView: overlayView, canvas: canvas)
                 self.publishLiveStroke(samples: convertedSamples, phase: phase)
             }
@@ -6258,6 +6703,25 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             return true
         }
 
+        private func insertWidgetObject(_ insertion: CanvasWidgetInsertion, using canvas: PKCanvasView) {
+            parent.onInteractionBegan?()
+            var widgetObject = insertion.widgetObject
+            widgetObject.frame = sourceFrame(forWidgetInsertion: insertion, on: canvas)
+            parent.widgetObjects.append(widgetObject)
+            updateHostWidgetObjects(using: canvas)
+        }
+
+        private func updateWidgetObject(_ update: CanvasWidgetUpdate, using canvas: PKCanvasView) {
+            guard let index = parent.widgetObjects.firstIndex(where: { $0.id == update.id }) else { return }
+            parent.onInteractionBegan?()
+            parent.widgetObjects[index].name = update.name
+            parent.widgetObjects[index].codeString = update.codeString
+            if update.resetsRuntimeState {
+                parent.widgetObjects[index].activityRuntimeState = nil
+            }
+            updateHostWidgetObjects(using: canvas)
+        }
+
         private func sourceFrame(
             forViewportImageInsertion insertion: CanvasViewportImageInsertion,
             on canvas: PKCanvasView
@@ -6285,6 +6749,36 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 y: sourceOrigin.y,
                 width: overlayFrame.width / zoomScale,
                 height: overlayFrame.height / zoomScale
+            )
+        }
+
+        private func sourceFrame(
+            forWidgetInsertion insertion: CanvasWidgetInsertion,
+            on canvas: PKCanvasView
+        ) -> CGRect {
+            let containerSize = insertion.containerSize ?? canvas.bounds.size
+            let margin = max(insertion.margin, 0)
+            let displaySize = CGSize(
+                width: min(max(insertion.displaySize.width, 1), max(containerSize.width - margin * 2, 1)),
+                height: min(max(insertion.displaySize.height, 1), max(containerSize.height - margin * 2, 1))
+            )
+            let overlayFrame = viewportImageOverlayFrame(
+                displaySize: displaySize,
+                referenceRect: insertion.referenceRect,
+                containerSize: containerSize,
+                margin: margin
+            )
+            let zoomScale = max(canvas.zoomScale, 0.001)
+            let sourceOrigin = CGPoint(
+                x: (canvas.contentOffset.x + overlayFrame.minX) / zoomScale - PencilKitCanvasGeometry.drawingOriginOffset.x,
+                y: (canvas.contentOffset.y + overlayFrame.minY) / zoomScale - PencilKitCanvasGeometry.drawingOriginOffset.y
+            )
+
+            return CGRect(
+                x: sourceOrigin.x,
+                y: sourceOrigin.y,
+                width: overlayFrame.width,
+                height: overlayFrame.height
             )
         }
 
@@ -7027,6 +7521,35 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             )
         }
 
+        private func updateHostWidgetObjects(using canvas: PKCanvasView) {
+            hostView?.updateWidgetObjects(
+                parent.$widgetObjects,
+                scoreSheet: WidgetActivityScoreSheet(widgets: parent.widgetObjects),
+                using: canvas,
+                canvasIdentity: parent.drawingURL.path,
+                onEditWidget: parent.onWidgetEditRequested,
+                onWidgetInteractionChanged: { [weak canvas] isInteracting in
+                    canvas?.isScrollEnabled = !isInteracting
+                }
+            )
+            publishWidgetObjects(using: canvas)
+        }
+
+        func publishWidgetObjects(using canvas: PKCanvasView) {
+            guard let onWidgetObjectsChange = parent.onWidgetObjectsChange else { return }
+            let viewport = WidgetCanvasViewport(
+                zoomScale: canvas.zoomScale,
+                contentOffset: canvas.contentOffset,
+                canvasOrigin: PencilKitCanvasGeometry.drawingOriginOffset
+            )
+            onWidgetObjectsChange(
+                parent.widgetObjects,
+                viewport,
+                hostView?.bounds.size ?? canvas.bounds.size,
+                parent.drawingURL.path
+            )
+        }
+
         private func canvasSamples(
             from samples: [CanvasLiveStrokePoint],
             overlayView: UIView,
@@ -7329,6 +7852,10 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 return activeCoverConfig != nil
             }
             if gestureRecognizer === regionSelectionRecognizer {
+                if let hostView,
+                   hostView.containsWidget(atHostPoint: gestureRecognizer.location(in: hostView)) {
+                    return false
+                }
                 if activeSelectionTarget == .object,
                    let canvas,
                    let hostView {
@@ -7360,7 +7887,12 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             }
             if gestureRecognizer === textSelectionPanRecognizer {
                 guard isTextSelectionEnabled,
-                      let canvas else {
+                      let canvas,
+                      let hostView else {
+                    pendingGeometryHandleHit = nil
+                    return false
+                }
+                if hostView.containsWidget(atHostPoint: gestureRecognizer.location(in: hostView)) {
                     pendingGeometryHandleHit = nil
                     return false
                 }
@@ -7422,16 +7954,17 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
             guard let canvas = scrollView as? PKCanvasView else { return }
-            stabilizeBackgroundViewportIfNeeded(on: canvas)
             hostView?.updateBackgroundFrame(using: canvas)
+            hostView?.updateCanvasEdgeFrame(using: canvas)
             hostView?.updateImageObjectFrame(using: canvas)
             hostView?.updateGeometryObjectFrame(using: canvas)
             hostView?.updateCoverObjectFrame(using: canvas)
             hostView?.updateTextObjectFrame(using: canvas)
+            hostView?.updateWidgetObjectFrame(using: canvas)
+            publishWidgetObjects(using: canvas)
             updateActiveTextEditorFrame(on: canvas)
             updateRegionSelectionHighlight(on: canvas)
             updateSharedSelectionState()
-            publishViewportState(from: canvas)
             publishViewportSourceRect(from: canvas)
             scheduleViewportFramePublish()
         }
@@ -7447,14 +7980,16 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         func scrollViewDidZoom(_ scrollView: UIScrollView) {
             guard let canvas = scrollView as? PKCanvasView else { return }
             hostView?.updateBackgroundFrame(using: canvas)
+            hostView?.updateCanvasEdgeFrame(using: canvas)
             hostView?.updateImageObjectFrame(using: canvas)
             hostView?.updateGeometryObjectFrame(using: canvas)
             hostView?.updateCoverObjectFrame(using: canvas)
             hostView?.updateTextObjectFrame(using: canvas)
+            hostView?.updateWidgetObjectFrame(using: canvas)
+            publishWidgetObjects(using: canvas)
             updateActiveTextEditorFrame(on: canvas)
             updateRegionSelectionHighlight(on: canvas)
             updateSharedSelectionState()
-            publishViewportState(from: canvas)
             publishViewportSourceRect(from: canvas)
             scheduleViewportFramePublish()
         }
@@ -7462,10 +7997,13 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) {
             guard let canvas = scrollView as? PKCanvasView else { return }
             hostView?.updateBackgroundFrame(using: canvas)
+            hostView?.updateCanvasEdgeFrame(using: canvas)
             hostView?.updateImageObjectFrame(using: canvas)
             hostView?.updateGeometryObjectFrame(using: canvas)
             hostView?.updateCoverObjectFrame(using: canvas)
             hostView?.updateTextObjectFrame(using: canvas)
+            hostView?.updateWidgetObjectFrame(using: canvas)
+            publishWidgetObjects(using: canvas)
             updateActiveTextEditorFrame(on: canvas)
             updateSharedSelectionState()
             publishViewportState(from: canvas)
@@ -7577,8 +8115,13 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             )
             let renderer = UIGraphicsImageRenderer(size: destinationSize, format: format)
             let image = renderer.image { context in
-                UIColor.white.setFill()
+                PencilKitCanvasGeometry.canvasDeskColor.setFill()
                 UIRectFill(destinationRect)
+                drawBoardSurface(
+                    in: context.cgContext,
+                    sourceRect: sourceRect,
+                    destinationRect: destinationRect
+                )
                 drawBackground(
                     in: context.cgContext,
                     sourceRect: sourceRect,
@@ -7603,6 +8146,49 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             if let cg = image.cgImage {
                 onFrameUpdate(cg, sourceRect, visibleSourceRect)
             }
+        }
+
+        private var boardContentRect: CGRect {
+            CGRect(
+                origin: PencilKitCanvasGeometry.drawingOriginOffset,
+                size: usableCanvasSize
+            )
+        }
+
+        private func drawBoardSurface(
+            in context: CGContext,
+            sourceRect: CGRect,
+            destinationRect: CGRect
+        ) {
+            let boardRect = boardContentRect
+            guard boardRect.intersects(sourceRect) else { return }
+
+            let scaleX = destinationRect.width / max(sourceRect.width, 0.001)
+            let scaleY = destinationRect.height / max(sourceRect.height, 0.001)
+            let outputBoardRect = CGRect(
+                x: destinationRect.minX + (boardRect.minX - sourceRect.minX) * scaleX,
+                y: destinationRect.minY + (boardRect.minY - sourceRect.minY) * scaleY,
+                width: boardRect.width * scaleX,
+                height: boardRect.height * scaleY
+            )
+
+            context.saveGState()
+            context.clip(to: destinationRect)
+            context.setShadow(
+                offset: CGSize(width: 0, height: 5),
+                blur: 12,
+                color: PencilKitCanvasGeometry.paperShadowColor.cgColor
+            )
+            context.setFillColor(PencilKitCanvasGeometry.boardSurfaceColor.cgColor)
+            context.fill(outputBoardRect)
+            context.restoreGState()
+
+            context.saveGState()
+            context.clip(to: destinationRect)
+            context.setStrokeColor(PencilKitCanvasGeometry.canvasEdgeColor.cgColor)
+            context.setLineWidth(max(1, min(scaleX, scaleY) * 4))
+            context.stroke(outputBoardRect)
+            context.restoreGState()
         }
 
         private func committedDrawingImageScale(

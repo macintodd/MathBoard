@@ -23,6 +23,7 @@ import Observation
 import Canvas
 import GraphCalculator
 import ToolPalette
+import WidgetEngine
 
 @MainActor
 @Observable
@@ -86,6 +87,14 @@ public final class DisplayBroker {
     public var compactToolPaletteCenter: CGPoint?
     public var toolPaletteReferenceSize: CGSize?
 
+    /// Live widget objects and viewport from the iPad canvas. The iPad owns
+    /// interaction and persistence; the external display renders this read-only
+    /// so widget progress, score, and gauge state stay in sync.
+    public var widgetObjects: [WidgetObject] = []
+    public var widgetViewport: WidgetCanvasViewport?
+    public var widgetReferenceSize: CGSize?
+    public var widgetCanvasIdentity = ""
+
     public func publishFrame(_ frame: CGImage, sourceRect: CGRect, viewportSourceRect: CGRect) {
         currentFrame = frame
         currentFrameSourceRect = sourceRect
@@ -110,6 +119,18 @@ public final class DisplayBroker {
             }
         }
         currentLiveStroke = nil
+    }
+
+    public func publishWidgets(
+        _ widgets: [WidgetObject],
+        viewport: WidgetCanvasViewport,
+        referenceSize: CGSize,
+        canvasIdentity: String
+    ) {
+        widgetObjects = widgets
+        widgetViewport = viewport
+        widgetReferenceSize = referenceSize
+        widgetCanvasIdentity = canvasIdentity
     }
 
     private init() {}

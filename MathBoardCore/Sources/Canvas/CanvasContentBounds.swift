@@ -6,6 +6,10 @@
 import CoreGraphics
 import Foundation
 
+public enum CanvasBoardMetrics {
+    public static let defaultUsableSize = CGSize(width: 2550, height: 3300)
+}
+
 public enum CanvasContentBounds {
     public static func combinedBounds(
         drawingBounds: CGRect?,

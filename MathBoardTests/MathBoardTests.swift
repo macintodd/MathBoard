@@ -9,6 +9,7 @@ import Testing
 import Documents
 @testable import Canvas
 import Slides
+@testable import WidgetEngine
 
 struct MathBoardTests {
 
@@ -285,6 +286,268 @@ struct MathBoardTests {
         #expect(decoded.viewport?.zoomScale == 2.5)
         #expect(decoded.viewport?.platform == "iPadOS")
         #expect(decoded.background?.assetFileName == "notes.pdf")
+    }
+
+    @Test func activityWidgetJSONRepairsAIAuthoredLaTeXBackslashes() throws {
+        let json = #"""
+        {
+          "schemaVersion": 1,
+          "widgetId": "evaluating-expressions-001",
+          "activity": "multipleChoice",
+          "title": "Evaluating Expressions",
+          "learningObjective": "Evaluate expressions accurately using the standard order of operations.",
+          "rules": {
+            "scoreMode": "streak",
+            "advanceMode": "manual",
+            "allowRetry": true,
+            "shuffleQuestions": false,
+            "shuffleChoices": false,
+            "maxAttemptsPerQuestion": 2,
+            "calculatorAllowed": false
+          },
+          "questions": [
+            {
+              "id": "q1",
+              "prompt": "Evaluate the following expression:",
+              "expression": "5 + 3 \cdot 4",
+              "choices": [
+                { "id": "a", "label": "32", "isCorrect": false },
+                { "id": "b", "label": "17", "isCorrect": true }
+              ],
+              "hints": []
+            },
+            {
+              "id": "q2",
+              "prompt": "Evaluate the expression:",
+              "expression": "\frac{4^2 - 6}{2} + 5",
+              "choices": [
+                { "id": "a", "label": "7", "isCorrect": false },
+                { "id": "b", "label": "10", "isCorrect": true }
+              ],
+              "hints": []
+            }
+          ]
+        }
+        """#
+
+        let result = WidgetActivityJSONCodec.decode(json)
+        let document = try #require(result.document)
+
+        #expect(result.errors.isEmpty)
+        #expect(document.questions[0].expression == #"5 + 3 \cdot 4"#)
+        #expect(document.questions[1].expression == #"\frac{4^2 - 6}{2} + 5"#)
+    }
+
+    @Test func activityWidgetJSONRejectsWrongNumericCorrectChoice() {
+        let json = #"""
+        {
+          "schemaVersion": 1,
+          "widgetId": "wrong-answer-audit",
+          "activity": "multipleChoice",
+          "title": "Wrong Answer Audit",
+          "learningObjective": "Catch incorrect generated answer keys.",
+          "questions": [
+            {
+              "id": "q1",
+              "prompt": "Evaluate.",
+              "expression": "5 + 3 \cdot 4",
+              "choices": [
+                { "id": "a", "label": "32", "isCorrect": true },
+                { "id": "b", "label": "17", "isCorrect": false }
+              ]
+            }
+          ]
+        }
+        """#
+
+        let result = WidgetActivityJSONCodec.decode(json)
+
+        #expect(result.document == nil)
+        #expect(result.errors.contains { $0.contains("expression evaluates to 17") })
+    }
+
+    @Test func activityWidgetJSONRejectsDuplicateChoiceLabels() {
+        let json = #"""
+        {
+          "schemaVersion": 1,
+          "widgetId": "duplicate-choice-audit",
+          "activity": "multipleChoice",
+          "title": "Duplicate Choice Audit",
+          "learningObjective": "Catch duplicate generated choices.",
+          "questions": [
+            {
+              "id": "q1",
+              "prompt": "Choose 17.",
+              "choices": [
+                { "id": "a", "label": "17", "isCorrect": true },
+                { "id": "b", "label": "$17$", "isCorrect": false }
+              ]
+            }
+          ]
+        }
+        """#
+
+        let result = WidgetActivityJSONCodec.decode(json)
+
+        #expect(result.document == nil)
+        #expect(result.errors.contains { $0.contains("duplicate choice label") })
+    }
+
+    @Test func activityWidgetJSONRejectsIncorrectChoiceThatMatchesEvaluatedAnswer() {
+        let json = #"""
+        {
+          "schemaVersion": 1,
+          "widgetId": "incorrect-matching-answer-audit",
+          "activity": "multipleChoice",
+          "title": "Incorrect Matching Answer Audit",
+          "learningObjective": "Catch distractors that are actually correct.",
+          "questions": [
+            {
+              "id": "q1",
+              "prompt": "Evaluate.",
+              "expression": "\frac{10}{2}",
+              "choices": [
+                { "id": "a", "label": "4", "isCorrect": true },
+                { "id": "b", "label": "5", "isCorrect": false }
+              ]
+            }
+          ]
+        }
+        """#
+
+        let result = WidgetActivityJSONCodec.decode(json)
+
+        #expect(result.document == nil)
+        #expect(result.errors.contains { $0.contains("marked incorrect but matches") })
+    }
+
+    @Test func activityWidgetJSONDefaultsMissingHintsToEmptyArray() throws {
+        let json = #"""
+        {
+          "schemaVersion": 1,
+          "widgetId": "minimal-multiple-choice",
+          "activity": "multipleChoice",
+          "title": "Minimal",
+          "learningObjective": "Decode minimal valid activity questions.",
+          "questions": [
+            {
+              "id": "q1",
+              "prompt": "Choose.",
+              "choices": [
+                { "id": "a", "label": "Correct", "isCorrect": true },
+                { "id": "b", "label": "Incorrect", "isCorrect": false }
+              ]
+            }
+          ]
+        }
+        """#
+
+        let result = WidgetActivityJSONCodec.decode(json)
+        let question = try #require(result.document?.questions.first)
+
+        #expect(result.errors.isEmpty)
+        #expect(question.hints.isEmpty)
+    }
+
+    @Test func widgetJSONRepairPreservesOrdinaryJSONEscapes() {
+        let json = #"""
+        { "message": "Line one\nLine two", "quote": "She said \"yes\"." }
+        """#
+
+        let repaired = WidgetJSONRepair.escapingUnescapedLaTeXCommands(in: json)
+
+        #expect(repaired == json)
+    }
+
+    @Test func widgetJSONRepairDoesNotDoubleEscapeValidLaTeXCommands() {
+        let json = #"""
+        { "expression": "\\frac{12}{3} + 4 \\cdot 2" }
+        """#
+
+        let repaired = WidgetJSONRepair.escapingUnescapedLaTeXCommands(in: json)
+
+        #expect(repaired == json)
+    }
+
+    @Test func widgetScoreSheetTotalsOnlyCompletedWidgets() throws {
+        let completedID = try #require(UUID(uuidString: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"))
+        let inProgressID = try #require(UUID(uuidString: "11111111-2222-3333-4444-555555555555"))
+        let notStartedID = try #require(UUID(uuidString: "66666666-7777-8888-9999-000000000000"))
+        let widgets = [
+            WidgetObject(
+                id: completedID,
+                name: "Completed",
+                codeString: WidgetSamples.orderOpsActivityJSON,
+                frame: CGRect(x: 0, y: 0, width: 700, height: 360),
+                activityRuntimeState: WidgetActivityRuntimeState(
+                    multipleChoice: WidgetMultipleChoiceRuntimeState(
+                        score: 5,
+                        attempts: 6,
+                        streak: 3,
+                        answeredQuestionIDs: Set(["a", "b", "c", "d", "e", "f"])
+                    )
+                )
+            ),
+            WidgetObject(
+                id: inProgressID,
+                name: "In Progress",
+                codeString: WidgetSamples.orderOpsActivityJSON,
+                frame: CGRect(x: 0, y: 380, width: 700, height: 360),
+                activityRuntimeState: WidgetActivityRuntimeState(
+                    multipleChoice: WidgetMultipleChoiceRuntimeState(
+                        score: 2,
+                        attempts: 3,
+                        streak: 1,
+                        answeredQuestionIDs: Set(["a", "b", "c"])
+                    )
+                )
+            ),
+            WidgetObject(
+                id: notStartedID,
+                name: "Not Started",
+                codeString: WidgetSamples.orderOpsActivityJSON,
+                frame: CGRect(x: 0, y: 760, width: 700, height: 360),
+                activityRuntimeState: WidgetActivityRuntimeState()
+            )
+        ]
+
+        let sheet = WidgetActivityScoreSheet(widgets: widgets)
+
+        #expect(sheet.completedRecords.map(\.id) == [completedID.uuidString])
+        #expect(sheet.averagePercent == 83)
+        #expect(sheet.pointsPossible == 6)
+        #expect(sheet.totalPoints == 5.3)
+    }
+
+    @Test func legacyWidgetObjectDefaultsToUnpinned() throws {
+        let json = #"""
+        {
+          "id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+          "frame": [[10, 20], [300, 200]],
+          "name": "Legacy Widget",
+          "codeString": "{}"
+        }
+        """#
+
+        let widget = try JSONDecoder().decode(WidgetObject.self, from: Data(json.utf8))
+
+        #expect(widget.isPinnedToCanvas == false)
+    }
+
+    @Test func pinnedWidgetViewportFrameScalesWithZoom() {
+        let viewport = WidgetCanvasViewport(
+            zoomScale: 2,
+            contentOffset: CGPoint(x: 100, y: 80),
+            canvasOrigin: CGPoint(x: 3000, y: 3000)
+        )
+        let sourceFrame = CGRect(x: 50, y: 70, width: 320, height: 180)
+
+        let displayFrame = viewport.pinnedDisplayFrame(for: sourceFrame)
+        let roundTrip = viewport.pinnedSourceFrame(for: displayFrame)
+
+        #expect(displayFrame.origin == CGPoint(x: 6000, y: 6060))
+        #expect(displayFrame.size == CGSize(width: 640, height: 360))
+        #expect(roundTrip == sourceFrame)
     }
 
     @MainActor
