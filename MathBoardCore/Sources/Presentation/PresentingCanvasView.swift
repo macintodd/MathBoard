@@ -229,7 +229,7 @@ public struct PresentingCanvasView: View {
                 onTextEditingEnded?()
             }
         }
-        .fullScreenCover(item: $pendingTextPlacement) { placement in
+        .platformEditorCover(item: $pendingTextPlacement) { placement in
             TextEditorModalView { result in
                 insertText(result, placement: placement)
                 pendingTextPlacement = nil
@@ -239,7 +239,7 @@ public struct PresentingCanvasView: View {
                 activateSelectTool()
             }
         }
-        .fullScreenCover(item: $pendingTextEdit) { edit in
+        .platformEditorCover(item: $pendingTextEdit) { edit in
             TextEditorModalView(
                 viewModel: TextEditorViewModel(
                     text: edit.object.text,
@@ -258,7 +258,7 @@ public struct PresentingCanvasView: View {
                 activateSelectTool()
             }
         }
-        .fullScreenCover(isPresented: $isWidgetEditorPresented) {
+        .platformEditorCover(isPresented: $isWidgetEditorPresented) {
             WidgetEditorView(onInsertWidget: { insertion in
                 insertWidget(insertion)
                 isWidgetEditorPresented = false
@@ -268,7 +268,7 @@ public struct PresentingCanvasView: View {
                 activateSelectTool()
             })
         }
-        .fullScreenCover(item: $pendingWidgetEdit) { edit in
+        .platformEditorCover(item: $pendingWidgetEdit) { edit in
             WidgetEditorView(
                 initialJSONSource: edit.widget.codeString,
                 insertButtonTitle: "Update Widget"
@@ -2374,6 +2374,40 @@ private extension CanvasGeometryShape {
         case .rectangle: self = .rectangle
         case .polygon: self = .polygon
         }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func platformEditorCover<Content: View>(
+        isPresented: Binding<Bool>,
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        #if os(iOS)
+        fullScreenCover(isPresented: isPresented) {
+            content()
+        }
+        #else
+        sheet(isPresented: isPresented) {
+            content()
+        }
+        #endif
+    }
+
+    @ViewBuilder
+    func platformEditorCover<Item: Identifiable, Content: View>(
+        item: Binding<Item?>,
+        @ViewBuilder content: @escaping (Item) -> Content
+    ) -> some View {
+        #if os(iOS)
+        fullScreenCover(item: item) { item in
+            content(item)
+        }
+        #else
+        sheet(item: item) { item in
+            content(item)
+        }
+        #endif
     }
 }
 

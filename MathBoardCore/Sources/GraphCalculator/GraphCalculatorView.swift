@@ -549,7 +549,7 @@ public struct GraphCalculatorView: View {
             TextField("none", text: text)
                 .font(.system(size: 14))
                 .multilineTextAlignment(.trailing)
-                .textInputAutocapitalization(.never)
+                .graphCalculatorTextInputAutocapitalizationDisabled()
                 .autocorrectionDisabled()
                 .frame(width: 130)
                 .padding(.horizontal, 8)
@@ -4279,7 +4279,7 @@ public struct GraphCalculatorView: View {
             )
             .font(.system(size: 15, weight: .semibold, design: .serif))
             .multilineTextAlignment(.trailing)
-            .keyboardType(.numbersAndPunctuation)
+            .graphCalculatorNumbersAndPunctuationKeyboard()
             .frame(width: 90)
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
@@ -6972,6 +6972,26 @@ private struct EditableFractionToken: Equatable {
     let denominatorRange: Range<Int>
     let slashOffset: Int
     let sourceRange: Range<Int>
+}
+
+private extension View {
+    @ViewBuilder
+    func graphCalculatorTextInputAutocapitalizationDisabled() -> some View {
+        #if os(iOS)
+        textInputAutocapitalization(.never)
+        #else
+        self
+        #endif
+    }
+
+    @ViewBuilder
+    func graphCalculatorNumbersAndPunctuationKeyboard() -> some View {
+        #if os(iOS)
+        keyboardType(.numbersAndPunctuation)
+        #else
+        self
+        #endif
+    }
 }
 
 #if DEBUG

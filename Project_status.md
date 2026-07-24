@@ -2,7 +2,7 @@
 
 > Living document. Update at the end of every working session. New AI sessions: read **Section 0 (AI Orientation)** first and start from there; only read further sections or source files when a task needs the detail. For a full deep-dive after a long break, read top-to-bottom.
 
-**Last updated:** 2026-07-22 — Edited canvas-authored LaTeX equations now create updated Recent Library entries when their source changes.
+**Last updated:** 2026-07-23 — Mac builds now use platform-safe editor presentation and text-field keyboard helpers where iPad-only APIs are unavailable.
 
 ---
 
