@@ -23,6 +23,8 @@ public struct WidgetObject: MathBoardObject, Codable, Equatable {
     public var codeString: String
     public var activityRuntimeState: WidgetActivityRuntimeState?
     public var isPinnedToCanvas: Bool
+    public var librarySourceCodeString: String?
+    public var hasRecordedLibraryDerivative: Bool
 
     public init(
         id: UUID = UUID(),
@@ -30,7 +32,9 @@ public struct WidgetObject: MathBoardObject, Codable, Equatable {
         codeString: String,
         frame: CGRect,
         activityRuntimeState: WidgetActivityRuntimeState? = nil,
-        isPinnedToCanvas: Bool = false
+        isPinnedToCanvas: Bool = false,
+        librarySourceCodeString: String? = nil,
+        hasRecordedLibraryDerivative: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -38,6 +42,8 @@ public struct WidgetObject: MathBoardObject, Codable, Equatable {
         self.frame = frame
         self.activityRuntimeState = activityRuntimeState
         self.isPinnedToCanvas = isPinnedToCanvas
+        self.librarySourceCodeString = librarySourceCodeString
+        self.hasRecordedLibraryDerivative = hasRecordedLibraryDerivative
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -47,6 +53,8 @@ public struct WidgetObject: MathBoardObject, Codable, Equatable {
         case codeString
         case activityRuntimeState
         case isPinnedToCanvas
+        case librarySourceCodeString
+        case hasRecordedLibraryDerivative
     }
 
     public init(from decoder: Decoder) throws {
@@ -57,6 +65,8 @@ public struct WidgetObject: MathBoardObject, Codable, Equatable {
         codeString = try container.decode(String.self, forKey: .codeString)
         activityRuntimeState = try container.decodeIfPresent(WidgetActivityRuntimeState.self, forKey: .activityRuntimeState)
         isPinnedToCanvas = try container.decodeIfPresent(Bool.self, forKey: .isPinnedToCanvas) ?? false
+        librarySourceCodeString = try container.decodeIfPresent(String.self, forKey: .librarySourceCodeString)
+        hasRecordedLibraryDerivative = try container.decodeIfPresent(Bool.self, forKey: .hasRecordedLibraryDerivative) ?? false
     }
 }
 

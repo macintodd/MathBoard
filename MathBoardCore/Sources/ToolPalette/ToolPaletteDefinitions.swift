@@ -22,7 +22,6 @@ public enum ToolPaletteDefinitions {
         .eraser,
         .geometry,
         .reserved,
-        .equation,
         .cover
     ]
 
@@ -182,6 +181,8 @@ public enum ToolPaletteReducer {
             state.selectionActionSequence += 1
         case .undo, .redo:
             break
+        case .collapseCompactDrawerForCanvasInteraction:
+            state.isCompactDrawerOpen = false
         }
     }
 }
@@ -551,57 +552,9 @@ struct TextToolDefinition: ToolDefinition {
 
     func configuration(for state: ToolPaletteState) -> ToolPaletteConfiguration {
         ToolPaletteConfiguration(
-            topOrbit: [
-                PaletteOrbitItem(
-                    id: "text.bold",
-                    iconSystemName: "bold",
-                    label: "Bold",
-                    command: .setTextBold(state.textStyle != .bold)
-                ),
-                PaletteOrbitItem(
-                    id: "text.italic",
-                    iconSystemName: "italic",
-                    label: "Italic",
-                    command: .setTextItalic(!state.textIsItalic)
-                ),
-                PaletteOrbitItem(
-                    id: "text.underline",
-                    iconSystemName: "underline",
-                    label: "Under",
-                    command: .setTextUnderlined(!state.textIsUnderlined)
-                ),
-                PaletteOrbitItem(
-                    id: "text.latex",
-                    iconSystemName: "sum",
-                    label: "LaTeX",
-                    command: .openLatexEditor
-                )
-            ],
-            leftArc: .slider(
-                PaletteSliderConfiguration(
-                    id: "text.size",
-                    label: "Size",
-                    iconSystemName: "textformat.size",
-                    value: state.textSize,
-                    range: 8...96,
-                    command: { .setTextSize($0) }
-                )
-            ),
-            rightArc: .segmented(
-                PaletteSegmentedConfiguration(
-                    id: "text.font",
-                    label: "Font",
-                    segments: [
-                        PaletteSegment(
-                            id: "text.font.sample",
-                            label: "Aa",
-                            iconSystemName: nil,
-                            isSelected: false,
-                            command: .openFontPicker
-                        )
-                    ]
-                )
-            )
+            topOrbit: [],
+            leftArc: .disabled(label: "Use +"),
+            rightArc: .disabled(label: "Text Editor")
         )
     }
 }

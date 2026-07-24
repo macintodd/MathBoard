@@ -57,6 +57,45 @@ struct MathBoardTests {
         #expect(PresentationCanvasTextObject.load(from: missingURL).isEmpty)
     }
 
+    @Test func latexObjectSidecarURLUsesDrawingBaseName() throws {
+        let drawingURL = URL(fileURLWithPath: "/tmp/slide-123.drawing")
+        let sidecarURL = CanvasLaTeXObject.sidecarURL(forDrawingURL: drawingURL)
+
+        #expect(sidecarURL.lastPathComponent == "slide-123.latexobjects.json")
+        #expect(sidecarURL.deletingLastPathComponent() == drawingURL.deletingLastPathComponent())
+    }
+
+    @Test func latexObjectRoundTripsThroughSidecarJSON() throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MathBoardTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let drawingURL = directoryURL.appendingPathComponent("slide-abc.drawing")
+        let sidecarURL = CanvasLaTeXObject.sidecarURL(forDrawingURL: drawingURL)
+        let imageID = UUID()
+        let latexObjects = [
+            CanvasLaTeXObject(
+                imageObjectID: imageID,
+                latexSource: "\\frac{x}{2}=7",
+                librarySourceLaTeX: "\\frac{x}{2}=7",
+                hasRecordedLibraryDerivative: true
+            )
+        ]
+
+        try CanvasLaTeXObject.save(latexObjects, to: sidecarURL)
+        let loaded = CanvasLaTeXObject.load(from: sidecarURL)
+
+        #expect(loaded == latexObjects)
+    }
+
+    @Test func missingLaTeXObjectSidecarLoadsAsEmptyArray() {
+        let missingURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("missing-\(UUID().uuidString).latexobjects.json")
+
+        #expect(CanvasLaTeXObject.load(from: missingURL).isEmpty)
+    }
+
     @Test func geometryObjectSidecarURLUsesDrawingBaseName() throws {
         let drawingURL = URL(fileURLWithPath: "/tmp/slide-123.drawing")
         let sidecarURL = CanvasGeometryObject.sidecarURL(forDrawingURL: drawingURL)

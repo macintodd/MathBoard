@@ -103,6 +103,7 @@ enum LibraryBadge: String, Hashable {
     case html = "HTML"
     case gif = "GIF"
     case text = "TEXT"
+    case latex = "f(x)"
 
     var background: Color {
         switch self {
@@ -111,6 +112,7 @@ enum LibraryBadge: String, Hashable {
         case .html: return Color(red: 0.88, green: 0.94, blue: 1.0)
         case .gif: return Color(red: 0.20, green: 0.78, blue: 0.45)
         case .text: return Color(red: 0.93, green: 0.93, blue: 0.95)
+        case .latex: return Color(red: 0.90, green: 0.95, blue: 1.0)
         }
     }
 
@@ -121,6 +123,7 @@ enum LibraryBadge: String, Hashable {
         case .html: return Color(red: 0.20, green: 0.48, blue: 0.86)
         case .gif: return .white
         case .text: return Color(red: 0.36, green: 0.40, blue: 0.48)
+        case .latex: return Color(red: 0.18, green: 0.45, blue: 0.82)
         }
     }
 }
@@ -153,6 +156,18 @@ struct LibraryObject: Identifiable, Hashable {
     /// Type pill (shown in Recent; usually hidden inside a library).
     let badge: LibraryBadge?
     let thumbnail: LibraryThumbnailStyle
+    /// The persisted Recent kind when this came from a live `.mathboard` package.
+    let recentKind: LibraryRecentKind?
+    /// Original Recent identifier when this object has been filed into a global library.
+    let recentID: String?
+    /// Optional persisted PNG thumbnail for live Recent or stored library items.
+    let thumbnailURL: URL?
+    /// Optional reusable widget JSON payload for widget-backed library objects.
+    let widgetCodeString: String?
+    /// Optional reusable text payload for text-backed library objects.
+    let textPayload: LibraryTextPayload?
+    /// Optional reusable LaTeX payload for equation-backed library objects.
+    let latexPayload: LibraryLaTeXPayload?
     /// Whether this Recent item has been filed into the open library.
     var isStarred: Bool
 
@@ -161,13 +176,114 @@ struct LibraryObject: Identifiable, Hashable {
         title: String,
         badge: LibraryBadge? = nil,
         thumbnail: LibraryThumbnailStyle,
+        recentKind: LibraryRecentKind? = nil,
+        recentID: String? = nil,
+        thumbnailURL: URL? = nil,
+        widgetCodeString: String? = nil,
+        textPayload: LibraryTextPayload? = nil,
+        latexPayload: LibraryLaTeXPayload? = nil,
         isStarred: Bool = false
     ) {
         self.id = id
         self.title = title
         self.badge = badge
         self.thumbnail = thumbnail
+        self.recentKind = recentKind
+        self.recentID = recentID
+        self.thumbnailURL = thumbnailURL
+        self.widgetCodeString = widgetCodeString
+        self.textPayload = textPayload
+        self.latexPayload = latexPayload
         self.isStarred = isStarred
+    }
+}
+
+public struct LibraryLaTeXPayload: Codable, Sendable, Equatable, Hashable {
+    public var latexSource: String
+    public var width: CGFloat
+    public var height: CGFloat
+
+    public init(
+        latexSource: String,
+        width: CGFloat = 240,
+        height: CGFloat = 90
+    ) {
+        self.latexSource = latexSource
+        self.width = width
+        self.height = height
+    }
+}
+
+public struct LibraryTextPayload: Codable, Sendable, Equatable, Hashable {
+    public var text: String
+    public var fontSize: CGFloat
+    public var red: CGFloat
+    public var green: CGFloat
+    public var blue: CGFloat
+    public var alpha: CGFloat
+    public var isBold: Bool
+    public var isItalic: Bool
+    public var isUnderlined: Bool
+    public var fontName: String?
+    public var width: CGFloat
+    public var height: CGFloat
+
+    public init(
+        text: String,
+        fontSize: CGFloat,
+        red: CGFloat = 0,
+        green: CGFloat = 0,
+        blue: CGFloat = 0,
+        alpha: CGFloat = 1,
+        isBold: Bool = false,
+        isItalic: Bool = false,
+        isUnderlined: Bool = false,
+        fontName: String? = nil,
+        width: CGFloat = 220,
+        height: CGFloat = 80
+    ) {
+        self.text = text
+        self.fontSize = fontSize
+        self.red = red
+        self.green = green
+        self.blue = blue
+        self.alpha = alpha
+        self.isBold = isBold
+        self.isItalic = isItalic
+        self.isUnderlined = isUnderlined
+        self.fontName = fontName
+        self.width = width
+        self.height = height
+    }
+}
+
+public struct LibraryCanvasDragPayload: Codable, Sendable, Equatable {
+    public static let typeIdentifier = "com.mathboard.library.canvas-item"
+
+    public var title: String
+    public var kind: LibraryRecentKind
+    public var pngData: Data?
+    public var displaySize: CGSize
+    public var widgetCodeString: String?
+    public var textPayload: LibraryTextPayload?
+    public var latexPayload: LibraryLaTeXPayload?
+
+    public init(
+        title: String,
+        kind: LibraryRecentKind,
+        pngData: Data? = nil,
+        displaySize: CGSize,
+        widgetCodeString: String? = nil,
+        textPayload: LibraryTextPayload? = nil,
+        latexPayload: LibraryLaTeXPayload? = nil
+    ) {
+        self.title = title
+        self.kind = kind
+        self.pngData = pngData
+        self.displaySize = displaySize
+        self.widgetCodeString = widgetCodeString
+        self.textPayload = textPayload
+        self.latexPayload = latexPayload
     }
 }
 
@@ -176,7 +292,7 @@ struct LibraryObject: Identifiable, Hashable {
 /// A reusable library (shared across every .mathboard file). Tapping opens it
 /// to reveal its objects.
 struct LibraryFolder: Identifiable, Hashable {
-    var id: String { name }
+    let id: String
     let name: String
     let symbol: String
     let itemCount: Int
@@ -184,10 +300,28 @@ struct LibraryFolder: Identifiable, Hashable {
     /// Extra searchable terms (shapes/widgets/topics the library contains) so
     /// smart search surfaces a library even when its *name* doesn't match the
     /// query — e.g. searching "triangle" finds a "Geometry" library.
-    var keywords: [String] = []
+    var keywords: [String]
     /// Pinned libraries float to the top of the browser (distinct from the
     /// Recent-item ⭐ star: this is a 📌 pin on a whole library).
-    var isPinned: Bool = false
+    var isPinned: Bool
+
+    init(
+        id: String? = nil,
+        name: String,
+        symbol: String,
+        itemCount: Int,
+        tint: Color,
+        keywords: [String] = [],
+        isPinned: Bool = false
+    ) {
+        self.id = id ?? name
+        self.name = name
+        self.symbol = symbol
+        self.itemCount = itemCount
+        self.tint = tint
+        self.keywords = keywords
+        self.isPinned = isPinned
+    }
 
     /// Matches the query against the name and keywords (case-insensitive).
     /// Empty query matches everything.
@@ -227,6 +361,10 @@ enum LibraryMock {
         Color(red: 0.66, green: 0.48, blue: 0.86),
         Color(red: 0.35, green: 0.66, blue: 0.68)
     ]
+
+    static func tint(at index: Int) -> Color {
+        tints[index % tints.count]
+    }
 
     /// The reusable libraries (intentionally many, to exercise scale/clutter).
     /// A couple start pinned so the "Pinned" section is visible in previews.

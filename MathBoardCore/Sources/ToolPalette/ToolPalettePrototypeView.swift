@@ -174,6 +174,8 @@ private extension ToolPaletteCommand {
             return "extractSelectionAsImageSticker"
         case .sendSelectionToNextSlide:
             return "sendSelectionToNextSlide"
+        case .collapseCompactDrawerForCanvasInteraction:
+            return "collapseCompactDrawerForCanvasInteraction"
         }
     }
 }

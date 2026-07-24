@@ -89,7 +89,8 @@ private struct NormalizedMathSource {
         let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
         let unwrapped = Self.unwrappedMathDelimiter(trimmed)
         latex = Self.normalizedLaTeX(unwrapped.text)
-        shouldRenderAsMath = unwrapped.wasDelimited || Self.looksLikeMath(unwrapped.text)
+        shouldRenderAsMath = (unwrapped.wasDelimited || Self.looksLikeMath(unwrapped.text))
+            && !Self.isPlainNumericLabel(unwrapped.text)
     }
 
     private static func unwrappedMathDelimiter(_ source: String) -> (text: String, wasDelimited: Bool) {
@@ -125,8 +126,44 @@ private struct NormalizedMathSource {
     }
 
     private static func normalizedLaTeX(_ source: String) -> String {
-        source
+        let withoutSizingDelimiters = source
             .replacingOccurrences(of: "\\left", with: "")
             .replacingOccurrences(of: "\\right", with: "")
+        return normalizedUnaryMinus(withoutSizingDelimiters)
+    }
+
+    private static func normalizedUnaryMinus(_ source: String) -> String {
+        var result = ""
+        var previousNonWhitespace: Character?
+
+        for character in source {
+            if character == "-", isUnaryMinusContext(previousNonWhitespace) {
+                result += "{-}"
+            } else {
+                result.append(character)
+            }
+
+            if !character.isWhitespace {
+                previousNonWhitespace = character
+            }
+        }
+
+        return result
+    }
+
+    private static func isUnaryMinusContext(_ previousNonWhitespace: Character?) -> Bool {
+        guard let previousNonWhitespace else { return true }
+        switch previousNonWhitespace {
+        case "=", "(", "[", "{", "+", "-", "*", "/", "×", "÷", "^":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isPlainNumericLabel(_ source: String) -> Bool {
+        let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pattern = #"^[+-]?(?:\d+|\d*\.\d+)$"#
+        return trimmed.range(of: pattern, options: .regularExpression) != nil
     }
 }

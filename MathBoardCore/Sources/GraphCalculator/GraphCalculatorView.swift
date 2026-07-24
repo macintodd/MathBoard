@@ -74,6 +74,7 @@ public struct GraphCalculatorView: View {
     @State private var entryResizeStartExtra: CGFloat?
     @State private var entryResizeStartCenter: CGPoint?
     @State private var entryResizeLive: (extra: CGFloat, center: CGPoint)?
+    @State private var detachedControlResizeStart: (width: CGFloat, topLeft: CGPoint, extra: CGFloat)?
     @State private var tableDragStartCenter: CGPoint?
     @State private var tableResizeStart: (size: CGSize, topLeft: CGPoint)?
     @State private var tableResizeLive: (size: CGSize, center: CGPoint)?
@@ -424,16 +425,12 @@ public struct GraphCalculatorView: View {
             }
             Button {
                 if let containerSize {
-                    detachKeyboard(in: containerSize)
+                    toggleSectionLinkOrConnect(.keyboard, from: .equations, in: containerSize)
                 }
             } label: {
                 let isKeyboardLinked = linkBetween(.equations, .keyboard) != nil
-                Image(systemName: "keyboard.badge.eye")
+                Image(systemName: "keyboard")
                     .foregroundStyle(isKeyboardLinked ? GraphCalculatorTheme.blue : .black.opacity(0.62))
-            }
-            Button { state.resetWindow() } label: {
-                Image(systemName: "house")
-                    .foregroundStyle(GraphCalculatorTheme.blue)
             }
             Button { toggleGraphSettings() } label: {
                 Image(systemName: "gearshape.fill")
@@ -575,11 +572,15 @@ public struct GraphCalculatorView: View {
     private var shouldRenderDetachedControlPanel: Bool {
         !usesDockedCalculator &&
         state.equationSectionPlacement == .attached &&
-        state.equationSectionPlacement != .hidden
+        state.equationSectionPlacement != .hidden &&
+        state.keyboardSectionPlacement == .attached &&
+        linkBetween(.equations, .keyboard) != nil
     }
 
     private var shouldRenderDetachedKeyboard: Bool {
-        state.keyboardSectionPlacement == .detached && isKeyboardVisibleHere
+        state.keyboardSectionPlacement == .detached &&
+        linkBetween(.equations, .keyboard) == nil &&
+        isKeyboardVisibleHere
     }
 
     private var isKeyboardVisibleHere: Bool {
@@ -654,13 +655,51 @@ public struct GraphCalculatorView: View {
                         keypadHiddenEntryExtra = live.extra
                     }
                     if let containerSize {
-                        let size = CGSize(width: min(containerSize.width - 24, 440), height: min(containerSize.height - 24, detachedControlHeight))
+                        let size = detachedControlSize(in: containerSize)
                         state.detachedControlPosition = clamp(center: live.center, size: size, in: containerSize)
                     }
                 }
                 entryResizeLive = nil
                 entryResizeStartExtra = nil
                 entryResizeStartCenter = nil
+            }
+    }
+
+    private func detachedControlResizeGesture(currentCenter: CGPoint, currentSize: CGSize, in containerSize: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 1, coordinateSpace: .global)
+            .onChanged { value in
+                let currentExtra = isAttachedKeyboardVisibleHere ? keypadVisibleEntryExtra : keypadHiddenEntryExtra
+                let start = detachedControlResizeStart ?? (
+                    width: currentSize.width,
+                    topLeft: CGPoint(x: currentCenter.x - currentSize.width / 2, y: currentCenter.y - currentSize.height / 2),
+                    extra: currentExtra
+                )
+                if detachedControlResizeStart == nil {
+                    detachedControlResizeStart = start
+                }
+
+                let nextWidth = min(max(start.width + value.translation.width, 320), max(320, containerSize.width - 24))
+                let nextExtra = min(max(start.extra + value.translation.height, 0), keypadHeight)
+                state.detachedControlWidth = nextWidth
+                entryResizeLive = (
+                    extra: nextExtra,
+                    center: CGPoint(
+                        x: start.topLeft.x + nextWidth / 2,
+                        y: start.topLeft.y + detachedControlHeight / 2
+                    )
+                )
+            }
+            .onEnded { _ in
+                if let live = entryResizeLive {
+                    if isAttachedKeyboardVisibleHere {
+                        keypadVisibleEntryExtra = live.extra
+                    } else {
+                        keypadHiddenEntryExtra = live.extra
+                    }
+                    state.detachedControlPosition = clamp(center: live.center, size: detachedControlSize(in: containerSize), in: containerSize)
+                }
+                entryResizeLive = nil
+                detachedControlResizeStart = nil
             }
     }
 
@@ -1657,20 +1696,19 @@ public struct GraphCalculatorView: View {
     }
 
     private func pasteCalculationResultDown(from sourceIndex: Int, result: String) {
-        let targetIndex = sourceIndex + 1
-        if state.expressions.indices.contains(targetIndex) {
-            let target = state.expressions[targetIndex].expression.trimmingCharacters(in: .whitespacesAndNewlines)
-            if target.isEmpty {
+        switch GraphCalculatorExpressionActions.pasteDownTarget(sourceIndex: sourceIndex, expressions: state.expressions) {
+        case .fillExisting(let targetIndex):
+            if state.expressions.indices.contains(targetIndex) {
                 let targetID = state.expressions[targetIndex].id
                 state.expressions[targetIndex].expression = result
                 state.fractionResultRowIDs.remove(targetID)
                 state.regressionRows.removeValue(forKey: targetID)
                 state.selectExpression(at: targetIndex)
                 state.cursorOffset = result.count
-                return
             }
+        case .insert(let insertionSourceIndex):
+            state.insertExpression(result, after: insertionSourceIndex, matchingStyleOf: insertionSourceIndex)
         }
-        state.insertExpression(result, after: sourceIndex, matchingStyleOf: sourceIndex)
     }
 
     private func toggleFractionDisplay(index: Int, equationID: UUID, candidate: RationalFraction?) {
@@ -3005,7 +3043,7 @@ public struct GraphCalculatorView: View {
                     .frame(width: 24, height: 24)
                     .padding(7)
                     .contentShape(Rectangle())
-                    .highPriorityGesture(entryResizeGesture(isKeypadVisible: isAttachedKeyboardVisibleHere, anchoredCenter: center, containerSize: containerSize))
+                    .highPriorityGesture(detachedControlResizeGesture(currentCenter: center, currentSize: size, in: containerSize))
             }
         }
         .shadow(color: .black.opacity(0.26), radius: 16, y: 7)
@@ -3025,7 +3063,6 @@ public struct GraphCalculatorView: View {
             calculatorTopBar(.detachedControl)
                 .gesture(detachedControlDragGesture(currentCenter: center, size: size, expandedHeight: detachedControlHeight, in: containerSize))
             if !state.isDetachedControlHeaderCollapsed {
-                sectionModeStrip(containerSize: containerSize)
                 graphToolbar(placementRect: placementRect, containerSize: containerSize)
                 entryPanel
                     .frame(height: detachedEntryHeight(availableHeight: height))
@@ -3134,7 +3171,7 @@ public struct GraphCalculatorView: View {
         case .equations:
             return [.graph, .keyboard]
         case .keyboard:
-            return []
+            return [.equations]
         }
     }
 
@@ -3169,11 +3206,13 @@ public struct GraphCalculatorView: View {
     }
 
     private func keyboardSecondaryDisplayButton() -> some View {
-        Button {
+        let isShowingOnSecondary = state.keyboardDisplayMode == .iPadAndSecondary
+        return Button {
             guard state.keyboardSectionPlacement != .hidden else { return }
-            state.keyboardDisplayMode = state.keyboardDisplayMode == .iPadAndSecondary ? .iPadOnly : .iPadAndSecondary
+            state.keyboardDisplayMode = isShowingOnSecondary ? .iPadOnly : .iPadAndSecondary
         } label: {
-            Image(systemName: state.keyboardDisplayMode == .iPadAndSecondary ? "display.and.arrow.down" : "display.slash")
+            Image(systemName: "display.and.arrow.down")
+                .foregroundStyle(isShowingOnSecondary ? Color.green : Color.black.opacity(0.72))
         }
         .disabled(state.keyboardSectionPlacement == .hidden)
         .opacity(state.keyboardSectionPlacement == .hidden ? 0.35 : 1)
@@ -4549,9 +4588,7 @@ public struct GraphCalculatorView: View {
 
             graphIconButton("plus") { zoom(by: 1.35) }
             graphIconButton("minus") { zoom(by: 1 / 1.35) }
-            if let onHome {
-                graphIconButton("house.fill") { onHome() }
-            }
+            graphIconButton("house.fill") { (onHome ?? state.resetWindow)() }
         }
         .padding(10)
     }
@@ -4654,20 +4691,17 @@ public struct GraphCalculatorView: View {
     }
 
     private func deleteExpression(_ index: Int) {
-        let deletedSliderNames: Set<String>
-        if state.expressions.indices.contains(index) {
-            deletedSliderNames = Set(GraphCalculatorVariableScanner.sliderNames(in: [state.expressions[index].expression]))
-        } else {
-            deletedSliderNames = []
-        }
+        let orphanedSliderNames = GraphCalculatorExpressionActions.orphanedSliderNamesAfterDeletingExpression(
+            at: index,
+            expressions: state.expressions
+        )
         state.deleteExpression(at: index)
-        resetOrphanedDeletedSliders(deletedSliderNames)
+        resetOrphanedDeletedSliders(orphanedSliderNames)
     }
 
-    private func resetOrphanedDeletedSliders(_ deletedSliderNames: Set<String>) {
-        guard !deletedSliderNames.isEmpty else { return }
-        let remainingSliderNames = Set(GraphCalculatorVariableScanner.sliderNames(in: state.expressions.map(\.expression)))
-        for name in deletedSliderNames where !remainingSliderNames.contains(name) {
+    private func resetOrphanedDeletedSliders(_ orphanedSliderNames: [String]) {
+        guard !orphanedSliderNames.isEmpty else { return }
+        for name in orphanedSliderNames {
             if editingSliderBound?.name == name {
                 cancelSliderBoundEdit()
             }
@@ -4702,6 +4736,7 @@ public struct GraphCalculatorView: View {
             y: controlCenter.y - max(0, (controlSize.height - graphSize.height) / 2)
         )
 
+        state.detachedControlWidth = controlWidth
         state.detachedControlPosition = clamp(center: controlCenter, size: controlSize, in: containerSize)
         state.detachedGraphPosition = clamp(center: proposedGraphCenter, size: graphSize, in: containerSize)
         state.graphSectionPlacement = .detached
@@ -4807,6 +4842,34 @@ public struct GraphCalculatorView: View {
         guard target != source else { return }
         let sourceSize = sectionSize(for: source, in: containerSize)
         let sourceCenter = sectionCenter(for: source, size: sourceSize, in: containerSize)
+
+        if normalizedLink(between: source, and: target) == GraphCalculatorSectionLink(parent: .equations, child: .keyboard) {
+            if state.keyboardDisplayMode == .hidden {
+                state.keyboardDisplayMode = .iPadAndSecondary
+            }
+            state.equationSectionPlacement = .attached
+            state.keyboardSectionPlacement = .attached
+            state.isKeypadCollapsed = false
+            state.detachedEquationPosition = nil
+            state.detachedKeyboardPosition = nil
+            state.detachedControlWidth = sourceSize.width
+            let controlSize = detachedControlSize(in: containerSize)
+            state.detachedControlPosition = clamp(center: sourceCenter, size: controlSize, in: containerSize)
+            addLink(between: source, and: target)
+            state.sectionHasLeftHomeBase[.equations] = false
+            state.sectionHasLeftHomeBase[.keyboard] = false
+            return
+        }
+
+        if source == .equations,
+           target == .graph,
+           linkBetween(.equations, .keyboard) != nil,
+           sectionIsInHomeBase(.equations, in: containerSize) {
+            addLink(between: .graph, and: .equations)
+            reconnectGraph(in: containerSize)
+            return
+        }
+
         resizeCalledSection(target, toMatch: sourceSize, in: containerSize)
         let targetSize = sectionSize(for: target, in: containerSize)
         let targetCenter = snappedCenter(for: target, targetSize: targetSize, source: source, sourceSize: sourceSize, sourceCenter: sourceCenter, in: containerSize)
@@ -5688,20 +5751,23 @@ public struct GraphCalculatorView: View {
         let entry: CGFloat = isAttachedKeyboardVisibleHere
             ? baseDetachedEntryHeight + detachedVisibleEntryExtra
             : baseDetachedEntryHeight + detachedHiddenEntryExtra
-        return detachedControlHeaderHeight + 34 + 48 + entryHandleHeight + entry + (isAttachedKeyboardVisibleHere ? keypadHeight : 0)
+        return detachedControlHeaderHeight + 48 + entryHandleHeight + entry + (isAttachedKeyboardVisibleHere ? keypadHeight : 0)
     }
 
     private func detachedControlSize(in containerSize: CGSize) -> CGSize {
-        CGSize(width: min(containerSize.width - 24, 440), height: min(containerSize.height - 24, detachedControlHeight))
+        CGSize(
+            width: min(max(state.detachedControlWidth, 320), max(320, containerSize.width - 24)),
+            height: min(containerSize.height - 24, detachedControlHeight)
+        )
     }
 
     /// Height for the detached control panel's entry area. The handle just above the keypad can
     /// expand this section vertically so more expression cells remain visible while typing.
     private func detachedEntryHeight(availableHeight: CGFloat) -> CGFloat {
         if !isAttachedKeyboardVisibleHere {
-            return max(120, availableHeight - detachedControlHeaderHeight - 34 - 48 - entryHandleHeight)
+            return max(120, availableHeight - detachedControlHeaderHeight - 48 - entryHandleHeight)
         }
-        let availableEntryHeight = availableHeight - detachedControlHeaderHeight - 34 - 48 - entryHandleHeight - keypadHeight
+        let availableEntryHeight = availableHeight - detachedControlHeaderHeight - 48 - entryHandleHeight - keypadHeight
         return min(baseDetachedEntryHeight + detachedVisibleEntryExtra, max(120, availableEntryHeight))
     }
 
@@ -5976,12 +6042,7 @@ public struct GraphCalculatorView: View {
                     ? expandedCenterPreservingTop(collapsedCenter: finalCenter, expandedSize: expandedSize, collapsedSize: size, in: containerSize)
                     : finalCenter
                 state.detachedControlPosition = resolvedCenter
-                let controlRect = CGRect(x: resolvedCenter.x - expandedSize.width / 2, y: resolvedCenter.y - expandedSize.height / 2, width: expandedSize.width, height: expandedSize.height)
-                let homeRect = homeBaseRect(for: expandedSize, in: containerSize)
-                let hasOutsideHistory = state.sectionHasLeftHomeBase[.equations] == true || state.sectionHasLeftHomeBase[.keyboard] == true
-                if overlapRatio(of: controlRect, with: homeRect) > 0.5 && hasOutsideHistory {
-                    reconnectGraph(in: containerSize)
-                }
+                removeGraphLinkIfGraphIsOutsideHomeBase(in: containerSize)
                 detachedControlLiveOffset = .zero
                 dragProxy = nil
                 state.activeDragPresentation = nil
@@ -6118,6 +6179,15 @@ public struct GraphCalculatorView: View {
             }
             return sectionIsInHomeBase(link.parent, in: containerSize) && sectionIsInHomeBase(link.child, in: containerSize)
         }
+    }
+
+    private func removeGraphLinkIfGraphIsOutsideHomeBase(in containerSize: CGSize) {
+        guard linkBetween(.graph, .equations) != nil,
+              !sectionIsInHomeBase(.graph, in: containerSize),
+              let link = normalizedLink(between: .graph, and: .equations) else {
+            return
+        }
+        state.sectionLinks.remove(link)
     }
 
     private func homeBaseConnectionTarget(for dragged: GraphCalculatorSection, in containerSize: CGSize) -> GraphCalculatorSection? {
@@ -6813,185 +6883,6 @@ private enum GraphCalculatorExpressionDisplay {
             default: return String(character)
             }
         }.joined()
-    }
-}
-
-private enum GraphCalculatorVariableScanner {
-    static func sliderNames(in sources: [String]) -> [String] {
-        var names: Set<String> = []
-        let functionDefinitions = sources.compactMap(FunctionSignature.init(source:))
-        let functionNames = Set(functionDefinitions.map(\.name))
-        let inputVariables = Set(functionDefinitions.map(\.variable))
-        let calledFunctionNames = Set(sources.flatMap(functionCallNames(in:))
-
-        )
-
-        for source in sources {
-            guard let scanSource = sliderEligibleExpressionBody(in: source) else { continue }
-            for identifier in identifiers(in: scanSource)
-            where isSliderCandidate(
-                identifier,
-                functionNames: functionNames,
-                inputVariables: inputVariables,
-                calledFunctionNames: calledFunctionNames
-            ) {
-                names.insert(identifier)
-            }
-        }
-        return names.sorted()
-    }
-
-    private static func sliderEligibleExpressionBody(in source: String) -> String? {
-        if let function = FunctionSignature(source: source) {
-            return function.body
-        }
-
-        let compact = source.replacingOccurrences(of: " ", with: "")
-        guard let relation = firstRelationRange(in: compact) else { return nil }
-        let left = String(compact[..<relation.lowerBound])
-        let right = String(compact[relation.upperBound...])
-        if left == "y", !right.isEmpty {
-            return right
-        }
-        if right == "y", !left.isEmpty {
-            return left
-        }
-        return nil
-    }
-
-    private static func firstRelationRange(in source: String) -> Range<String.Index>? {
-        ["<=", "≥", "≤", ">=", "<", ">", "="]
-            .compactMap { source.range(of: $0) }
-            .min { $0.lowerBound < $1.lowerBound }
-    }
-
-    private static func identifiers(in source: String) -> [String] {
-        var identifiers: [String] = []
-        var current = ""
-
-        func flushCurrent() {
-            guard !current.isEmpty else { return }
-            let lower = current.lowercased()
-            if reservedFunctionNames.contains(lower) || lower.count == 1 {
-                identifiers.append(lower)
-            } else {
-                identifiers.append(contentsOf: lower.map(String.init))
-            }
-            current = ""
-        }
-
-        for character in source {
-            if character.isLetter {
-                current.append(character)
-            } else {
-                flushCurrent()
-            }
-        }
-
-        flushCurrent()
-
-        return identifiers
-    }
-
-    private static func functionCallNames(in source: String) -> [String] {
-        let compact = source.replacingOccurrences(of: " ", with: "")
-        var names: [String] = []
-        var index = compact.startIndex
-
-        while index < compact.endIndex {
-            let character = compact[index]
-            if character.isLetter,
-               let next = compact.index(index, offsetBy: 1, limitedBy: compact.endIndex),
-               next < compact.endIndex,
-               compact[next] == "(" {
-                names.append(String(character).lowercased())
-            }
-            index = compact.index(after: index)
-        }
-
-        return names
-    }
-
-    private static func isSliderCandidate(
-        _ identifier: String,
-        functionNames: Set<String>,
-        inputVariables: Set<String>,
-        calledFunctionNames: Set<String>
-    ) -> Bool {
-        // Note: single letters like f/g/h are NOT blanket-reserved here — when they are actually
-        // used as functions they are already excluded via functionNames / inputVariables /
-        // calledFunctionNames, so a bare `h` used as a value stays slider-eligible.
-        let reserved = Set(["x", "y", "pi", "e"]).union(reservedFunctionNames)
-        return identifier.count == 1
-            && !reserved.contains(identifier)
-            && !functionNames.contains(identifier)
-            && !inputVariables.contains(identifier)
-            && !calledFunctionNames.contains(identifier)
-    }
-
-    private static let reservedFunctionNames: Set<String> = [
-        "sin", "cos", "tan", "asin", "acos", "atan",
-        "sqrt", "abs", "log", "ln", "min", "max"
-    ]
-
-    private struct FunctionSignature {
-        let name: String
-        let variable: String
-        let body: String
-
-        init?(source: String) {
-            let trimmed = source.replacingOccurrences(of: " ", with: "")
-            guard trimmed.count >= 6,
-                  let equals = trimmed.firstIndex(of: "="),
-                  let openParen = trimmed.firstIndex(of: "("),
-                  let closeParen = trimmed.firstIndex(of: ")"),
-                  openParen < closeParen,
-                  closeParen < equals else {
-                return nil
-            }
-
-            let name = String(trimmed[..<openParen]).lowercased()
-            let variable = String(trimmed[trimmed.index(after: openParen)..<closeParen]).lowercased()
-            let body = String(trimmed[trimmed.index(after: equals)...])
-
-            guard name.count == 1,
-                  name.first?.isLetter == true,
-                  name != "y",
-                  variable.count == 1,
-                  variable.first?.isLetter == true,
-                  !body.isEmpty else {
-                return nil
-            }
-
-            self.name = name
-            self.variable = variable
-            self.body = body
-        }
-    }
-
-    private struct ScalarSignature {
-        let name: String
-        let body: String
-
-        init?(source: String) {
-            let trimmed = source.replacingOccurrences(of: " ", with: "")
-            guard !trimmed.contains("("),
-                  let equals = trimmed.firstIndex(of: "=") else {
-                return nil
-            }
-
-            let name = String(trimmed[..<equals]).lowercased()
-            let body = String(trimmed[trimmed.index(after: equals)...])
-            guard name.count == 1,
-                  name.first?.isLetter == true,
-                  !["x", "y"].contains(name),
-                  !body.isEmpty else {
-                return nil
-            }
-
-            self.name = name
-            self.body = body
-        }
     }
 }
 

@@ -14,12 +14,14 @@ import Slides
 struct LessonDetailView: View {
     let lesson: Lesson
 
+    @State private var classroomMode: MathBoardClassroomMode = .teacher
+
     #if canImport(UIKit)
     @Environment(\.dismiss) private var dismiss
     #endif
 
     var body: some View {
-        SlidesView(lessonURL: lesson.url)
+        SlidesView(lessonURL: lesson.url, classroomMode: $classroomMode)
             .onAppear { DisplayBroker.shared.lessonURL = lesson.url }
             #if canImport(UIKit)
             .navigationBarBackButtonHidden(true)
@@ -33,8 +35,8 @@ struct LessonDetailView: View {
 
     #if canImport(UIKit)
     // Floating back button + lesson title rendered over the whiteboard so the
-    // canvas can extend to the very top of the screen. Only the back button is
-    // interactive; the title lets pen strokes pass through to the canvas.
+    // canvas can extend to the very top of the screen. Tapping the title opens
+    // lesson-level controls, including the classroom mode switch.
     private var lessonChrome: some View {
         HStack(spacing: 10) {
             Button {
@@ -48,13 +50,32 @@ struct LessonDetailView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Back")
 
-            Text(lesson.name)
-                .font(.headline)
-                .lineLimit(1)
+            Menu {
+                Section("Classroom Mode") {
+                    Picker("Classroom Mode", selection: $classroomMode) {
+                        ForEach(MathBoardClassroomMode.allCases) { mode in
+                            Label(mode.displayName, systemImage: mode.systemImage).tag(mode)
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Text(lesson.name)
+                        .font(.headline)
+                        .lineLimit(1)
+                    Image(systemName: classroomMode.systemImage)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
                 .padding(.horizontal, 12)
                 .frame(height: 40)
                 .background(.ultraThinMaterial, in: Capsule())
-                .allowsHitTesting(false)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Lesson menu")
         }
         .padding(.top, 8)
         .padding(.leading, 12)

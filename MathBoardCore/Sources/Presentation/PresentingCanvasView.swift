@@ -18,6 +18,7 @@ import SwiftUI
 import Canvas
 import Calculator
 import GraphCalculator
+import Library
 import PDFKit
 import TextEngine
 import ToolPalette
@@ -52,6 +53,7 @@ public struct PresentingCanvasView: View {
     private let onImportPDF: (@MainActor () -> Void)?
     private let onImportPDFObjects: (@MainActor (URL, [Int]) -> Void)?
     private let onExportPDF: (@MainActor () -> Void)?
+    private let allowsWidgetAuthoring: Bool
     private let broker = DisplayBroker.shared
     private let calculator = CalculatorState.shared
     private let paletteSettings = ToolPaletteSettings.shared
@@ -64,6 +66,8 @@ public struct PresentingCanvasView: View {
     @State private var editState = CanvasEditState()
     @State private var pendingTextPlacement: PendingTextPlacement?
     @State private var pendingTextEdit: PendingTextEdit?
+    @State private var pendingLaTeXPlacement: PendingLaTeXPlacement?
+    @State private var pendingLaTeXEdit: PendingLaTeXEdit?
     @State private var actionHUDOffset: CGSize = .zero
     @State private var actionHUDStoredOffset: CGSize = .zero
     @State private var isClearingGeometrySelectionForCreation = false
@@ -74,6 +78,7 @@ public struct PresentingCanvasView: View {
     @State private var pendingWidgetEdit: PendingWidgetEdit?
     @State private var pendingPDFObjectImport: PendingPDFObjectImport?
     @State private var imageFileImportError: ImageFileImportError?
+    @State private var libraryRecentRefreshID = UUID()
 
     public init(
         drawingURL: URL,
@@ -86,7 +91,8 @@ public struct PresentingCanvasView: View {
         onExtractedRegionSend: (@MainActor (PresentationExtractedRegion) -> Void)? = nil,
         onImportPDF: (@MainActor () -> Void)? = nil,
         onImportPDFObjects: (@MainActor (URL, [Int]) -> Void)? = nil,
-        onExportPDF: (@MainActor () -> Void)? = nil
+        onExportPDF: (@MainActor () -> Void)? = nil,
+        allowsWidgetAuthoring: Bool = true
     ) {
         self.drawingURL = drawingURL
         self.background = background
@@ -99,6 +105,7 @@ public struct PresentingCanvasView: View {
         self.onImportPDF = onImportPDF
         self.onImportPDFObjects = onImportPDFObjects
         self.onExportPDF = onExportPDF
+        self.allowsWidgetAuthoring = allowsWidgetAuthoring
     }
 
     // The full-screen drawing surface and its full-bleed overlays. This
@@ -128,9 +135,12 @@ public struct PresentingCanvasView: View {
                 onTextEditingBegan: handleTextEditingBegan,
                 onTextEditingEnded: handleTextEditingEnded,
                 onTextPlacementRequested: requestTextPlacement,
-                onExtractedRegionSend: onExtractedRegionSend,
+                onLibraryTextDerivativeCreated: recordLibraryTextDerivative,
+                onExtractedRegionSend: handleExtractedRegionSend,
+                onExtractedRegionPlaced: recordExtractedRegionPlacement,
                 onExtractActionCompleted: activateSelectToolAfterExtractAction,
-                onWidgetEditRequested: requestWidgetEdit
+                onWidgetEditRequested: allowsWidgetAuthoring ? requestWidgetEdit : nil,
+                allowsWidgetAuthoring: allowsWidgetAuthoring
             )
             ViewfinderOverlay()
                 .opacity(broker.mode == .present ? 1 : 0)
@@ -138,6 +148,8 @@ public struct PresentingCanvasView: View {
             if calculator.isVisible {
                 CalculatorView(state: calculator)
             }
+
+            floatingLaTeXEditor
 
             if isGraphCalculatorVisibleToUser {
                 GraphCalculatorView(
@@ -154,6 +166,12 @@ public struct PresentingCanvasView: View {
                 activeToolPaletteOverlay
             }
             #endif
+        }
+        .onDrop(
+            of: [UTType(exportedAs: LibraryCanvasDragPayload.typeIdentifier)],
+            isTargeted: nil
+        ) { providers, location in
+            handleLibraryItemDrop(providers, at: location)
         }
         .background(
             GeometryReader { proxy in
@@ -174,6 +192,12 @@ public struct PresentingCanvasView: View {
     public var body: some View {
         ZStack(alignment: .topTrailing) {
             canvasStack
+            LibraryDrawerPrototypeView(
+                startOpen: false,
+                recentLessonURL: LibraryRecentStore.lessonURL(forDrawingURL: drawingURL),
+                recentRefreshID: libraryRecentRefreshID,
+                onInsertItem: placeLibraryItemAtViewportCenter
+            )
             floatingToolMenu
                 .padding(.top, 8)
                 .padding(.trailing, 12)
@@ -198,9 +222,16 @@ public struct PresentingCanvasView: View {
                 actionHUDStoredOffset = .zero
             }
         }
+        .onChange(of: isLaTeXEditorPresented) { _, isPresented in
+            if isPresented {
+                onTextEditingBegan?()
+            } else {
+                onTextEditingEnded?()
+            }
+        }
         .fullScreenCover(item: $pendingTextPlacement) { placement in
             TextEditorModalView { result in
-                insertText(result, at: placement.sourcePoint)
+                insertText(result, placement: placement)
                 pendingTextPlacement = nil
                 activateSelectTool()
             } onCancel: {
@@ -215,7 +246,7 @@ public struct PresentingCanvasView: View {
                     isBold: edit.object.isBold,
                     isItalic: edit.object.isItalic,
                     isUnderline: edit.object.isUnderlined,
-                    fontSize: edit.object.fontSize,
+                    fontSize: editorFontSize(forCanvasFontSize: edit.object.fontSize),
                     fontName: edit.object.fontName ?? "System"
                 )
             ) { result in
@@ -453,7 +484,9 @@ public struct PresentingCanvasView: View {
             if selectionState.selectedGroupObjectCount > 1,
                let viewportFrame = selectionState.viewportFrame,
                pendingTextEdit == nil,
-               pendingTextPlacement == nil {
+               pendingTextPlacement == nil,
+               pendingLaTeXPlacement == nil,
+               pendingLaTeXEdit == nil {
                 FloatingActionHUD(
                     onPaste: { objectCommand = CanvasObjectCommand(.pasteClipboard) },
                     onClone: { toolCommand = CanvasToolCommand(.duplicateSelection) },
@@ -470,7 +503,9 @@ public struct PresentingCanvasView: View {
             } else if let object = selectionState.selectedTextObject,
                let viewportFrame = selectionState.viewportFrame,
                pendingTextEdit == nil,
-               pendingTextPlacement == nil {
+               pendingTextPlacement == nil,
+               pendingLaTeXPlacement == nil,
+               pendingLaTeXEdit == nil {
                 FloatingActionHUD(
                     onEdit: { pendingTextEdit = PendingTextEdit(object: object) },
                     onCopy: { objectCommand = CanvasObjectCommand(.copy(.text(object.id))) },
@@ -484,7 +519,9 @@ public struct PresentingCanvasView: View {
             } else if let object = selectionState.selectedGeometryObject,
                       let viewportFrame = selectionState.viewportFrame,
                       pendingTextEdit == nil,
-                      pendingTextPlacement == nil {
+                      pendingTextPlacement == nil,
+                      pendingLaTeXPlacement == nil,
+                      pendingLaTeXEdit == nil {
                 FloatingActionHUD(
                     onCopy: { objectCommand = CanvasObjectCommand(.copy(.geometry(object.id))) },
                     onPaste: { objectCommand = CanvasObjectCommand(.pasteClipboard) },
@@ -497,9 +534,14 @@ public struct PresentingCanvasView: View {
             } else if let object = selectionState.selectedImageObject,
                       let viewportFrame = selectionState.viewportFrame,
                       pendingTextEdit == nil,
-                      pendingTextPlacement == nil {
+                      pendingTextPlacement == nil,
+                      pendingLaTeXPlacement == nil,
+                      pendingLaTeXEdit == nil {
                 let isLocked = object.isLocked == true
                 FloatingActionHUD(
+                    onEdit: selectionState.selectedLaTeXObject.map { latexObject in
+                        { pendingLaTeXEdit = PendingLaTeXEdit(imageObject: object, latexObject: latexObject) }
+                    },
                     onCopy: { objectCommand = CanvasObjectCommand(.copy(.image(object.id))) },
                     onPaste: { objectCommand = CanvasObjectCommand(.pasteClipboard) },
                     onClone: { objectCommand = CanvasObjectCommand(.duplicate(.image(object.id))) },
@@ -521,6 +563,33 @@ public struct PresentingCanvasView: View {
             }
         }
         .ignoresSafeArea()
+    }
+
+    @ViewBuilder
+    private var floatingLaTeXEditor: some View {
+        if let placement = pendingLaTeXPlacement {
+            LaTeXEditorView { result in
+                insertLaTeX(result, placement: placement)
+                pendingLaTeXPlacement = nil
+                activateSelectTool()
+            } onCancel: {
+                pendingLaTeXPlacement = nil
+                activateSelectTool()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .padding(24)
+        } else if let edit = pendingLaTeXEdit {
+            LaTeXEditorView(initialSource: edit.latexObject.latexSource, submitTitle: "Update") { result in
+                updateLaTeX(result, imageObject: edit.imageObject, latexObject: edit.latexObject)
+                pendingLaTeXEdit = nil
+                activateSelectTool()
+            } onCancel: {
+                pendingLaTeXEdit = nil
+                activateSelectTool()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .padding(24)
+        }
     }
 
     private var actionHUDDragGesture: some Gesture {
@@ -568,6 +637,10 @@ public struct PresentingCanvasView: View {
         broker.isGraphCalculatorVisible && broker.graphCalculator.hasVisibleSection
     }
 
+    private var isLaTeXEditorPresented: Bool {
+        pendingLaTeXPlacement != nil || pendingLaTeXEdit != nil
+    }
+
     private var canZoomIn: Bool {
         guard let viewportState = broker.viewportState else { return true }
         return viewportState.zoomScale < viewportState.maximumZoomScale - 0.01
@@ -576,6 +649,26 @@ public struct PresentingCanvasView: View {
     private var canZoomOut: Bool {
         guard let viewportState = broker.viewportState else { return true }
         return viewportState.zoomScale > viewportState.minimumZoomScale + 0.01
+    }
+
+    private var currentCanvasZoomScale: CGFloat {
+        max(broker.viewportState?.zoomScale ?? 1, 0.001)
+    }
+
+    // Canvas text is rendered through UIKit onto a zoomed canvas layer, while many
+    // worksheet/PDF backgrounds arrive as page-sized raster content. This factor
+    // maps the editor's document-style point sizes to the canvas backing size that
+    // visually matches those worksheets.
+    private var canvasTextPointScale: CGFloat {
+        4
+    }
+
+    private func canvasFontSize(forEditorFontSize fontSize: CGFloat) -> CGFloat {
+        fontSize * canvasTextPointScale / currentCanvasZoomScale
+    }
+
+    private func editorFontSize(forCanvasFontSize fontSize: CGFloat) -> CGFloat {
+        fontSize * currentCanvasZoomScale / canvasTextPointScale
     }
 
     private var toolPaletteStateBinding: Binding<ToolPaletteState> {
@@ -643,7 +736,22 @@ public struct PresentingCanvasView: View {
             return
         }
 
+        if command == .addItem(.text) {
+            broker.toolPaletteState = state
+            requestTextPlacementAtViewportCenter()
+            activateSelectTool()
+            return
+        }
+
+        if command == .addItem(.latex) {
+            broker.toolPaletteState = state
+            requestLaTeXPlacementAtViewportCenter()
+            activateSelectTool()
+            return
+        }
+
         if command == .addItem(.widget) {
+            guard allowsWidgetAuthoring else { return }
             broker.toolPaletteState = state
             presentWidgetEditor()
             return
@@ -772,6 +880,28 @@ public struct PresentingCanvasView: View {
         broker.toolPaletteState = state
     }
 
+    /// Loads a selected text object's style into the text controls before the
+    /// canvas applies the text-tool command. This prevents the palette's default
+    /// text size from overwriting an existing object's font size on edit begin.
+    private func loadTextObjectIntoPalette(_ object: CanvasTextObject) {
+        var state = broker.toolPaletteState
+        state.activeTool = .equation
+        state.isCompactDrawerOpen = true
+        state.strokeColor = PaletteColor(
+            name: "customText",
+            red: Double(object.red),
+            green: Double(object.green),
+            blue: Double(object.blue)
+        )
+        state.opacity = Double(object.alpha)
+        state.textStyle = object.isBold ? .bold : .normal
+        state.textIsItalic = object.isItalic
+        state.textIsUnderlined = object.isUnderlined
+        state.textSize = Double(object.fontSize)
+        state.textFontName = object.fontName ?? "System"
+        broker.toolPaletteState = state
+    }
+
     private func handleSelectionChange(from oldValue: CanvasSelectionState.Object?, to newValue: CanvasSelectionState.Object?) {
         if selectionState.selectedGroupObjectCount > 1 {
             var state = broker.toolPaletteState
@@ -826,6 +956,20 @@ public struct PresentingCanvasView: View {
 
     private func activateTextToolForExistingEditor() {
         var state = broker.toolPaletteState
+        if let object = selectionState.selectedTextObject {
+            state.strokeColor = PaletteColor(
+                name: "customText",
+                red: Double(object.red),
+                green: Double(object.green),
+                blue: Double(object.blue)
+            )
+            state.opacity = Double(object.alpha)
+            state.textStyle = object.isBold ? .bold : .normal
+            state.textIsItalic = object.isItalic
+            state.textIsUnderlined = object.isUnderlined
+            state.textSize = Double(object.fontSize)
+            state.textFontName = object.fontName ?? "System"
+        }
         ToolPaletteReducer.reduce(&state, command: .selectTool(.equation))
         broker.toolPaletteState = state
         applyToolPaletteState(state, triggering: .selectTool(.equation))
@@ -845,30 +989,279 @@ public struct PresentingCanvasView: View {
         pendingTextPlacement = PendingTextPlacement(sourcePoint: sourcePoint)
     }
 
-    private func insertText(_ result: TextEditorResult, at sourcePoint: CGPoint) {
+    private func requestTextPlacementAtViewportCenter() {
+        let referenceSize = broker.toolPaletteReferenceSize
+            ?? broker.calculatorReferenceSize
+            ?? CGSize(width: 1194, height: 744)
+        pendingTextPlacement = PendingTextPlacement(
+            sourcePoint: broker.currentViewportSourceRect.map {
+                CGPoint(x: $0.midX, y: $0.midY)
+            } ?? CGPoint(x: 320, y: 240),
+            canvasPoint: CGPoint(x: referenceSize.width / 2, y: referenceSize.height / 2)
+        )
+    }
+
+    private func requestLaTeXPlacementAtViewportCenter() {
+        let referenceSize = broker.toolPaletteReferenceSize
+            ?? broker.calculatorReferenceSize
+            ?? CGSize(width: 1194, height: 744)
+        pendingLaTeXPlacement = PendingLaTeXPlacement(
+            canvasPoint: CGPoint(x: referenceSize.width / 2, y: referenceSize.height / 2)
+        )
+    }
+
+    private func handleLibraryItemDrop(_ providers: [NSItemProvider], at canvasPoint: CGPoint) -> Bool {
+        guard let provider = providers.first(where: {
+            $0.hasItemConformingToTypeIdentifier(LibraryCanvasDragPayload.typeIdentifier)
+        }) else {
+            return false
+        }
+
+        provider.loadDataRepresentation(forTypeIdentifier: LibraryCanvasDragPayload.typeIdentifier) { data, _ in
+            guard let data,
+                  let payload = try? JSONDecoder().decode(LibraryCanvasDragPayload.self, from: data) else {
+                return
+            }
+
+            Task { @MainActor in
+                placeLibraryItem(payload, at: canvasPoint)
+            }
+        }
+        return true
+    }
+
+    @MainActor
+    private func placeLibraryItem(_ payload: LibraryCanvasDragPayload, at canvasPoint: CGPoint) {
+        if payload.kind == .widget,
+           let widgetCodeString = payload.widgetCodeString {
+            objectCommand = CanvasObjectCommand(.insertWidget(CanvasWidgetInsertion(
+                name: payload.title,
+                codeString: widgetCodeString,
+                displaySize: payload.displaySize,
+                canvasPoint: canvasPoint,
+                librarySourceCodeString: widgetCodeString
+            )))
+            activateSelectTool()
+            return
+        }
+
+        if payload.kind == .text,
+           let textPayload = payload.textPayload {
+            objectCommand = CanvasObjectCommand(.insertText(CanvasTextInsertion(
+                text: textPayload.text,
+                sourcePoint: .zero,
+                canvasPoint: canvasPoint,
+                fontSize: textPayload.fontSize,
+                color: CanvasStrokeColor(
+                    red: textPayload.red,
+                    green: textPayload.green,
+                    blue: textPayload.blue,
+                    alpha: textPayload.alpha
+                ),
+                isBold: textPayload.isBold,
+                isItalic: textPayload.isItalic,
+                isUnderlined: textPayload.isUnderlined,
+                fontName: textPayload.fontName,
+                displaySize: CGSize(width: textPayload.width, height: textPayload.height),
+                librarySourceText: textPayload.text
+            )))
+            activateSelectTool()
+            return
+        }
+
+        if payload.kind == .latex,
+           let latexPayload = payload.latexPayload,
+           let pngData = payload.pngData {
+            objectCommand = CanvasObjectCommand(.insertLaTeX(CanvasLaTeXInsertion(
+                latexSource: latexPayload.latexSource,
+                pngData: pngData,
+                displaySize: payload.displaySize,
+                canvasPoint: canvasPoint,
+                librarySourceLaTeX: latexPayload.latexSource
+            )))
+            activateSelectTool()
+            return
+        }
+
+        guard let pngData = payload.pngData else { return }
+
+        objectCommand = CanvasObjectCommand(
+            .insertImageAtCanvasPoint(
+                CanvasDroppedImageInsertion(
+                    pngData: pngData,
+                    displaySize: payload.displaySize,
+                    canvasPoint: canvasPoint,
+                    selectAfterInsert: true
+                )
+            )
+        )
+        activateSelectTool()
+    }
+
+    @MainActor
+    private func placeLibraryItemAtViewportCenter(_ payload: LibraryCanvasDragPayload) {
+        let referenceSize = broker.toolPaletteReferenceSize
+            ?? broker.calculatorReferenceSize
+            ?? CGSize(width: 1194, height: 744)
+        placeLibraryItem(
+            payload,
+            at: CGPoint(x: referenceSize.width / 2, y: referenceSize.height / 2)
+        )
+    }
+
+    @discardableResult
+    private func recordLibraryRecent(
+        title: String,
+        kind: LibraryRecentKind,
+        thumbnailPNGData: Data? = nil,
+        widgetCodeString: String? = nil,
+        textPayload: LibraryTextPayload? = nil,
+        latexPayload: LibraryLaTeXPayload? = nil
+    ) -> Bool {
+        do {
+            try LibraryRecentStore.record(
+                title: title,
+                kind: kind,
+                thumbnailPNGData: thumbnailPNGData,
+                widgetCodeString: widgetCodeString,
+                textPayload: textPayload,
+                latexPayload: latexPayload,
+                forDrawingURL: drawingURL
+            )
+            libraryRecentRefreshID = UUID()
+            return true
+        } catch {
+            // Recent is supportive metadata; insertion should not fail if it cannot be recorded.
+            return false
+        }
+    }
+
+    private func recordExtractedRegionPlacement(_ region: PresentationExtractedRegion) {
+        recordLibraryRecent(
+            title: Self.libraryRecentTitle("Extracted sticker"),
+            kind: .extractedInk,
+            thumbnailPNGData: region.pngData
+        )
+    }
+
+    private func handleExtractedRegionSend(_ region: PresentationExtractedRegion) {
+        onExtractedRegionSend?(region)
+        libraryRecentRefreshID = UUID()
+    }
+
+    private func insertText(_ result: TextEditorResult, placement: PendingTextPlacement) {
         let state = broker.toolPaletteState
+        let canvasFontSize = canvasFontSize(forEditorFontSize: result.fontSize)
         objectCommand = CanvasObjectCommand(.insertText(CanvasTextInsertion(
             text: result.sourceText,
-            sourcePoint: sourcePoint,
-            fontSize: result.fontSize,
+            sourcePoint: placement.sourcePoint,
+            canvasPoint: placement.canvasPoint,
+            fontSize: canvasFontSize,
             color: CanvasStrokeColor(color: state.strokeColor, opacity: state.opacity),
             isBold: result.isBold,
             isItalic: result.isItalic,
             isUnderlined: result.isUnderline,
             fontName: result.fontName
         )))
+        let trimmedText = result.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        recordLibraryRecent(
+            title: trimmedText.isEmpty ? "Text object" : String(trimmedText.prefix(36)),
+            kind: .text,
+            textPayload: LibraryTextPayload(
+                result,
+                color: CanvasStrokeColor(color: state.strokeColor, opacity: state.opacity),
+                fontSize: canvasFontSize
+            )
+        )
     }
 
     private func updateText(_ result: TextEditorResult, object: CanvasTextObject) {
+        let canvasFontSize = canvasFontSize(forEditorFontSize: result.fontSize)
+        let shouldRecordLibraryDerivative = object.shouldRecordLibraryDerivative(
+            forUpdatedText: result.sourceText
+        )
+        let didRecordLibraryDerivative = shouldRecordLibraryDerivative && recordLibraryRecent(
+            title: Self.libraryRecentTitle(forText: result.sourceText),
+            kind: .text,
+            textPayload: LibraryTextPayload(
+                result,
+                color: CanvasStrokeColor(
+                    red: object.red,
+                    green: object.green,
+                    blue: object.blue,
+                    alpha: object.alpha
+                ),
+                fontSize: canvasFontSize,
+                fallbackSize: object.frame.size
+            )
+        )
+
         objectCommand = CanvasObjectCommand(.updateText(CanvasTextUpdate(
             id: object.id,
             text: result.sourceText,
-            fontSize: result.fontSize,
+            fontSize: canvasFontSize,
             isBold: result.isBold,
             isItalic: result.isItalic,
             isUnderlined: result.isUnderline,
-            fontName: result.fontName
+            fontName: result.fontName,
+            hasRecordedLibraryDerivative: didRecordLibraryDerivative ? true : nil
         )))
+    }
+
+    private func insertLaTeX(_ result: LaTeXEditorResult, placement: PendingLaTeXPlacement) {
+        objectCommand = CanvasObjectCommand(.insertLaTeX(CanvasLaTeXInsertion(
+            latexSource: result.latexSource,
+            pngData: result.pngData,
+            displaySize: result.displaySize,
+            canvasPoint: placement.canvasPoint
+        )))
+        recordLibraryRecent(
+            title: Self.libraryRecentTitle(forLaTeX: result.latexSource),
+            kind: .latex,
+            thumbnailPNGData: result.pngData,
+            latexPayload: LibraryLaTeXPayload(
+                latexSource: result.latexSource,
+                width: result.displaySize.width,
+                height: result.displaySize.height
+            )
+        )
+    }
+
+    private func updateLaTeX(_ result: LaTeXEditorResult, imageObject: CanvasImageObject, latexObject: CanvasLaTeXObject) {
+        let shouldRecordLibraryDerivative = latexObject.shouldRecordLibraryDerivative(
+            forUpdatedSource: result.latexSource
+        )
+        let shouldRecordCanvasDerivative = latexObject.shouldRecordCanvasDerivative(
+            forUpdatedSource: result.latexSource
+        )
+        let shouldRecordRecent = shouldRecordLibraryDerivative || shouldRecordCanvasDerivative
+        let didRecordRecent = shouldRecordRecent && recordLibraryRecent(
+            title: Self.libraryRecentTitle(forLaTeX: result.latexSource),
+            kind: .latex,
+            thumbnailPNGData: result.pngData,
+            latexPayload: LibraryLaTeXPayload(
+                latexSource: result.latexSource,
+                width: imageObject.width,
+                height: imageObject.height
+            )
+        )
+
+        objectCommand = CanvasObjectCommand(.updateLaTeX(CanvasLaTeXUpdate(
+            imageObjectID: imageObject.id,
+            latexSource: result.latexSource,
+            pngData: result.pngData,
+            displaySize: result.displaySize,
+            hasRecordedLibraryDerivative: shouldRecordLibraryDerivative && didRecordRecent ? true : nil
+        )))
+    }
+
+    @MainActor
+    private func recordLibraryTextDerivative(_ object: CanvasTextObject) -> Bool {
+        recordLibraryRecent(
+            title: Self.libraryRecentTitle(forText: object.text),
+            kind: .text,
+            textPayload: LibraryTextPayload(object)
+        )
     }
 
     private func insertWidget(_ insertion: WidgetEditorInsertion) {
@@ -876,17 +1269,33 @@ public struct PresentingCanvasView: View {
             name: insertion.name,
             codeString: insertion.codeString
         )))
+        recordLibraryRecent(
+            title: insertion.name,
+            kind: .widget,
+            widgetCodeString: insertion.codeString
+        )
     }
 
     private func updateWidget(_ insertion: WidgetEditorInsertion, id: UUID) {
+        let shouldRecordLibraryDerivative = pendingWidgetEdit?.widget.shouldRecordLibraryDerivative(
+            forUpdatedCodeString: insertion.codeString
+        ) ?? false
+        let didRecordLibraryDerivative = shouldRecordLibraryDerivative && recordLibraryRecent(
+            title: insertion.name,
+            kind: .widget,
+            widgetCodeString: insertion.codeString
+        )
+
         objectCommand = CanvasObjectCommand(.updateWidget(CanvasWidgetUpdate(
             id: id,
             name: insertion.name,
-            codeString: insertion.codeString
+            codeString: insertion.codeString,
+            hasRecordedLibraryDerivative: didRecordLibraryDerivative ? true : nil
         )))
     }
 
     private func requestWidgetEdit(_ widget: WidgetObject) {
+        guard allowsWidgetAuthoring else { return }
         pendingWidgetEdit = PendingWidgetEdit(widget: widget)
     }
 
@@ -951,6 +1360,11 @@ public struct PresentingCanvasView: View {
                 )
             )
         )
+        recordLibraryRecent(
+            title: Self.libraryRecentTitle("Graph snapshot"),
+            kind: .graphSnapshot,
+            thumbnailPNGData: snapshot.pngData
+        )
     }
 
     @MainActor
@@ -1004,6 +1418,11 @@ public struct PresentingCanvasView: View {
                 )
             )
         )
+        recordLibraryRecent(
+            title: Self.libraryRecentTitle("Imported image"),
+            kind: .image,
+            thumbnailPNGData: importedImage.pngData
+        )
     }
 
     @MainActor
@@ -1033,6 +1452,13 @@ public struct PresentingCanvasView: View {
                     }
                 )
             )
+            for (index, page) in importedPages.enumerated() {
+                recordLibraryRecent(
+                    title: Self.libraryRecentTitle("PDF page \(index + 1)"),
+                    kind: .image,
+                    thumbnailPNGData: page.pngData
+                )
+            }
             clearPendingPDFObjectImport()
             activateSelectTool()
         } catch {
@@ -1045,6 +1471,23 @@ public struct PresentingCanvasView: View {
             try? FileManager.default.removeItem(at: pendingPDFObjectImport.url)
         }
         pendingPDFObjectImport = nil
+    }
+
+    private static func libraryRecentTitle(_ baseTitle: String, date: Date = Date()) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .medium
+        return "\(baseTitle) \(formatter.string(from: date))"
+    }
+
+    private static func libraryRecentTitle(forText text: String) -> String {
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedText.isEmpty ? "Text object" : String(trimmedText.prefix(36))
+    }
+
+    private static func libraryRecentTitle(forLaTeX latexSource: String) -> String {
+        let trimmedSource = latexSource.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedSource.isEmpty ? "LaTeX equation" : "f(x) \(String(trimmedSource.prefix(32)))"
     }
 
     private static func isPDFFile(_ url: URL) throws -> Bool {
@@ -1219,6 +1662,21 @@ public struct PresentingCanvasView: View {
 private struct PendingTextPlacement: Identifiable {
     let id = UUID()
     var sourcePoint: CGPoint
+    var canvasPoint: CGPoint?
+}
+
+private struct PendingLaTeXPlacement: Identifiable {
+    let id = UUID()
+    var canvasPoint: CGPoint
+}
+
+private struct PendingLaTeXEdit: Identifiable {
+    var imageObject: CanvasImageObject
+    var latexObject: CanvasLaTeXObject
+
+    var id: UUID {
+        imageObject.id
+    }
 }
 
 private struct PendingWidgetEdit: Identifiable {
@@ -1226,6 +1684,97 @@ private struct PendingWidgetEdit: Identifiable {
 
     var id: UUID {
         widget.id
+    }
+}
+
+private extension WidgetObject {
+    func shouldRecordLibraryDerivative(forUpdatedCodeString updatedCodeString: String) -> Bool {
+        guard let librarySourceCodeString,
+              !hasRecordedLibraryDerivative else {
+            return false
+        }
+
+        return Self.normalizedLibraryCode(librarySourceCodeString) != Self.normalizedLibraryCode(updatedCodeString)
+    }
+
+    static func normalizedLibraryCode(_ codeString: String) -> String {
+        codeString.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private extension CanvasLaTeXObject {
+    func shouldRecordLibraryDerivative(forUpdatedSource updatedSource: String) -> Bool {
+        guard let librarySourceLaTeX,
+              !hasRecordedLibraryDerivative else {
+            return false
+        }
+
+        return Self.normalizedLibrarySource(librarySourceLaTeX) != Self.normalizedLibrarySource(updatedSource)
+    }
+
+    func shouldRecordCanvasDerivative(forUpdatedSource updatedSource: String) -> Bool {
+        guard librarySourceLaTeX == nil else { return false }
+        return Self.normalizedLibrarySource(latexSource) != Self.normalizedLibrarySource(updatedSource)
+    }
+
+    static func normalizedLibrarySource(_ source: String) -> String {
+        source.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private extension CanvasTextObject {
+    func shouldRecordLibraryDerivative(forUpdatedText updatedText: String) -> Bool {
+        guard let librarySourceText,
+              !hasRecordedLibraryDerivative else {
+            return false
+        }
+
+        return Self.normalizedLibraryText(librarySourceText) != Self.normalizedLibraryText(updatedText)
+    }
+
+    static func normalizedLibraryText(_ text: String) -> String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private extension LibraryTextPayload {
+    init(
+        _ result: TextEditorResult,
+        color: CanvasStrokeColor,
+        fontSize: CGFloat? = nil,
+        fallbackSize: CGSize = CGSize(width: 220, height: 80)
+    ) {
+        self.init(
+            text: result.sourceText,
+            fontSize: fontSize ?? result.fontSize,
+            red: color.red,
+            green: color.green,
+            blue: color.blue,
+            alpha: color.alpha,
+            isBold: result.isBold,
+            isItalic: result.isItalic,
+            isUnderlined: result.isUnderline,
+            fontName: result.fontName,
+            width: fallbackSize.width,
+            height: fallbackSize.height
+        )
+    }
+
+    init(_ object: CanvasTextObject) {
+        self.init(
+            text: object.text,
+            fontSize: object.fontSize,
+            red: object.red,
+            green: object.green,
+            blue: object.blue,
+            alpha: object.alpha,
+            isBold: object.isBold,
+            isItalic: object.isItalic,
+            isUnderlined: object.isUnderlined,
+            fontName: object.fontName,
+            width: object.width,
+            height: object.height
+        )
     }
 }
 
@@ -1769,14 +2318,7 @@ private extension CanvasToolCommand {
                 mode: CanvasToolCommand.LaserMode(laserMode: state.laserMode)
             ))
         case .equation:
-            self.init(.text(
-                color: CanvasStrokeColor(color: state.strokeColor, opacity: state.opacity),
-                fontSize: CGFloat(state.textSize),
-                isBold: state.textStyle == .bold,
-                isItalic: state.textIsItalic,
-                isUnderlined: state.textIsUnderlined,
-                fontName: state.textFontName
-            ))
+            self.init(.idle)
         }
     }
 
@@ -1785,7 +2327,7 @@ private extension CanvasToolCommand {
         case .selectTool(let tool):
             return ToolID.allCases.contains(tool)
         case .setStrokeColor, .setPaletteColor, .setStrokeWidth, .setOpacity:
-            return activeTool == .pen || activeTool == .marker || activeTool == .eraser || activeTool == .laser || activeTool == .equation || activeTool == .geometry || activeTool == .cover
+            return activeTool == .pen || activeTool == .marker || activeTool == .eraser || activeTool == .laser || activeTool == .geometry || activeTool == .cover
         case .setFillColor, .setGeometryType, .setPolygonSides, .setGeometryLineArrowMode, .setGeometryFillOpacity:
             return activeTool == .geometry
         case .setEraserMode:
@@ -1793,7 +2335,7 @@ private extension CanvasToolCommand {
         case .setLaserDuration, .setLaserMode:
             return activeTool == .laser
         case .setTextBold, .setTextItalic, .setTextUnderlined, .setTextSize, .setTextFontName:
-            return activeTool == .equation
+            return false
         case .setSelectionTarget:
             return activeTool == .selection || activeTool == .extract
         case .setSelectionMode:

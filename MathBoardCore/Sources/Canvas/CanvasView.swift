@@ -36,9 +36,12 @@ public struct CanvasView: View {
     private let onTextEditingBegan: (@MainActor () -> Void)?
     private let onTextEditingEnded: (@MainActor () -> Void)?
     private let onTextPlacementRequested: (@MainActor (CGPoint) -> Void)?
+    private let onLibraryTextDerivativeCreated: (@MainActor (CanvasTextObject) -> Bool)?
     private let onExtractedRegionSend: (@MainActor (CanvasExtractedRegion) -> Void)?
+    private let onExtractedRegionPlaced: (@MainActor (CanvasExtractedRegion) -> Void)?
     private let onExtractActionCompleted: (@MainActor () -> Void)?
     private let onWidgetEditRequested: (@MainActor (WidgetObject) -> Void)?
+    private let allowsWidgetAuthoring: Bool
 
     public init(
         drawingURL: URL,
@@ -61,9 +64,12 @@ public struct CanvasView: View {
         onTextEditingBegan: (@MainActor () -> Void)? = nil,
         onTextEditingEnded: (@MainActor () -> Void)? = nil,
         onTextPlacementRequested: (@MainActor (CGPoint) -> Void)? = nil,
+        onLibraryTextDerivativeCreated: (@MainActor (CanvasTextObject) -> Bool)? = nil,
         onExtractedRegionSend: (@MainActor (CanvasExtractedRegion) -> Void)? = nil,
+        onExtractedRegionPlaced: (@MainActor (CanvasExtractedRegion) -> Void)? = nil,
         onExtractActionCompleted: (@MainActor () -> Void)? = nil,
-        onWidgetEditRequested: (@MainActor (WidgetObject) -> Void)? = nil
+        onWidgetEditRequested: (@MainActor (WidgetObject) -> Void)? = nil,
+        allowsWidgetAuthoring: Bool = true
     ) {
         self.drawingURL = drawingURL
         self.background = background
@@ -85,9 +91,12 @@ public struct CanvasView: View {
         self.onTextEditingBegan = onTextEditingBegan
         self.onTextEditingEnded = onTextEditingEnded
         self.onTextPlacementRequested = onTextPlacementRequested
+        self.onLibraryTextDerivativeCreated = onLibraryTextDerivativeCreated
         self.onExtractedRegionSend = onExtractedRegionSend
+        self.onExtractedRegionPlaced = onExtractedRegionPlaced
         self.onExtractActionCompleted = onExtractActionCompleted
         self.onWidgetEditRequested = onWidgetEditRequested
+        self.allowsWidgetAuthoring = allowsWidgetAuthoring
     }
 
     public var body: some View {
@@ -113,9 +122,12 @@ public struct CanvasView: View {
             onTextEditingBegan: onTextEditingBegan,
             onTextEditingEnded: onTextEditingEnded,
             onTextPlacementRequested: onTextPlacementRequested,
+            onLibraryTextDerivativeCreated: onLibraryTextDerivativeCreated,
             onExtractedRegionSend: onExtractedRegionSend,
+            onExtractedRegionPlaced: onExtractedRegionPlaced,
             onExtractActionCompleted: onExtractActionCompleted,
-            onWidgetEditRequested: onWidgetEditRequested
+            onWidgetEditRequested: onWidgetEditRequested,
+            allowsWidgetAuthoring: allowsWidgetAuthoring
         )
         #else
         MacCanvasPlaceholder(

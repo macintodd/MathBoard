@@ -44,10 +44,10 @@ let package = Package(
         // stays independent of Canvas and app-specific models.
         .library(name: "TextEngine", targets: ["TextEngine"]),
 
-        // Exposed only so Xcode offers a "Library" scheme that builds the
-        // Library drawer PROTOTYPE for SwiftUI previews. Nothing links it — the
-        // app target does not depend on it, so the module stays fully isolated
-        // and is trivial to delete. See MathBoard/LibraryDrawer_status.md.
+        // Exposed so Xcode offers a "Library" scheme for SwiftUI previews.
+        // Presentation renders the drawer on the live canvas, and Presentation /
+        // Slides record supported inserted objects into the per-lesson Recent
+        // sidecar. See MathBoard/LibraryDrawer_status.md.
         .library(name: "Library", targets: ["Library"])
     ],
     dependencies: [
@@ -64,8 +64,8 @@ let package = Package(
                 .product(name: "SwiftUIMath", package: "swiftui-math")
             ]
         ),
-        .target(name: "Presentation", dependencies: ["Canvas", "Calculator", "GraphCalculator", "TextEngine", "ToolPalette", "WidgetEngine"]),
-        .target(name: "Slides", dependencies: ["Presentation"]),
+        .target(name: "Presentation", dependencies: ["Canvas", "Calculator", "GraphCalculator", "Library", "TextEngine", "ToolPalette", "WidgetEngine"]),
+        .target(name: "Slides", dependencies: ["Library", "Presentation"]),
         .target(name: "Documents", dependencies: ["Slides"]),
 
         // Self-contained calculator/graphing tool. Not yet integrated;
@@ -114,10 +114,9 @@ let package = Package(
             ]
         ),
 
-        // Library drawer PROTOTYPE (UI-only). Fully self-contained: zero
-        // dependencies on MathBoard.app or the other MathBoardCore modules, and
-        // no persistence / canvas wiring. Previewed independently in Xcode via
-        // the "Library" scheme. See MathBoard/LibraryDrawer_status.md.
+        // Library drawer + per-lesson Recent sidecar. The drawer remains UI-only
+        // for placement, but supported inserted objects now record Recent metadata
+        // and optional PNG thumbnails. See MathBoard/LibraryDrawer_status.md.
         .target(name: "Library")
     ]
 )

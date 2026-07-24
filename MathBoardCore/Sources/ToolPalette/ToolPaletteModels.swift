@@ -53,12 +53,21 @@ public enum ToolID: String, CaseIterable, Codable, Equatable, Hashable, Sendable
 
 /// Kinds of content the "Add" tool (`.reserved`) can insert. Selecting the Add
 /// tool opens a mini strip of these options in the contextual drawer; picking
-/// one later triggers the matching insertion flow (file import, widget config,
-/// sticker placement, or the coordinate-axis creator). Wiring is added later —
-/// for now the command is a no-op in the reducer.
+/// one later triggers the matching insertion flow (file import, photo import,
+/// camera capture, widget config, sticker placement, or the coordinate-axis
+/// creator). Wiring is added later — for now the command is a no-op in the
+/// reducer.
 public enum AddItemKind: String, CaseIterable, Codable, Equatable, Sendable {
-    /// Images, PDFs, and GIFs imported from the file system / photo library.
+    /// Images imported from the file system. PDF objects are a separate flow.
     case file
+    /// Images imported from Apple Photos.
+    case photo
+    /// Images captured with the device camera.
+    case camera
+    /// A formatted text object created in the Text Editor.
+    case text
+    /// A rendered LaTeX equation object created in the LaTeX editor.
+    case latex
     /// An interactive/configurable widget (timer, RNG, table, HTML, …).
     case widget
     /// A reusable sticker from the Library.
@@ -69,6 +78,10 @@ public enum AddItemKind: String, CaseIterable, Codable, Equatable, Sendable {
     public var displayName: String {
         switch self {
         case .file: return "File"
+        case .photo: return "Photo"
+        case .camera: return "Camera"
+        case .text: return "Text"
+        case .latex: return "f(x)"
         case .widget: return "Widget"
         case .sticker: return "Sticker"
         case .axis: return "Axis"
@@ -78,6 +91,10 @@ public enum AddItemKind: String, CaseIterable, Codable, Equatable, Sendable {
     public var iconSystemName: String {
         switch self {
         case .file: return "doc.badge.plus"
+        case .photo: return "photo.on.rectangle"
+        case .camera: return "camera"
+        case .text: return "textformat"
+        case .latex: return "function"
         case .widget: return "square.grid.2x2"
         case .sticker: return "sparkles.rectangle.stack"
         case .axis: return "chart.xyaxis.line"
@@ -530,6 +547,7 @@ public enum ToolPaletteCommand: Equatable, Sendable {
     case deleteSelection
     case extractSelectionAsImageSticker
     case sendSelectionToNextSlide
+    case collapseCompactDrawerForCanvasInteraction
 }
 
 public struct PaletteOrbitItem: Identifiable, Equatable, Sendable {

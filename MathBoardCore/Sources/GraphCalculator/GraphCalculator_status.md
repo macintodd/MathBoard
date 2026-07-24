@@ -97,6 +97,21 @@ Home-base full restore rule:
 - The rule applies after either button-driven calls or drag-driven home-base regrouping.
 - An attached keyboard inside the combined function/keyboard controller counts as being in home base with the equation section.
 
+Function/keyboard composite refinement:
+
+- The detached function/keyboard controller now renders as a composite only when the equations-to-keyboard link is active.
+- Removed the extra connection strip from the function/keyboard composite; graph and keyboard connection controls remain on the existing toolbar.
+- The toolbar keyboard control is now a plain keyboard link toggle, not a keyboard visibility button.
+- The graph home/reset control now lives in the graph overlay in both docked and detached graph states, and was removed from the function toolbar.
+- Reconnecting keyboard to equations now forms the combined function/keyboard controller at the caller position instead of leaving a linked standalone keyboard window.
+- Standalone keyboard headers now include an `f(x)` button so the keypad can call the function window into a composite function/keypad controller.
+- When the keypad calls the function window, the composite controller adopts the keypad width and preserves that width.
+- The composite function/keypad corner grip now resizes the combined controller width as well as the visible function-cell area.
+- Dragging the function/keypad composite back into home base no longer pulls the graph window back automatically.
+- If the function/keypad composite is in home base, pressing its graph button explicitly calls the graph back and restores the original full composite calculator.
+- Returning the function/keypad composite to home base now prunes any stale graph-to-functions link when the graph itself is outside home base, preventing the graph from being pulled back implicitly.
+- The standalone keypad secondary-display button now remains visible in both display modes, using a stable monitor icon that turns green when the keypad is shown on both iPad and secondary display and plain black when iPad-only.
+
 Known follow-up:
 
 - Calculator home edge is currently state-driven and defaults to the right edge; parent tool-palette edge wiring is still needed to automatically choose the opposite edge.
@@ -846,3 +861,9 @@ Verification notes:
   - if a deleted variable is no longer referenced by any remaining expression, its approved slider state, value, bounds, and playback state are removed,
   - typing that variable again later returns it to the `create slider` prompt state instead of silently reusing the old approved slider.
 - Xcode live diagnostics and full project build passed after slider-deletion reset changes.
+- Completed pure-logic extraction and focused test pass:
+  - moved slider-variable scanning out of `GraphCalculatorView` into `GraphCalculatorVariableScanner`,
+  - added `GraphCalculatorExpressionActions` for paste-down target planning and deleted-row slider cleanup planning,
+  - rewired the view to use those helpers without changing UI behavior,
+  - added `GraphCalculatorTests` with focused coverage for slider scanning, orphaned slider cleanup, paste-down row selection, and user-defined function resolution.
+- Validation notes: full Xcode project build passed; active Xcode test plan ran with 21 unit tests passed and 0 failures, while 3 UI tests reported no result. SwiftPM package test execution is currently blocked by unrelated `#Preview` macro plugin failures in non-GraphCalculator package targets under Command Line Tools, so GraphCalculator test logic was also verified with Xcode snippets in the GraphCalculator target.

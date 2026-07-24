@@ -86,7 +86,7 @@ public final class TextEditorViewModel {
             isItalic: isItalic,
             isUnderline: isUnderline,
             markupConvention: .markdownWithHTMLUnderlineAndDollarMath,
-            detectedLaTeXRegions: detectedLaTeXRegions
+            detectedLaTeXRegions: []
         )
     }
 

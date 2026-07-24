@@ -29,6 +29,7 @@ public final class DocumentStore {
 
     private let rootURL: URL?
     private let fileManager: FileManager
+    private static let libraryRecentDirectoryName = "library"
 
     public init() {
         self.fileManager = .default
@@ -189,7 +190,7 @@ public final class DocumentStore {
         for _ in 0..<count {
             let finalName = try uniqueCopyName(for: lesson.name, in: folder.url)
             let packageURL = folder.url.appendingPathComponent("\(finalName).mathboard", isDirectory: true)
-            try fileManager.copyItem(at: lesson.url, to: packageURL)
+            try copyLessonPackage(from: lesson.url, to: packageURL)
 
             let metadata = DocumentMetadata(
                 id: UUID(),
@@ -266,7 +267,7 @@ public final class DocumentStore {
         let baseName = (try? validatedDisplayName(sourceName, kind: .lesson)) ?? "Imported Lesson"
         let finalName = try uniqueImportedName(for: baseName, in: importsFolderURL)
         let destinationURL = importsFolderURL.appendingPathComponent("\(finalName).mathboard", isDirectory: true)
-        try fileManager.copyItem(at: sourceURL, to: destinationURL)
+        try copyLessonPackage(from: sourceURL, to: destinationURL)
 
         let metadata = DocumentMetadata(
             id: UUID(),
@@ -384,6 +385,22 @@ public final class DocumentStore {
     private func filename(for name: String, pathExtension: String?) -> String {
         guard let pathExtension else { return name }
         return "\(name).\(pathExtension)"
+    }
+
+    private func copyLessonPackage(from sourceURL: URL, to destinationURL: URL) throws {
+        try fileManager.copyItem(at: sourceURL, to: destinationURL)
+        try copyLibraryRecentSidecar(from: sourceURL, to: destinationURL)
+    }
+
+    private func copyLibraryRecentSidecar(from sourceURL: URL, to destinationURL: URL) throws {
+        let sourceSidecarURL = sourceURL.appendingPathComponent(Self.libraryRecentDirectoryName, isDirectory: true)
+        guard fileManager.fileExists(atPath: sourceSidecarURL.path) else { return }
+
+        let destinationSidecarURL = destinationURL.appendingPathComponent(Self.libraryRecentDirectoryName, isDirectory: true)
+        if fileManager.fileExists(atPath: destinationSidecarURL.path) {
+            try fileManager.removeItem(at: destinationSidecarURL)
+        }
+        try fileManager.copyItem(at: sourceSidecarURL, to: destinationSidecarURL)
     }
 
     private static let invalidNameCharacters: CharacterSet = {

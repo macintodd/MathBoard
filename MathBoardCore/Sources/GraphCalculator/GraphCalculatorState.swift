@@ -225,6 +225,11 @@ public final class GraphCalculatorState {
         get { graphSectionPlacement == .detached }
         set { graphSectionPlacement = newValue ? .detached : .attached }
     }
+    public var hasVisibleSection: Bool {
+        graphSectionPlacement != .hidden
+            || equationSectionPlacement != .hidden
+            || keyboardSectionPlacement != .hidden
+    }
     public var detachedGraphPosition: CGPoint?
     public var detachedGraphSize: CGSize = CGSize(width: 520, height: 390)
     public var detachedEquationPosition: CGPoint?
@@ -232,6 +237,7 @@ public final class GraphCalculatorState {
     public var detachedKeyboardPosition: CGPoint?
     public var detachedKeyboardSize: CGSize = CGSize(width: 440, height: 250)
     public var detachedControlPosition: CGPoint?
+    public var detachedControlWidth: CGFloat = 440
     public var isKeypadCollapsed: Bool = false
     public var isDockedHeaderCollapsed: Bool = false
     public var isDetachedGraphHeaderCollapsed: Bool = false
@@ -425,6 +431,26 @@ public final class GraphCalculatorState {
 
     public func resetWindow() {
         graphWindow = .default
+    }
+
+    public func restoreCompositeHomeBase() {
+        graphSectionPlacement = .attached
+        equationSectionPlacement = .attached
+        keyboardSectionPlacement = .attached
+        keyboardDisplayMode = .iPadAndSecondary
+        sectionLinks = [
+            GraphCalculatorSectionLink(parent: .graph, child: .equations),
+            GraphCalculatorSectionLink(parent: .equations, child: .keyboard)
+        ]
+        sectionHasLeftHomeBase = [:]
+        detachedGraphPosition = nil
+        detachedEquationPosition = nil
+        detachedKeyboardPosition = nil
+        detachedControlPosition = nil
+        isKeypadCollapsed = false
+        isDockedHeaderCollapsed = false
+        isDetachedGraphHeaderCollapsed = false
+        isDetachedControlHeaderCollapsed = false
     }
 
     public func ensureSliderDefaults(for names: [String], defaultValue: Double = 0) {

@@ -119,6 +119,17 @@ private extension CanvasTextObject {
         }
         return attributes
     }
+
+    var shouldRecordLibraryTextDerivative: Bool {
+        guard let librarySourceText,
+              !hasRecordedLibraryDerivative else {
+            return false
+        }
+
+        let currentText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sourceText = librarySourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !currentText.isEmpty && currentText != sourceText
+    }
 }
 
 private extension CanvasToolCommand.EraserMode {
@@ -175,13 +186,17 @@ struct PencilKitCanvasContainer: View {
     let onTextEditingBegan: (@MainActor () -> Void)?
     let onTextEditingEnded: (@MainActor () -> Void)?
     let onTextPlacementRequested: (@MainActor (CGPoint) -> Void)?
+    let onLibraryTextDerivativeCreated: (@MainActor (CanvasTextObject) -> Bool)?
     let onExtractedRegionSend: (@MainActor (CanvasExtractedRegion) -> Void)?
+    let onExtractedRegionPlaced: (@MainActor (CanvasExtractedRegion) -> Void)?
     let onExtractActionCompleted: (@MainActor () -> Void)?
     let onWidgetEditRequested: (@MainActor (WidgetObject) -> Void)?
+    let allowsWidgetAuthoring: Bool
 
     @State private var drawing: PKDrawing = PKDrawing()
     @State private var textObjects: [CanvasTextObject] = []
     @State private var imageObjects: [CanvasImageObject] = []
+    @State private var latexObjects: [CanvasLaTeXObject] = []
     @State private var geometryObjects: [CanvasGeometryObject] = []
     @State private var coverObjects: [CanvasCoverObject] = []
     @State private var widgetObjects: [WidgetObject] = []
@@ -190,6 +205,7 @@ struct PencilKitCanvasContainer: View {
     @State private var saveTask: Task<Void, Never>?
     @State private var textSaveTask: Task<Void, Never>?
     @State private var imageObjectSaveTask: Task<Void, Never>?
+    @State private var latexObjectSaveTask: Task<Void, Never>?
     @State private var geometryObjectSaveTask: Task<Void, Never>?
     @State private var coverObjectSaveTask: Task<Void, Never>?
     @State private var widgetObjectSaveTask: Task<Void, Never>?
@@ -197,6 +213,7 @@ struct PencilKitCanvasContainer: View {
     @State private var hasPendingSave = false
     @State private var hasPendingTextSave = false
     @State private var hasPendingImageObjectSave = false
+    @State private var hasPendingLaTeXObjectSave = false
     @State private var hasPendingGeometryObjectSave = false
     @State private var hasPendingCoverObjectSave = false
     @State private var hasPendingWidgetObjectSave = false
@@ -211,11 +228,62 @@ struct PencilKitCanvasContainer: View {
     private static let absoluteBlack = UIColor(red: 0.0001, green: 0.0001, blue: 0.0001, alpha: 1)
 
     var body: some View {
+        persistenceObservedRepresentable
+    }
+
+    private var persistenceObservedRepresentable: some View {
+        sidecarObservedRepresentable
+            .onChange(of: coverObjects) { _, newCoverObjects in
+                handleCoverObjectsChange(newCoverObjects)
+            }
+            .onChange(of: widgetObjects) { _, newWidgetObjects in
+                handleWidgetObjectsChange(newWidgetObjects)
+            }
+            .onChange(of: objectLayerState) { _, newObjectLayerState in
+                handleObjectLayerStateChange(newObjectLayerState)
+            }
+            .onChange(of: editCommand) { _, command in
+                applyEditCommandIfNeeded(command)
+            }
+            .onDisappear {
+                flushPendingCanvasState()
+            }
+    }
+
+    private var sidecarObservedRepresentable: some View {
+        baseObservedRepresentable
+            .onChange(of: textObjects) { _, newTextObjects in
+                handleTextObjectsChange(newTextObjects)
+            }
+            .onChange(of: imageObjects) { _, newImageObjects in
+                handleImageObjectsChange(newImageObjects)
+            }
+            .onChange(of: latexObjects) { _, newLaTeXObjects in
+                handleLaTeXObjectsChange(newLaTeXObjects)
+            }
+            .onChange(of: geometryObjects) { _, newGeometryObjects in
+                handleGeometryObjectsChange(newGeometryObjects)
+            }
+    }
+
+    private var baseObservedRepresentable: some View {
+        representable
+            .background(Color.white)
+            .task(id: drawingURL) {
+                await loadCanvasState()
+            }
+            .onChange(of: drawing) { oldDrawing, newDrawing in
+                handleDrawingChange(from: oldDrawing, to: newDrawing)
+            }
+    }
+
+    private var representable: PencilKitCanvasRepresentable {
         PencilKitCanvasRepresentable(
             drawingURL: drawingURL,
             drawing: $drawing,
             textObjects: $textObjects,
             imageObjects: $imageObjects,
+            latexObjects: $latexObjects,
             geometryObjects: $geometryObjects,
             coverObjects: $coverObjects,
             widgetObjects: $widgetObjects,
@@ -237,79 +305,60 @@ struct PencilKitCanvasContainer: View {
             onTextEditingBegan: onTextEditingBegan,
             onTextEditingEnded: onTextEditingEnded,
             onTextPlacementRequested: onTextPlacementRequested,
+            onLibraryTextDerivativeCreated: onLibraryTextDerivativeCreated,
             onExtractedRegionSend: onExtractedRegionSend,
+            onExtractedRegionPlaced: onExtractedRegionPlaced,
             onExtractActionCompleted: onExtractActionCompleted,
-            onWidgetEditRequested: onWidgetEditRequested
+            onWidgetEditRequested: onWidgetEditRequested,
+            allowsWidgetAuthoring: allowsWidgetAuthoring
         )
-            .background(Color.white)
-            .task(id: drawingURL) {
-                didLoad = false
-                textSaveTask?.cancel()
-                textSaveTask = nil
-                imageObjectSaveTask?.cancel()
-                imageObjectSaveTask = nil
-                geometryObjectSaveTask?.cancel()
-                geometryObjectSaveTask = nil
-                coverObjectSaveTask?.cancel()
-                coverObjectSaveTask = nil
-                widgetObjectSaveTask?.cancel()
-                widgetObjectSaveTask = nil
-                objectLayerSaveTask?.cancel()
-                objectLayerSaveTask = nil
-                hasPendingTextSave = false
-                hasPendingImageObjectSave = false
-                hasPendingGeometryObjectSave = false
-                hasPendingCoverObjectSave = false
-                hasPendingWidgetObjectSave = false
-                hasPendingObjectLayerSave = false
-                drawing = (try? Self.loadDrawing(at: drawingURL)) ?? PKDrawing()
-                textObjects = CanvasTextObject.load(from: CanvasTextObject.sidecarURL(forDrawingURL: drawingURL))
-                imageObjects = CanvasImageObject.load(from: CanvasImageObject.sidecarURL(forDrawingURL: drawingURL))
-                geometryObjects = CanvasGeometryObject.load(from: CanvasGeometryObject.sidecarURL(forDrawingURL: drawingURL))
-                coverObjects = CanvasCoverObject.load(from: CanvasCoverObject.sidecarURL(forDrawingURL: drawingURL))
-                widgetObjects = WidgetObject.load(from: WidgetObject.sidecarURL(forDrawingURL: drawingURL))
-                objectLayerState = CanvasObjectLayerState.load(from: CanvasObjectLayerState.sidecarURL(forDrawingURL: drawingURL))
-                undoStack = []
-                redoStack = []
-                isApplyingEditCommand = false
-                appliedEditCommandID = nil
-                await Task.yield()
-                didLoad = true
-                publishEditState()
-            }
-            .onChange(of: drawing) { oldDrawing, newDrawing in
-                handleDrawingChange(from: oldDrawing, to: newDrawing)
-            }
-            .onChange(of: textObjects) { _, newTextObjects in
-                handleTextObjectsChange(newTextObjects)
-            }
-            .onChange(of: imageObjects) { _, newImageObjects in
-                handleImageObjectsChange(newImageObjects)
-            }
-            .onChange(of: geometryObjects) { _, newGeometryObjects in
-                handleGeometryObjectsChange(newGeometryObjects)
-            }
-            .onChange(of: coverObjects) { _, newCoverObjects in
-                handleCoverObjectsChange(newCoverObjects)
-            }
-            .onChange(of: widgetObjects) { _, newWidgetObjects in
-                handleWidgetObjectsChange(newWidgetObjects)
-            }
-            .onChange(of: objectLayerState) { _, newObjectLayerState in
-                handleObjectLayerStateChange(newObjectLayerState)
-            }
-            .onChange(of: editCommand) { _, command in
-                applyEditCommandIfNeeded(command)
-            }
-            .onDisappear {
-                flushPendingCanvasState()
-            }
+    }
+
+    private func loadCanvasState() async {
+        didLoad = false
+        textSaveTask?.cancel()
+        textSaveTask = nil
+        imageObjectSaveTask?.cancel()
+        imageObjectSaveTask = nil
+        latexObjectSaveTask?.cancel()
+        latexObjectSaveTask = nil
+        geometryObjectSaveTask?.cancel()
+        geometryObjectSaveTask = nil
+        coverObjectSaveTask?.cancel()
+        coverObjectSaveTask = nil
+        widgetObjectSaveTask?.cancel()
+        widgetObjectSaveTask = nil
+        objectLayerSaveTask?.cancel()
+        objectLayerSaveTask = nil
+        hasPendingTextSave = false
+        hasPendingImageObjectSave = false
+        hasPendingLaTeXObjectSave = false
+        hasPendingGeometryObjectSave = false
+        hasPendingCoverObjectSave = false
+        hasPendingWidgetObjectSave = false
+        hasPendingObjectLayerSave = false
+        drawing = (try? Self.loadDrawing(at: drawingURL)) ?? PKDrawing()
+        textObjects = CanvasTextObject.load(from: CanvasTextObject.sidecarURL(forDrawingURL: drawingURL))
+        imageObjects = CanvasImageObject.load(from: CanvasImageObject.sidecarURL(forDrawingURL: drawingURL))
+        latexObjects = CanvasLaTeXObject.load(from: CanvasLaTeXObject.sidecarURL(forDrawingURL: drawingURL))
+        geometryObjects = CanvasGeometryObject.load(from: CanvasGeometryObject.sidecarURL(forDrawingURL: drawingURL))
+        coverObjects = CanvasCoverObject.load(from: CanvasCoverObject.sidecarURL(forDrawingURL: drawingURL))
+        widgetObjects = WidgetObject.load(from: WidgetObject.sidecarURL(forDrawingURL: drawingURL))
+        objectLayerState = CanvasObjectLayerState.load(from: CanvasObjectLayerState.sidecarURL(forDrawingURL: drawingURL))
+        undoStack = []
+        redoStack = []
+        isApplyingEditCommand = false
+        appliedEditCommandID = nil
+        await Task.yield()
+        didLoad = true
+        publishEditState()
     }
 
     private func flushPendingCanvasState() {
         flushPendingSave()
         flushPendingTextSave()
         flushPendingImageObjectSave()
+        flushPendingLaTeXObjectSave()
         flushPendingGeometryObjectSave()
         flushPendingCoverObjectSave()
         flushPendingWidgetObjectSave()
@@ -339,6 +388,11 @@ struct PencilKitCanvasContainer: View {
     private func handleImageObjectsChange(_ newImageObjects: [CanvasImageObject]) {
         guard didLoad else { return }
         scheduleImageObjectSave(of: newImageObjects)
+    }
+
+    private func handleLaTeXObjectsChange(_ newLaTeXObjects: [CanvasLaTeXObject]) {
+        guard didLoad else { return }
+        scheduleLaTeXObjectSave(of: newLaTeXObjects)
     }
 
     private func handleGeometryObjectsChange(_ newGeometryObjects: [CanvasGeometryObject]) {
@@ -460,6 +514,25 @@ struct PencilKitCanvasContainer: View {
         guard hasPendingImageObjectSave else { return }
         saveImageObjects(imageObjects, to: CanvasImageObject.sidecarURL(forDrawingURL: drawingURL))
         hasPendingImageObjectSave = false
+    }
+
+    private func scheduleLaTeXObjectSave(of newLaTeXObjects: [CanvasLaTeXObject]) {
+        hasPendingLaTeXObjectSave = true
+        latexObjectSaveTask?.cancel()
+        latexObjectSaveTask = Task { @MainActor in
+            try? await Task.sleep(for: Self.saveDebounce)
+            guard !Task.isCancelled else { return }
+            saveLaTeXObjects(newLaTeXObjects, to: CanvasLaTeXObject.sidecarURL(forDrawingURL: drawingURL))
+            hasPendingLaTeXObjectSave = false
+        }
+    }
+
+    private func flushPendingLaTeXObjectSave() {
+        latexObjectSaveTask?.cancel()
+        latexObjectSaveTask = nil
+        guard hasPendingLaTeXObjectSave else { return }
+        saveLaTeXObjects(latexObjects, to: CanvasLaTeXObject.sidecarURL(forDrawingURL: drawingURL))
+        hasPendingLaTeXObjectSave = false
     }
 
     private func scheduleGeometryObjectSave(of newGeometryObjects: [CanvasGeometryObject]) {
@@ -631,6 +704,14 @@ struct PencilKitCanvasContainer: View {
         }
     }
 
+    private func saveLaTeXObjects(_ latexObjects: [CanvasLaTeXObject], to url: URL) {
+        do {
+            try CanvasLaTeXObject.save(latexObjects, to: url)
+        } catch {
+            print("[Canvas] LaTeX object save error: \(error)")
+        }
+    }
+
     private func saveGeometryObjects(_ geometryObjects: [CanvasGeometryObject], to url: URL) {
         do {
             try CanvasGeometryObject.save(geometryObjects, to: url)
@@ -712,6 +793,7 @@ private final class PencilKitCanvasHostView: UIView {
     private var widgetCanvasIdentity = ""
     private var onEditWidget: (@MainActor (WidgetObject) -> Void)?
     private var onWidgetInteractionChanged: (@MainActor (Bool) -> Void)?
+    private var allowsWidgetAuthoring = true
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -922,6 +1004,7 @@ private final class PencilKitCanvasHostView: UIView {
         using canvas: PKCanvasView,
         canvasIdentity: String,
         onEditWidget: (@MainActor (WidgetObject) -> Void)? = nil,
+        allowsWidgetAuthoring: Bool = true,
         onWidgetInteractionChanged: (@MainActor (Bool) -> Void)? = nil
     ) {
         if widgetCanvasIdentity != canvasIdentity {
@@ -931,6 +1014,7 @@ private final class PencilKitCanvasHostView: UIView {
         widgetObjectsBinding = widgets
         widgetScoreSheet = scoreSheet
         self.onEditWidget = onEditWidget
+        self.allowsWidgetAuthoring = allowsWidgetAuthoring
         self.onWidgetInteractionChanged = onWidgetInteractionChanged
         let viewport = WidgetCanvasViewport(
             zoomScale: canvas.zoomScale,
@@ -953,6 +1037,7 @@ private final class PencilKitCanvasHostView: UIView {
             canvasIdentity: canvasIdentity,
             scoreSheet: scoreSheet,
             onEditWidget: onEditWidget,
+            allowsWidgetAuthoring: allowsWidgetAuthoring,
             onWidgetInteractionChanged: onWidgetInteractionChanged,
             onWidgetDisplayFrameChanged: { [weak self] id, frame in
                 self?.updateActiveWidgetDisplayFrame(id: id, frame: frame)
@@ -994,6 +1079,7 @@ private final class PencilKitCanvasHostView: UIView {
             canvasIdentity: widgetCanvasIdentity,
             scoreSheet: widgetScoreSheet,
             onEditWidget: onEditWidget,
+            allowsWidgetAuthoring: allowsWidgetAuthoring,
             onWidgetInteractionChanged: onWidgetInteractionChanged,
             onWidgetDisplayFrameChanged: { [weak self] id, frame in
                 self?.updateActiveWidgetDisplayFrame(id: id, frame: frame)
@@ -2313,7 +2399,7 @@ private enum CanvasMathTextRenderer {
         let segments = CanvasMathTextParser.segments(in: object.text)
         guard segments.contains(where: \.isMath) else { return nil }
 
-        let fontSize = min(max(object.fontSize, 8), 96)
+        let fontSize = max(object.fontSize, 8)
         let attributes = object.textAttributes(size: fontSize)
         let contentWidth = max(maxWidth - textInset * 2, 1)
         let verticalInset = max(fontSize * 0.25, fallbackPadding)
@@ -2482,6 +2568,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
     @Binding var drawing: PKDrawing
     @Binding var textObjects: [CanvasTextObject]
     @Binding var imageObjects: [CanvasImageObject]
+    @Binding var latexObjects: [CanvasLaTeXObject]
     @Binding var geometryObjects: [CanvasGeometryObject]
     @Binding var coverObjects: [CanvasCoverObject]
     @Binding var widgetObjects: [WidgetObject]
@@ -2503,9 +2590,12 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
     let onTextEditingBegan: (@MainActor () -> Void)?
     let onTextEditingEnded: (@MainActor () -> Void)?
     let onTextPlacementRequested: (@MainActor (CGPoint) -> Void)?
+    let onLibraryTextDerivativeCreated: (@MainActor (CanvasTextObject) -> Bool)?
     let onExtractedRegionSend: (@MainActor (CanvasExtractedRegion) -> Void)?
+    let onExtractedRegionPlaced: (@MainActor (CanvasExtractedRegion) -> Void)?
     let onExtractActionCompleted: (@MainActor () -> Void)?
     let onWidgetEditRequested: (@MainActor (WidgetObject) -> Void)?
+    let allowsWidgetAuthoring: Bool
 
     func makeUIView(context: Context) -> PencilKitCanvasHostView {
         let hostView = PencilKitCanvasHostView()
@@ -2542,6 +2632,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             using: canvas,
             canvasIdentity: drawingURL.path,
             onEditWidget: onWidgetEditRequested,
+            allowsWidgetAuthoring: allowsWidgetAuthoring,
             onWidgetInteractionChanged: { [weak canvas] isInteracting in
                 canvas?.isScrollEnabled = !isInteracting
             }
@@ -2577,6 +2668,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 using: canvas,
                 canvasIdentity: self.drawingURL.path,
                 onEditWidget: self.onWidgetEditRequested,
+                allowsWidgetAuthoring: self.allowsWidgetAuthoring,
                 onWidgetInteractionChanged: { [weak canvas] isInteracting in
                     canvas?.isScrollEnabled = !isInteracting
                 }
@@ -2621,6 +2713,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             using: canvas,
             canvasIdentity: drawingURL.path,
             onEditWidget: onWidgetEditRequested,
+            allowsWidgetAuthoring: allowsWidgetAuthoring,
             onWidgetInteractionChanged: { [weak canvas] isInteracting in
                 canvas?.isScrollEnabled = !isInteracting
             }
@@ -3129,6 +3222,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 updateHostTextObjects(using: canvas)
                 clearLaserOverlay()
             case .text(let color, let fontSize, let isBold, let isItalic, let isUnderlined, let fontName):
+                let isStylingExistingTextObject = activeTextObjectIndex != nil
                 activeLiveStrokeColor = nil
                 activeLiveStrokeWidth = nil
                 activeLiveStrokeTool = nil
@@ -3140,14 +3234,16 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 activeTextFontName = fontName?.isEmpty == true ? nil : fontName
                 isTextSelectionEnabled = false
                 isRegionSelectionEnabled = false
-                setSelectedTextObjectID(nil)
+                if !isStylingExistingTextObject {
+                    setSelectedTextObjectID(nil)
+                }
                 activeLaserDuration = 0
                 liveStrokeRecognizer?.isEnabled = false
                 liveStrokeRecognizer?.cancelsTouchesInView = false
                 canvas.drawingGestureRecognizer.isEnabled = false
                 canvas.panGestureRecognizer.minimumNumberOfTouches = 2
                 hostView?.laserOverlayView.acceptsLaserInput = false
-                hostView?.textPlacementOverlayView.acceptsTextPlacement = true
+                hostView?.textPlacementOverlayView.acceptsTextPlacement = !isStylingExistingTextObject
                 hostView?.regionSelectionOverlayView.acceptsRegionSelectionInput = false
                 clearRegionSelection()
                 updateHostTextObjects(using: canvas)
@@ -3241,6 +3337,18 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                         using: canvas
                     )
                 }
+            case .insertImageAtCanvasPoint(let insertion):
+                Task { @MainActor [weak self, weak canvas] in
+                    guard let self, let canvas else { return }
+                    let frame = self.sourceFrame(forDroppedImageInsertion: insertion, on: canvas)
+                    _ = self.saveImageObject(
+                        pngData: insertion.pngData,
+                        frame: frame,
+                        selectAfterInsert: insertion.selectAfterInsert,
+                        isLocked: insertion.isLocked,
+                        using: canvas
+                    )
+                }
             case .insertImageNearViewport(let insertion):
                 Task { @MainActor [weak self, weak canvas] in
                     guard let self, let canvas else { return }
@@ -3270,6 +3378,16 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                             using: canvas
                         )
                     }
+                }
+            case .insertLaTeX(let insertion):
+                Task { @MainActor [weak self, weak canvas] in
+                    guard let self, let canvas else { return }
+                    self.insertLaTeXObject(insertion, using: canvas)
+                }
+            case .updateLaTeX(let update):
+                Task { @MainActor [weak self, weak canvas] in
+                    guard let self, let canvas else { return }
+                    self.updateLaTeXObject(update, using: canvas)
                 }
             case .insertWidget(let insertion):
                 Task { @MainActor [weak self, weak canvas] in
@@ -4217,7 +4335,6 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             activeTextIsItalic = object.isItalic
             activeTextIsUnderlined = object.isUnderlined
             activeTextFontName = object.fontName
-            beginEditingTextObject(id, on: canvas, selectAll: false)
             updateHostTextObjects(using: canvas)
         }
 
@@ -5893,6 +6010,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 parent.selectionState = CanvasSelectionState(
                     selectedObject: .image(object.id),
                     selectedImageObject: object,
+                    selectedLaTeXObject: parent.latexObjects.first(where: { $0.imageObjectID == object.id }),
                     selectedImageCanMoveBackward: !isLocked && canMoveSelectedImageBackward(index: index),
                     selectedImageCanMoveForward: !isLocked && canMoveSelectedImageForward(index: index),
                     viewportFrame: canvas.map { overlayRect(forSourceRect: object.renderedBounds, on: $0) }
@@ -6165,6 +6283,14 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 isLocked: object.isLocked
             )
             parent.imageObjects.append(duplicate)
+            if let latexObject = parent.latexObjects.first(where: { $0.imageObjectID == object.id }) {
+                parent.latexObjects.append(CanvasLaTeXObject(
+                    imageObjectID: duplicate.id,
+                    latexSource: latexObject.latexSource,
+                    librarySourceLaTeX: latexObject.librarySourceLaTeX,
+                    hasRecordedLibraryDerivative: latexObject.hasRecordedLibraryDerivative
+                ))
+            }
             setSelectedImageObjectID(duplicate.id)
             updateHostImageObjects(using: canvas)
             publishImageFromModel()
@@ -6175,6 +6301,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                   object.isLocked != true else { return }
             parent.onInteractionBegan?()
             parent.imageObjects.removeAll { $0.id == id }
+            parent.latexObjects.removeAll { $0.imageObjectID == id }
             setSelectedImageObjectID(nil)
             lastSelectedImageObjectID = nil
             movingImageObjectID = nil
@@ -6364,7 +6491,11 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 let imageURL = CanvasImageObject.assetDirectoryURL(forDrawingURL: parent.drawingURL)
                     .appendingPathComponent(imageObject.imageFileName)
                 guard let data = try? Data(contentsOf: imageURL) else { return }
-                writeSemanticObjectToPasteboard(.image(imageObject, data), imageData: data)
+                if let latexObject = parent.latexObjects.first(where: { $0.imageObjectID == imageObject.id }) {
+                    writeSemanticObjectToPasteboard(.latex(imageObject, latexObject, data), imageData: data)
+                } else {
+                    writeSemanticObjectToPasteboard(.image(imageObject, data), imageData: data)
+                }
             }
         }
 
@@ -6473,6 +6604,33 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 parent.imageObjects = imageObjects
                 setSelectedImageObjectID(pasted.id)
                 updateHostImageObjects(using: canvas)
+            case .latex(let object, let latexObject, let data):
+                let pastedOrigin = sourcePoint ?? CGPoint(x: object.x + offset, y: object.y + offset)
+                guard let pasted = createImageObject(
+                    pngData: data,
+                    frame: CGRect(
+                        x: pastedOrigin.x,
+                        y: pastedOrigin.y,
+                        width: object.width,
+                        height: object.height
+                    ),
+                    isLocked: object.isLocked == true
+                ) else {
+                    return
+                }
+                var imageObjects = parent.imageObjects
+                imageObjects.append(pasted)
+                parent.imageObjects = imageObjects
+                var latexObjects = parent.latexObjects
+                latexObjects.append(CanvasLaTeXObject(
+                    imageObjectID: pasted.id,
+                    latexSource: latexObject.latexSource,
+                    librarySourceLaTeX: latexObject.librarySourceLaTeX,
+                    hasRecordedLibraryDerivative: latexObject.hasRecordedLibraryDerivative
+                ))
+                parent.latexObjects = latexObjects
+                setSelectedImageObjectID(pasted.id)
+                updateHostImageObjects(using: canvas)
             case .geometry(let object):
                 let pastedOrigin = sourcePoint ?? CGPoint(x: object.x + offset, y: object.y + offset)
                 let deltaX = pastedOrigin.x - object.x
@@ -6526,6 +6684,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 pngData: payload.pngData,
                 frame: frame,
                 selectAfterInsert: true,
+                notifyExtractedPlacement: true,
                 using: canvas
             ) else {
                 return
@@ -6604,6 +6763,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 offset: .zero,
                 selectAfterInsert: false,
                 isLocked: true,
+                notifyExtractedPlacement: false,
                 using: canvas
             ) else {
                 return false
@@ -6632,6 +6792,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             offset: CGPoint,
             selectAfterInsert: Bool,
             isLocked: Bool = false,
+            notifyExtractedPlacement: Bool = true,
             using canvas: PKCanvasView
         ) -> Bool {
             let fileName = "\(UUID().uuidString).png"
@@ -6662,6 +6823,12 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 setSelectedImageObjectID(imageObject.id)
             }
             updateHostImageObjects(using: canvas)
+            if notifyExtractedPlacement {
+                parent.onExtractedRegionPlaced?(CanvasExtractedRegion(
+                    pngData: pngData,
+                    sourceBounds: sourceBounds.offsetBy(dx: offset.x, dy: offset.y)
+                ))
+            }
             return true
         }
 
@@ -6670,6 +6837,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             frame: CGRect,
             selectAfterInsert: Bool,
             isLocked: Bool = false,
+            notifyExtractedPlacement: Bool = false,
             using canvas: PKCanvasView
         ) -> Bool {
             let fileName = "\(UUID().uuidString).png"
@@ -6700,7 +6868,131 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 setSelectedImageObjectID(imageObject.id)
             }
             updateHostImageObjects(using: canvas)
+            if notifyExtractedPlacement {
+                parent.onExtractedRegionPlaced?(CanvasExtractedRegion(
+                    pngData: pngData,
+                    sourceBounds: frame
+                ))
+            }
             return true
+        }
+
+        private func insertLaTeXObject(_ insertion: CanvasLaTeXInsertion, using canvas: PKCanvasView) {
+            let frame: CGRect
+            if let canvasPoint = insertion.canvasPoint {
+                frame = sourceFrame(
+                    forDroppedImageInsertion: CanvasDroppedImageInsertion(
+                        pngData: insertion.pngData,
+                        displaySize: insertion.displaySize,
+                        canvasPoint: canvasPoint
+                    ),
+                    on: canvas
+                )
+            } else {
+                frame = sourceFrame(
+                    forViewportImageInsertion: CanvasViewportImageInsertion(
+                        pngData: insertion.pngData,
+                        displaySize: insertion.displaySize,
+                        referenceRect: insertion.referenceRect,
+                        containerSize: insertion.containerSize,
+                        margin: insertion.margin
+                    ),
+                    on: canvas
+                )
+            }
+
+            guard let imageObject = createImageObject(
+                pngData: insertion.pngData,
+                frame: frame,
+                isLocked: false
+            ) else {
+                return
+            }
+
+            parent.onInteractionBegan?()
+            parent.imageObjects.append(imageObject)
+            parent.latexObjects.append(CanvasLaTeXObject(
+                imageObjectID: imageObject.id,
+                latexSource: insertion.latexSource,
+                librarySourceLaTeX: insertion.librarySourceLaTeX,
+                hasRecordedLibraryDerivative: insertion.hasRecordedLibraryDerivative
+            ))
+            setSelectedImageObjectID(imageObject.id)
+            updateHostImageObjects(using: canvas)
+            publishImageFromModel()
+        }
+
+        private func updateLaTeXObject(_ update: CanvasLaTeXUpdate, using canvas: PKCanvasView) {
+            guard let imageIndex = parent.imageObjects.firstIndex(where: { $0.id == update.imageObjectID }),
+                  let latexIndex = parent.latexObjects.firstIndex(where: { $0.imageObjectID == update.imageObjectID }) else {
+                return
+            }
+            let imageObject = parent.imageObjects[imageIndex]
+            let oldFileName = imageObject.imageFileName
+            let assetDirectoryURL = CanvasImageObject.assetDirectoryURL(forDrawingURL: parent.drawingURL)
+            let newFileName = "\(UUID().uuidString).png"
+            let assetURL = assetDirectoryURL.appendingPathComponent(newFileName)
+            do {
+                try FileManager.default.createDirectory(
+                    at: assetDirectoryURL,
+                    withIntermediateDirectories: true
+                )
+                try update.pngData.write(to: assetURL, options: .atomic)
+            } catch {
+                print("[Canvas] LaTeX image update save error: \(error)")
+                return
+            }
+
+            parent.onInteractionBegan?()
+            parent.latexObjects[latexIndex].latexSource = update.latexSource
+            if let hasRecordedLibraryDerivative = update.hasRecordedLibraryDerivative {
+                parent.latexObjects[latexIndex].hasRecordedLibraryDerivative = hasRecordedLibraryDerivative
+            }
+            parent.imageObjects[imageIndex].imageFileName = newFileName
+            let updatedAspectRatio = max(update.displaySize.width, 1) / max(update.displaySize.height, 1)
+            let center = imageObject.center
+            let updatedHeight = max(imageObject.height, 1)
+            let updatedWidth = max(updatedHeight * updatedAspectRatio, 1)
+            parent.imageObjects[imageIndex].x = center.x - updatedWidth / 2
+            parent.imageObjects[imageIndex].y = center.y - updatedHeight / 2
+            parent.imageObjects[imageIndex].width = updatedWidth
+            parent.imageObjects[imageIndex].height = updatedHeight
+            if !parent.imageObjects.contains(where: { $0.id != update.imageObjectID && $0.imageFileName == oldFileName }) {
+                try? FileManager.default.removeItem(at: assetDirectoryURL.appendingPathComponent(oldFileName))
+            }
+            setSelectedImageObjectID(update.imageObjectID)
+            updateSharedSelectionState()
+            updateHostImageObjects(using: canvas)
+            publishImageFromModel()
+        }
+
+        private func createImageObject(
+            pngData: Data,
+            frame: CGRect,
+            isLocked: Bool
+        ) -> CanvasImageObject? {
+            let fileName = "\(UUID().uuidString).png"
+            let assetDirectoryURL = CanvasImageObject.assetDirectoryURL(forDrawingURL: parent.drawingURL)
+            let assetURL = assetDirectoryURL.appendingPathComponent(fileName)
+            do {
+                try FileManager.default.createDirectory(
+                    at: assetDirectoryURL,
+                    withIntermediateDirectories: true
+                )
+                try pngData.write(to: assetURL, options: .atomic)
+            } catch {
+                print("[Canvas] image object save error: \(error)")
+                return nil
+            }
+
+            return CanvasImageObject(
+                imageFileName: fileName,
+                x: frame.minX,
+                y: frame.minY,
+                width: frame.width,
+                height: frame.height,
+                isLocked: isLocked ? true : nil
+            )
         }
 
         private func insertWidgetObject(_ insertion: CanvasWidgetInsertion, using canvas: PKCanvasView) {
@@ -6718,6 +7010,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             parent.widgetObjects[index].codeString = update.codeString
             if update.resetsRuntimeState {
                 parent.widgetObjects[index].activityRuntimeState = nil
+            }
+            if let hasRecordedLibraryDerivative = update.hasRecordedLibraryDerivative {
+                parent.widgetObjects[index].hasRecordedLibraryDerivative = hasRecordedLibraryDerivative
             }
             updateHostWidgetObjects(using: canvas)
         }
@@ -6753,6 +7048,33 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         }
 
         private func sourceFrame(
+            forDroppedImageInsertion insertion: CanvasDroppedImageInsertion,
+            on canvas: PKCanvasView
+        ) -> CGRect {
+            let containerSize = canvas.bounds.size
+            let margin: CGFloat = 24
+            let displaySize = CGSize(
+                width: min(max(insertion.displaySize.width, 1), max(containerSize.width - margin * 2, 1)),
+                height: min(max(insertion.displaySize.height, 1), max(containerSize.height - margin * 2, 1))
+            )
+            let zoomScale = max(canvas.zoomScale, 0.001)
+            let sourceCenter = CGPoint(
+                x: (canvas.contentOffset.x + insertion.canvasPoint.x) / zoomScale - PencilKitCanvasGeometry.drawingOriginOffset.x,
+                y: (canvas.contentOffset.y + insertion.canvasPoint.y) / zoomScale - PencilKitCanvasGeometry.drawingOriginOffset.y
+            )
+            let sourceSize = CGSize(
+                width: displaySize.width / zoomScale,
+                height: displaySize.height / zoomScale
+            )
+            return CGRect(
+                x: sourceCenter.x - sourceSize.width / 2,
+                y: sourceCenter.y - sourceSize.height / 2,
+                width: sourceSize.width,
+                height: sourceSize.height
+            )
+        }
+
+        private func sourceFrame(
             forWidgetInsertion insertion: CanvasWidgetInsertion,
             on canvas: PKCanvasView
         ) -> CGRect {
@@ -6762,6 +7084,21 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 width: min(max(insertion.displaySize.width, 1), max(containerSize.width - margin * 2, 1)),
                 height: min(max(insertion.displaySize.height, 1), max(containerSize.height - margin * 2, 1))
             )
+
+            if let canvasPoint = insertion.canvasPoint {
+                let zoomScale = max(canvas.zoomScale, 0.001)
+                let sourceCenter = CGPoint(
+                    x: (canvas.contentOffset.x + canvasPoint.x) / zoomScale - PencilKitCanvasGeometry.drawingOriginOffset.x,
+                    y: (canvas.contentOffset.y + canvasPoint.y) / zoomScale - PencilKitCanvasGeometry.drawingOriginOffset.y
+                )
+                return CGRect(
+                    x: sourceCenter.x - displaySize.width / 2,
+                    y: sourceCenter.y - displaySize.height / 2,
+                    width: displaySize.width,
+                    height: displaySize.height
+                )
+            }
+
             let overlayFrame = viewportImageOverlayFrame(
                 displaySize: displaySize,
                 referenceRect: insertion.referenceRect,
@@ -6935,6 +7272,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             }
             if !matchingImageIDs.isEmpty {
                 parent.imageObjects.removeAll { matchingImageIDs.contains($0.id) }
+                parent.latexObjects.removeAll { matchingImageIDs.contains($0.imageObjectID) }
             }
             if !matchingGeometryIDs.isEmpty {
                 parent.geometryObjects.removeAll { matchingGeometryIDs.contains($0.id) }
@@ -7155,11 +7493,18 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             guard !text.isEmpty else { return }
 
             parent.onInteractionBegan?()
-            let size = measuredTextObjectSize(for: insertion)
+            let size = insertion.displaySize ?? measuredTextObjectSize(for: insertion)
+            let sourcePoint = insertion.canvasPoint.map {
+                sourcePointForCanvasViewPoint($0, on: canvas)
+            } ?? insertion.sourcePoint
+            let origin = insertion.canvasPoint == nil ? sourcePoint : CGPoint(
+                x: sourcePoint.x - size.width / 2,
+                y: sourcePoint.y - size.height / 2
+            )
             let textObject = CanvasTextObject(
                 text: text,
-                x: insertion.sourcePoint.x,
-                y: insertion.sourcePoint.y,
+                x: origin.x,
+                y: origin.y,
                 width: size.width,
                 height: size.height,
                 fontSize: insertion.fontSize,
@@ -7170,7 +7515,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 isBold: insertion.isBold,
                 isItalic: insertion.isItalic,
                 isUnderlined: insertion.isUnderlined,
-                fontName: insertion.fontName
+                fontName: insertion.fontName,
+                librarySourceText: insertion.librarySourceText,
+                hasRecordedLibraryDerivative: insertion.hasRecordedLibraryDerivative
             )
 
             var textObjects = parent.textObjects
@@ -7179,6 +7526,14 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             setSelectedTextObjectID(textObject.id)
             updateHostTextObjects(using: canvas)
             publishImageFromModel()
+        }
+
+        private func sourcePointForCanvasViewPoint(_ point: CGPoint, on canvas: PKCanvasView) -> CGPoint {
+            let zoomScale = max(canvas.zoomScale, 0.001)
+            return CGPoint(
+                x: (canvas.contentOffset.x + point.x) / zoomScale - PencilKitCanvasGeometry.drawingOriginOffset.x,
+                y: (canvas.contentOffset.y + point.y) / zoomScale - PencilKitCanvasGeometry.drawingOriginOffset.y
+            )
         }
 
         private func updateTextObject(_ update: CanvasTextUpdate, using canvas: PKCanvasView) {
@@ -7202,6 +7557,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     object.width = max(object.width, fittedSize.width)
                     object.height = max(object.height, fittedSize.height)
                 }
+                if let hasRecordedLibraryDerivative = update.hasRecordedLibraryDerivative {
+                    object.hasRecordedLibraryDerivative = hasRecordedLibraryDerivative
+                }
             }
             setSelectedTextObjectID(update.id)
             updateHostTextObjects(using: canvas)
@@ -7209,7 +7567,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         }
 
         private func measuredTextObjectSize(for insertion: CanvasTextInsertion) -> CGSize {
-            let fontSize = min(max(insertion.fontSize, 8), 96)
+            let fontSize = max(insertion.fontSize, 8)
             let sizingObject = CanvasTextObject(
                 text: insertion.text,
                 x: 0,
@@ -7227,7 +7585,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 fontName: insertion.fontName
             )
             let attributes = sizingObject.textAttributes(size: fontSize)
-            let maximumWidth: CGFloat = 900
+            let maximumWidth: CGFloat = max(900, fontSize * 12)
             if let mathSize = CanvasMathTextRenderer.fittingSize(for: sizingObject, maxWidth: maximumWidth) {
                 return mathSize
             }
@@ -7245,9 +7603,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         }
 
         private func measuredTextObjectSize(for object: CanvasTextObject) -> CGSize {
-            let fontSize = min(max(object.fontSize, 8), 96)
+            let fontSize = max(object.fontSize, 8)
             let attributes = object.textAttributes(size: fontSize)
-            let maximumWidth: CGFloat = 900
+            let maximumWidth: CGFloat = max(900, fontSize * 12)
             if let mathSize = CanvasMathTextRenderer.fittingSize(for: object, maxWidth: maximumWidth) {
                 return mathSize
             }
@@ -7281,9 +7639,13 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 object.isItalic = activeTextIsItalic
                 object.isUnderlined = activeTextIsUnderlined
                 object.fontName = activeTextFontName
+                let fittedSize = measuredTextObjectSize(for: object)
+                object.width = max(object.width, fittedSize.width)
+                object.height = max(object.height, fittedSize.height)
             }
             if let updatedObject {
                 updateActiveTextEditorContent(from: updatedObject, on: canvas)
+                updateActiveTextEditorFrame(on: canvas)
             }
             updateHostTextObjects(using: canvas)
             publishImageFromModel()
@@ -7318,14 +7680,20 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         }
 
         private var activeTextObjectIndex: Int? {
-            if let activeTextObjectID,
-               let index = parent.textObjects.firstIndex(where: { $0.id == activeTextObjectID }) {
+            if activeTextEditor != nil {
+                if let activeTextObjectID,
+                   let index = parent.textObjects.firstIndex(where: { $0.id == activeTextObjectID }) {
+                    return index
+                }
+                guard let index = parent.textObjects.indices.last else { return nil }
+                activeTextObjectID = parent.textObjects[index].id
                 return index
             }
-            guard activeTextEditor != nil else { return nil }
-            guard let index = parent.textObjects.indices.last else { return nil }
-            activeTextObjectID = parent.textObjects[index].id
-            return index
+            if let selectedID = selectedTextObjectIDFromSharedState ?? selectedTextObjectID,
+               let index = parent.textObjects.firstIndex(where: { $0.id == selectedID }) {
+                return index
+            }
+            return nil
         }
 
         private func beginEditingTextObject(_ id: UUID, on canvas: PKCanvasView, selectAll: Bool) {
@@ -7463,6 +7831,12 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         }
 
         func textViewDidEndEditing(_ textView: UITextView) {
+            if let activeTextObjectID,
+               let canvas,
+               let index = parent.textObjects.firstIndex(where: { $0.id == activeTextObjectID }) {
+                recordLibraryTextDerivativeIfNeeded(at: index, using: canvas)
+            }
+
             guard let activeTextObjectID,
                   let index = parent.textObjects.firstIndex(where: { $0.id == activeTextObjectID }),
                   parent.textObjects[index].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -7475,6 +7849,20 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 updateHostTextObjects(using: canvas)
                 publishImageFromModel()
             }
+        }
+
+        private func recordLibraryTextDerivativeIfNeeded(at index: Int, using canvas: PKCanvasView) {
+            guard parent.textObjects.indices.contains(index),
+                  parent.textObjects[index].shouldRecordLibraryTextDerivative,
+                  parent.onLibraryTextDerivativeCreated?(parent.textObjects[index]) == true else {
+                return
+            }
+
+            commitTextObjectUpdate(at: index, using: canvas) { object in
+                object.hasRecordedLibraryDerivative = true
+            }
+            updateHostTextObjects(using: canvas)
+            publishImageFromModel()
         }
 
         @discardableResult
@@ -7528,6 +7916,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 using: canvas,
                 canvasIdentity: parent.drawingURL.path,
                 onEditWidget: parent.onWidgetEditRequested,
+                allowsWidgetAuthoring: parent.allowsWidgetAuthoring,
                 onWidgetInteractionChanged: { [weak canvas] isInteracting in
                     canvas?.isScrollEnabled = !isInteracting
                 }

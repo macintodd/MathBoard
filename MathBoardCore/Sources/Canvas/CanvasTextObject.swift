@@ -24,6 +24,8 @@ public struct CanvasTextObject: Identifiable, Codable, Hashable, Sendable {
     public var fontName: String?
     /// Rotation in radians, applied about the text frame center.
     public var rotation: CGFloat
+    public var librarySourceText: String?
+    public var hasRecordedLibraryDerivative: Bool
 
     public init(
         id: UUID = UUID(),
@@ -41,7 +43,9 @@ public struct CanvasTextObject: Identifiable, Codable, Hashable, Sendable {
         isItalic: Bool = false,
         isUnderlined: Bool = false,
         fontName: String? = nil,
-        rotation: CGFloat = 0
+        rotation: CGFloat = 0,
+        librarySourceText: String? = nil,
+        hasRecordedLibraryDerivative: Bool = false
     ) {
         self.id = id
         self.text = text
@@ -59,6 +63,8 @@ public struct CanvasTextObject: Identifiable, Codable, Hashable, Sendable {
         self.isUnderlined = isUnderlined
         self.fontName = fontName
         self.rotation = rotation
+        self.librarySourceText = librarySourceText
+        self.hasRecordedLibraryDerivative = hasRecordedLibraryDerivative
     }
 
     public var frame: CGRect {
@@ -141,6 +147,8 @@ public struct CanvasTextObject: Identifiable, Codable, Hashable, Sendable {
         case isUnderlined
         case fontName
         case rotation
+        case librarySourceText
+        case hasRecordedLibraryDerivative
     }
 
     public init(from decoder: Decoder) throws {
@@ -161,5 +169,7 @@ public struct CanvasTextObject: Identifiable, Codable, Hashable, Sendable {
         isUnderlined = try container.decodeIfPresent(Bool.self, forKey: .isUnderlined) ?? false
         fontName = try container.decodeIfPresent(String.self, forKey: .fontName)
         rotation = try container.decodeIfPresent(CGFloat.self, forKey: .rotation) ?? 0
+        librarySourceText = try container.decodeIfPresent(String.self, forKey: .librarySourceText)
+        hasRecordedLibraryDerivative = try container.decodeIfPresent(Bool.self, forKey: .hasRecordedLibraryDerivative) ?? false
     }
 }

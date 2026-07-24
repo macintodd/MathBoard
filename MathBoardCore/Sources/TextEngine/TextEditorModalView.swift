@@ -3,9 +3,9 @@
 //  TextEngine
 //
 //  A large, word-processor-style modal text editor. Standalone and previewable:
-//  it owns a `TextEditorViewModel`, edits text with inline markup, previews any
-//  `$$ ... $$` LaTeX live, and returns a `TextEditorResult` through its Save
-//  closure. Nothing here touches the app's canvas or text objects.
+//  it owns a `TextEditorViewModel`, edits plain text formatting, and returns a
+//  `TextEditorResult` through its Save closure. Nothing here touches the app's
+//  canvas or text objects.
 //
 
 import SwiftUI
@@ -48,8 +48,6 @@ public struct TextEditorModalView: View {
             formattingToolbar
             Divider()
             editorPane
-            Divider()
-            previewPane
         }
         .frame(minWidth: 560, minHeight: 640)
         .background(.background)
@@ -88,7 +86,7 @@ public struct TextEditorModalView: View {
                 .focused($editorFocused)
 
             if viewModel.text.isEmpty {
-                Text("Start typing… use the toolbar for formatting, or wrap math in $$ … $$.")
+                Text("Start typing... use the toolbar for formatting.")
                     .font(editorFont)
                     .foregroundStyle(.tertiary)
                     .padding(.horizontal, 17)
@@ -97,16 +95,6 @@ public struct TextEditorModalView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    // MARK: Live LaTeX preview
-
-    private var previewPane: some View {
-        LaTeXPreviewView(source: viewModel.text)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.primary.opacity(0.03))
     }
 
     // MARK: Formatting toolbar
@@ -143,20 +131,6 @@ public struct TextEditorModalView: View {
             Divider().frame(height: 24)
 
             fontMenu
-
-            Button {
-                if let inner = viewModel.insertMathMode(in: currentRange) {
-                    // Highlight the placeholder / wrapped content so the user can
-                    // immediately type over it.
-                    selection = TextSelection(range: inner)
-                    editorFocused = true
-                } else {
-                    resetSelection()
-                }
-            } label: {
-                Label("Math", systemImage: "function")
-            }
-            .buttonStyle(.bordered)
 
             Divider().frame(height: 24)
 
@@ -280,6 +254,7 @@ public struct TextEditorModalView: View {
         default: .default
         }
         var font = Font.system(size: viewModel.fontSize, design: design)
+            .pointSize(viewModel.fontSize)
         if viewModel.isBold { font = font.bold() }
         if viewModel.isItalic { font = font.italic() }
         return font

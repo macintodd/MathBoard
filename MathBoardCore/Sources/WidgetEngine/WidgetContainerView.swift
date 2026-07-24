@@ -77,6 +77,7 @@ public struct WidgetContainerView: View {
     /// The widget being presented. Its code drives the rendered content.
     @Binding private var widget: WidgetObject
     private let scoreSheet: WidgetActivityScoreSheet?
+    private let allowsPinning: Bool
     private let onEditWidget: (() -> Void)?
     private let onDeleteWidget: (() -> Void)?
     private let onInteractionChanged: ((Bool) -> Void)?
@@ -104,6 +105,7 @@ public struct WidgetContainerView: View {
     public init(
         widget: Binding<WidgetObject>,
         scoreSheet: WidgetActivityScoreSheet? = nil,
+        allowsPinning: Bool = true,
         onEditWidget: (() -> Void)? = nil,
         onDeleteWidget: (() -> Void)? = nil,
         onInteractionChanged: ((Bool) -> Void)? = nil,
@@ -111,6 +113,7 @@ public struct WidgetContainerView: View {
     ) {
         _widget = widget
         self.scoreSheet = scoreSheet
+        self.allowsPinning = allowsPinning
         self.onEditWidget = onEditWidget
         self.onDeleteWidget = onDeleteWidget
         self.onInteractionChanged = onInteractionChanged
@@ -123,6 +126,7 @@ public struct WidgetContainerView: View {
     public init(widget: WidgetObject) {
         _widget = .constant(widget)
         self.scoreSheet = nil
+        self.allowsPinning = false
         self.onEditWidget = nil
         self.onDeleteWidget = nil
         self.onInteractionChanged = nil
@@ -209,15 +213,17 @@ public struct WidgetContainerView: View {
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
             Spacer(minLength: 0)
-            Button {
-                widget.isPinnedToCanvas.toggle()
-            } label: {
-                Image(systemName: widget.isPinnedToCanvas ? "pin.fill" : "pin")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(widget.isPinnedToCanvas ? .blue : .secondary)
+            if allowsPinning {
+                Button {
+                    widget.isPinnedToCanvas.toggle()
+                } label: {
+                    Image(systemName: widget.isPinnedToCanvas ? "pin.fill" : "pin")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(widget.isPinnedToCanvas ? .blue : .secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(widget.isPinnedToCanvas ? "Unpin widget from canvas" : "Pin widget to canvas")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(widget.isPinnedToCanvas ? "Unpin widget from canvas" : "Pin widget to canvas")
             if !widget.isPinnedToCanvas {
                 Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
                     .font(.system(size: 12))

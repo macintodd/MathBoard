@@ -102,6 +102,7 @@ public struct ExternalCanvasView: View {
                                 canvasIdentity: broker.widgetCanvasIdentity,
                                 scoreSheet: WidgetActivityScoreSheet(widgets: broker.widgetObjects),
                                 onEditWidget: { _ in },
+                                allowsWidgetAuthoring: false,
                                 onWidgetInteractionChanged: nil,
                                 onWidgetDisplayFrameChanged: nil
                             )

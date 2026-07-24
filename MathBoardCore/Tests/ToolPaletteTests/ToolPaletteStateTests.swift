@@ -387,6 +387,24 @@ struct ToolPaletteStateTests {
         #expect(state.isColorBloomOpen == false)
     }
 
+    @Test func canvasInteractionCollapsesCompactDrawerWithoutChangingTool() {
+        var state = ToolPaletteState(activeTool: .pen, isCompactDrawerOpen: true)
+
+        ToolPaletteReducer.reduce(&state, command: .collapseCompactDrawerForCanvasInteraction)
+
+        #expect(state.activeTool == .pen)
+        #expect(state.isCompactDrawerOpen == false)
+    }
+
+    @Test func canvasInteractionCollapsesDrawerForToolsWithoutQuickStrip() {
+        var state = ToolPaletteState(activeTool: .equation, isCompactDrawerOpen: true)
+
+        ToolPaletteReducer.reduce(&state, command: .collapseCompactDrawerForCanvasInteraction)
+
+        #expect(state.activeTool == .equation)
+        #expect(state.isCompactDrawerOpen == false)
+    }
+
     @Test func penAndMarkerKeepIndependentWidthAndOpacity() {
         var state = ToolPaletteState()
 

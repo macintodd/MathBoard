@@ -72,6 +72,7 @@ public struct WidgetCanvasOverlayView: View {
     private let canvasIdentity: String
     private let scoreSheet: WidgetActivityScoreSheet
     private let onEditWidget: ((WidgetObject) -> Void)?
+    private let allowsWidgetAuthoring: Bool
     private let onWidgetInteractionChanged: ((Bool) -> Void)?
     private let onWidgetDisplayFrameChanged: ((WidgetObject.ID, CGRect?) -> Void)?
 
@@ -81,6 +82,7 @@ public struct WidgetCanvasOverlayView: View {
         canvasIdentity: String = "",
         scoreSheet: WidgetActivityScoreSheet,
         onEditWidget: ((WidgetObject) -> Void)? = nil,
+        allowsWidgetAuthoring: Bool = true,
         onWidgetInteractionChanged: ((Bool) -> Void)? = nil,
         onWidgetDisplayFrameChanged: ((WidgetObject.ID, CGRect?) -> Void)? = nil
     ) {
@@ -89,6 +91,7 @@ public struct WidgetCanvasOverlayView: View {
         self.canvasIdentity = canvasIdentity
         self.scoreSheet = scoreSheet
         self.onEditWidget = onEditWidget
+        self.allowsWidgetAuthoring = allowsWidgetAuthoring
         self.onWidgetInteractionChanged = onWidgetInteractionChanged
         self.onWidgetDisplayFrameChanged = onWidgetDisplayFrameChanged
     }
@@ -99,8 +102,9 @@ public struct WidgetCanvasOverlayView: View {
                 WidgetContainerView(
                     widget: displayBinding(for: $widget),
                     scoreSheet: scoreSheet,
-                    onEditWidget: { onEditWidget?(widget) },
-                    onDeleteWidget: { deleteWidget(id: widget.id) },
+                    allowsPinning: allowsWidgetAuthoring,
+                    onEditWidget: allowsWidgetAuthoring ? { onEditWidget?(widget) } : nil,
+                    onDeleteWidget: allowsWidgetAuthoring ? { deleteWidget(id: widget.id) } : nil,
                     onInteractionChanged: onWidgetInteractionChanged,
                     onDisplayFrameChanged: { frame in
                         onWidgetDisplayFrameChanged?(widget.id, frame)

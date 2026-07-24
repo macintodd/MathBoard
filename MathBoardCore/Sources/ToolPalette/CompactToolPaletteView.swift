@@ -413,7 +413,7 @@ public struct CompactToolPaletteView: View {
         [
             [.selection, .extract],
             [.pen, .marker, .laser, .eraser],
-            [.geometry, .reserved, .equation, .cover]
+            [.geometry, .reserved, .cover]
         ]
     }
 
@@ -427,6 +427,8 @@ public struct CompactToolPaletteView: View {
             quickColorStrip
         } else if state.activeTool == .extract {
             extractQuickStrip
+        } else if state.activeTool == .reserved {
+            addQuickStrip
         } else if state.activeTool == .selection || state.activeTool == .eraser || state.activeTool == .cover {
             quickModeStrip
         } else if state.activeTool == .geometry {
@@ -547,6 +549,34 @@ public struct CompactToolPaletteView: View {
                     isSelected: state.extractAction == action
                 ) {
                     send(.setExtractAction(action))
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.white.opacity(0.78))
+                .shadow(color: .white.opacity(0.3), radius: 3, x: -1, y: -1)
+                .shadow(color: .black.opacity(0.16), radius: 8, x: 3, y: 3)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.62), lineWidth: 1)
+        )
+        .padding(.top, drawerTopOffset)
+        .padding(.horizontal, 8)
+    }
+
+    private var addQuickStrip: some View {
+        VStack(spacing: 10) {
+            ForEach(AddItemKind.allCases, id: \.rawValue) { kind in
+                CompactQuickModeButton(
+                    iconSystemName: kind.iconSystemName,
+                    label: kind.displayName,
+                    isSelected: false
+                ) {
+                    send(.addItem(kind))
                 }
             }
         }
@@ -938,7 +968,7 @@ private extension ToolID {
     }
 
     var hasCompactQuickStrip: Bool {
-        isCompactInkTool || self == .selection || self == .extract || self == .eraser || self == .geometry || self == .cover
+        isCompactInkTool || self == .selection || self == .extract || self == .reserved || self == .eraser || self == .geometry || self == .cover
     }
 
     var hasCompactDrawer: Bool {
@@ -1728,6 +1758,7 @@ private extension ToolPaletteCommand {
         case .deleteSelection: return "deleteSelection"
         case .extractSelectionAsImageSticker: return "extractSelectionAsImageSticker"
         case .sendSelectionToNextSlide: return "sendSelectionToNextSlide"
+        case .collapseCompactDrawerForCanvasInteraction: return "collapseCompactDrawerForCanvasInteraction"
         }
     }
 }

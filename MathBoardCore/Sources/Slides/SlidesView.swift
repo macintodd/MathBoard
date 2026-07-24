@@ -10,6 +10,7 @@
 //
 
 import SwiftUI
+import Library
 import Presentation
 import PDFKit
 import UniformTypeIdentifiers
@@ -19,10 +20,36 @@ import UIKit
 import AppKit
 #endif
 
+public enum MathBoardClassroomMode: String, CaseIterable, Identifiable {
+    case teacher
+    case student
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .teacher: return "Teacher"
+        case .student: return "Student"
+        }
+    }
+
+    public var systemImage: String {
+        switch self {
+        case .teacher: return "person.crop.rectangle"
+        case .student: return "graduationcap"
+        }
+    }
+
+    public var allowsWidgetAuthoring: Bool {
+        self == .teacher
+    }
+}
+
 public struct SlidesView: View {
     private let lessonURL: URL
 
     @State private var store: SlideStore
+    @Binding private var classroomMode: MathBoardClassroomMode
     @State private var activeIndex: Int = 0
     @State private var isShowingDeleteConfirmation = false
     @State private var slideErrorMessage: String?
@@ -37,9 +64,13 @@ public struct SlidesView: View {
 
     private static let viewportSaveDebounce: Duration = .milliseconds(300)
 
-    public init(lessonURL: URL) {
+    public init(
+        lessonURL: URL,
+        classroomMode: Binding<MathBoardClassroomMode> = .constant(.teacher)
+    ) {
         self.lessonURL = lessonURL
         _store = State(initialValue: SlideStore(lessonURL: lessonURL))
+        _classroomMode = classroomMode
     }
 
     public var body: some View {
@@ -61,7 +92,8 @@ public struct SlidesView: View {
                     onExportPDF: {
                         flushPendingViewportSave()
                         isShowingPDFExporter = true
-                    }
+                    },
+                    allowsWidgetAuthoring: classroomMode.allowsWidgetAuthoring
                 )
                     .id(slide.id)
             }
@@ -267,6 +299,19 @@ public struct SlidesView: View {
             imageObjects,
             to: PresentationCanvasImageObject.sidecarURL(forDrawingURL: drawingURL)
         )
+        try? LibraryRecentStore.record(
+            title: Self.libraryRecentTitle("Extracted sticker"),
+            kind: .extractedInk,
+            thumbnailPNGData: region.pngData,
+            forDrawingURL: drawingURL
+        )
+    }
+
+    private static func libraryRecentTitle(_ baseTitle: String, date: Date = Date()) -> String {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .medium
+        return "\(baseTitle) \(formatter.string(from: date))"
     }
 
     private func importPDFPagesAsCanvasObjects(pdfURL: URL, pageIndices: [Int]) {
@@ -322,6 +367,12 @@ public struct SlidesView: View {
         try PresentationCanvasImageObject.save(
             [imageObject],
             to: PresentationCanvasImageObject.sidecarURL(forDrawingURL: drawingURL)
+        )
+        try? LibraryRecentStore.record(
+            title: Self.libraryRecentTitle("PDF page object"),
+            kind: .image,
+            thumbnailPNGData: page.pngData,
+            forDrawingURL: drawingURL
         )
     }
 

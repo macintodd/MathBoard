@@ -42,6 +42,7 @@ public struct CanvasSelectionState: Sendable, Equatable {
     public var selectedObject: Object?
     public var selectedTextObject: CanvasTextObject?
     public var selectedImageObject: CanvasImageObject?
+    public var selectedLaTeXObject: CanvasLaTeXObject?
     public var selectedImageCanMoveBackward: Bool
     public var selectedImageCanMoveForward: Bool
     public var selectedGeometryObject: CanvasGeometryObject?
@@ -53,6 +54,7 @@ public struct CanvasSelectionState: Sendable, Equatable {
         selectedObject: Object? = nil,
         selectedTextObject: CanvasTextObject? = nil,
         selectedImageObject: CanvasImageObject? = nil,
+        selectedLaTeXObject: CanvasLaTeXObject? = nil,
         selectedImageCanMoveBackward: Bool = false,
         selectedImageCanMoveForward: Bool = false,
         selectedGeometryObject: CanvasGeometryObject? = nil,
@@ -63,6 +65,7 @@ public struct CanvasSelectionState: Sendable, Equatable {
         self.selectedObject = selectedObject
         self.selectedTextObject = selectedTextObject
         self.selectedImageObject = selectedImageObject
+        self.selectedLaTeXObject = selectedLaTeXObject
         self.selectedImageCanMoveBackward = selectedImageCanMoveBackward
         self.selectedImageCanMoveForward = selectedImageCanMoveForward
         self.selectedGeometryObject = selectedGeometryObject
@@ -114,8 +117,11 @@ public struct CanvasObjectCommand: Sendable, Equatable, Identifiable {
     public enum Action: Sendable, Equatable {
         case insertText(CanvasTextInsertion)
         case insertImage(CanvasImageInsertion)
+        case insertImageAtCanvasPoint(CanvasDroppedImageInsertion)
         case insertImageNearViewport(CanvasViewportImageInsertion)
         case insertImagesNearViewport([CanvasViewportImageInsertion])
+        case insertLaTeX(CanvasLaTeXInsertion)
+        case updateLaTeX(CanvasLaTeXUpdate)
         case insertWidget(CanvasWidgetInsertion)
         case updateWidget(CanvasWidgetUpdate)
         case updateText(CanvasTextUpdate)
@@ -146,7 +152,10 @@ public struct CanvasWidgetInsertion: Sendable, Equatable {
     public var displaySize: CGSize
     public var referenceRect: CGRect?
     public var containerSize: CGSize?
+    public var canvasPoint: CGPoint?
     public var margin: CGFloat
+    public var librarySourceCodeString: String?
+    public var hasRecordedLibraryDerivative: Bool
 
     public init(
         name: String,
@@ -154,21 +163,29 @@ public struct CanvasWidgetInsertion: Sendable, Equatable {
         displaySize: CGSize = CGSize(width: 820, height: 420),
         referenceRect: CGRect? = nil,
         containerSize: CGSize? = nil,
-        margin: CGFloat = 24
+        canvasPoint: CGPoint? = nil,
+        margin: CGFloat = 24,
+        librarySourceCodeString: String? = nil,
+        hasRecordedLibraryDerivative: Bool = false
     ) {
         self.name = name
         self.codeString = codeString
         self.displaySize = displaySize
         self.referenceRect = referenceRect
         self.containerSize = containerSize
+        self.canvasPoint = canvasPoint
         self.margin = margin
+        self.librarySourceCodeString = librarySourceCodeString
+        self.hasRecordedLibraryDerivative = hasRecordedLibraryDerivative
     }
 
     public var widgetObject: WidgetObject {
         WidgetObject(
             name: name,
             codeString: codeString,
-            frame: CGRect(origin: .zero, size: displaySize)
+            frame: CGRect(origin: .zero, size: displaySize),
+            librarySourceCodeString: librarySourceCodeString,
+            hasRecordedLibraryDerivative: hasRecordedLibraryDerivative
         )
     }
 }
@@ -178,17 +195,20 @@ public struct CanvasWidgetUpdate: Sendable, Equatable {
     public var name: String
     public var codeString: String
     public var resetsRuntimeState: Bool
+    public var hasRecordedLibraryDerivative: Bool?
 
     public init(
         id: UUID,
         name: String,
         codeString: String,
-        resetsRuntimeState: Bool = true
+        resetsRuntimeState: Bool = true,
+        hasRecordedLibraryDerivative: Bool? = nil
     ) {
         self.id = id
         self.name = name
         self.codeString = codeString
         self.resetsRuntimeState = resetsRuntimeState
+        self.hasRecordedLibraryDerivative = hasRecordedLibraryDerivative
     }
 }
 
@@ -206,6 +226,28 @@ public struct CanvasImageInsertion: Sendable, Equatable {
     ) {
         self.pngData = pngData
         self.frame = frame
+        self.selectAfterInsert = selectAfterInsert
+        self.isLocked = isLocked
+    }
+}
+
+public struct CanvasDroppedImageInsertion: Sendable, Equatable {
+    public var pngData: Data
+    public var displaySize: CGSize
+    public var canvasPoint: CGPoint
+    public var selectAfterInsert: Bool
+    public var isLocked: Bool
+
+    public init(
+        pngData: Data,
+        displaySize: CGSize,
+        canvasPoint: CGPoint,
+        selectAfterInsert: Bool = true,
+        isLocked: Bool = false
+    ) {
+        self.pngData = pngData
+        self.displaySize = displaySize
+        self.canvasPoint = canvasPoint
         self.selectAfterInsert = selectAfterInsert
         self.isLocked = isLocked
     }
@@ -242,37 +284,106 @@ public struct CanvasViewportImageInsertion: Sendable, Equatable {
 public enum CanvasSemanticClipboardPayload: Codable, Equatable, Sendable {
     case text(CanvasTextObject)
     case image(CanvasImageObject, Data)
+    case latex(CanvasImageObject, CanvasLaTeXObject, Data)
     case geometry(CanvasGeometryObject)
+}
+
+public struct CanvasLaTeXInsertion: Sendable, Equatable {
+    public var latexSource: String
+    public var pngData: Data
+    public var displaySize: CGSize
+    public var referenceRect: CGRect?
+    public var containerSize: CGSize?
+    public var canvasPoint: CGPoint?
+    public var margin: CGFloat
+    public var librarySourceLaTeX: String?
+    public var hasRecordedLibraryDerivative: Bool
+
+    public init(
+        latexSource: String,
+        pngData: Data,
+        displaySize: CGSize,
+        referenceRect: CGRect? = nil,
+        containerSize: CGSize? = nil,
+        canvasPoint: CGPoint? = nil,
+        margin: CGFloat = 24,
+        librarySourceLaTeX: String? = nil,
+        hasRecordedLibraryDerivative: Bool = false
+    ) {
+        self.latexSource = latexSource
+        self.pngData = pngData
+        self.displaySize = displaySize
+        self.referenceRect = referenceRect
+        self.containerSize = containerSize
+        self.canvasPoint = canvasPoint
+        self.margin = margin
+        self.librarySourceLaTeX = librarySourceLaTeX
+        self.hasRecordedLibraryDerivative = hasRecordedLibraryDerivative
+    }
+}
+
+public struct CanvasLaTeXUpdate: Sendable, Equatable {
+    public var imageObjectID: UUID
+    public var latexSource: String
+    public var pngData: Data
+    public var displaySize: CGSize
+    public var hasRecordedLibraryDerivative: Bool?
+
+    public init(
+        imageObjectID: UUID,
+        latexSource: String,
+        pngData: Data,
+        displaySize: CGSize,
+        hasRecordedLibraryDerivative: Bool? = nil
+    ) {
+        self.imageObjectID = imageObjectID
+        self.latexSource = latexSource
+        self.pngData = pngData
+        self.displaySize = displaySize
+        self.hasRecordedLibraryDerivative = hasRecordedLibraryDerivative
+    }
 }
 
 public struct CanvasTextInsertion: Sendable, Equatable {
     public var text: String
     public var sourcePoint: CGPoint
+    public var canvasPoint: CGPoint?
     public var fontSize: CGFloat
     public var color: CanvasStrokeColor
     public var isBold: Bool
     public var isItalic: Bool
     public var isUnderlined: Bool
     public var fontName: String?
+    public var displaySize: CGSize?
+    public var librarySourceText: String?
+    public var hasRecordedLibraryDerivative: Bool
 
     public init(
         text: String,
         sourcePoint: CGPoint,
+        canvasPoint: CGPoint? = nil,
         fontSize: CGFloat,
         color: CanvasStrokeColor,
         isBold: Bool = false,
         isItalic: Bool = false,
         isUnderlined: Bool = false,
-        fontName: String? = nil
+        fontName: String? = nil,
+        displaySize: CGSize? = nil,
+        librarySourceText: String? = nil,
+        hasRecordedLibraryDerivative: Bool = false
     ) {
         self.text = text
         self.sourcePoint = sourcePoint
+        self.canvasPoint = canvasPoint
         self.fontSize = fontSize
         self.color = color
         self.isBold = isBold
         self.isItalic = isItalic
         self.isUnderlined = isUnderlined
         self.fontName = fontName
+        self.displaySize = displaySize
+        self.librarySourceText = librarySourceText
+        self.hasRecordedLibraryDerivative = hasRecordedLibraryDerivative
     }
 }
 
@@ -295,6 +406,7 @@ public struct CanvasTextUpdate: Sendable, Equatable {
     public var isUnderlined: Bool
     public var fontName: String?
     public var expandsToFitContent: Bool
+    public var hasRecordedLibraryDerivative: Bool?
 
     public init(
         id: UUID,
@@ -304,7 +416,8 @@ public struct CanvasTextUpdate: Sendable, Equatable {
         isItalic: Bool = false,
         isUnderlined: Bool = false,
         fontName: String? = nil,
-        expandsToFitContent: Bool = true
+        expandsToFitContent: Bool = true,
+        hasRecordedLibraryDerivative: Bool? = nil
     ) {
         self.id = id
         self.text = text
@@ -314,6 +427,7 @@ public struct CanvasTextUpdate: Sendable, Equatable {
         self.isUnderlined = isUnderlined
         self.fontName = fontName
         self.expandsToFitContent = expandsToFitContent
+        self.hasRecordedLibraryDerivative = hasRecordedLibraryDerivative
     }
 }
 
