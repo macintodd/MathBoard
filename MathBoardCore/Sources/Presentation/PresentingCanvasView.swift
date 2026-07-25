@@ -79,6 +79,11 @@ public struct PresentingCanvasView: View {
     @State private var pendingPDFObjectImport: PendingPDFObjectImport?
     @State private var imageFileImportError: ImageFileImportError?
     @State private var libraryRecentRefreshID = UUID()
+    /// The tool that was active before the most recent tool change, so an
+    /// Apple Pencil barrel double tap can toggle back to it.
+    @State private var pencilPreviousTool: ToolID?
+
+    @Environment(\.preferredPencilDoubleTapAction) private var preferredPencilDoubleTapAction
 
     public init(
         drawingURL: URL,
@@ -214,6 +219,14 @@ public struct PresentingCanvasView: View {
         }
         .onChange(of: paletteSettings.paletteStyle) { _, _ in
             applyCurrentToolPaletteStateIfNeeded(triggering: .selectTool(broker.toolPaletteState.activeTool))
+        }
+        .onChange(of: broker.toolPaletteState.activeTool) { oldValue, newValue in
+            if oldValue != newValue {
+                pencilPreviousTool = oldValue
+            }
+        }
+        .onPencilDoubleTap { _ in
+            handlePencilDoubleTap()
         }
         .onChange(of: selectionState.selectedObject) { oldValue, newValue in
             handleSelectionChange(from: oldValue, to: newValue)
@@ -715,6 +728,32 @@ public struct PresentingCanvasView: View {
 
     private func togglePresentationMode() {
         broker.mode = broker.mode == .present ? .mirror : .present
+    }
+
+    /// Handles an Apple Pencil barrel double tap, honoring the person's
+    /// systemwide preference from Settings > Apple Pencil > Actions > Double
+    /// Tap. Only the tool-switching preferences apply here; other preferences
+    /// (color palette, shortcuts, ignore) do nothing. When the system PencilKit
+    /// tool picker is showing instead of the custom palette, PencilKit handles
+    /// the double tap itself, so this handler stays out of the way.
+    private func handlePencilDoubleTap() {
+        guard paletteSettings.isCustomPaletteEnabled else { return }
+
+        let currentTool = broker.toolPaletteState.activeTool
+        let targetTool: ToolID?
+        if preferredPencilDoubleTapAction == .switchEraser {
+            targetTool = currentTool == .eraser ? pencilPreviousTool : .eraser
+        } else if preferredPencilDoubleTapAction == .switchPrevious {
+            targetTool = pencilPreviousTool
+        } else {
+            targetTool = nil
+        }
+        guard let targetTool, targetTool != currentTool else { return }
+
+        var state = broker.toolPaletteState
+        ToolPaletteReducer.reduce(&state, command: .selectTool(targetTool))
+        broker.toolPaletteState = state
+        applyToolPaletteState(state, triggering: .selectTool(targetTool))
     }
 
     private func handleToolPaletteCommand(_ command: ToolPaletteCommand, state: ToolPaletteState) {

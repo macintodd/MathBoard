@@ -48,7 +48,13 @@ let package = Package(
         // Presentation renders the drawer on the live canvas, and Presentation /
         // Slides record supported inserted objects into the per-lesson Recent
         // sidecar. See MathBoard/LibraryDrawer_status.md.
-        .library(name: "Library", targets: ["Library"])
+        .library(name: "Library", targets: ["Library"]),
+
+        // Isolated slide-navigator redesign prototype. Exposed as a product only
+        // so Xcode offers a "SlideNav" scheme for SwiftUI previews. Nothing links
+        // it and it links nothing — pure SwiftUI with mock slide state. It will
+        // replace SlideNavigator/SlideFilmstripView in Slides once approved.
+        .library(name: "SlideNav", targets: ["SlideNav"])
     ],
     dependencies: [
         // Native, offline SwiftUI LaTeX renderer used only by TextEngine's
@@ -117,6 +123,9 @@ let package = Package(
         // Library drawer + per-lesson Recent sidecar. The drawer remains UI-only
         // for placement, but supported inserted objects now record Recent metadata
         // and optional PNG thumbnails. See MathBoard/LibraryDrawer_status.md.
-        .target(name: "Library")
+        .target(name: "Library"),
+
+        // Slide-navigator redesign sandbox. See SlideNav/SlideNav_status.md.
+        .target(name: "SlideNav")
     ]
 )

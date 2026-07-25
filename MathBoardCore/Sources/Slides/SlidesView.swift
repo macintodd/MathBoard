@@ -51,13 +51,13 @@ public struct SlidesView: View {
     @State private var store: SlideStore
     @Binding private var classroomMode: MathBoardClassroomMode
     @State private var activeIndex: Int = 0
-    @State private var isShowingDeleteConfirmation = false
+    @State private var pendingDeleteIndices: [Int]?
+    @State private var thumbnailCache = SlideThumbnailCache()
     @State private var slideErrorMessage: String?
     @State private var isShowingPDFImporter = false
     @State private var isShowingPDFExporter = false
     @State private var isShowingFilmstrip = false
     @State private var isTextEditingOnCanvas = false
-    @State private var shouldHideFilmstripOnCanvasInteraction = false
     @State private var pendingPDFImport: PendingPDFImport?
     @State private var viewportSaveTask: Task<Void, Never>?
     @State private var pendingViewportSave: PendingViewportSave?
@@ -74,7 +74,7 @@ public struct SlidesView: View {
     }
 
     public var body: some View {
-        ZStack(alignment: .bottom) {
+        ZStack(alignment: .bottomTrailing) {
             if let slide = activeSlide {
                 PresentingCanvasView(
                     drawingURL: store.drawingURL(for: slide),
@@ -99,44 +99,53 @@ public struct SlidesView: View {
             }
 
             if !isTextEditingOnCanvas {
-                VStack(spacing: 10) {
-                    if isShowingFilmstrip {
-                        SlideFilmstripView(
-                            slides: store.slides,
-                            currentIndex: activeIndex,
-                            backgroundURL: store.backgroundURL(for:),
-                            onSelect: goToSlide
-                        )
-                        .padding(.horizontal, 14)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                    }
-
-                    SlideNavigator(
-                        currentIndex: activeIndex,
-                        totalCount: store.slides.count,
-                        isFilmstripExpanded: isShowingFilmstrip,
-                        onToggleFilmstrip: toggleFilmstrip,
-                        onPrevious: goToPrevious,
-                        onNext: goToNext,
-                        onMoveLeft: moveCurrentSlideLeft,
-                        onMoveRight: moveCurrentSlideRight,
-                        onDelete: requestDeleteCurrentSlide,
-                        onAdd: addSlide
-                    )
-                }
-                .padding(.bottom, 12)
+                SlideNavigatorView(
+                    slides: store.slides,
+                    currentIndex: activeIndex,
+                    isFilmstripOpen: $isShowingFilmstrip,
+                    thumbnail: thumbnailImage(for:),
+                    onGoTo: goToSlide,
+                    onPrevious: goToPrevious,
+                    onNext: goToNext,
+                    onAdd: addSlide,
+                    onMoveSlides: moveSlides(at:by:),
+                    onDeleteSlides: requestDeleteSlides(at:)
+                )
+                .padding(.trailing, 16)
+                .padding(.bottom, 14)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        // Grabbing a tool (or any tool-palette interaction) closes the
+        // filmstrip: every palette command writes broker.toolPaletteState.
+        // Library drawer taps and drag-drops touch neither the palette state
+        // nor the canvas, so the strip stays open for the "stamp the same
+        // sticker across slides" workflow.
+        .onChange(of: DisplayBroker.shared.toolPaletteState) { _, _ in
+            closeFilmstripForOutsideInteraction()
+        }
         .confirmationDialog(
-            "Delete Slide \(activeIndex + 1)?",
-            isPresented: $isShowingDeleteConfirmation,
+            deleteConfirmationTitle,
+            isPresented: Binding(
+                get: { pendingDeleteIndices != nil },
+                set: { isPresented in
+                    if !isPresented { pendingDeleteIndices = nil }
+                }
+            ),
             titleVisibility: .visible
         ) {
-            Button("Delete Slide", role: .destructive, action: deleteCurrentSlide)
+            Button(
+                (pendingDeleteIndices?.count ?? 0) > 1 ? "Delete Slides" : "Delete Slide",
+                role: .destructive,
+                action: deletePendingSlides
+            )
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("This removes the slide and its drawing from this lesson.")
+            Text(
+                (pendingDeleteIndices?.count ?? 0) > 1
+                    ? "This removes the slides and their drawings from this lesson."
+                    : "This removes the slide and its drawing from this lesson."
+            )
         }
         .alert(
             "Couldn't Update Slides",
@@ -206,31 +215,28 @@ public struct SlidesView: View {
 
     private func goToSlide(_ index: Int) {
         guard store.slides.indices.contains(index) else { return }
-        shouldHideFilmstripOnCanvasInteraction = true
         guard index != activeIndex else { return }
         flushPendingViewportSave()
         activeIndex = index
     }
 
-    private func toggleFilmstrip() {
-        withAnimation(.snappy(duration: 0.22)) {
-            isShowingFilmstrip.toggle()
-        }
-        if !isShowingFilmstrip {
-            shouldHideFilmstripOnCanvasInteraction = false
-        }
-    }
-
-    private func handleCanvasInteractionBegan() {
-        guard shouldHideFilmstripOnCanvasInteraction, isShowingFilmstrip else { return }
-        shouldHideFilmstripOnCanvasInteraction = false
+    /// Any interaction outside the navigator and the Library drawer closes
+    /// the filmstrip — touching the canvas or grabbing a tool means attention
+    /// has moved back to the whiteboard. Library taps and drag-drops reach
+    /// neither the canvas-interaction callback nor the tool palette state, so
+    /// the strip stays open while stamping library items across slides.
+    private func closeFilmstripForOutsideInteraction() {
+        guard isShowingFilmstrip else { return }
         withAnimation(.snappy(duration: 0.22)) {
             isShowingFilmstrip = false
         }
     }
 
+    private func handleCanvasInteractionBegan() {
+        closeFilmstripForOutsideInteraction()
+    }
+
     private func handleCanvasTextEditingBegan() {
-        shouldHideFilmstripOnCanvasInteraction = false
         withAnimation(.snappy(duration: 0.18)) {
             isShowingFilmstrip = false
             isTextEditingOnCanvas = true
@@ -243,10 +249,16 @@ public struct SlidesView: View {
         }
     }
 
+    /// Inserts a blank slide directly after the current one and makes it the
+    /// active slide (matches the SlideNav prototype behavior).
     private func addSlide() {
         flushPendingViewportSave()
-        store.addSlide()
-        activeIndex = store.slides.count - 1
+        do {
+            try store.insertSlides(count: 1, afterSlideAt: activeIndex)
+            activeIndex += 1
+        } catch {
+            slideErrorMessage = error.localizedDescription
+        }
     }
 
     private func sendExtractedRegionToNextEmptySlide(_ region: PresentationExtractedRegion) {
@@ -480,38 +492,111 @@ public struct SlidesView: View {
         )
     }
 
-    private func requestDeleteCurrentSlide() {
-        guard store.slides.count > 1 else {
+    private var deleteConfirmationTitle: String {
+        guard let indices = pendingDeleteIndices else { return "" }
+        if indices.count == 1, let index = indices.first {
+            return "Delete Slide \(index + 1)?"
+        }
+        return "Delete \(indices.count) Slides?"
+    }
+
+    private func requestDeleteSlides(at indices: [Int]) {
+        guard !indices.isEmpty, indices.count < store.slides.count else {
             slideErrorMessage = SlideStoreError.cannotDeleteLastSlide.localizedDescription
             return
         }
-        isShowingDeleteConfirmation = true
+        pendingDeleteIndices = indices
     }
 
-    private func deleteCurrentSlide() {
+    /// Deletes the confirmed slides (highest index first so earlier removals
+    /// don't shift later ones), then lands on the nearest survivor at or after
+    /// the old current position.
+    private func deletePendingSlides() {
+        guard let indices = pendingDeleteIndices else { return }
+        pendingDeleteIndices = nil
+        flushPendingViewportSave()
+
+        let doomed = Set(indices)
+        let survivorAfter = store.slides.enumerated().first {
+            $0.offset >= activeIndex && !doomed.contains($0.offset)
+        }?.element.id
+        let survivorBefore = store.slides.enumerated().reversed().first {
+            $0.offset < activeIndex && !doomed.contains($0.offset)
+        }?.element.id
+
         do {
-            flushPendingViewportSave()
-            activeIndex = try store.deleteSlide(at: activeIndex)
+            for index in indices.sorted(by: >) {
+                try store.deleteSlide(at: index)
+            }
         } catch {
             slideErrorMessage = error.localizedDescription
         }
+
+        if let survivor = survivorAfter ?? survivorBefore,
+           let index = store.slides.firstIndex(where: { $0.id == survivor }) {
+            activeIndex = index
+        } else {
+            activeIndex = min(max(activeIndex, 0), store.slides.count - 1)
+        }
     }
 
-    private func moveCurrentSlideLeft() {
-        moveCurrentSlide(to: activeIndex - 1)
-    }
+    /// Moves the given slides one step (direction: -1 left, +1 right).
+    /// Non-contiguous selections all shift together; slides already packed
+    /// against the edge stay put and become a boundary the rest pack up
+    /// against on further clicks.
+    private func moveSlides(at indices: [Int], by direction: Int) {
+        guard !indices.isEmpty else { return }
+        flushPendingViewportSave()
+        let currentID = activeSlide?.id
 
-    private func moveCurrentSlideRight() {
-        moveCurrentSlide(to: activeIndex + 1)
-    }
-
-    private func moveCurrentSlide(to destinationIndex: Int) {
         do {
-            flushPendingViewportSave()
-            activeIndex = try store.moveSlide(at: activeIndex, to: destinationIndex)
+            if direction < 0 {
+                var boundary = 0
+                for index in indices.sorted() {
+                    if index > boundary {
+                        try store.moveSlide(at: index, to: index - 1)
+                    } else {
+                        boundary = index + 1
+                    }
+                }
+            } else if direction > 0 {
+                var boundary = store.slides.count - 1
+                for index in indices.sorted().reversed() {
+                    if index < boundary {
+                        try store.moveSlide(at: index, to: index + 1)
+                    } else {
+                        boundary = index - 1
+                    }
+                }
+            }
         } catch {
             slideErrorMessage = error.localizedDescription
         }
+
+        if let currentID, let newIndex = store.slides.firstIndex(where: { $0.id == currentID }) {
+            activeIndex = newIndex
+        }
+    }
+
+    /// PDF-page thumbnail for the navigator filmstrip, cached per asset+page
+    /// so scrolling the strip doesn't re-open PDF documents. Ink-only slides
+    /// return nil and get the navigator's placeholder card.
+    private func thumbnailImage(for slide: SlideMetadata) -> Image? {
+        guard let background = slide.background, background.kind == .pdfPage else { return nil }
+        let key = "\(background.assetFileName)#\(background.pageIndex)"
+        if let cached = thumbnailCache.images[key] {
+            return cached
+        }
+        guard let document = PDFDocument(url: store.backgroundURL(for: background)),
+              let page = document.page(at: background.pageIndex) else { return nil }
+        let platformImage = page.thumbnail(of: CGSize(width: 232, height: 174), for: .mediaBox)
+        #if os(iOS)
+        let image = Image(uiImage: platformImage)
+        #else
+        let image = Image(nsImage: platformImage)
+        #endif
+        thumbnailCache.images[key] = image
+        return image
     }
 
     private func scheduleViewportSave(_ state: PresentationViewportState, for slideID: UUID) {
@@ -706,6 +791,14 @@ public struct SlidesView: View {
         let pngData: Data
         let displaySize: CGSize
     }
+}
+
+/// Reference-type thumbnail cache: mutating its contents during a body render
+/// is fine because it never triggers a SwiftUI state change — it only avoids
+/// re-opening PDF documents for tiles that were already rendered once.
+@MainActor
+private final class SlideThumbnailCache {
+    var images: [String: Image] = [:]
 }
 
 private extension SlideViewportState {
