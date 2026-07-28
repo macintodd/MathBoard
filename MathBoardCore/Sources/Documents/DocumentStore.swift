@@ -35,8 +35,16 @@ public final class DocumentStore {
         self.fileManager = .default
         self.rootURL = Self.locateRootURL(using: fileManager)
         if let root = rootURL {
+            resetForUITestsIfRequested(at: root)
             bootstrapIfNeeded(at: root)
+            seedDocumentWorkflowUITestFixtureIfRequested(at: root)
         }
+        reload()
+    }
+
+    init(rootURL: URL, fileManager: FileManager = .default) {
+        self.fileManager = fileManager
+        self.rootURL = rootURL
         reload()
     }
 
@@ -52,6 +60,35 @@ public final class DocumentStore {
             print("[DocumentStore] Failed to locate Documents directory: \(error)")
             return nil
         }
+    }
+
+    private func resetForUITestsIfRequested(at root: URL) {
+        #if DEBUG
+        guard ProcessInfo.processInfo.arguments.contains("-MathBoardUITestResetDocuments") else { return }
+        let contents = (try? fileManager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
+        for url in contents {
+            try? fileManager.removeItem(at: url)
+        }
+        #endif
+    }
+
+    private func seedDocumentWorkflowUITestFixtureIfRequested(at root: URL) {
+        #if DEBUG
+        guard ProcessInfo.processInfo.arguments.contains("-MathBoardUITestDocumentWorkflowFixture") else { return }
+        let algebraURL = root.appendingPathComponent("UI Algebra", isDirectory: true)
+        if fileManager.fileExists(atPath: algebraURL.path) {
+            try? fileManager.removeItem(at: algebraURL)
+        }
+
+        do {
+            let algebra = try createFolder(named: "UI Algebra", at: root)
+            let unit1 = try createFolder(named: "Unit 1", at: algebra.url)
+            _ = try createFolder(named: "Unit 2", at: algebra.url)
+            _ = try createLesson(named: "Warmup", in: unit1)
+        } catch {
+            print("[DocumentStore] UI test fixture error: \(error)")
+        }
+        #endif
     }
 
     // MARK: - Read
@@ -75,10 +112,26 @@ public final class DocumentStore {
             .sorted(by: { $0.modifiedAt > $1.modifiedAt })
     }
 
+    func folders(in folder: Folder) -> [Folder] {
+        (try? loadFolders(at: folder.url)) ?? []
+    }
+
+    func allFolders() -> [Folder] {
+        folders.flatMap { folder in
+            [folder] + descendantFolders(in: folder)
+        }
+    }
+
     func allLessons() -> [Lesson] {
-        folders
+        allFolders()
             .flatMap { lessons(in: $0) }
             .sorted(by: { $0.modifiedAt > $1.modifiedAt })
+    }
+
+    private func descendantFolders(in folder: Folder) -> [Folder] {
+        folders(in: folder).flatMap { child in
+            [child] + descendantFolders(in: child)
+        }
     }
 
     private func loadFolders(at root: URL) throws -> [Folder] {
@@ -91,7 +144,13 @@ public final class DocumentStore {
             let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
             guard isDir, !isMathBoardPackage(url) else { continue }
             let count = countLessons(in: url)
-            result.append(Folder(name: url.lastPathComponent, url: url, lessonCount: count))
+            let metadata = loadFolderMetadata(at: url)
+            result.append(Folder(
+                name: url.lastPathComponent,
+                url: url,
+                lessonCount: count,
+                color: metadata.color
+            ))
         }
         return result.sorted(by: { $0.name < $1.name })
     }
@@ -121,7 +180,7 @@ public final class DocumentStore {
 
     private func computeRecentLessons(limit: Int) -> [Lesson] {
         var all: [Lesson] = []
-        for folder in folders {
+        for folder in allFolders() {
             all.append(contentsOf: lessons(in: folder))
         }
         return Array(all.sorted(by: { $0.modifiedAt > $1.modifiedAt }).prefix(limit))
@@ -141,23 +200,43 @@ public final class DocumentStore {
 
         let url = rootURL.appendingPathComponent(finalName, isDirectory: true)
         try fileManager.createDirectory(at: url, withIntermediateDirectories: false)
+        try saveFolderMetadata(.default, at: url)
         reload()
         return Folder(name: finalName, url: url, lessonCount: 0)
     }
 
     @discardableResult
     func renameFolder(_ folder: Folder, to name: String) throws -> Folder {
-        guard let rootURL else { throw DocumentStoreError.noRoot }
         let finalName = try validatedDisplayName(name, kind: .folder)
         if finalName == folder.name {
             return folder
         }
 
-        try ensureNameIsAvailable(finalName, in: rootURL, pathExtension: nil, kind: .folder)
-        let destinationURL = rootURL.appendingPathComponent(finalName, isDirectory: true)
+        let parentURL = folder.url.deletingLastPathComponent()
+        try ensureNameIsAvailable(finalName, in: parentURL, pathExtension: nil, kind: .folder)
+        let destinationURL = parentURL.appendingPathComponent(finalName, isDirectory: true)
         try fileManager.moveItem(at: folder.url, to: destinationURL)
         reload()
-        return Folder(name: finalName, url: destinationURL, lessonCount: countLessons(in: destinationURL))
+        return Folder(
+            name: finalName,
+            url: destinationURL,
+            lessonCount: countLessons(in: destinationURL),
+            color: folder.color
+        )
+    }
+
+    @discardableResult
+    func updateFolderColor(_ folder: Folder, to color: FolderColor) throws -> Folder {
+        var metadata = loadFolderMetadata(at: folder.url)
+        metadata.color = color
+        try saveFolderMetadata(metadata, at: folder.url)
+        reload()
+        return Folder(
+            name: folder.name,
+            url: folder.url,
+            lessonCount: countLessons(in: folder.url),
+            color: color
+        )
     }
 
     func deleteFolder(_ folder: Folder) throws {
@@ -281,6 +360,38 @@ public final class DocumentStore {
         return try loadLesson(at: destinationURL)
     }
 
+    @discardableResult
+    func importLessonPackage(from sourceURL: URL, into folder: Folder) throws -> Lesson {
+        guard isMathBoardPackage(sourceURL) else {
+            throw DocumentStoreError.invalidLessonPackage
+        }
+        _ = try loadLesson(at: sourceURL)
+
+        let targetFolderURL = folder.url.standardizedFileURL
+        let sourceParentURL = sourceURL.deletingLastPathComponent().standardizedFileURL
+        if isInsideRoot(sourceURL), sourceParentURL == targetFolderURL {
+            reload()
+            return try loadLesson(at: sourceURL)
+        }
+
+        let sourceName = sourceURL.deletingPathExtension().lastPathComponent
+        let baseName = (try? validatedDisplayName(sourceName, kind: .lesson)) ?? "Imported Lesson"
+        let finalName = try uniqueImportedName(for: baseName, in: folder.url)
+        let destinationURL = folder.url.appendingPathComponent("\(finalName).mathboard", isDirectory: true)
+        try copyLessonPackage(from: sourceURL, to: destinationURL)
+
+        let metadata = DocumentMetadata(
+            id: UUID(),
+            createdAt: Date(),
+            version: DocumentMetadata.currentVersion
+        )
+        let data = try Self.jsonEncoder.encode(metadata)
+        try data.write(to: destinationURL.appendingPathComponent("document.json"), options: .atomic)
+
+        reload()
+        return try loadLesson(at: destinationURL)
+    }
+
     private func finishCreatingLessonPackage(at packageURL: URL, named name: String) throws -> Lesson {
         let metadata = DocumentMetadata(
             id: UUID(),
@@ -385,6 +496,20 @@ public final class DocumentStore {
     private func filename(for name: String, pathExtension: String?) -> String {
         guard let pathExtension else { return name }
         return "\(name).\(pathExtension)"
+    }
+
+    private func loadFolderMetadata(at folderURL: URL) -> FolderMetadata {
+        let metadataURL = folderURL.appendingPathComponent(FolderMetadata.fileName)
+        guard let data = try? Data(contentsOf: metadataURL),
+              let metadata = try? Self.jsonDecoder.decode(FolderMetadata.self, from: data) else {
+            return .default
+        }
+        return metadata
+    }
+
+    private func saveFolderMetadata(_ metadata: FolderMetadata, at folderURL: URL) throws {
+        let data = try Self.jsonEncoder.encode(metadata)
+        try data.write(to: folderURL.appendingPathComponent(FolderMetadata.fileName), options: .atomic)
     }
 
     private func copyLessonPackage(from sourceURL: URL, to destinationURL: URL) throws {

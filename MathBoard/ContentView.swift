@@ -18,4 +18,6 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
+        .environment(DocumentStore())
+        .environment(ClassroomRosterStore())
 }

@@ -7,37 +7,93 @@
 
 import XCTest
 
+@MainActor
 final class MathBoardUITests: XCTestCase {
 
+    private var app: XCUIApplication!
+
     override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
-
-        // In UI tests it is usually best to stop immediately when a failure occurs.
         continueAfterFailure = false
-
-        // In UI tests it’s important to set the initial state - such as interface orientation - required for your tests before they run. The setUp method is a good place to do this.
+        app = XCUIApplication()
+        app.launchArguments.append("-MathBoardUITestResetDocuments")
     }
 
     override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
+        app = nil
     }
 
-    @MainActor
-    func testExample() throws {
-        // UI tests must launch the application that they test.
-        let app = XCUIApplication()
+    func testCreatesNestedFolderAndLessonFromDocumentBrowser() throws {
         app.launch()
 
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
-        // XCUIAutomation Documentation
-        // https://developer.apple.com/documentation/xcuiautomation
+        createRootFolder(named: "UI Algebra")
+        openFolder(named: "UI Algebra")
+        createChildFolder(named: "Unit 1")
+        openFolder(named: "Unit 1")
+        createLesson(named: "Practice 1")
+
+        XCTAssertTrue(app.buttons["Lesson menu"].waitForExistence(timeout: 5))
     }
 
-    @MainActor
-    func testLaunchPerformance() throws {
-        // This measures how long it takes to launch your application.
-        measure(metrics: [XCTApplicationLaunchMetric()]) {
-            XCUIApplication().launch()
-        }
+    func testMoveLessonSheetShowsDestinationPathLabels() throws {
+        app.launchArguments.append("-MathBoardUITestDocumentWorkflowFixture")
+        app.launch()
+
+        openFolder(named: "UI Algebra")
+        openFolder(named: "Unit 1")
+        XCTAssertTrue(app.buttons["lessonRow.Warmup"].waitForExistence(timeout: 8), "Expected Warmup row in the seeded Unit 1 folder")
+
+        openToolbarOverflowIfNeeded(forButtonIdentifier: "folder.selectButton")
+        tapButton(named: "Select")
+        tapElement(app.buttons["lessonRow.Warmup"])
+        tapElement(app.buttons["folder.moveSelectedButton"])
+
+        XCTAssertTrue(app.navigationBars["Move 1 Lesson"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Unit 2"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["UI Algebra / Unit 2"].waitForExistence(timeout: 5))
+    }
+
+    private func createRootFolder(named name: String) {
+        tapElement(app.buttons["start.newFolderButton"])
+        enterName(name)
+    }
+
+    private func createChildFolder(named name: String) {
+        tapElement(app.buttons["folder.addMenu"])
+        tapButton(named: "New Folder")
+        enterName(name)
+    }
+
+    private func createLesson(named name: String) {
+        tapElement(app.buttons["folder.addMenu"])
+        tapButton(named: "New Lesson")
+        enterName(name)
+    }
+
+    private func openFolder(named name: String) {
+        tapElement(app.buttons["folderTile.\(name)"])
+    }
+
+    private func enterName(_ name: String) {
+        let field = app.textFields["nameEntry.nameField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText(name)
+        tapButton(named: "Create")
+    }
+
+    private func openToolbarOverflowIfNeeded(forButtonIdentifier identifier: String) {
+        guard !app.buttons[identifier].waitForExistence(timeout: 1) else { return }
+        tapButton(named: "More")
+    }
+
+    private func tapButton(named name: String) {
+        let button = app.buttons[name]
+        tapElement(button, named: name)
+    }
+
+    private func tapElement(_ element: XCUIElement, named name: String? = nil) {
+        let description = name ?? element.identifier
+        XCTAssertTrue(element.waitForExistence(timeout: 5), "Expected to find UI element: \(description)")
+        element.tap()
     }
 }

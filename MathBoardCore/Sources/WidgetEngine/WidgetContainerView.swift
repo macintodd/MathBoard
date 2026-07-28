@@ -180,7 +180,9 @@ public struct WidgetContainerView: View {
 
     @ViewBuilder
     private var renderedContent: some View {
-        if let document = widget.activityDocument {
+        if let builtInInteractiveKind = widget.builtInInteractiveKind {
+            builtInInteractiveView(for: builtInInteractiveKind)
+        } else if let document = widget.activityDocument {
             WidgetActivityRenderer(
                 document: document,
                 scoreSheet: scoreSheet,
@@ -189,6 +191,16 @@ public struct WidgetContainerView: View {
             )
         } else {
             WidgetWebView(htmlString: widget.codeString)
+        }
+    }
+
+    @ViewBuilder
+    private func builtInInteractiveView(for kind: BuiltInInteractiveKind) -> some View {
+        switch kind {
+        case .inequalitiesExplorer:
+            CompoundInequalitiesInteractiveView(
+                state: InequalityExplorerStateRegistry.state(for: widget.id)
+            )
         }
     }
 

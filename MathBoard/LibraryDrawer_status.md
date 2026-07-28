@@ -1,6 +1,6 @@
 # Library Drawer — Status
 
-Status: **Prototype (live insertions)** · Live canvas overlay · Last updated 2026-07-22
+Status: **Prototype (live insertions)** · Live canvas overlay · Last updated 2026-07-27
 
 ## Purpose
 
@@ -19,7 +19,10 @@ starred Recent items now persist across files. PNG-backed items in persisted
 libraries can be dragged from the drawer and dropped onto the canvas, and
 widget-backed entries carry reusable widget JSON templates that insert as fresh
 interactive canvas widgets, and LaTeX-backed entries carry editable source plus
-their rendered PNG so they insert as resizable equation objects. It remains
+their rendered PNG so they insert as resizable equation objects. A pinned
+**Built-In Interactives** library now bootstraps curated native SwiftUI
+Mathtivities, starting with **Inequality Explorer**, which inserts through the
+same widget canvas shell using a reserved marker instead of widget JSON. It remains
 previewable via the **Library** scheme and has been confirmed rendering on device
 (iPad, landscape).
 
@@ -109,6 +112,12 @@ Sticker, and Axis (`AddItemKind` + `.addItem`).
   Library placement. LaTeX entries carry both the rendered PNG and source
   metadata; they insert as image-backed equation objects, resize with image
   handles, and reopen in the LaTeX editor from the HUD.
+- **Built-in interactives.** `LibraryStore` bootstraps a pinned **Built-In
+  Interactives** folder containing **Inequality Explorer**. The stored item is
+  `kind: .widget`, but its payload is the reserved marker
+  `__mathboard_builtin_interactive__:inequalitiesExplorer`; `WidgetContainerView`
+  detects that marker and renders `CompoundInequalitiesInteractiveView` natively
+  instead of decoding the multiple-choice widget JSON schema.
 - **Stored item cleanup.** Opened persistent Libraries expose an item menu on
   each stored item with **Rename Item** and **Remove from Library**.
 - **Folder management.** Persistent Libraries expose a folder menu from grid/list
@@ -127,14 +136,16 @@ Sticker, and Axis (`AddItemKind` + `.addItem`).
 
 1. Generate richer widget thumbnails/previews for widget-backed library cards;
    the current first pass uses the schematic widget thumbnail.
-2. Add richer text thumbnails/previews for text-backed library cards; the current
+2. Add richer built-in interactive thumbnails/previews and a formal registry for
+   future Mathtivities beyond Inequality Explorer.
+3. Add richer text thumbnails/previews for text-backed library cards; the current
    first pass uses the schematic text fallback thumbnail.
-3. Expand Recent capture to any newly supported object categories (GIF-specific
+4. Expand Recent capture to any newly supported object categories (GIF-specific
    handling, future stickers, and future object types) while keeping plain
    geometry objects out unless the user explicitly changes that rule.
-4. Add Add-tool handoff later if Library content should also be reachable from
+5. Add Add-tool handoff later if Library content should also be reachable from
    the palette; this is intentionally deferred while widget placement is next.
-5. Tests once behavior is broader than UI/prototype state.
+6. Tests once behavior is broader than UI/prototype state.
 
 ## Known issues / notes
 

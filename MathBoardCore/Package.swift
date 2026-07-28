@@ -71,7 +71,7 @@ let package = Package(
             ]
         ),
         .target(name: "Presentation", dependencies: ["Canvas", "Calculator", "GraphCalculator", "Library", "TextEngine", "ToolPalette", "WidgetEngine"]),
-        .target(name: "Slides", dependencies: ["Library", "Presentation"]),
+        .target(name: "Slides", dependencies: ["Library", "Presentation", "WidgetEngine"]),
         .target(name: "Documents", dependencies: ["Slides"]),
 
         // Self-contained calculator/graphing tool. Not yet integrated;

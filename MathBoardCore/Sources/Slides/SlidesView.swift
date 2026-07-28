@@ -103,7 +103,7 @@ public struct SlidesView: View {
                     slides: store.slides,
                     currentIndex: activeIndex,
                     isFilmstripOpen: $isShowingFilmstrip,
-                    thumbnail: thumbnailImage(for:),
+                    thumbnail: thumbnail(for:),
                     onGoTo: goToSlide,
                     onPrevious: goToPrevious,
                     onNext: goToNext,
@@ -578,25 +578,30 @@ public struct SlidesView: View {
         }
     }
 
-    /// PDF-page thumbnail for the navigator filmstrip, cached per asset+page
-    /// so scrolling the strip doesn't re-open PDF documents. Ink-only slides
-    /// return nil and get the navigator's placeholder card.
-    private func thumbnailImage(for slide: SlideMetadata) -> Image? {
-        guard let background = slide.background, background.kind == .pdfPage else { return nil }
-        let key = "\(background.assetFileName)#\(background.pageIndex)"
-        if let cached = thumbnailCache.images[key] {
+    /// Static slide preview for the navigator filmstrip, cached by persisted
+    /// slide-file fingerprints so scrolling doesn't re-render every tile.
+    private func thumbnail(for slide: SlideMetadata) -> SlideNavigatorThumbnail {
+        let drawingURL = store.drawingURL(for: slide)
+        let key = SlideThumbnailRenderer.cacheKey(
+            for: slide,
+            drawingURL: drawingURL,
+            backgroundURL: store.backgroundURL(for:)
+        )
+        if let cached = thumbnailCache.thumbnails[key] {
             return cached
         }
-        guard let document = PDFDocument(url: store.backgroundURL(for: background)),
-              let page = document.page(at: background.pageIndex) else { return nil }
-        let platformImage = page.thumbnail(of: CGSize(width: 232, height: 174), for: .mediaBox)
-        #if os(iOS)
-        let image = Image(uiImage: platformImage)
-        #else
-        let image = Image(nsImage: platformImage)
-        #endif
-        thumbnailCache.images[key] = image
-        return image
+
+        let content = SlideThumbnailRenderer.content(
+            for: slide,
+            drawingURL: drawingURL,
+            backgroundURL: store.backgroundURL(for:)
+        )
+        let thumbnail = SlideNavigatorThumbnail(
+            image: content.image,
+            widgetKind: content.widgetKind
+        )
+        thumbnailCache.thumbnails[key] = thumbnail
+        return thumbnail
     }
 
     private func scheduleViewportSave(_ state: PresentationViewportState, for slideID: UUID) {
@@ -798,7 +803,7 @@ public struct SlidesView: View {
 /// re-opening PDF documents for tiles that were already rendered once.
 @MainActor
 private final class SlideThumbnailCache {
-    var images: [String: Image] = [:]
+    var thumbnails: [String: SlideNavigatorThumbnail] = [:]
 }
 
 private extension SlideViewportState {

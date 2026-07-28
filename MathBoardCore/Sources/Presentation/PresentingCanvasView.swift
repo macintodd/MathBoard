@@ -36,6 +36,7 @@ public typealias PresentationViewportState = CanvasViewportState
 public typealias PresentationCanvasBackground = CanvasBackground
 public typealias PresentationCanvasTextObject = CanvasTextObject
 public typealias PresentationCanvasImageObject = CanvasImageObject
+public typealias PresentationCanvasLaTeXObject = CanvasLaTeXObject
 public typealias PresentationCanvasGeometryObject = CanvasGeometryObject
 public typealias PresentationCanvasBoardMetrics = CanvasBoardMetrics
 public typealias PresentationGeometryRenderer = CanvasGeometryRenderer

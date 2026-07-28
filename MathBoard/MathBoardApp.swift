@@ -11,6 +11,7 @@ import Documents
 @main
 struct MathBoardApp: App {
     @State private var documentStore = DocumentStore()
+    @State private var classroomRosterStore = ClassroomRosterStore()
 
     #if canImport(UIKit)
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -20,6 +21,7 @@ struct MathBoardApp: App {
         WindowGroup {
             ContentView()
                 .environment(documentStore)
+                .environment(classroomRosterStore)
         }
     }
 }

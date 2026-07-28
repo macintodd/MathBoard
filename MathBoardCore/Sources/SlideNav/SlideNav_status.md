@@ -6,7 +6,7 @@
 > **SlideNav** scheme in Xcode to build and open previews in
 > `SlideNavPreviewHarness.swift`.
 
-**Last updated:** 2026-07-24 — first design pass.
+**Last updated:** 2026-07-25 — production thumbnails now render persisted slide content and classify widget slides.
 
 ## Why
 
@@ -88,9 +88,11 @@ Production port lives at `Slides/SlideNavigatorView.swift`, hosted by
 `SlidesView`. Contract: the navigator owns selection + scroll state and takes
 `slides`/`currentIndex`/`isFilmstripOpen` (Binding) plus callbacks; the host
 owns store mutations (insert-after-current add, packing multi-move, multi-
-delete with confirmation dialog) and provides cached PDF-page thumbnails
-(ink-only slides get a placeholder card). This sandbox remains the place to
-iterate on look/feel — design here with previews, then port changes over.
+delete with confirmation dialog) and provides cached thumbnails from persisted
+slide drawings/object sidecars. Widget-only slides show a full Widget/MC tile;
+mixed widget slides show the rendered content thumbnail with an `MC` badge. This
+sandbox remains the place to iterate on look/feel — design here with previews,
+then port changes over.
 The old `SlideNavigator`/`SlideFilmstripView` stay as unreferenced fallbacks
 until hardware verification.
 

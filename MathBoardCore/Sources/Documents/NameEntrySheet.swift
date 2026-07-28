@@ -43,6 +43,7 @@ struct NameEntrySheet: View {
                     .textFieldStyle(.roundedBorder)
                     .focused($isFocused)
                     .onSubmit(submit)
+                    .accessibilityIdentifier("nameEntry.nameField")
 
                 if let errorMessage {
                     Text(errorMessage)

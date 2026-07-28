@@ -70,9 +70,74 @@ public struct WidgetObject: MathBoardObject, Codable, Equatable {
     }
 }
 
+public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Identifiable {
+    case inequalitiesExplorer
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .inequalitiesExplorer: return "Inequality Explorer"
+        }
+    }
+
+    public var defaultSize: CGSize {
+        switch self {
+        case .inequalitiesExplorer: return CGSize(width: 900, height: 640)
+        }
+    }
+
+    public var widgetCodeString: String {
+        "__mathboard_builtin_interactive__:\(rawValue)"
+    }
+
+    public static func kind(for codeString: String) -> BuiltInInteractiveKind? {
+        let prefix = "__mathboard_builtin_interactive__:"
+        guard codeString.hasPrefix(prefix) else { return nil }
+        let rawValue = String(codeString.dropFirst(prefix.count))
+        return BuiltInInteractiveKind(rawValue: rawValue)
+    }
+}
+
+public enum WidgetObjectActivityKind: String, Sendable {
+    case multipleChoice
+    case builtInInteractive
+    case unknown
+
+    public var displayCode: String {
+        switch self {
+        case .multipleChoice: return "MC"
+        case .builtInInteractive: return "BI"
+        case .unknown: return "W"
+        }
+    }
+
+    public var displayName: String {
+        switch self {
+        case .multipleChoice: return "Multiple Choice"
+        case .builtInInteractive: return "Built-In Interactive"
+        case .unknown: return "Widget"
+        }
+    }
+}
+
 extension WidgetObject {
+    public var builtInInteractiveKind: BuiltInInteractiveKind? {
+        BuiltInInteractiveKind.kind(for: codeString)
+    }
+
     var activityDocument: ActivityWidgetDocument? {
-        WidgetActivityJSONCodec.decode(codeString).document
+        guard builtInInteractiveKind == nil else { return nil }
+        return WidgetActivityJSONCodec.decode(codeString).document
+    }
+
+    public var activityKind: WidgetObjectActivityKind {
+        if builtInInteractiveKind != nil { return .builtInInteractive }
+        guard let document = activityDocument else { return .unknown }
+        switch document.activity {
+        case .multipleChoice:
+            return .multipleChoice
+        }
     }
 
     public var activityScoreRecord: WidgetActivityScoreRecord? {

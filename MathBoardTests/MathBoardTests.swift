@@ -6,7 +6,7 @@
 import CoreGraphics
 import Foundation
 import Testing
-import Documents
+@testable import Documents
 @testable import Canvas
 import Slides
 @testable import WidgetEngine
@@ -573,6 +573,20 @@ struct MathBoardTests {
         #expect(widget.isPinnedToCanvas == false)
     }
 
+    @Test func builtInInteractiveWidgetMarkerRoutesOutsideJSONActivitySchema() {
+        let kind = BuiltInInteractiveKind.inequalitiesExplorer
+        let widget = WidgetObject(
+            name: kind.displayName,
+            codeString: kind.widgetCodeString,
+            frame: CGRect(origin: .zero, size: kind.defaultSize)
+        )
+
+        #expect(widget.builtInInteractiveKind == .inequalitiesExplorer)
+        #expect(widget.activityDocument == nil)
+        #expect(widget.activityKind == .builtInInteractive)
+        #expect(kind.defaultSize == CGSize(width: 900, height: 640))
+    }
+
     @Test func pinnedWidgetViewportFrameScalesWithZoom() {
         let viewport = WidgetCanvasViewport(
             zoomScale: 2,
@@ -672,6 +686,233 @@ struct MathBoardTests {
         #expect(FileManager.default.fileExists(atPath: lessonURL.appendingPathComponent("slides.json").path))
     }
 
+    @MainActor
+    @Test func documentStoreCreatesAndListsNestedFolders() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = DocumentStore(rootURL: rootURL)
+
+        let algebra = try store.createFolder(named: "Algebra 2")
+        let quadratics = try store.createFolder(named: "Quadratics", at: algebra.url)
+
+        #expect(algebra.color == .plain)
+        #expect(store.folders.map(\.name) == ["Algebra 2"])
+        #expect(store.folders(in: algebra).map(\.name) == ["Quadratics"])
+        #expect(store.allFolders().map(\.url) == [algebra.url, quadratics.url])
+    }
+
+    @MainActor
+    @Test func documentStoreCreatesLessonsInsideNestedFoldersAndIncludesThemInRecentLessons() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = DocumentStore(rootURL: rootURL)
+
+        let algebra = try store.createFolder(named: "Algebra 2")
+        let quadratics = try store.createFolder(named: "Quadratics", at: algebra.url)
+        let lesson = try store.createLesson(named: "Solving by Factoring", in: quadratics)
+
+        #expect(store.lessons(in: quadratics).map(\.id) == [lesson.id])
+        #expect(store.allLessons().map(\.id).contains(lesson.id))
+        #expect(store.recentLessons.map(\.id).contains(lesson.id))
+    }
+
+    @MainActor
+    @Test func documentStoreImportsLessonPackageIntoTargetFolderWithFreshIdentity() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        let sourceURL = try makeTemporaryExternalLessonPackage(named: "Compound Inequalities")
+        defer {
+            try? FileManager.default.removeItem(at: rootURL)
+            try? FileManager.default.removeItem(at: sourceURL.deletingLastPathComponent())
+        }
+        let store = DocumentStore(rootURL: rootURL)
+        let algebra = try store.createFolder(named: "Algebra 2")
+        let inequalities = try store.createFolder(named: "Inequalities", at: algebra.url)
+        let sourceID = try readDocumentMetadataID(at: sourceURL)
+
+        let imported = try store.importLessonPackage(from: sourceURL, into: inequalities)
+        let importedAgain = try store.importLessonPackage(from: sourceURL, into: inequalities)
+
+        #expect(imported.name == "Compound Inequalities")
+        #expect(imported.url.deletingLastPathComponent() == inequalities.url)
+        #expect(imported.id != sourceID)
+        #expect(importedAgain.name == "Compound Inequalities 2")
+        #expect(importedAgain.url.deletingLastPathComponent() == inequalities.url)
+        #expect(importedAgain.id != sourceID)
+        #expect(store.lessons(in: inequalities).map(\.name).sorted() == [
+            "Compound Inequalities",
+            "Compound Inequalities 2"
+        ])
+    }
+
+    @MainActor
+    @Test func documentStoreMovesLessonBetweenNestedFoldersAndKeepsIdentity() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = DocumentStore(rootURL: rootURL)
+        let algebra = try store.createFolder(named: "Algebra 2")
+        let sourceFolder = try store.createFolder(named: "Unit 1", at: algebra.url)
+        let destinationFolder = try store.createFolder(named: "Unit 2", at: algebra.url)
+        let lesson = try store.createLesson(named: "Warmup", in: sourceFolder)
+
+        let moved = try store.moveLessons([lesson], to: destinationFolder)
+
+        #expect(moved.map(\.id) == [lesson.id])
+        #expect(moved[0].url.deletingLastPathComponent() == destinationFolder.url)
+        #expect(store.lessons(in: sourceFolder).isEmpty)
+        #expect(store.lessons(in: destinationFolder).map(\.id) == [lesson.id])
+    }
+
+    @MainActor
+    @Test func documentStoreRenamesNestedFolderWithinItsParent() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = DocumentStore(rootURL: rootURL)
+        let algebra = try store.createFolder(named: "Algebra 2")
+        let inequalities = try store.createFolder(named: "Inequalities", at: algebra.url)
+
+        let renamed = try store.renameFolder(inequalities, to: "Compound Inequalities")
+
+        #expect(renamed.name == "Compound Inequalities")
+        #expect(renamed.url.deletingLastPathComponent() == algebra.url)
+        #expect(store.folders(in: algebra).map(\.name) == ["Compound Inequalities"])
+        #expect(!FileManager.default.fileExists(atPath: inequalities.url.path))
+    }
+
+    @MainActor
+    @Test func documentStorePersistsFolderColorMetadata() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = DocumentStore(rootURL: rootURL)
+
+        let algebra = try store.createFolder(named: "Algebra 2")
+        let updated = try store.updateFolderColor(algebra, to: .blue)
+        let reloadedStore = DocumentStore(rootURL: rootURL)
+
+        #expect(updated.color == .blue)
+        #expect(reloadedStore.folders.first?.color == .blue)
+    }
+
+    @MainActor
+    @Test func classroomRosterStoreImportsCSVWithInferredColumns() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = ClassroomRosterStore(rootURL: rootURL)
+        let csvURL = rootURL.appendingPathComponent("Period 1.csv")
+        try """
+        First Name,Last Name,Student ID,Alternate ID
+        Ada,Lovelace,A100,ADA-1
+        Grace,Hopper,G200,
+        """.write(to: csvURL, atomically: true, encoding: .utf8)
+
+        let preview = try store.previewCSV(at: csvURL)
+        let classroom = try store.importCSV(preview: preview, className: "Period 1")
+        let reloadedStore = ClassroomRosterStore(rootURL: rootURL)
+
+        #expect(classroom.name == "Period 1")
+        #expect(classroom.students.map(\.lastName) == ["Hopper", "Lovelace"])
+        #expect(classroom.students.first(where: { $0.lastName == "Lovelace" })?.officialStudentID == "A100")
+        #expect(reloadedStore.classrooms.first?.students.count == 2)
+    }
+
+    @MainActor
+    @Test func classroomRosterStoreGeneratesAlternateIDsOnlyWhenMissing() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = ClassroomRosterStore(rootURL: rootURL)
+        let preview = RosterCSVPreview(
+            headers: ["First Name", "Last Name", "Student ID", "Alternate ID"],
+            rows: [
+                ["Ada", "Lovelace", "A100", ""],
+                ["Grace", "Hopper", "G200", "KEEP-ME"]
+            ],
+            mapping: CSVColumnMapping(firstNameIndex: 0, lastNameIndex: 1, officialStudentIDIndex: 2, alternateStudentIDIndex: 3)
+        )
+        let classroom = try store.importCSV(preview: preview, className: "Algebra 2")
+
+        try store.generateAlternateIDs(for: classroom.id)
+
+        let students = try #require(store.classrooms.first?.students)
+        #expect(students.first(where: { $0.lastName == "Hopper" })?.alternateStudentID == "KEEP-ME")
+        #expect(students.first(where: { $0.lastName == "Lovelace" })?.alternateStudentID == "ALG2-002")
+    }
+
+    @MainActor
+    @Test func classroomRosterStoreRegeneratesAlternateIDsWithCustomPrefix() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = ClassroomRosterStore(rootURL: rootURL)
+        let classroom = try store.importCSV(
+            preview: RosterCSVPreview(
+                headers: ["First", "Last", "ID", "Alternate"],
+                rows: [
+                    ["Ada", "Lovelace", "A100", "OLD-1"],
+                    ["Grace", "Hopper", "G200", ""]
+                ],
+                mapping: CSVColumnMapping(firstNameIndex: 0, lastNameIndex: 1, officialStudentIDIndex: 2, alternateStudentIDIndex: 3)
+            ),
+            className: "Period 4 Algebra"
+        )
+
+        try store.updateAlternateIDPrefix("p4alg", for: classroom.id)
+        try store.generateAlternateIDs(for: classroom.id, overwriteExisting: true)
+
+        let reloadedStore = ClassroomRosterStore(rootURL: rootURL)
+        let students = try #require(reloadedStore.classrooms.first?.students)
+        #expect(reloadedStore.classrooms.first?.alternateIDPrefix == "P4ALG")
+        #expect(students.map(\.alternateStudentID) == ["P4ALG-001", "P4ALG-002"])
+    }
+
+    @MainActor
+    @Test func classroomRosterStoreAddsManualStudentAtTopOfRoster() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = ClassroomRosterStore(rootURL: rootURL)
+        let classroom = try store.importCSV(
+            preview: RosterCSVPreview(
+                headers: ["First", "Last", "ID"],
+                rows: [
+                    ["Ada", "Lovelace", "A100"],
+                    ["Grace", "Hopper", "G200"]
+                ],
+                mapping: CSVColumnMapping(firstNameIndex: 0, lastNameIndex: 1, officialStudentIDIndex: 2)
+            ),
+            className: "Period 1"
+        )
+
+        let newStudent = try store.addStudent(to: classroom.id)
+
+        let students = try #require(store.classrooms.first?.students)
+        #expect(students.first?.id == newStudent.id)
+    }
+
+    @MainActor
+    @Test func classroomRosterStoreMovesSelectedStudentsBetweenClasses() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = ClassroomRosterStore(rootURL: rootURL)
+        let source = try store.importCSV(
+            preview: RosterCSVPreview(
+                headers: ["First", "Last", "ID"],
+                rows: [
+                    ["Ada", "Lovelace", "A100"],
+                    ["Grace", "Hopper", "G200"]
+                ],
+                mapping: CSVColumnMapping(firstNameIndex: 0, lastNameIndex: 1, officialStudentIDIndex: 2)
+            ),
+            className: "Period 1"
+        )
+        let destination = try store.createClassroom(named: "Period 2")
+        let movingID = try #require(store.classrooms.first(where: { $0.id == source.id })?.students.first?.id)
+
+        try store.moveStudents([movingID], from: source.id, to: destination.id)
+
+        let updatedSource = try #require(store.classrooms.first { $0.id == source.id })
+        let updatedDestination = try #require(store.classrooms.first { $0.id == destination.id })
+        #expect(updatedSource.students.count == 1)
+        #expect(updatedDestination.students.count == 1)
+        #expect(updatedDestination.students[0].id == movingID)
+    }
+
     private func makeTemporaryLessonPackage() throws -> URL {
         let lessonURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("MathBoardTests-\(UUID().uuidString).mathboard", isDirectory: true)
@@ -684,5 +925,40 @@ struct MathBoardTests {
             withIntermediateDirectories: true
         )
         return lessonURL
+    }
+
+    private func makeTemporaryDocumentRoot() throws -> URL {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MathBoardDocumentWorkflowTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        return rootURL
+    }
+
+    private func makeTemporaryExternalLessonPackage(named name: String) throws -> URL {
+        let containerURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MathBoardExternalLessonTests-\(UUID().uuidString)", isDirectory: true)
+        let packageURL = containerURL.appendingPathComponent("\(name).mathboard", isDirectory: true)
+        try FileManager.default.createDirectory(at: packageURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: packageURL.appendingPathComponent("strokes", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: packageURL.appendingPathComponent("assets", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        let metadata = DocumentMetadata(id: UUID(), createdAt: Date(), version: DocumentMetadata.currentVersion)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(metadata)
+        try data.write(to: packageURL.appendingPathComponent("document.json"), options: .atomic)
+        return packageURL
+    }
+
+    private func readDocumentMetadataID(at packageURL: URL) throws -> UUID {
+        let data = try Data(contentsOf: packageURL.appendingPathComponent("document.json"))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(DocumentMetadata.self, from: data).id
     }
 }

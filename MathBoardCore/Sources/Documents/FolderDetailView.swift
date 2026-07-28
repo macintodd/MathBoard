@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum LessonSortOrder: String, CaseIterable, Identifiable {
     case newest
@@ -46,9 +47,14 @@ enum LessonSortOrder: String, CaseIterable, Identifiable {
 struct FolderDetailView: View {
     let folder: Folder
     @Environment(DocumentStore.self) private var store
+    @State private var childFolders: [Folder] = []
     @State private var lessons: [Lesson] = []
+    @State private var showNewFolderSheet = false
     @State private var showNewLessonSheet = false
+    @State private var showLessonImporter = false
     @State private var selectedLesson: Lesson?
+    @State private var folderToRename: Folder?
+    @State private var folderToDelete: Folder?
     @State private var lessonToRename: Lesson?
     @State private var lessonToDuplicate: Lesson?
     @State private var lessonToDelete: Lesson?
@@ -61,16 +67,25 @@ struct FolderDetailView: View {
     @State private var isShowingBulkDeleteConfirmation = false
     @State private var errorMessage: String?
 
+    private let folderColumns = [
+        GridItem(.adaptive(minimum: 180, maximum: 240), spacing: 20)
+    ]
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 summarySection
-                if lessons.isEmpty {
-                    LessonsEmptyState()
-                } else if displayedLessons.isEmpty {
-                    LessonsSearchEmptyState()
+                if childFolders.isEmpty && lessons.isEmpty {
+                    FolderContentsEmptyState()
+                } else if displayedChildFolders.isEmpty && displayedLessons.isEmpty {
+                    FolderContentsSearchEmptyState()
                 } else {
-                    lessonsSection
+                    if !isSelecting && !displayedChildFolders.isEmpty {
+                        childFoldersSection
+                    }
+                    if !displayedLessons.isEmpty {
+                        lessonsSection
+                    }
                 }
             }
             .padding(24)
@@ -79,6 +94,9 @@ struct FolderDetailView: View {
         .background(AppColors.canvasBackground.ignoresSafeArea())
         .navigationTitle(folder.name)
         .searchable(text: $searchText, prompt: "Search lessons")
+        .navigationDestination(for: Folder.self) { folder in
+            FolderDetailView(folder: folder)
+        }
         .navigationDestination(item: $selectedLesson) { lesson in
             LessonDetailView(lesson: lesson)
         }
@@ -100,16 +118,47 @@ struct FolderDetailView: View {
                     Button(isSelecting ? "Done" : "Select") {
                         toggleSelectionMode()
                     }
+                    .accessibilityIdentifier("folder.selectButton")
                 }
             }
 
             ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showNewLessonSheet = true
+                Menu {
+                    Button {
+                        showNewFolderSheet = true
+                    } label: {
+                        Label("New Folder", systemImage: "folder.badge.plus")
+                    }
+                    .accessibilityIdentifier("folder.newFolderButton")
+
+                    Button {
+                        showNewLessonSheet = true
+                    } label: {
+                        Label("New Lesson", systemImage: "doc.badge.plus")
+                    }
+                    .accessibilityIdentifier("folder.newLessonButton")
+
+                    Button {
+                        showLessonImporter = true
+                    } label: {
+                        Label("Import Lesson", systemImage: "square.and.arrow.down")
+                    }
+                    .accessibilityIdentifier("folder.importLessonButton")
                 } label: {
-                    Label("New Lesson", systemImage: "doc.badge.plus")
+                    Label("Add Lesson", systemImage: "plus")
                 }
+                .accessibilityIdentifier("folder.addMenu")
                 .disabled(isSelecting)
+            }
+        }
+        .sheet(isPresented: $showNewFolderSheet) {
+            NameEntrySheet(
+                title: "New Folder",
+                placeholder: "Folder name",
+                confirmLabel: "Create"
+            ) { name in
+                _ = try store.createFolder(named: name, at: folder.url)
+                reloadFolderContents()
             }
         }
         .sheet(isPresented: $showNewLessonSheet) {
@@ -124,6 +173,23 @@ struct FolderDetailView: View {
                 selectedLesson = lesson
             }
         }
+        .sheet(item: $folderToRename) { folder in
+            NameEntrySheet(
+                title: "Rename Folder",
+                placeholder: "Folder name",
+                confirmLabel: "Rename",
+                initialName: folder.name
+            ) { name in
+                _ = try store.renameFolder(folder, to: name)
+                reloadFolderContents()
+            }
+        }
+        .fileImporter(
+            isPresented: $showLessonImporter,
+            allowedContentTypes: Self.importableLessonTypes,
+            allowsMultipleSelection: false,
+            onCompletion: handleLessonImport
+        )
         .sheet(item: $lessonToRename) { lesson in
             NameEntrySheet(
                 title: "Rename Lesson",
@@ -164,7 +230,7 @@ struct FolderDetailView: View {
         }
         .overlay {
             if let lessonToDuplicate {
-                DuplicateLessonOverlay(
+            DuplicateLessonOverlay(
                     lessonName: lessonToDuplicate.name,
                     onCancel: {
                         self.lessonToDuplicate = nil
@@ -176,6 +242,16 @@ struct FolderDetailView: View {
                 )
                 .transition(.opacity)
             }
+        }
+        .alert("Delete Folder?", isPresented: deleteFolderAlertBinding) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                if let folderToDelete {
+                    delete(folderToDelete)
+                }
+            }
+        } message: {
+            Text("This permanently deletes \(folderToDelete?.name ?? "this folder") and all folders and lessons inside it.")
         }
         .alert("Delete Lesson?", isPresented: deleteAlertBinding) {
             Button("Cancel", role: .cancel) {}
@@ -201,7 +277,7 @@ struct FolderDetailView: View {
             Text(errorMessage ?? "Something went wrong.")
         }
         .task {
-            lessons = store.lessons(in: folder)
+            reloadFolderContents()
         }
     }
 
@@ -213,6 +289,14 @@ struct FolderDetailView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "ddMMyy"
         return formatter
+    }()
+
+    private static let importableLessonTypes: [UTType] = {
+        var types: [UTType] = [.folder]
+        if let mathboard = UTType(filenameExtension: "mathboard") {
+            types.insert(mathboard, at: 0)
+        }
+        return types
     }()
 
     private var displayedLessons: [Lesson] {
@@ -240,12 +324,28 @@ struct FolderDetailView: View {
         }
     }
 
+    private var displayedChildFolders: [Folder] {
+        let filteredFolders: [Folder]
+        let trimmedSearch = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedSearch.isEmpty {
+            filteredFolders = childFolders
+        } else {
+            filteredFolders = childFolders.filter {
+                $0.name.localizedCaseInsensitiveContains(trimmedSearch)
+            }
+        }
+
+        return filteredFolders.sorted {
+            $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
+    }
+
     private var selectedLessons: [Lesson] {
         lessons.filter { selectedLessonIDs.contains($0.id) }
     }
 
     private var moveDestinationFolders: [Folder] {
-        store.folders.filter { $0.id != folder.id }
+        store.allFolders().filter { $0.id != folder.id }
     }
 
     private var hasMoveDestinations: Bool {
@@ -262,6 +362,17 @@ struct FolderDetailView: View {
             set: { isPresented in
                 if !isPresented {
                     lessonToDelete = nil
+                }
+            }
+        )
+    }
+
+    private var deleteFolderAlertBinding: Binding<Bool> {
+        Binding(
+            get: { folderToDelete != nil },
+            set: { isPresented in
+                if !isPresented {
+                    folderToDelete = nil
                 }
             }
         )
@@ -305,6 +416,11 @@ struct FolderDetailView: View {
         }
     }
 
+    private func reloadFolderContents() {
+        childFolders = store.folders(in: folder)
+        lessons = store.lessons(in: folder)
+    }
+
     private func moveSelectedLessons(to destination: Folder) {
         do {
             _ = try store.moveLessons(selectedLessons, to: destination)
@@ -323,6 +439,45 @@ struct FolderDetailView: View {
             lessons = store.lessons(in: folder)
             selectedLessonIDs.remove(lesson.id)
             lessonToMove = nil
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    private func handleLessonImport(_ result: Result<[URL], any Error>) {
+        do {
+            let urls = try result.get()
+            guard let sourceURL = urls.first else { return }
+
+            let didStartAccessing = sourceURL.startAccessingSecurityScopedResource()
+            defer {
+                if didStartAccessing {
+                    sourceURL.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            let imported = try store.importLessonPackage(from: sourceURL, into: folder)
+            reloadFolderContents()
+            selectedLesson = imported
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    private func delete(_ childFolder: Folder) {
+        do {
+            try store.deleteFolder(childFolder)
+            reloadFolderContents()
+            folderToDelete = nil
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    private func updateColor(of childFolder: Folder, to color: FolderColor) {
+        do {
+            _ = try store.updateFolderColor(childFolder, to: color)
+            reloadFolderContents()
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
@@ -354,13 +509,15 @@ struct FolderDetailView: View {
 
     private var summarySection: some View {
         HStack(spacing: 12) {
-            Image(systemName: "folder.fill")
-                .font(.system(size: 28))
-                .foregroundStyle(AppColors.folderTint)
+            Image(folder.color.assetName)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 58, height: 44)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text("^[\(lessons.count) lesson](inflect: true)")
+                Text(summaryText)
                     .font(.headline)
-                Text("Tap a lesson to open it.")
+                Text("Open a folder or tap a lesson.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -369,6 +526,62 @@ struct FolderDetailView: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private var summaryText: String {
+        let folderText = "\(childFolders.count) " + (childFolders.count == 1 ? "folder" : "folders")
+        let lessonText = "\(lessons.count) " + (lessons.count == 1 ? "lesson" : "lessons")
+        return "\(folderText) · \(lessonText)"
+    }
+
+    private var childFoldersSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("Folders", systemImage: "folder.fill")
+            LazyVGrid(columns: folderColumns, spacing: 20) {
+                ForEach(displayedChildFolders) { childFolder in
+                    NavigationLink(value: childFolder) {
+                        FolderTileView(folder: childFolder)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("folderTile.\(childFolder.name)")
+                    .contextMenu {
+                        Button {
+                            folderToRename = childFolder
+                        } label: {
+                            Label("Rename", systemImage: "pencil")
+                        }
+
+                        folderColorMenu(for: childFolder)
+
+                        Button(role: .destructive) {
+                            folderToDelete = childFolder
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func sectionHeader(_ title: String, systemImage: String) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.headline)
+            .foregroundStyle(.primary)
+    }
+
+    private func folderColorMenu(for folder: Folder) -> some View {
+        Menu {
+            ForEach(FolderColor.allCases) { color in
+                Button {
+                    updateColor(of: folder, to: color)
+                } label: {
+                    Label(color.title, systemImage: folder.color == color ? "checkmark.circle.fill" : "circle.fill")
+                }
+            }
+        } label: {
+            Label("Color", systemImage: "paintpalette")
+        }
     }
 
     private var lessonsSection: some View {
@@ -392,6 +605,7 @@ struct FolderDetailView: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("lessonRow.\(lesson.name)")
                 .contextMenu {
                     if !isSelecting {
                         Button {
@@ -447,6 +661,7 @@ struct FolderDetailView: View {
                 Label("Move", systemImage: "folder")
             }
             .buttonStyle(.bordered)
+            .accessibilityIdentifier("folder.moveSelectedButton")
             .disabled(selectedLessonIDs.isEmpty || !hasMoveDestinations)
 
             Button(role: .destructive) {
@@ -483,9 +698,13 @@ struct MoveLessonsSheet: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(folder.name)
                                 .font(.headline)
-                            Text("^[\(folder.lessonCount) lesson](inflect: true)")
+                            Text(folderPath(for: folder))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                            Text("^[\(folder.lessonCount) lesson](inflect: true)")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
                         }
                     }
                     .contentShape(Rectangle())
@@ -500,6 +719,29 @@ struct MoveLessonsSheet: View {
             }
             .frame(minWidth: 360, minHeight: 320)
         }
+    }
+
+    private func folderPath(for folder: Folder) -> String {
+        let pathComponents = relativePathComponents(for: folder)
+        guard !pathComponents.isEmpty else { return folder.name }
+        return pathComponents.joined(separator: " / ")
+    }
+
+    private func relativePathComponents(for folder: Folder) -> [String] {
+        let components = folder.url.standardizedFileURL.pathComponents
+        let prefixCount = commonParentPathComponents.count
+        guard components.count > prefixCount else { return [folder.name] }
+        return Array(components.dropFirst(prefixCount))
+    }
+
+    private var commonParentPathComponents: [String] {
+        guard let first = folders.first else { return [] }
+        var prefix = first.url.deletingLastPathComponent().standardizedFileURL.pathComponents
+        for folder in folders.dropFirst() {
+            let components = folder.url.deletingLastPathComponent().standardizedFileURL.pathComponents
+            prefix = Array(zip(prefix, components).prefix { $0 == $1 }.map(\.0))
+        }
+        return prefix
     }
 }
 
@@ -563,11 +805,7 @@ private struct LessonRow: View {
                     .frame(width: 28, height: 36)
             }
 
-            Image(systemName: "doc.richtext")
-                .font(.title3)
-                .foregroundStyle(AppColors.accent)
-                .frame(width: 36, height: 36)
-                .background(AppColors.accent.opacity(0.12), in: Circle())
+            LessonFileIconView()
             VStack(alignment: .leading, spacing: 2) {
                 Text(lesson.name)
                     .font(.subheadline.weight(.medium))
@@ -589,16 +827,16 @@ private struct LessonRow: View {
     }
 }
 
-private struct LessonsEmptyState: View {
+private struct FolderContentsEmptyState: View {
     var body: some View {
         VStack(spacing: 8) {
-            Image(systemName: "doc.badge.plus")
+            Image(systemName: "folder.badge.plus")
                 .font(.largeTitle)
                 .foregroundStyle(.secondary)
-            Text("No lessons yet")
+            Text("Nothing here yet")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            Text("Tap “New Lesson” to create one.")
+            Text("Use Add Lesson to create a folder, create a lesson, or import one.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }
@@ -608,13 +846,13 @@ private struct LessonsEmptyState: View {
     }
 }
 
-private struct LessonsSearchEmptyState: View {
+private struct FolderContentsSearchEmptyState: View {
     var body: some View {
         VStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .font(.largeTitle)
                 .foregroundStyle(.secondary)
-            Text("No matching lessons")
+            Text("No matching folders or lessons")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             Text("Try a different search term.")

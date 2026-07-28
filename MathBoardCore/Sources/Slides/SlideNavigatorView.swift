@@ -23,14 +23,26 @@
 //
 
 import SwiftUI
+import WidgetEngine
+
+struct SlideNavigatorThumbnail {
+    var image: Image?
+    var widgetKind: WidgetObjectActivityKind?
+
+    static let placeholder = SlideNavigatorThumbnail(image: nil, widgetKind: nil)
+
+    var isWidgetOnly: Bool {
+        image == nil && widgetKind != nil
+    }
+}
 
 struct SlideNavigatorView: View {
     let slides: [SlideMetadata]
     let currentIndex: Int
     @Binding var isFilmstripOpen: Bool
-    /// Thumbnail for a slide, or nil for the blank-card placeholder. Only
-    /// called while the filmstrip is open, so closed-state renders do no work.
-    let thumbnail: (SlideMetadata) -> Image?
+    /// Thumbnail summary for a slide. Only called while the filmstrip is open,
+    /// so closed-state renders do no work.
+    let thumbnail: (SlideMetadata) -> SlideNavigatorThumbnail
     let onGoTo: (Int) -> Void
     let onPrevious: () -> Void
     let onNext: () -> Void
@@ -348,7 +360,7 @@ struct SlideNavigatorView: View {
                     ForEach(Array(slides.enumerated()), id: \.element.id) { index, slide in
                         SlideNavigatorThumbnailTile(
                             // Skip thumbnail work entirely while hidden.
-                            thumbnail: isFilmstripOpen ? thumbnail(slide) : nil,
+                            thumbnail: isFilmstripOpen ? thumbnail(slide) : .placeholder,
                             index: index,
                             isCurrent: index == currentIndex,
                             isSelected: selectedIDs.contains(slide.id),
@@ -403,7 +415,7 @@ struct SlideNavigatorView: View {
 // MARK: - Thumbnail tile
 
 private struct SlideNavigatorThumbnailTile: View {
-    let thumbnail: Image?
+    let thumbnail: SlideNavigatorThumbnail
     let index: Int
     let isCurrent: Bool
     let isSelected: Bool
@@ -425,8 +437,10 @@ private struct SlideNavigatorThumbnailTile: View {
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             Group {
-                if let thumbnail {
-                    thumbnail
+                if thumbnail.isWidgetOnly {
+                    widgetOnlyThumbnail
+                } else if let image = thumbnail.image {
+                    image
                         .resizable()
                         .scaledToFit()
                 } else {
@@ -450,6 +464,12 @@ private struct SlideNavigatorThumbnailTile: View {
                         .font(.footnote)
                         .foregroundStyle(SlideNavigatorColors.accent)
                         .background(Circle().fill(.white))
+                        .padding(4)
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                if let widgetKind = thumbnail.widgetKind, !thumbnail.isWidgetOnly {
+                    widgetBadge(for: widgetKind)
                         .padding(4)
                 }
             }
@@ -481,9 +501,49 @@ private struct SlideNavigatorThumbnailTile: View {
         }
         .sensoryFeedback(.selection, trigger: isSelected)
         .accessibilityLabel("Slide \(index + 1)")
-        .accessibilityValue([isCurrent ? "Current slide" : nil, isSelected ? "Selected" : nil].compactMap(\.self).joined(separator: ", "))
+        .accessibilityValue(accessibilityValue)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction(named: isSelected ? "Deselect" : "Select", onToggleSelect)
+    }
+
+    private var widgetOnlyThumbnail: some View {
+        VStack(spacing: 7) {
+            Image(systemName: "rectangle.3.group.bubble")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(SlideNavigatorColors.accent)
+            Text(thumbnail.widgetKind?.displayCode ?? "W")
+                .font(.caption.monospacedDigit().weight(.heavy))
+                .foregroundStyle(SlideNavigatorColors.ink)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(SlideNavigatorColors.secondary.opacity(0.2))
+        )
+    }
+
+    private func widgetBadge(for kind: WidgetObjectActivityKind) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: "rectangle.3.group.bubble")
+                .font(.system(size: 8, weight: .bold))
+            Text(kind.displayCode)
+                .font(.system(size: 8, weight: .heavy, design: .rounded))
+        }
+        .foregroundStyle(SlideNavigatorColors.ink)
+        .padding(.horizontal, 5)
+        .padding(.vertical, 3)
+        .background(Capsule().fill(SlideNavigatorColors.secondary))
+        .overlay(Capsule().strokeBorder(Color.black.opacity(0.12), lineWidth: 0.5))
+    }
+
+    private var accessibilityValue: String {
+        [
+            isCurrent ? "Current slide" : nil,
+            isSelected ? "Selected" : nil,
+            thumbnail.widgetKind?.displayName
+        ]
+            .compactMap(\.self)
+            .joined(separator: ", ")
     }
 }
 
@@ -585,7 +645,7 @@ private extension View {
             slides: slides,
             currentIndex: 2,
             isFilmstripOpen: $isOpen,
-            thumbnail: { _ in nil },
+            thumbnail: { _ in .placeholder },
             onGoTo: { _ in },
             onPrevious: {},
             onNext: {},

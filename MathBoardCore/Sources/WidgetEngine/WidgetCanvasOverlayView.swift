@@ -98,25 +98,46 @@ public struct WidgetCanvasOverlayView: View {
 
     public var body: some View {
         ZStack(alignment: .topLeading) {
-            ForEach($widgets) { $widget in
-                WidgetContainerView(
-                    widget: displayBinding(for: $widget),
-                    scoreSheet: scoreSheet,
-                    allowsPinning: allowsWidgetAuthoring,
-                    onEditWidget: allowsWidgetAuthoring ? { onEditWidget?(widget) } : nil,
-                    onDeleteWidget: allowsWidgetAuthoring ? { deleteWidget(id: widget.id) } : nil,
-                    onInteractionChanged: onWidgetInteractionChanged,
-                    onDisplayFrameChanged: { frame in
-                        onWidgetDisplayFrameChanged?(widget.id, frame)
-                    }
-                )
-                .id("\(canvasIdentity)-\(widget.id.uuidString)")
+            ForEach(widgets) { widget in
+                if let widgetBinding = sourceBinding(for: widget.id) {
+                    WidgetContainerView(
+                        widget: displayBinding(for: widgetBinding),
+                        scoreSheet: scoreSheet,
+                        allowsPinning: allowsWidgetAuthoring,
+                        onEditWidget: allowsWidgetAuthoring ? { onEditWidget?(widget) } : nil,
+                        onDeleteWidget: allowsWidgetAuthoring ? { deleteWidget(id: widget.id) } : nil,
+                        onInteractionChanged: onWidgetInteractionChanged,
+                        onDisplayFrameChanged: { frame in
+                            onWidgetDisplayFrameChanged?(widget.id, frame)
+                        }
+                    )
+                    .id("\(canvasIdentity)-\(widget.id.uuidString)")
+                }
             }
         }
     }
 
     private func deleteWidget(id: WidgetObject.ID) {
-        widgets.removeAll { $0.id == id }
+        Task { @MainActor in
+            await Task.yield()
+            let removedWidgets = widgets.filter { $0.id == id }
+            widgets.removeAll { $0.id == id }
+            onWidgetInteractionChanged?(false)
+            onWidgetDisplayFrameChanged?(id, nil)
+            if removedWidgets.contains(where: { $0.builtInInteractiveKind == .inequalitiesExplorer }) {
+                InequalityExplorerStateRegistry.removeState(for: id)
+            }
+        }
+    }
+
+    private func sourceBinding(for id: WidgetObject.ID) -> Binding<WidgetObject>? {
+        guard let currentWidget = widgets.first(where: { $0.id == id }) else { return nil }
+        return Binding {
+            widgets.first(where: { $0.id == id }) ?? currentWidget
+        } set: { updatedWidget in
+            guard let index = widgets.firstIndex(where: { $0.id == id }) else { return }
+            widgets[index] = updatedWidget
+        }
     }
 
     private func displayBinding(for source: Binding<WidgetObject>) -> Binding<WidgetObject> {

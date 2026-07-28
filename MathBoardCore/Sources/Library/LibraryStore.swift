@@ -84,6 +84,9 @@ public enum LibraryStore {
     private static let itemsFileName = "items.json"
     private static let assetsDirectoryName = "assets"
     private static let maximumItemsPerLibrary = 240
+    private static let builtInInteractivesFolderName = "Built-In Interactives"
+    private static let inequalitiesExplorerRecentID = "builtin.inequalities.explorer"
+    private static let inequalitiesExplorerWidgetCodeString = "__mathboard_builtin_interactive__:inequalitiesExplorer"
 
     public static func loadFolders() -> [LibraryStoredFolder] {
         ensureBootstrapIfNeeded()
@@ -245,20 +248,55 @@ public enum LibraryStore {
     }
 
     private static func ensureBootstrapIfNeeded() {
-        if FileManager.default.fileExists(atPath: manifestURL().path) {
-            return
+        if !FileManager.default.fileExists(atPath: manifestURL().path) {
+            let folders = LibraryMock.folders.prefix(6).enumerated().map { index, folder in
+                LibraryStoredFolder(
+                    name: folder.name,
+                    symbol: folder.symbol,
+                    tintIndex: index,
+                    keywords: folder.keywords,
+                    isPinned: folder.isPinned
+                )
+            }
+            try? FileManager.default.createDirectory(at: rootDirectoryURL(), withIntermediateDirectories: true)
+            try? saveFolders(Array(folders))
         }
-        let folders = LibraryMock.folders.prefix(6).enumerated().map { index, folder in
-            LibraryStoredFolder(
-                name: folder.name,
-                symbol: folder.symbol,
-                tintIndex: index,
-                keywords: folder.keywords,
-                isPinned: folder.isPinned
+
+        ensureBuiltInInteractivesLibraryIfNeeded()
+    }
+
+    private static func ensureBuiltInInteractivesLibraryIfNeeded() {
+        let data = try? Data(contentsOf: manifestURL())
+        var manifest = data.flatMap { try? JSONDecoder.libraryStore.decode(Manifest.self, from: $0) }
+            ?? Manifest(folders: [])
+
+        let folder: LibraryStoredFolder
+        if let existing = manifest.folders.first(where: { $0.name == builtInInteractivesFolderName }) {
+            folder = existing
+        } else {
+            folder = LibraryStoredFolder(
+                name: builtInInteractivesFolderName,
+                symbol: "rectangle.stack.badge.play",
+                tintIndex: manifest.folders.count,
+                keywords: ["interactive", "inequality", "number line", "practice", "widget", "mathtivity"],
+                isPinned: true
             )
+            manifest.folders.append(folder)
+            try? saveFolders(manifest.folders)
         }
-        try? FileManager.default.createDirectory(at: rootDirectoryURL(), withIntermediateDirectories: true)
-        try? saveFolders(Array(folders))
+
+        var items = loadItems(in: folder.id)
+        guard !items.contains(where: { $0.recentID == inequalitiesExplorerRecentID }) else { return }
+        items.insert(
+            LibraryStoredItem(
+                recentID: inequalitiesExplorerRecentID,
+                title: "Inequality Explorer",
+                kind: .widget,
+                widgetCodeString: inequalitiesExplorerWidgetCodeString
+            ),
+            at: 0
+        )
+        try? saveItems(items, in: folder.id)
     }
 
     private static func uniqueFolderName(for requestedName: String, excluding excludedID: UUID? = nil) -> String {

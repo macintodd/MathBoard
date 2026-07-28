@@ -47,12 +47,14 @@ private enum FolderSortOrder: String, CaseIterable, Identifiable {
 
 public struct StartScreenView: View {
     @Environment(DocumentStore.self) private var store
+    @Environment(ClassroomRosterStore.self) private var classroomRosterStore
     @State private var searchText: String = ""
     @State private var isSearchPresented = false
     @State private var folderSortOrder: FolderSortOrder = .nameAscending
     @State private var lessonSortOrder: LessonSortOrder = .newest
     @State private var showNewFolderSheet = false
     @State private var showLessonImporter = false
+    @State private var showClassroomRosters = false
     @State private var importedLesson: Lesson?
     @State private var folderToRename: Folder?
     @State private var folderToDelete: Folder?
@@ -95,6 +97,12 @@ public struct StartScreenView: View {
                 } label: {
                     Label("Open Lesson", systemImage: "folder")
                 }
+
+                Button {
+                    showClassroomRosters = true
+                } label: {
+                    Label("Classroom Rosters", systemImage: "person.3.sequence")
+                }
             }
 
             ToolbarItem(placement: .primaryAction) {
@@ -103,6 +111,7 @@ public struct StartScreenView: View {
                 } label: {
                     Label("New Folder", systemImage: "folder.badge.plus")
                 }
+                .accessibilityIdentifier("start.newFolderButton")
             }
         }
         .searchable(
@@ -169,7 +178,7 @@ public struct StartScreenView: View {
         }
         .sheet(isPresented: $isShowingSearchMoveSheet) {
             MoveLessonsSheet(
-                folders: store.folders,
+                folders: store.allFolders(),
                 selectedCount: selectedSearchLessonIDs.count,
                 onCancel: {
                     isShowingSearchMoveSheet = false
@@ -179,6 +188,10 @@ public struct StartScreenView: View {
                 }
             )
         }
+        .classroomRosterPresentation(
+            isPresented: $showClassroomRosters,
+            classroomRosterStore: classroomRosterStore
+        )
     }
 
     private static let importableLessonTypes: [UTType] = {
@@ -203,7 +216,7 @@ public struct StartScreenView: View {
 
     private var matchingFolders: [Folder] {
         guard isSearching else { return [] }
-        return sort(store.folders.filter {
+        return sort(store.allFolders().filter {
             $0.name.localizedCaseInsensitiveContains(trimmedSearchText)
         })
     }
@@ -323,6 +336,14 @@ public struct StartScreenView: View {
         }
     }
 
+    private func updateColor(of folder: Folder, to color: FolderColor) {
+        do {
+            _ = try store.updateFolderColor(folder, to: color)
+        } catch {
+            folderActionErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
     private func toggleSearchLessonSelection(for lesson: Lesson) {
         if selectedSearchLessonIDs.contains(lesson.id) {
             selectedSearchLessonIDs.remove(lesson.id)
@@ -396,15 +417,18 @@ public struct StartScreenView: View {
                 LazyVGrid(columns: folderColumns, spacing: 20) {
                     ForEach(sortedFolders) { folder in
                         NavigationLink(value: folder) {
-                            FolderTile(folder: folder)
+                            FolderTileView(folder: folder)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityIdentifier("folderTile.\(folder.name)")
                         .contextMenu {
                             Button {
                                 folderToRename = folder
                             } label: {
                                 Label("Rename", systemImage: "pencil")
                             }
+
+                            folderColorMenu(for: folder)
 
                             Button(role: .destructive) {
                                 folderToDelete = folder
@@ -443,9 +467,12 @@ public struct StartScreenView: View {
                         LazyVGrid(columns: folderColumns, spacing: 20) {
                             ForEach(matchingFolders) { folder in
                                 NavigationLink(value: folder) {
-                                    FolderTile(folder: folder)
+                                    FolderTileView(folder: folder)
                                 }
                                 .buttonStyle(.plain)
+                                .contextMenu {
+                                    folderColorMenu(for: folder)
+                                }
                             }
                         }
                     }
@@ -518,7 +545,7 @@ public struct StartScreenView: View {
                 Label("Move", systemImage: "folder")
             }
             .buttonStyle(.bordered)
-            .disabled(selectedSearchLessonIDs.isEmpty || store.folders.isEmpty)
+            .disabled(selectedSearchLessonIDs.isEmpty || store.allFolders().isEmpty)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -530,29 +557,19 @@ public struct StartScreenView: View {
             .font(.headline)
             .foregroundStyle(.primary)
     }
-}
 
-private struct FolderTile: View {
-    let folder: Folder
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Image(systemName: "folder.fill")
-                .font(.system(size: 36, weight: .regular))
-                .foregroundStyle(AppColors.folderTint)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(folder.name)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                Text("^[\(folder.lessonCount) lesson](inflect: true)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+    private func folderColorMenu(for folder: Folder) -> some View {
+        Menu {
+            ForEach(FolderColor.allCases) { color in
+                Button {
+                    updateColor(of: folder, to: color)
+                } label: {
+                    Label(color.title, systemImage: folder.color == color ? "checkmark.circle.fill" : "circle.fill")
+                }
             }
+        } label: {
+            Label("Color", systemImage: "paintpalette")
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-        .contentShape(RoundedRectangle(cornerRadius: 16))
     }
 }
 
@@ -601,11 +618,7 @@ private struct LessonResultRow: View {
                     .frame(width: 28, height: 36)
             }
 
-            Image(systemName: "doc.richtext")
-                .font(.title3)
-                .foregroundStyle(AppColors.accent)
-                .frame(width: 36, height: 36)
-                .background(AppColors.accent.opacity(0.12), in: Circle())
+            LessonFileIconView()
             VStack(alignment: .leading, spacing: 2) {
                 Text(lesson.name)
                     .font(.subheadline.weight(.medium))
@@ -660,9 +673,31 @@ private struct SearchEmptyState: View {
     }
 }
 
+private extension View {
+    @ViewBuilder
+    func classroomRosterPresentation(
+        isPresented: Binding<Bool>,
+        classroomRosterStore: ClassroomRosterStore
+    ) -> some View {
+        #if os(iOS)
+        fullScreenCover(isPresented: isPresented) {
+            ClassroomRosterView()
+                .environment(classroomRosterStore)
+        }
+        #else
+        sheet(isPresented: isPresented) {
+            ClassroomRosterView()
+                .environment(classroomRosterStore)
+                .frame(minWidth: 1100, minHeight: 760)
+        }
+        #endif
+    }
+}
+
 #Preview {
     NavigationStack {
         StartScreenView()
     }
     .environment(DocumentStore())
+    .environment(ClassroomRosterStore())
 }
