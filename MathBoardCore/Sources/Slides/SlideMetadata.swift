@@ -61,4 +61,20 @@ public struct SlideViewportState: Codable, Hashable, Sendable {
         self.contentOffsetY = contentOffsetY
         self.platform = platform
     }
+
+    public func isUsableSavedCanvasViewport(drawingOriginOffset: Double = 3000) -> Bool {
+        guard zoomScale.isFinite, zoomScale > 0,
+              contentOffsetX.isFinite, contentOffsetY.isFinite,
+              contentOffsetX >= 0, contentOffsetY >= 0 else {
+            return false
+        }
+
+        let scaledBoardOrigin = max(drawingOriginOffset * zoomScale, 1)
+        let topLeftVoidThreshold = max(scaledBoardOrigin * 0.2, 24)
+        if contentOffsetX <= topLeftVoidThreshold && contentOffsetY <= topLeftVoidThreshold {
+            return false
+        }
+
+        return true
+    }
 }

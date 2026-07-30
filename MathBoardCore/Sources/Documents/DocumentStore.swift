@@ -31,7 +31,7 @@ public final class DocumentStore {
     private let fileManager: FileManager
     private static let libraryRecentDirectoryName = "library"
 
-    public init() {
+    public init(loadImmediately: Bool = true) {
         self.fileManager = .default
         self.rootURL = Self.locateRootURL(using: fileManager)
         if let root = rootURL {
@@ -39,7 +39,9 @@ public final class DocumentStore {
             bootstrapIfNeeded(at: root)
             seedDocumentWorkflowUITestFixtureIfRequested(at: root)
         }
-        reload()
+        if loadImmediately {
+            reload()
+        }
     }
 
     init(rootURL: URL, fileManager: FileManager = .default) {
@@ -93,7 +95,7 @@ public final class DocumentStore {
 
     // MARK: - Read
 
-    func reload() {
+    public func reload() {
         guard let rootURL else { return }
         folders = (try? loadFolders(at: rootURL)) ?? []
         recentLessons = computeRecentLessons(limit: 6)
@@ -156,9 +158,7 @@ public final class DocumentStore {
     }
 
     private func loadLesson(at url: URL) throws -> Lesson {
-        let metadataURL = url.appendingPathComponent("document.json")
-        let data = try Data(contentsOf: metadataURL)
-        let metadata = try Self.jsonDecoder.decode(DocumentMetadata.self, from: data)
+        let metadata = try loadDocumentMetadata(at: url)
         let attrs = try fileManager.attributesOfItem(atPath: url.path)
         let modifiedAt = (attrs[.modificationDate] as? Date) ?? Date()
         return Lesson(
@@ -166,7 +166,8 @@ public final class DocumentStore {
             name: url.deletingPathExtension().lastPathComponent,
             url: url,
             createdAt: metadata.createdAt,
-            modifiedAt: modifiedAt
+            modifiedAt: modifiedAt,
+            publishedVersion: metadata.publishedVersion
         )
     }
 
@@ -239,6 +240,39 @@ public final class DocumentStore {
         )
     }
 
+    func sourceContentChecksum(for lesson: Lesson) throws -> String {
+        let archiveData = try MathBoardPackageArchiver(fileManager: fileManager).archivePackage(
+            at: lesson.url,
+            normalizingDocumentMetadata: true
+        )
+        return MathBoardPackageArchiver.checksum(for: archiveData)
+    }
+
+    func hasUnpublishedChanges(_ lesson: Lesson) -> Bool {
+        guard let publishedVersion = lesson.publishedVersion,
+              let checksum = try? sourceContentChecksum(for: lesson) else {
+            return true
+        }
+        return publishedVersion.sourceContentChecksum != checksum
+    }
+
+    @discardableResult
+    func recordPublishedVersion(_ manifest: LessonPackageManifest, sourceContentChecksum: String, for lesson: Lesson) throws -> Lesson {
+        guard var metadata = try? loadDocumentMetadata(at: lesson.url) else {
+            throw DocumentStoreError.invalidLessonPackage
+        }
+        guard let publishedVersion = LessonPublishedVersionMetadata(
+            manifest: manifest,
+            sourceContentChecksum: sourceContentChecksum
+        ) else {
+            throw DocumentStoreError.invalidLessonPackage
+        }
+        metadata.publishedVersion = publishedVersion
+        try saveDocumentMetadata(metadata, at: lesson.url)
+        reload()
+        return try loadLesson(at: lesson.url)
+    }
+
     func deleteFolder(_ folder: Folder) throws {
         try fileManager.removeItem(at: folder.url)
         reload()
@@ -276,8 +310,7 @@ public final class DocumentStore {
                 createdAt: Date(),
                 version: DocumentMetadata.currentVersion
             )
-            let data = try Self.jsonEncoder.encode(metadata)
-            try data.write(to: packageURL.appendingPathComponent("document.json"), options: .atomic)
+            try saveDocumentMetadata(metadata, at: packageURL)
             duplicatedLessons.append(try loadLesson(at: packageURL))
         }
 
@@ -353,9 +386,51 @@ public final class DocumentStore {
             createdAt: Date(),
             version: DocumentMetadata.currentVersion
         )
-        let data = try Self.jsonEncoder.encode(metadata)
-        try data.write(to: destinationURL.appendingPathComponent("document.json"), options: .atomic)
+        try saveDocumentMetadata(metadata, at: destinationURL)
 
+        reload()
+        return try loadLesson(at: destinationURL)
+    }
+
+    @discardableResult
+    func importSharedLessonPackageArchive(_ archiveData: Data, suggestedFileName: String?) throws -> Lesson {
+        guard let rootURL else { throw DocumentStoreError.noRoot }
+        let assignedFolderURL = rootURL.appendingPathComponent("Assigned Lessons", isDirectory: true)
+        if !fileManager.fileExists(atPath: assignedFolderURL.path) {
+            try fileManager.createDirectory(at: assignedFolderURL, withIntermediateDirectories: false)
+        }
+
+        let archiveFileName = (try? MathBoardPackageArchiver.packageFileName(from: archiveData)) ?? suggestedFileName ?? "Assigned Lesson.mathboard"
+        let archiveBaseName = URL(fileURLWithPath: archiveFileName).deletingPathExtension().lastPathComponent
+        let baseName = (try? validatedDisplayName(archiveBaseName, kind: .lesson)) ?? "Assigned Lesson"
+        let finalName = try uniqueImportedName(for: baseName, in: assignedFolderURL)
+        let destinationURL = assignedFolderURL.appendingPathComponent("\(finalName).mathboard", isDirectory: true)
+
+        try MathBoardPackageArchiver(fileManager: fileManager).restorePackage(from: archiveData, to: destinationURL)
+        _ = try loadLesson(at: destinationURL)
+        reload()
+        return try loadLesson(at: destinationURL)
+    }
+
+    func studentAssignedLessonWorkingCopy(
+        for sourceLesson: Lesson,
+        assignmentID: UUID,
+        studentIdentifier: String
+    ) throws -> Lesson {
+        guard let rootURL else { throw DocumentStoreError.noRoot }
+        let studentWorkFolderURL = rootURL
+            .appendingPathComponent("Assigned Lessons", isDirectory: true)
+            .appendingPathComponent("Student Work", isDirectory: true)
+        if !fileManager.fileExists(atPath: studentWorkFolderURL.path) {
+            try fileManager.createDirectory(at: studentWorkFolderURL, withIntermediateDirectories: true)
+        }
+
+        let safeStudentIdentifier = Self.safeFileComponent(studentIdentifier)
+        let workingCopyName = "\(assignmentID.uuidString)-\(safeStudentIdentifier)-\(sourceLesson.id.uuidString)"
+        let destinationURL = studentWorkFolderURL.appendingPathComponent("\(workingCopyName).mathboard", isDirectory: true)
+        if !fileManager.fileExists(atPath: destinationURL.path) {
+            try copyLessonPackage(from: sourceLesson.url, to: destinationURL)
+        }
         reload()
         return try loadLesson(at: destinationURL)
     }
@@ -385,8 +460,7 @@ public final class DocumentStore {
             createdAt: Date(),
             version: DocumentMetadata.currentVersion
         )
-        let data = try Self.jsonEncoder.encode(metadata)
-        try data.write(to: destinationURL.appendingPathComponent("document.json"), options: .atomic)
+        try saveDocumentMetadata(metadata, at: destinationURL)
 
         reload()
         return try loadLesson(at: destinationURL)
@@ -398,8 +472,7 @@ public final class DocumentStore {
             createdAt: Date(),
             version: DocumentMetadata.currentVersion
         )
-        let data = try Self.jsonEncoder.encode(metadata)
-        try data.write(to: packageURL.appendingPathComponent("document.json"), options: .atomic)
+        try saveDocumentMetadata(metadata, at: packageURL)
         reload()
         return Lesson(
             id: metadata.id,
@@ -512,6 +585,17 @@ public final class DocumentStore {
         try data.write(to: folderURL.appendingPathComponent(FolderMetadata.fileName), options: .atomic)
     }
 
+    private func loadDocumentMetadata(at packageURL: URL) throws -> DocumentMetadata {
+        let metadataURL = packageURL.appendingPathComponent("document.json")
+        let data = try Data(contentsOf: metadataURL)
+        return try Self.jsonDecoder.decode(DocumentMetadata.self, from: data)
+    }
+
+    private func saveDocumentMetadata(_ metadata: DocumentMetadata, at packageURL: URL) throws {
+        let data = try Self.jsonEncoder.encode(metadata)
+        try data.write(to: packageURL.appendingPathComponent("document.json"), options: .atomic)
+    }
+
     private func copyLessonPackage(from sourceURL: URL, to destinationURL: URL) throws {
         try fileManager.copyItem(at: sourceURL, to: destinationURL)
         try copyLibraryRecentSidecar(from: sourceURL, to: destinationURL)
@@ -534,6 +618,15 @@ public final class DocumentStore {
         characters.formUnion(.controlCharacters)
         return characters
     }()
+
+    private static func safeFileComponent(_ value: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        let scalars = value.unicodeScalars.map { scalar in
+            allowed.contains(scalar) ? Character(scalar) : "-"
+        }
+        let component = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return component.isEmpty ? "student" : component
+    }
 
     // MARK: - First-launch bootstrap
 

@@ -48,8 +48,10 @@ final class MathBoardUITests: XCTestCase {
         tapElement(app.buttons["folder.moveSelectedButton"])
 
         XCTAssertTrue(app.navigationBars["Move 1 Lesson"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Unit 2"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["UI Algebra / Unit 2"].waitForExistence(timeout: 5))
+        let destination = app.buttons["moveDestination.Unit 2"]
+        scrollUntilVisible(destination)
+        XCTAssertTrue(destination.waitForExistence(timeout: 2))
+        XCTAssertTrue(destination.label.contains("UI Algebra / Unit 2"))
     }
 
     private func createRootFolder(named name: String) {
@@ -89,6 +91,14 @@ final class MathBoardUITests: XCTestCase {
     private func tapButton(named name: String) {
         let button = app.buttons[name]
         tapElement(button, named: name)
+    }
+
+    private func scrollUntilVisible(_ element: XCUIElement, maxSwipes: Int = 6) {
+        var remainingSwipes = maxSwipes
+        while !element.exists && remainingSwipes > 0 {
+            app.swipeUp()
+            remainingSwipes -= 1
+        }
     }
 
     private func tapElement(_ element: XCUIElement, named name: String? = nil) {

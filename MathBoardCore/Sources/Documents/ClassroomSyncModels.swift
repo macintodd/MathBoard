@@ -1,0 +1,322 @@
+import Foundation
+import WidgetEngine
+
+public struct TeacherSyncIdentity: Codable, Hashable, Identifiable {
+    public var id: UUID
+    public var displayName: String
+
+    public init(id: UUID = UUID(), displayName: String = "Local Teacher") {
+        self.id = id
+        self.displayName = displayName
+    }
+}
+
+public struct ClassroomSyncPacket: Codable, Hashable, Identifiable {
+    public var id: UUID
+    public var teacherID: UUID
+    public var name: String
+    public var studentCount: Int
+
+    public init(id: UUID, teacherID: UUID, name: String, studentCount: Int) {
+        self.id = id
+        self.teacherID = teacherID
+        self.name = name
+        self.studentCount = studentCount
+    }
+}
+
+public struct LessonPackageManifest: Codable, Hashable, Identifiable {
+    public var id: UUID
+    public var title: String
+    public var versionID: UUID?
+    public var versionNumber: Int?
+    public var packageFileName: String?
+    public var packageStoragePath: String?
+    public var packageChecksum: String?
+    public var publishedAt: Date?
+
+    public init(
+        id: UUID,
+        title: String,
+        versionID: UUID? = nil,
+        versionNumber: Int? = nil,
+        packageFileName: String? = nil,
+        packageStoragePath: String? = nil,
+        packageChecksum: String? = nil,
+        publishedAt: Date? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.versionID = versionID
+        self.versionNumber = versionNumber
+        self.packageFileName = packageFileName
+        self.packageStoragePath = packageStoragePath
+        self.packageChecksum = packageChecksum
+        self.publishedAt = publishedAt
+    }
+}
+
+public struct AssignmentSyncPacket: Codable, Hashable, Identifiable {
+    public var id: UUID
+    public var teacherID: UUID
+    public var classroomID: UUID
+    public var classroomName: String
+    public var lesson: LessonPackageManifest
+    public var classLessonCode: String
+    public var shareURL: URL?
+    public var widgetSummaries: [AssignedWidgetSummary]
+    public var assignedAt: Date
+
+    public init(
+        id: UUID,
+        teacherID: UUID,
+        classroomID: UUID,
+        classroomName: String,
+        lesson: LessonPackageManifest,
+        classLessonCode: String,
+        shareURL: URL? = nil,
+        widgetSummaries: [AssignedWidgetSummary],
+        assignedAt: Date
+    ) {
+        self.id = id
+        self.teacherID = teacherID
+        self.classroomID = classroomID
+        self.classroomName = classroomName
+        self.lesson = lesson
+        self.classLessonCode = classLessonCode
+        self.shareURL = shareURL
+        self.widgetSummaries = widgetSummaries
+        self.assignedAt = assignedAt
+    }
+}
+
+public struct StudentSubmissionPacket: Codable, Identifiable {
+    public var id: UUID
+    public var teacherID: UUID
+    public var classroomID: UUID
+    public var assignmentID: UUID
+    public var classLessonCode: String
+    public var studentIdentifier: String
+    public var widgetScoreRecord: WidgetActivityScoreRecord
+    public var submittedAt: Date
+
+    public init(
+        id: UUID = UUID(),
+        teacherID: UUID,
+        classroomID: UUID,
+        assignmentID: UUID,
+        classLessonCode: String,
+        studentIdentifier: String,
+        widgetScoreRecord: WidgetActivityScoreRecord,
+        submittedAt: Date = Date()
+    ) {
+        self.id = id
+        self.teacherID = teacherID
+        self.classroomID = classroomID
+        self.assignmentID = assignmentID
+        self.classLessonCode = classLessonCode
+        self.studentIdentifier = studentIdentifier
+        self.widgetScoreRecord = widgetScoreRecord
+        self.submittedAt = submittedAt
+    }
+}
+
+public struct StudentWidgetLiveProgress: Codable, Hashable, Identifiable {
+    static let defaultActiveStaleInterval: TimeInterval = 20
+
+    public var id: String { "\(studentID.uuidString)_\(widgetID.uuidString)" }
+    public var assignmentID: UUID
+    public var classroomID: UUID
+    public var studentID: UUID
+    public var studentName: String
+    public var widgetID: UUID
+    public var correctCount: Int
+    public var attemptedCount: Int
+    public var status: WidgetActivityScoreStatus
+    public var isActiveOnStudentScreen: Bool
+    public var updatedAt: Date
+
+    public init(
+        assignmentID: UUID,
+        classroomID: UUID,
+        studentID: UUID,
+        studentName: String,
+        widgetID: UUID,
+        correctCount: Int,
+        attemptedCount: Int,
+        status: WidgetActivityScoreStatus,
+        isActiveOnStudentScreen: Bool = false,
+        updatedAt: Date = Date()
+    ) {
+        self.assignmentID = assignmentID
+        self.classroomID = classroomID
+        self.studentID = studentID
+        self.studentName = studentName
+        self.widgetID = widgetID
+        self.correctCount = max(0, correctCount)
+        self.attemptedCount = max(0, attemptedCount)
+        self.status = status
+        self.isActiveOnStudentScreen = isActiveOnStudentScreen
+        self.updatedAt = updatedAt
+    }
+
+    public var percentScore: Double? {
+        guard attemptedCount > 0 else { return nil }
+        return Double(correctCount) / Double(attemptedCount) * 100
+    }
+
+    func indicatorState(
+        now: Date = Date(),
+        staleInterval: TimeInterval = Self.defaultActiveStaleInterval
+    ) -> LiveProgressIndicatorState {
+        if status == .complete {
+            return .submitted
+        }
+        guard isActiveOnStudentScreen else {
+            return .inactive
+        }
+        if now.timeIntervalSince(updatedAt) > staleInterval {
+            return .offline
+        }
+        return .active
+    }
+}
+
+enum LiveProgressIndicatorState: Equatable {
+    case notStarted
+    case inactive
+    case active
+    case submitted
+    case offline
+
+    var displayName: String {
+        switch self {
+        case .notStarted:
+            "Not started"
+        case .inactive:
+            "Not on screen"
+        case .active:
+            "Working"
+        case .submitted:
+            "Submitted"
+        case .offline:
+            "Offline"
+        }
+    }
+}
+
+extension Optional where Wrapped == StudentWidgetLiveProgress {
+    func liveProgressIndicatorState(
+        now: Date = Date(),
+        staleInterval: TimeInterval = StudentWidgetLiveProgress.defaultActiveStaleInterval
+    ) -> LiveProgressIndicatorState {
+        guard let progress = self else { return .notStarted }
+        return progress.indicatorState(now: now, staleInterval: staleInterval)
+    }
+}
+
+@MainActor
+protocol ClassroomSyncService {
+    func classroomPacket(for classroom: Classroom) -> ClassroomSyncPacket
+    func publishAssignment(_ assignment: ClassroomAssignment, classroom: Classroom) throws -> AssignmentSyncPacket
+    func resolveAssignment(classLessonCode: String) throws -> AssignmentSyncPacket
+
+    @discardableResult
+    func submitWidgetScore(_ submission: StudentSubmissionPacket) throws -> StudentWidgetResult
+
+    func fetchSubmissions(assignmentID: UUID) throws -> [StudentWidgetResult]
+}
+
+@MainActor
+struct LocalClassroomSyncService: ClassroomSyncService {
+    var teacherIdentity: TeacherSyncIdentity
+    var rosterStore: ClassroomRosterStore
+    var assignmentStore: ClassroomAssignmentStore
+
+    init(
+        teacherIdentity: TeacherSyncIdentity = TeacherSyncIdentity(),
+        rosterStore: ClassroomRosterStore,
+        assignmentStore: ClassroomAssignmentStore
+    ) {
+        self.teacherIdentity = teacherIdentity
+        self.rosterStore = rosterStore
+        self.assignmentStore = assignmentStore
+    }
+
+    func classroomPacket(for classroom: Classroom) -> ClassroomSyncPacket {
+        ClassroomSyncPacket(
+            id: classroom.id,
+            teacherID: teacherIdentity.id,
+            name: classroom.name,
+            studentCount: classroom.students.count
+        )
+    }
+
+    func publishAssignment(_ assignment: ClassroomAssignment, classroom: Classroom) throws -> AssignmentSyncPacket {
+        guard assignment.classroomID == classroom.id else {
+            throw ClassroomAssignmentStoreError.classroomMismatch
+        }
+
+        return assignmentPacket(for: assignment, classroom: classroom)
+    }
+
+    func resolveAssignment(classLessonCode: String) throws -> AssignmentSyncPacket {
+        guard let assignment = assignmentStore.assignment(matchingClassLessonCode: classLessonCode) else {
+            throw ClassroomAssignmentStoreError.classLessonCodeNotFound
+        }
+        guard let classroom = rosterStore.classrooms.first(where: { $0.id == assignment.classroomID }) else {
+            throw ClassroomAssignmentStoreError.classroomMismatch
+        }
+
+        return assignmentPacket(for: assignment, classroom: classroom)
+    }
+
+    @discardableResult
+    func submitWidgetScore(_ submission: StudentSubmissionPacket) throws -> StudentWidgetResult {
+        guard let assignment = assignmentStore.assignment(matchingClassLessonCode: submission.classLessonCode) else {
+            throw ClassroomAssignmentStoreError.classLessonCodeNotFound
+        }
+        guard assignment.id == submission.assignmentID else {
+            throw ClassroomAssignmentStoreError.assignmentNotFound
+        }
+        guard assignment.classroomID == submission.classroomID,
+              let classroom = rosterStore.classrooms.first(where: { $0.id == submission.classroomID }) else {
+            throw ClassroomAssignmentStoreError.classroomMismatch
+        }
+
+        return try assignmentStore.recordWidgetScore(
+            submission.widgetScoreRecord,
+            classLessonCode: submission.classLessonCode,
+            studentIdentifier: submission.studentIdentifier,
+            classroom: classroom,
+            submittedAt: submission.submittedAt
+        )
+    }
+
+    func fetchSubmissions(assignmentID: UUID) throws -> [StudentWidgetResult] {
+        guard assignmentStore.assignments.contains(where: { $0.id == assignmentID }) else {
+            throw ClassroomAssignmentStoreError.assignmentNotFound
+        }
+
+        return assignmentStore.widgetResults
+            .filter { $0.assignmentID == assignmentID }
+            .sorted { $0.submittedAt < $1.submittedAt }
+    }
+
+    private func assignmentPacket(
+        for assignment: ClassroomAssignment,
+        classroom: Classroom
+    ) -> AssignmentSyncPacket {
+        AssignmentSyncPacket(
+            id: assignment.id,
+            teacherID: teacherIdentity.id,
+            classroomID: assignment.classroomID,
+            classroomName: classroom.name,
+            lesson: assignment.lessonPackageManifest,
+            classLessonCode: ClassroomAssignmentStore.normalizedClassLessonCode(assignment.classLessonCode),
+            shareURL: assignment.shareURL,
+            widgetSummaries: assignment.widgetSummaries,
+            assignedAt: assignment.assignedAt
+        )
+    }
+}

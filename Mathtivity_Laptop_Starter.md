@@ -19,8 +19,15 @@ Before coding, ask me for a short description of the Mathtivity I want to create
 3. Whether it needs student practice mode, teacher presentation mode, or both.
 4. What should be scored or tracked, if anything.
 5. Any specific examples, problem types, or visual models I want included.
+6. Whether to use the standard MathBoard "Skill Builder" color theme and aesthetic described under **Aesthetic & Theme**, or a different look.
+
+Default to a student-practice activity. Explicitly ask whether I also want a **teacher presentation mode** before building one, and do not add it unless I confirm.
 
 After I answer, create the standalone app and reusable Swift file using the rules below.
+
+## Scope: One Skill Per Mathtivity
+
+Each Mathtivity works on exactly **one** skill. Do **not** add top-level tabs to switch between two or more skills or unrelated sections. If a topic needs several distinct skills, build them as separate Mathtivities. A single skill may still walk through a short sequence of problems and end with a summary, but present it as one continuous practice — never as tabbed sub-activities.
 
 ## Naming Rules
 
@@ -88,7 +95,7 @@ Also create an internal shared state object so MathBoard can later render the sa
 @MainActor
 @Observable
 final class <ActivityName>State {
-    // activity mode, current problem, draft answers, score, streak, feedback, etc.
+    // current problem, draft answers, score, streak, feedback, completion, etc.
 }
 ```
 
@@ -136,7 +143,7 @@ If the Mathtivity has meaningful progress or settings, also create a Codable sna
 
 ```swift
 public struct <ActivityName>StateSnapshot: Codable, Equatable, Sendable {
-    // stable values only: mode, problem index, score, selected answers, etc.
+    // stable values only: problem index, score, streak, selected answers, etc.
 }
 ```
 
@@ -167,7 +174,7 @@ That means:
 - Keep helper implementation types internal or private unless MathBoard will need to construct them.
 - Avoid force unwrapping.
 - Keep UI state inside the shared state object when that state should mirror to an external display.
-- Local one-off animation flags may use `@State`, but student answers, score, streaks, problem progress, selected mode, graph positions, feedback, and completion state should live in `<ActivityName>State`.
+- Local one-off animation flags may use `@State`, but student answers, score, streaks, problem progress, graph positions, feedback, and completion state should live in `<ActivityName>State`.
 
 ## LaTeX / Math Rendering Rule
 
@@ -257,6 +264,32 @@ Avoid:
 - File system writes.
 - App-specific dependencies.
 - Overly large architecture.
+
+## Aesthetic & Theme
+
+Ask whether I want this standard MathBoard "Skill Builder" theme (see intake question 6). If I say yes, match it; if I want a different look, follow my direction instead. Either way, keep all colors and reusable styles in one private `Theme` enum near the top of the reusable file so the palette is easy to retune or swap.
+
+The default "Skill Builder" look:
+
+- **Accent:** a royal blue (~`RGB 0.22, 0.47, 0.96`) with a `topLeading → bottomTrailing` gradient (`blueGradient`) used for the primary button, a small logo badge, selected controls, and the main prompt/problem card.
+- **Canvas:** a solid light cool near-white background (~`RGB 0.955, 0.965, 0.99`).
+- **Cards:** white, continuous-corner rounded rectangles (radius ~16) with a soft shadow and a 1pt hairline stroke, exposed as a `.cardStyle()` modifier.
+- **Prompt / problem card:** a filled **blue-gradient** card with white text — a small uppercased label, the large formula/prompt, and any "Given" values shown as translucent white pills.
+- **Answer tiles:** white rounded tiles (radius ~14) in a 2-column grid, each with a leading checkbox (`square` → `checkmark.square.fill`) and dark text. Selected = blue check + light-blue tint + blue border. After checking, tint green for correct picks (green check), red for wrong picks (red ✗), and outline correct answers the student missed.
+- **Buttons:** primary = solid blue-gradient capsule with white bold text (`PrimaryActionStyle`); secondary = white capsule with a blue outline and blue text (`SecondaryActionStyle`).
+- **Typography:** SF Rounded throughout (`.system(..., design: .rounded)`), semibold/bold for emphasis, `.monospacedDigit()` for scores.
+
+Signature details:
+
+- A thin **multicolor "rainbow" accent line** (~3pt) directly under the header/title area.
+- A header with a small blue rounded **logo badge** (SF Symbol), the activity title, a lighter "Skill Builder" subtitle, and a **Submit** button top-right that opens a results summary sheet.
+- If scored, a floating **white score card on the right** with a vertical light-up **point meter** (segments light from the bottom; base range in blue/green, the extra-credit range at the top in gold), a row of **streak stars**, and a small icon (a flame that upgrades to a flashing gold **crown** on a perfect score). Numbers use the accent color and animate as score/streak change.
+
+Appearance mode:
+
+- The palette is a fixed light aesthetic. Lock the activity to light mode with `.environment(\.colorScheme, .light)` on the public entry view (and on any sheet it presents) so it stays readable regardless of the host's light/dark setting. Do not build a separate dark palette unless I ask.
+
+Keep the math visual model the focal point, controls compact, and all sizes stable so the layout never jumps.
 
 ## Interaction Requirements
 

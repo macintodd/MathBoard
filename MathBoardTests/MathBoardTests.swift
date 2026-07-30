@@ -327,6 +327,36 @@ struct MathBoardTests {
         #expect(decoded.background?.assetFileName == "notes.pdf")
     }
 
+    @Test func slideViewportRejectsTopLeftBlueVoidRestore() {
+        let viewport = SlideViewportState(
+            zoomScale: 0.3,
+            contentOffsetX: 0,
+            contentOffsetY: 0,
+            platform: "iPadOS"
+        )
+
+        #expect(!viewport.isUsableSavedCanvasViewport())
+    }
+
+    @Test func slideViewportAcceptsCenteredBoardRestore() {
+        let viewport = SlideViewportState(
+            zoomScale: 0.3,
+            contentOffsetX: 520,
+            contentOffsetY: 760,
+            platform: "iPadOS"
+        )
+
+        #expect(viewport.isUsableSavedCanvasViewport())
+    }
+
+    @Test func slideViewportRejectsInvalidNumericRestore() {
+        let negativeOffset = SlideViewportState(zoomScale: 0.3, contentOffsetX: -1, contentOffsetY: 760)
+        let invalidZoom = SlideViewportState(zoomScale: 0, contentOffsetX: 520, contentOffsetY: 760)
+
+        #expect(!negativeOffset.isUsableSavedCanvasViewport())
+        #expect(!invalidZoom.isUsableSavedCanvasViewport())
+    }
+
     @Test func activityWidgetJSONRepairsAIAuthoredLaTeXBackslashes() throws {
         let json = #"""
         {
@@ -745,6 +775,176 @@ struct MathBoardTests {
     }
 
     @MainActor
+    @Test func mathBoardPackageArchiveRoundTripsPackageFiles() throws {
+        let sourceURL = try makeTemporaryExternalLessonPackage(named: "Teacher MathBoard")
+        let restoreRootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MathBoardArchiveRestore-\(UUID().uuidString)", isDirectory: true)
+        let restoredURL = restoreRootURL.appendingPathComponent("Restored.mathboard", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: sourceURL.deletingLastPathComponent())
+            try? FileManager.default.removeItem(at: restoreRootURL)
+        }
+
+        let archiveData = try MathBoardPackageArchiver().archivePackage(at: sourceURL)
+        try FileManager.default.createDirectory(at: restoreRootURL, withIntermediateDirectories: true)
+        try MathBoardPackageArchiver().restorePackage(from: archiveData, to: restoredURL)
+
+        #expect(try readDocumentMetadataID(at: restoredURL) == readDocumentMetadataID(at: sourceURL))
+        #expect(try Data(contentsOf: restoredURL.appendingPathComponent("assets/sample.txt")) == Data("sample".utf8))
+        #expect(MathBoardPackageArchiver.checksum(for: archiveData).count == 64)
+    }
+
+    @MainActor
+    @Test func documentStoreImportsSharedLessonArchiveIntoAssignedLessonsAndKeepsIdentity() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        let sourceURL = try makeTemporaryExternalLessonPackage(named: "Teacher MathBoard")
+        defer {
+            try? FileManager.default.removeItem(at: rootURL)
+            try? FileManager.default.removeItem(at: sourceURL.deletingLastPathComponent())
+        }
+        let store = DocumentStore(rootURL: rootURL)
+        let sourceID = try readDocumentMetadataID(at: sourceURL)
+        let archiveData = try MathBoardPackageArchiver().archivePackage(at: sourceURL)
+
+        let imported = try store.importSharedLessonPackageArchive(
+            archiveData,
+            suggestedFileName: "Teacher MathBoard.mathboard"
+        )
+
+        #expect(imported.id == sourceID)
+        #expect(imported.name == "Teacher MathBoard")
+        #expect(imported.url.deletingLastPathComponent().lastPathComponent == "Assigned Lessons")
+        #expect(store.allLessons().map(\.id).contains(sourceID))
+    }
+
+    @MainActor
+    @Test func documentStoreCreatesStableStudentWorkingCopiesForAssignedLessons() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        let sourceURL = try makeTemporaryExternalLessonPackage(named: "Teacher MathBoard")
+        defer {
+            try? FileManager.default.removeItem(at: rootURL)
+            try? FileManager.default.removeItem(at: sourceURL.deletingLastPathComponent())
+        }
+        let store = DocumentStore(rootURL: rootURL)
+        let archiveData = try MathBoardPackageArchiver().archivePackage(at: sourceURL)
+        let imported = try store.importSharedLessonPackageArchive(
+            archiveData,
+            suggestedFileName: "Teacher MathBoard.mathboard"
+        )
+        let assignmentID = UUID()
+
+        let firstStudentCopy = try store.studentAssignedLessonWorkingCopy(
+            for: imported,
+            assignmentID: assignmentID,
+            studentIdentifier: "student/one"
+        )
+        let firstStudentCopyAgain = try store.studentAssignedLessonWorkingCopy(
+            for: imported,
+            assignmentID: assignmentID,
+            studentIdentifier: "student/one"
+        )
+        let secondStudentCopy = try store.studentAssignedLessonWorkingCopy(
+            for: imported,
+            assignmentID: assignmentID,
+            studentIdentifier: "student/two"
+        )
+
+        #expect(firstStudentCopy.url == firstStudentCopyAgain.url)
+        #expect(firstStudentCopy.url != imported.url)
+        #expect(firstStudentCopy.url != secondStudentCopy.url)
+        #expect(firstStudentCopy.url.deletingLastPathComponent().lastPathComponent == "Student Work")
+        #expect(try readDocumentMetadataID(at: firstStudentCopy.url) == imported.id)
+        #expect(try readDocumentMetadataID(at: secondStudentCopy.url) == imported.id)
+    }
+
+    @Test func lessonPackageManifestKeepsPublishedVersionMetadata() throws {
+        let lessonID = UUID()
+        let versionID = UUID()
+        let publishedAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let manifest = LessonPackageManifest(
+            id: lessonID,
+            title: "Quadratic Formula",
+            versionID: versionID,
+            versionNumber: 3,
+            packageFileName: "Quadratic Formula.mathboard",
+            packageStoragePath: "teacherLessonPackages/teacher/\(lessonID.uuidString)/versions/\(versionID.uuidString)/package.mathboardpkg",
+            packageChecksum: String(repeating: "a", count: 64),
+            publishedAt: publishedAt
+        )
+
+        let data = try JSONEncoder().encode(manifest)
+        let decoded = try JSONDecoder().decode(LessonPackageManifest.self, from: data)
+
+        #expect(decoded.id == lessonID)
+        #expect(decoded.versionID == versionID)
+        #expect(decoded.versionNumber == 3)
+        #expect(decoded.publishedAt == publishedAt)
+        #expect(decoded.packageStoragePath == manifest.packageStoragePath)
+    }
+
+    @MainActor
+    @Test func documentStoreRecordsPublishedVersionAndDetectsSourceChanges() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = DocumentStore(rootURL: rootURL)
+        let folder = try store.createFolder(named: "Algebra 2")
+        let lesson = try store.createLesson(named: "Quadratic Formula", in: folder)
+        let checksum = try store.sourceContentChecksum(for: lesson)
+        let manifest = LessonPackageManifest(
+            id: lesson.id,
+            title: lesson.name,
+            versionID: UUID(),
+            versionNumber: 2,
+            packageFileName: lesson.url.lastPathComponent,
+            packageStoragePath: "teacherLessonPackages/teacher/\(lesson.id.uuidString)/versions/package.mathboardpkg",
+            packageChecksum: checksum,
+            publishedAt: Date(timeIntervalSince1970: 1_800_000_100)
+        )
+
+        let publishedLesson = try store.recordPublishedVersion(manifest, sourceContentChecksum: checksum, for: lesson)
+        let reloadedLesson = try #require(store.allLessons().first { $0.id == lesson.id })
+
+        #expect(publishedLesson.publishedVersion?.versionNumber == 2)
+        #expect(reloadedLesson.publishedVersion?.sourceContentChecksum == checksum)
+        #expect(!store.hasUnpublishedChanges(reloadedLesson))
+
+        let assetsURL = lesson.url.appendingPathComponent("assets", isDirectory: true)
+        try FileManager.default.createDirectory(at: assetsURL, withIntermediateDirectories: true)
+        try "changed".write(
+            to: assetsURL.appendingPathComponent("change.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        #expect(store.hasUnpublishedChanges(reloadedLesson))
+    }
+
+    @MainActor
+    @Test func mathBoardPackageArchiveIgnoresPublishedVersionMetadata() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = DocumentStore(rootURL: rootURL)
+        let folder = try store.createFolder(named: "Algebra 2")
+        let lesson = try store.createLesson(named: "Factoring", in: folder)
+        let checksum = try store.sourceContentChecksum(for: lesson)
+        let manifest = LessonPackageManifest(
+            id: lesson.id,
+            title: lesson.name,
+            versionID: UUID(),
+            versionNumber: 1,
+            packageFileName: lesson.url.lastPathComponent,
+            packageStoragePath: "teacherLessonPackages/teacher/\(lesson.id.uuidString)/versions/package.mathboardpkg",
+            packageChecksum: checksum,
+            publishedAt: Date(timeIntervalSince1970: 1_800_000_200)
+        )
+
+        _ = try store.recordPublishedVersion(manifest, sourceContentChecksum: checksum, for: lesson)
+        let checksumAfterRecordingPublish = try store.sourceContentChecksum(for: lesson)
+
+        #expect(checksumAfterRecordingPublish == checksum)
+    }
+
+    @MainActor
     @Test func documentStoreMovesLessonBetweenNestedFoldersAndKeepsIdentity() throws {
         let rootURL = try makeTemporaryDocumentRoot()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -913,6 +1113,1093 @@ struct MathBoardTests {
         #expect(updatedDestination.students[0].id == movingID)
     }
 
+    @MainActor
+    @Test func classroomRosterStoreDeletesOneStudentAndPersistsRoster() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = ClassroomRosterStore(rootURL: rootURL)
+        let classroom = try store.importCSV(
+            preview: RosterCSVPreview(
+                headers: ["First", "Last", "ID"],
+                rows: [
+                    ["Ada", "Lovelace", "A100"],
+                    ["Grace", "Hopper", "G200"]
+                ],
+                mapping: CSVColumnMapping(firstNameIndex: 0, lastNameIndex: 1, officialStudentIDIndex: 2)
+            ),
+            className: "Period 1"
+        )
+        let deletingID = try #require(store.classrooms.first(where: { $0.id == classroom.id })?.students.first?.id)
+
+        try store.deleteStudents([deletingID], from: classroom.id)
+
+        let reloadedStore = ClassroomRosterStore(rootURL: rootURL)
+        let reloadedClassroom = try #require(reloadedStore.classrooms.first { $0.id == classroom.id })
+        #expect(reloadedClassroom.students.count == 1)
+        #expect(!reloadedClassroom.students.contains { $0.id == deletingID })
+    }
+
+    @MainActor
+    @Test func classroomRosterStoreReportsMissingStudentForDeleteAndMove() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = ClassroomRosterStore(rootURL: rootURL)
+        let source = try store.createClassroom(named: "Period 1")
+        let destination = try store.createClassroom(named: "Period 2")
+        let missingID = UUID()
+
+        do {
+            try store.deleteStudents([missingID], from: source.id)
+            Issue.record("Deleting a missing student should throw.")
+        } catch ClassroomRosterStoreError.studentNotFound {
+        } catch {
+            Issue.record("Deleting a missing student threw an unexpected error: \(error)")
+        }
+
+        do {
+            try store.moveStudents([missingID], from: source.id, to: destination.id)
+            Issue.record("Moving a missing student should throw.")
+        } catch ClassroomRosterStoreError.studentNotFound {
+        } catch {
+            Issue.record("Moving a missing student threw an unexpected error: \(error)")
+        }
+    }
+
+    @MainActor
+    @Test func classroomRosterStoreImportsCSVIntoExistingClassAndSortsCombinedRoster() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = ClassroomRosterStore(rootURL: rootURL)
+        let classroom = try store.importCSV(
+            preview: RosterCSVPreview(
+                headers: ["First", "Last", "ID"],
+                rows: [
+                    ["Grace", "Hopper", "G200"],
+                    ["Katherine", "Johnson", "K300"]
+                ],
+                mapping: CSVColumnMapping(firstNameIndex: 0, lastNameIndex: 1, officialStudentIDIndex: 2)
+            ),
+            className: "Period 1"
+        )
+        let importPreview = RosterCSVPreview(
+            headers: ["First", "Last", "ID"],
+            rows: [
+                ["Ada", "Lovelace", "A100"],
+                ["Dorothy", "Vaughan", "D400"]
+            ],
+            mapping: CSVColumnMapping(firstNameIndex: 0, lastNameIndex: 1, officialStudentIDIndex: 2)
+        )
+
+        try store.importCSV(preview: importPreview, into: classroom.id)
+
+        let updatedClassroom = try #require(store.classrooms.first { $0.id == classroom.id })
+        #expect(updatedClassroom.students.map(\.lastName) == ["Hopper", "Johnson", "Lovelace", "Vaughan"])
+    }
+
+    @MainActor
+    @Test func classroomRosterStoreParsesQuotedCSVAndInfersAlternateHeader() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = ClassroomRosterStore(rootURL: rootURL)
+        let csvURL = rootURL.appendingPathComponent("Quoted.csv")
+        try """
+        First,Last,ID,Alternate
+        Ada,"Lovelace, Jr.",A100,ALT-1
+        Grace,Hopper,G200,ALT-2
+        """.write(to: csvURL, atomically: true, encoding: .utf8)
+
+        let preview = try store.previewCSV(at: csvURL)
+        let classroom = try store.importCSV(preview: preview, className: "Period 3")
+
+        #expect(preview.mapping.alternateStudentIDIndex == 3)
+        #expect(classroom.students.first(where: { $0.firstName == "Ada" })?.lastName == "Lovelace, Jr.")
+        #expect(classroom.students.first(where: { $0.firstName == "Grace" })?.alternateStudentID == "ALT-2")
+    }
+
+    @MainActor
+    @Test func classroomRosterStoreReportsDuplicateOfficialAndAlternateIDs() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = ClassroomRosterStore(rootURL: rootURL)
+        let classroom = try store.importCSV(
+            preview: RosterCSVPreview(
+                headers: ["First", "Last", "ID", "Alternate"],
+                rows: [
+                    ["Ada", "Lovelace", "a100", "ALT-1"],
+                    ["Grace", "Hopper", "A100", "alt-1"],
+                    ["Katherine", "Johnson", "K300", ""]
+                ],
+                mapping: CSVColumnMapping(firstNameIndex: 0, lastNameIndex: 1, officialStudentIDIndex: 2, alternateStudentIDIndex: 3)
+            ),
+            className: "Period 1"
+        )
+
+        let report = try store.duplicateIDReport(for: classroom.id)
+
+        #expect(report.officialStudentIDs == ["A100"])
+        #expect(report.alternateStudentIDs == ["ALT-1"])
+        #expect(report.hasDuplicates)
+    }
+
+    @MainActor
+    @Test func classroomRosterStoreReportsDuplicateIDsInCSVPreview() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = ClassroomRosterStore(rootURL: rootURL)
+        let preview = RosterCSVPreview(
+            headers: ["First", "Last", "ID", "Alternate"],
+            rows: [
+                ["Ada", "Lovelace", "A100", "ALT-1"],
+                ["Grace", "Hopper", "A100", "ALT-2"],
+                ["Dorothy", "Vaughan", "D400", "alt-2"]
+            ],
+            mapping: CSVColumnMapping(firstNameIndex: 0, lastNameIndex: 1, officialStudentIDIndex: 2, alternateStudentIDIndex: 3)
+        )
+
+        let report = store.duplicateIDReport(for: preview)
+
+        #expect(report.officialStudentIDs == ["A100"])
+        #expect(report.alternateStudentIDs == ["ALT-2"])
+    }
+
+    @MainActor
+    @Test func classroomRosterStorePreventsGeneratedAlternateIDCollision() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = ClassroomRosterStore(rootURL: rootURL)
+        let classroom = try store.importCSV(
+            preview: RosterCSVPreview(
+                headers: ["First", "Last", "ID", "Alternate"],
+                rows: [
+                    ["Ada", "Lovelace", "A100", ""],
+                    ["Grace", "Hopper", "G200", "ALG2-002"]
+                ],
+                mapping: CSVColumnMapping(firstNameIndex: 0, lastNameIndex: 1, officialStudentIDIndex: 2, alternateStudentIDIndex: 3)
+            ),
+            className: "Algebra 2"
+        )
+
+        do {
+            try store.generateAlternateIDs(for: classroom.id)
+            Issue.record("Generating alternate IDs should fail when it would create a duplicate.")
+        } catch ClassroomRosterStoreError.duplicateAlternateStudentID {
+        } catch {
+            Issue.record("Generating alternate IDs threw an unexpected error: \(error)")
+        }
+
+        let students = try #require(store.classrooms.first?.students)
+        #expect(students.first(where: { $0.lastName == "Lovelace" })?.alternateStudentID == "")
+        #expect(students.first(where: { $0.lastName == "Hopper" })?.alternateStudentID == "ALG2-002")
+    }
+
+    @MainActor
+    @Test func classroomAssignmentStoreCreatesAssignmentsWithUniqueCodesAndPersists() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        var generatedCodes = ["same-code", "same-code", "period-two"]
+        let store = ClassroomAssignmentStore(rootURL: rootURL) {
+            generatedCodes.removeFirst()
+        }
+        let lesson = Lesson(
+            id: UUID(),
+            name: "Quadratics Review",
+            url: rootURL.appendingPathComponent("Quadratics Review.mathboard", isDirectory: true),
+            createdAt: Date(),
+            modifiedAt: Date()
+        )
+        let firstClassID = UUID()
+        let secondClassID = UUID()
+        let widget = AssignedWidgetSummary(widgetID: UUID(), title: "Factoring", maxScore: 5)
+
+        let assignments = try store.createAssignments(
+            for: lesson,
+            classroomIDs: [firstClassID, secondClassID, firstClassID],
+            widgetSummaries: [widget]
+        )
+        let reloadedStore = ClassroomAssignmentStore(rootURL: rootURL)
+
+        #expect(assignments.count == 2)
+        #expect(Set(assignments.map(\.classLessonCode)).count == 2)
+        #expect(assignments.map(\.classLessonCode) == ["SAMECODE", "PERIODTW"])
+        #expect(assignments.map(\.lessonID) == [lesson.id, lesson.id])
+        #expect(reloadedStore.assignments.map(\.id) == assignments.map(\.id))
+    }
+
+    @MainActor
+    @Test func classroomAssignmentStoreGeneratesSixCharacterLessonCodes() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = ClassroomAssignmentStore(rootURL: rootURL)
+        let lesson = Lesson(
+            id: UUID(),
+            name: "Short Code Practice",
+            url: rootURL.appendingPathComponent("Short Code Practice.mathboard", isDirectory: true),
+            createdAt: Date(),
+            modifiedAt: Date()
+        )
+
+        let assignment = try #require(store.createAssignments(
+            for: lesson,
+            classroomIDs: [UUID()],
+            widgetSummaries: [AssignedWidgetSummary(widgetID: UUID(), title: "Widget", maxScore: 5)]
+        ).first)
+
+        #expect(assignment.classLessonCode.count == 6)
+    }
+
+    @MainActor
+    @Test func classroomAssignmentStorePersistsPublishedVersionMetadata() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = ClassroomAssignmentStore(rootURL: rootURL) { "ALG010" }
+        let lessonID = UUID()
+        let versionID = UUID()
+        let lesson = Lesson(
+            id: lessonID,
+            name: "Versioned Assignment",
+            url: rootURL.appendingPathComponent("Versioned Assignment.mathboard", isDirectory: true),
+            createdAt: Date(),
+            modifiedAt: Date()
+        )
+        let manifest = LessonPackageManifest(
+            id: lessonID,
+            title: lesson.name,
+            versionID: versionID,
+            versionNumber: 1,
+            packageFileName: "Versioned Assignment.mathboard",
+            packageStoragePath: "teacherLessonPackages/teacher/\(lessonID.uuidString)/versions/\(versionID.uuidString)/package.mathboardpkg",
+            packageChecksum: String(repeating: "b", count: 64),
+            publishedAt: Date(timeIntervalSince1970: 1_800_000_300)
+        )
+
+        _ = try store.createAssignments(
+            for: lesson,
+            classroomIDs: [UUID()],
+            widgetSummaries: [AssignedWidgetSummary(widgetID: UUID(), title: "Widget", maxScore: 5)],
+            lessonManifest: manifest
+        )
+        let reloadedStore = ClassroomAssignmentStore(rootURL: rootURL)
+        let assignment = try #require(reloadedStore.assignments.first)
+
+        #expect(assignment.lessonVersionID == versionID)
+        #expect(assignment.lessonVersionNumber == 1)
+        #expect(assignment.lessonPackageStoragePath == manifest.packageStoragePath)
+        #expect(assignment.lessonPackageChecksum == manifest.packageChecksum)
+        #expect(assignment.versionDisplayName == "v1")
+    }
+
+    @MainActor
+    @Test func classroomAssignmentStoreUpdatesAssignmentVersionWithoutChangingCode() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = ClassroomAssignmentStore(rootURL: rootURL) { "ALG011" }
+        let lessonID = UUID()
+        let firstVersionID = UUID()
+        let secondVersionID = UUID()
+        let lesson = Lesson(
+            id: lessonID,
+            name: "Reassignable Lesson",
+            url: rootURL.appendingPathComponent("Reassignable Lesson.mathboard", isDirectory: true),
+            createdAt: Date(),
+            modifiedAt: Date()
+        )
+        let firstWidget = AssignedWidgetSummary(widgetID: UUID(), title: "Original Widget", maxScore: 5)
+        let firstManifest = LessonPackageManifest(
+            id: lessonID,
+            title: lesson.name,
+            versionID: firstVersionID,
+            versionNumber: 1,
+            packageFileName: "Reassignable Lesson.mathboard",
+            packageStoragePath: "teacherLessonPackages/teacher/\(lessonID.uuidString)/versions/\(firstVersionID.uuidString)/package.mathboardpkg",
+            packageChecksum: String(repeating: "c", count: 64),
+            publishedAt: Date(timeIntervalSince1970: 1_800_000_400)
+        )
+        let assignment = try #require(store.createAssignments(
+            for: lesson,
+            classroomIDs: [UUID()],
+            widgetSummaries: [firstWidget],
+            lessonManifest: firstManifest
+        ).first)
+        let originalCode = assignment.classLessonCode
+        let secondWidget = AssignedWidgetSummary(widgetID: UUID(), title: "Updated Widget", maxScore: 8)
+        let secondManifest = LessonPackageManifest(
+            id: lessonID,
+            title: lesson.name,
+            versionID: secondVersionID,
+            versionNumber: 2,
+            packageFileName: "Reassignable Lesson.mathboard",
+            packageStoragePath: "teacherLessonPackages/teacher/\(lessonID.uuidString)/versions/\(secondVersionID.uuidString)/package.mathboardpkg",
+            packageChecksum: String(repeating: "d", count: 64),
+            publishedAt: Date(timeIntervalSince1970: 1_800_000_500)
+        )
+
+        let updated = try store.updateAssignment(
+            assignment,
+            lesson: lesson,
+            widgetSummaries: [secondWidget],
+            lessonManifest: secondManifest
+        )
+
+        #expect(updated.id == assignment.id)
+        #expect(updated.classLessonCode == originalCode)
+        #expect(updated.lessonVersionID == secondVersionID)
+        #expect(updated.lessonVersionNumber == 2)
+        #expect(updated.widgetSummaries.map(\.title) == ["Updated Widget"])
+    }
+
+    @MainActor
+    @Test func classroomAssignmentStoreDetectsLocalActivityForAssignment() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = ClassroomAssignmentStore(rootURL: rootURL) { "ALG012" }
+        let classroomID = UUID()
+        let studentID = UUID()
+        let widgetID = UUID()
+        let assignment = try makeAssignment(in: store, rootURL: rootURL, classroomID: classroomID, widgetID: widgetID)
+
+        #expect(!store.assignmentHasLocalActivity(assignment))
+        try store.recordWidgetResult(
+            StudentWidgetResult(
+                assignmentID: assignment.id,
+                classroomID: classroomID,
+                studentID: studentID,
+                widgetID: widgetID,
+                numberCorrectFirstTry: 1,
+                numberCorrectAfterRetry: 0,
+                longestStreak: 1,
+                finalPercentScore: 100
+            )
+        )
+
+        #expect(store.assignmentHasLocalActivity(assignment))
+    }
+
+    @MainActor
+    @Test func classroomAssignmentStoreReplacesExistingWidgetResultForStudent() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = ClassroomAssignmentStore(rootURL: rootURL) { "ALG001" }
+        let classroomID = UUID()
+        let studentID = UUID()
+        let widgetID = UUID()
+        let assignment = try makeAssignment(in: store, rootURL: rootURL, classroomID: classroomID, widgetID: widgetID)
+
+        try store.recordWidgetResult(
+            StudentWidgetResult(
+                assignmentID: assignment.id,
+                classroomID: classroomID,
+                studentID: studentID,
+                widgetID: widgetID,
+                numberCorrectFirstTry: 3,
+                numberCorrectAfterRetry: 1,
+                longestStreak: 2,
+                finalPercentScore: 60
+            )
+        )
+        try store.recordWidgetResult(
+            StudentWidgetResult(
+                assignmentID: assignment.id,
+                classroomID: classroomID,
+                studentID: studentID,
+                widgetID: widgetID,
+                numberCorrectFirstTry: 4,
+                numberCorrectAfterRetry: 1,
+                longestStreak: 4,
+                finalPercentScore: 100
+            )
+        )
+
+        let result = try #require(store.widgetResults.first)
+        #expect(store.widgetResults.count == 1)
+        #expect(result.numberCorrectFirstTry == 4)
+        #expect(result.longestStreak == 4)
+        #expect(result.finalPercentScore == 100)
+    }
+
+    @MainActor
+    @Test func classroomAssignmentStoreAveragesWidgetPercentScoresEqually() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = ClassroomAssignmentStore(rootURL: rootURL) { "ALG002" }
+        let classroomID = UUID()
+        let studentID = UUID()
+        let fivePointWidgetID = UUID()
+        let twelvePointWidgetID = UUID()
+        let lesson = Lesson(
+            id: UUID(),
+            name: "Systems Practice",
+            url: rootURL.appendingPathComponent("Systems Practice.mathboard", isDirectory: true),
+            createdAt: Date(),
+            modifiedAt: Date()
+        )
+        let assignment = try #require(store.createAssignments(
+            for: lesson,
+            classroomIDs: [classroomID],
+            widgetSummaries: [
+                AssignedWidgetSummary(widgetID: fivePointWidgetID, title: "Warmup", maxScore: 5),
+                AssignedWidgetSummary(widgetID: twelvePointWidgetID, title: "Challenge", maxScore: 12)
+            ]
+        ).first)
+
+        try store.recordWidgetResult(
+            StudentWidgetResult(
+                assignmentID: assignment.id,
+                classroomID: classroomID,
+                studentID: studentID,
+                widgetID: fivePointWidgetID,
+                numberCorrectFirstTry: 5,
+                numberCorrectAfterRetry: 0,
+                longestStreak: 5,
+                finalPercentScore: 100
+            )
+        )
+        try store.recordWidgetResult(
+            StudentWidgetResult(
+                assignmentID: assignment.id,
+                classroomID: classroomID,
+                studentID: studentID,
+                widgetID: twelvePointWidgetID,
+                numberCorrectFirstTry: 6,
+                numberCorrectAfterRetry: 3,
+                longestStreak: 4,
+                finalPercentScore: 50
+            )
+        )
+
+        #expect(store.averagePercentScore(for: assignment.id, studentID: studentID) == 75)
+    }
+
+    @MainActor
+    @Test func classroomAssignmentReportFiltersSelectedStudents() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = ClassroomAssignmentStore(rootURL: rootURL) { "ALG003" }
+        let selectedStudent = RosterStudent(
+            firstName: "Ada",
+            lastName: "Lovelace",
+            officialStudentID: "A100",
+            alternateStudentID: "ALG-001"
+        )
+        let unselectedStudent = RosterStudent(
+            firstName: "Grace",
+            lastName: "Hopper",
+            officialStudentID: "G200",
+            alternateStudentID: "ALG-002"
+        )
+        let classroom = Classroom(name: "Period 1", students: [selectedStudent, unselectedStudent])
+        let widgetID = UUID()
+        let assignment = try makeAssignment(in: store, rootURL: rootURL, classroomID: classroom.id, widgetID: widgetID)
+        try store.recordWidgetResult(
+            StudentWidgetResult(
+                assignmentID: assignment.id,
+                classroomID: classroom.id,
+                studentID: selectedStudent.id,
+                widgetID: widgetID,
+                numberCorrectFirstTry: 4,
+                numberCorrectAfterRetry: 1,
+                longestStreak: 3,
+                finalPercentScore: 80
+            )
+        )
+
+        let report = try store.report(
+            for: assignment.id,
+            classroom: classroom,
+            selectedStudentIDs: [selectedStudent.id]
+        )
+
+        #expect(report.studentReports.map(\.studentID) == [selectedStudent.id])
+        #expect(report.studentReports.first?.studentName == "Ada Lovelace")
+        #expect(report.studentReports.first?.averagePercentScore == 80)
+        #expect(report.classAveragePercentScore == 80)
+    }
+
+    @MainActor
+    @Test func classroomAssignmentStoreRejectsResultForUnassignedWidget() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = ClassroomAssignmentStore(rootURL: rootURL) { "ALG004" }
+        let classroomID = UUID()
+        let assignment = try makeAssignment(in: store, rootURL: rootURL, classroomID: classroomID, widgetID: UUID())
+
+        do {
+            try store.recordWidgetResult(
+                StudentWidgetResult(
+                    assignmentID: assignment.id,
+                    classroomID: classroomID,
+                    studentID: UUID(),
+                    widgetID: UUID(),
+                    numberCorrectFirstTry: 1,
+                    numberCorrectAfterRetry: 0,
+                    longestStreak: 1,
+                    finalPercentScore: 20
+                )
+            )
+            Issue.record("Recording a result for an unassigned widget should throw.")
+        } catch ClassroomAssignmentStoreError.widgetNotAssigned {
+        } catch {
+            Issue.record("Recording an unassigned widget result threw an unexpected error: \(error)")
+        }
+    }
+
+    @MainActor
+    @Test func classroomAssignmentStoreBuildsWidgetSummariesFromLessonSidecars() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        let lessonURL = try makeTemporaryLessonPackage()
+        defer {
+            try? FileManager.default.removeItem(at: rootURL)
+            try? FileManager.default.removeItem(at: lessonURL)
+        }
+        let store = ClassroomAssignmentStore(rootURL: rootURL) { "ALG005" }
+        let lesson = Lesson(
+            id: UUID(),
+            name: "Widget Lesson",
+            url: lessonURL,
+            createdAt: Date(),
+            modifiedAt: Date()
+        )
+        let slideStore = SlideStore(lessonURL: lessonURL)
+        let slide = try #require(slideStore.slides.first)
+        let widget = WidgetObject(
+            name: "Exit Ticket",
+            codeString: "not-json-yet",
+            frame: CGRect(x: 10, y: 20, width: 300, height: 200)
+        )
+        try WidgetObject.save([widget], to: WidgetObject.sidecarURL(forDrawingURL: slideStore.drawingURL(for: slide)))
+
+        let summaries = store.widgetSummaries(for: lesson)
+
+        #expect(summaries.count == 1)
+        #expect(summaries.first?.widgetID == widget.id)
+        #expect(summaries.first?.title == "Exit Ticket")
+    }
+
+    @MainActor
+    @Test func classroomAssignmentStoreRecordsWidgetScoreByLessonCodeAndAlternateID() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = ClassroomAssignmentStore(rootURL: rootURL) { "join-123" }
+        let widgetID = UUID()
+        let student = RosterStudent(
+            firstName: "Ada",
+            lastName: "Lovelace",
+            officialStudentID: "A100",
+            alternateStudentID: "ALG-001"
+        )
+        let classroom = Classroom(name: "Algebra", students: [student])
+        let assignment = try makeAssignment(in: store, rootURL: rootURL, classroomID: classroom.id, widgetID: widgetID)
+        let score = WidgetActivityScoreRecord(
+            id: widgetID.uuidString,
+            title: "Exit Ticket",
+            status: .complete,
+            score: 4,
+            attempts: 5,
+            points: 4,
+            pointsPossible: 5,
+            numberCorrectFirstTry: 3,
+            numberCorrectAfterRetry: 1,
+            longestStreak: 3
+        )
+
+        let result = try store.recordWidgetScore(
+            score,
+            classLessonCode: " join-123 ",
+            studentIdentifier: "alg-001",
+            classroom: classroom
+        )
+        let report = try store.report(for: assignment.id, classroom: classroom)
+
+        #expect(result.studentID == student.id)
+        #expect(result.finalPercentScore == 80)
+        #expect(report.studentReports.first?.widgetResults.first?.numberCorrectFirstTry == 3)
+        #expect(report.studentReports.first?.widgetResults.first?.numberCorrectAfterRetry == 1)
+        #expect(report.classAveragePercentScore == 80)
+    }
+
+    @MainActor
+    @Test func classroomAssignmentStoreRecordsWidgetScoreByOfficialIDAndReplacesRepeatSubmission() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = ClassroomAssignmentStore(rootURL: rootURL) { "join-456" }
+        let widgetID = UUID()
+        let student = RosterStudent(
+            firstName: "Grace",
+            lastName: "Hopper",
+            officialStudentID: "G200",
+            alternateStudentID: "ALG-002"
+        )
+        let classroom = Classroom(name: "Algebra", students: [student])
+        _ = try makeAssignment(in: store, rootURL: rootURL, classroomID: classroom.id, widgetID: widgetID)
+
+        try store.recordWidgetScore(
+            WidgetActivityScoreRecord(
+                id: widgetID.uuidString,
+                title: "Exit Ticket",
+                status: .complete,
+                score: 2,
+                attempts: 5,
+                points: 2,
+                pointsPossible: 5,
+                longestStreak: 2
+            ),
+            classLessonCode: "JOIN456",
+            studentIdentifier: "g200",
+            classroom: classroom
+        )
+        try store.recordWidgetScore(
+            WidgetActivityScoreRecord(
+                id: widgetID.uuidString,
+                title: "Exit Ticket",
+                status: .complete,
+                score: 5,
+                attempts: 5,
+                points: 5,
+                pointsPossible: 5,
+                numberCorrectFirstTry: 5,
+                longestStreak: 5
+            ),
+            classLessonCode: "JOIN456",
+            studentIdentifier: "G200",
+            classroom: classroom
+        )
+
+        #expect(store.widgetResults.count == 1)
+        #expect(store.widgetResults.first?.finalPercentScore == 100)
+        #expect(store.widgetResults.first?.longestStreak == 5)
+    }
+
+    @MainActor
+    @Test func classroomAssignmentStoreRejectsUnknownLessonCodeStudentAndIncompleteScores() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = ClassroomAssignmentStore(rootURL: rootURL) { "join-789" }
+        let widgetID = UUID()
+        let student = RosterStudent(
+            firstName: "Ada",
+            lastName: "Lovelace",
+            officialStudentID: "A100",
+            alternateStudentID: "ALG-001"
+        )
+        let classroom = Classroom(name: "Algebra", students: [student])
+        _ = try makeAssignment(in: store, rootURL: rootURL, classroomID: classroom.id, widgetID: widgetID)
+        let completedScore = WidgetActivityScoreRecord(
+            id: widgetID.uuidString,
+            title: "Exit Ticket",
+            status: .complete,
+            score: 4,
+            attempts: 5,
+            points: 4,
+            pointsPossible: 5
+        )
+
+        do {
+            try store.recordWidgetScore(completedScore, classLessonCode: "missing", studentIdentifier: "A100", classroom: classroom)
+            Issue.record("Unknown lesson codes should be rejected.")
+        } catch ClassroomAssignmentStoreError.classLessonCodeNotFound {
+        } catch {
+            Issue.record("Unknown lesson code threw an unexpected error: \(error)")
+        }
+
+        do {
+            try store.recordWidgetScore(completedScore, classLessonCode: "JOIN789", studentIdentifier: "NOPE", classroom: classroom)
+            Issue.record("Unknown students should be rejected.")
+        } catch ClassroomAssignmentStoreError.studentNotFound {
+        } catch {
+            Issue.record("Unknown student threw an unexpected error: \(error)")
+        }
+
+        do {
+            try store.recordWidgetScore(
+                WidgetActivityScoreRecord(
+                    id: widgetID.uuidString,
+                    title: "Exit Ticket",
+                    status: .inProgress,
+                    score: 1,
+                    attempts: 2,
+                    points: 1,
+                    pointsPossible: 2
+                ),
+                classLessonCode: "JOIN789",
+                studentIdentifier: "A100",
+                classroom: classroom
+            )
+            Issue.record("Incomplete scores should be rejected.")
+        } catch ClassroomAssignmentStoreError.incompleteWidgetScore {
+        } catch {
+            Issue.record("Incomplete score threw an unexpected error: \(error)")
+        }
+    }
+
+    @MainActor
+    @Test func classroomAssignmentStoreRejectsAmbiguousStudentIdentifier() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = ClassroomAssignmentStore(rootURL: rootURL) { "join-999" }
+        let widgetID = UUID()
+        let classroom = Classroom(name: "Algebra", students: [
+            RosterStudent(firstName: "Ada", lastName: "Lovelace", officialStudentID: "A100", alternateStudentID: "MATCH"),
+            RosterStudent(firstName: "Grace", lastName: "Hopper", officialStudentID: "G200", alternateStudentID: "match")
+        ])
+        _ = try makeAssignment(in: store, rootURL: rootURL, classroomID: classroom.id, widgetID: widgetID)
+        let score = WidgetActivityScoreRecord(
+            id: widgetID.uuidString,
+            title: "Exit Ticket",
+            status: .complete,
+            score: 1,
+            attempts: 1,
+            points: 1,
+            pointsPossible: 1
+        )
+
+        do {
+            try store.recordWidgetScore(score, classLessonCode: "JOIN999", studentIdentifier: "MATCH", classroom: classroom)
+            Issue.record("Ambiguous student identifiers should be rejected.")
+        } catch ClassroomAssignmentStoreError.ambiguousStudentIdentifier {
+        } catch {
+            Issue.record("Ambiguous student identifier threw an unexpected error: \(error)")
+        }
+    }
+
+    @Test func widgetMultipleChoiceScoreRecordTracksFirstTryCorrectedAndStreak() throws {
+        let widgetID = try #require(UUID(uuidString: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"))
+        let widget = WidgetObject(
+            id: widgetID,
+            name: "Exit Ticket",
+            codeString: WidgetSamples.orderOpsActivityJSON,
+            frame: CGRect(x: 0, y: 0, width: 700, height: 360),
+            activityRuntimeState: WidgetActivityRuntimeState(
+                multipleChoice: WidgetMultipleChoiceRuntimeState(
+                    score: 3,
+                    attempts: 5,
+                    streak: 2,
+                    longestStreak: 2,
+                    answeredQuestionIDs: Set(["a", "b", "c", "d", "e", "f"]),
+                    correctlyAnsweredQuestionIDs: Set(["a", "b", "d"]),
+                    questionAttempts: ["a": 1, "b": 2, "c": 1, "d": 3]
+                )
+            )
+        )
+
+        let scoreRecord = try #require(widget.activityScoreRecord)
+
+        #expect(scoreRecord.id == widgetID.uuidString)
+        #expect(scoreRecord.numberCorrectFirstTry == 1)
+        #expect(scoreRecord.numberCorrectAfterRetry == 2)
+        #expect(scoreRecord.longestStreak == 2)
+        #expect(scoreRecord.percent == 60)
+    }
+
+    @MainActor
+    @Test func mathBoardUserModeStorePersistsManualRoleSwitch() throws {
+        let suiteName = "MathBoardUserModeStoreTests-\(UUID().uuidString)"
+        let userDefaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            userDefaults.removePersistentDomain(forName: suiteName)
+        }
+
+        let store = MathBoardUserModeStore(userDefaults: userDefaults, storageKey: "mode")
+
+        #expect(store.mode == .teacher)
+        store.switchToStudentMode()
+        #expect(store.mode == .student)
+        #expect(MathBoardUserModeStore(userDefaults: userDefaults, storageKey: "mode").mode == .student)
+    }
+
+    @MainActor
+    @Test func mathBoardTeacherAuthStoreTracksSignInCreateAccountAndSignOut() async throws {
+        let authProvider = FakeTeacherAuthProvider()
+        let store = MathBoardTeacherAuthStore(authProvider: authProvider)
+
+        #expect(store.state == .signedOut)
+        await store.signIn(email: "teacher@example.com", password: "password")
+        #expect(store.state == .signedIn(userID: "teacher-user", email: "teacher@example.com"))
+        #expect(store.errorMessage == nil)
+
+        store.signOut()
+        #expect(store.state == .signedOut)
+
+        await store.createAccount(email: "new@example.com", password: "password")
+        #expect(store.state == .signedIn(userID: "teacher-user", email: "new@example.com"))
+    }
+
+    @MainActor
+    @Test func mathBoardTeacherAuthStoreSurfacesProviderErrors() async throws {
+        let authProvider = FakeTeacherAuthProvider(error: TeacherAuthTestError.failed)
+        let store = MathBoardTeacherAuthStore(authProvider: authProvider)
+
+        await store.signIn(email: "teacher@example.com", password: "password")
+
+        #expect(store.state == .signedOut)
+        #expect(store.errorMessage == "Teacher auth failed.")
+        store.clearError()
+        #expect(store.errorMessage == nil)
+    }
+
+    @MainActor
+    @Test func classroomAssignmentStoreLooksUpAssignmentByNormalizedLessonCode() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = ClassroomAssignmentStore(rootURL: rootURL) { "join-123" }
+        let assignment = try makeAssignment(in: store, rootURL: rootURL, classroomID: UUID(), widgetID: UUID())
+
+        #expect(store.assignment(matchingClassLessonCode: " join 123 ")?.id == assignment.id)
+        #expect(store.assignment(matchingClassLessonCode: "missing") == nil)
+        #expect(ClassroomAssignmentStore.normalizedClassLessonCode(" join-123 ") == "JOIN123")
+    }
+
+    @MainActor
+    @Test func localClassroomSyncServiceResolvesAssignmentPacketByLessonCode() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let rosterStore = ClassroomRosterStore(rootURL: rootURL)
+        let assignmentStore = ClassroomAssignmentStore(rootURL: rootURL) { "join-321" }
+        let teacherID = try #require(UUID(uuidString: "11111111-1111-1111-1111-111111111111"))
+        let teacher = TeacherSyncIdentity(id: teacherID, displayName: "Professor")
+        let widgetID = UUID()
+        let classroom = Classroom(name: "Algebra 1", students: [
+            RosterStudent(firstName: "Ada", lastName: "Lovelace", officialStudentID: "A100", alternateStudentID: "ALG-001")
+        ])
+        rosterStore.classrooms = [classroom]
+        let assignment = try makeAssignment(in: assignmentStore, rootURL: rootURL, classroomID: classroom.id, widgetID: widgetID)
+        let syncService = LocalClassroomSyncService(
+            teacherIdentity: teacher,
+            rosterStore: rosterStore,
+            assignmentStore: assignmentStore
+        )
+
+        let packet = try syncService.resolveAssignment(classLessonCode: " join 321 ")
+
+        #expect(packet.id == assignment.id)
+        #expect(packet.teacherID == teacher.id)
+        #expect(packet.classroomID == classroom.id)
+        #expect(packet.classroomName == "Algebra 1")
+        #expect(packet.lesson.title == "Practice")
+        #expect(packet.classLessonCode == "JOIN321")
+        #expect(packet.widgetSummaries.first?.widgetID == widgetID)
+    }
+
+    @MainActor
+    @Test func localClassroomSyncServiceSubmitsAndFetchesWidgetScores() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let rosterStore = ClassroomRosterStore(rootURL: rootURL)
+        let assignmentStore = ClassroomAssignmentStore(rootURL: rootURL) { "join-654" }
+        let teacher = TeacherSyncIdentity(id: UUID(), displayName: "Professor")
+        let widgetID = UUID()
+        let student = RosterStudent(
+            firstName: "Grace",
+            lastName: "Hopper",
+            officialStudentID: "G200",
+            alternateStudentID: "ALG-002"
+        )
+        let classroom = Classroom(name: "Algebra 1", students: [student])
+        rosterStore.classrooms = [classroom]
+        let assignment = try makeAssignment(in: assignmentStore, rootURL: rootURL, classroomID: classroom.id, widgetID: widgetID)
+        let syncService = LocalClassroomSyncService(
+            teacherIdentity: teacher,
+            rosterStore: rosterStore,
+            assignmentStore: assignmentStore
+        )
+        let scoreRecord = WidgetActivityScoreRecord(
+            id: widgetID.uuidString,
+            title: "Widget",
+            status: .complete,
+            score: 8,
+            attempts: 10,
+            points: 8,
+            pointsPossible: 10,
+            numberCorrectFirstTry: 7,
+            numberCorrectAfterRetry: 1,
+            longestStreak: 4
+        )
+        let submission = StudentSubmissionPacket(
+            teacherID: teacher.id,
+            classroomID: classroom.id,
+            assignmentID: assignment.id,
+            classLessonCode: "JOIN654",
+            studentIdentifier: "alg-002",
+            widgetScoreRecord: scoreRecord,
+            submittedAt: Date(timeIntervalSince1970: 100)
+        )
+
+        let result = try syncService.submitWidgetScore(submission)
+        let fetchedResults = try syncService.fetchSubmissions(assignmentID: assignment.id)
+
+        #expect(result.studentID == student.id)
+        #expect(result.widgetID == widgetID)
+        #expect(result.finalPercentScore == 80)
+        #expect(fetchedResults.count == 1)
+        #expect(fetchedResults.first?.id == result.id)
+        #expect(assignmentStore.widgetResults.first?.numberCorrectFirstTry == 7)
+    }
+
+    @Test func liveProgressIndicatorStateUsesActiveSubmittedAndInactiveRules() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let activeProgress = makeLiveProgress(
+            status: .inProgress,
+            isActiveOnStudentScreen: true,
+            updatedAt: now.addingTimeInterval(-5)
+        )
+        let inactiveProgress = makeLiveProgress(
+            status: .inProgress,
+            isActiveOnStudentScreen: false,
+            updatedAt: now.addingTimeInterval(-5)
+        )
+        let submittedProgress = makeLiveProgress(
+            status: .complete,
+            isActiveOnStudentScreen: false,
+            updatedAt: now.addingTimeInterval(-5)
+        )
+
+        let missingProgress: StudentWidgetLiveProgress? = nil
+        #expect(missingProgress.liveProgressIndicatorState(now: now) == .notStarted)
+        #expect(activeProgress.indicatorState(now: now) == .active)
+        #expect(activeProgress.indicatorState(now: now).displayName == "Working")
+        #expect(inactiveProgress.indicatorState(now: now) == .inactive)
+        #expect(inactiveProgress.indicatorState(now: now).displayName == "Not on screen")
+        #expect(submittedProgress.indicatorState(now: now) == .submitted)
+        #expect(submittedProgress.indicatorState(now: now).displayName == "Submitted")
+    }
+
+    @Test func liveProgressIndicatorStateTreatsStaleActiveProgressAsOffline() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let staleActiveProgress = makeLiveProgress(
+            status: .inProgress,
+            isActiveOnStudentScreen: true,
+            updatedAt: now.addingTimeInterval(-21)
+        )
+        let freshBoundaryProgress = makeLiveProgress(
+            status: .inProgress,
+            isActiveOnStudentScreen: true,
+            updatedAt: now.addingTimeInterval(-20)
+        )
+        let staleSubmittedProgress = makeLiveProgress(
+            status: .complete,
+            isActiveOnStudentScreen: true,
+            updatedAt: now.addingTimeInterval(-120)
+        )
+
+        #expect(staleActiveProgress.indicatorState(now: now) == .offline)
+        #expect(staleActiveProgress.indicatorState(now: now).displayName == "Offline")
+        #expect(freshBoundaryProgress.indicatorState(now: now) == .active)
+        #expect(staleSubmittedProgress.indicatorState(now: now) == .submitted)
+    }
+
+    @Test func studentAssignedLessonLiveProgressBuilderPublishesEveryAssignedWidget() throws {
+        let activeWidgetID = try #require(UUID(uuidString: "11111111-1111-1111-1111-111111111111"))
+        let inactiveWidgetID = try #require(UUID(uuidString: "22222222-2222-2222-2222-222222222222"))
+        let submittedWidgetID = try #require(UUID(uuidString: "33333333-3333-3333-3333-333333333333"))
+        let packet = AssignmentSyncPacket(
+            id: UUID(),
+            teacherID: UUID(),
+            classroomID: UUID(),
+            classroomName: "Period 1",
+            lesson: LessonPackageManifest(id: UUID(), title: "Inequalities"),
+            classLessonCode: "ABC123",
+            widgetSummaries: [
+                AssignedWidgetSummary(widgetID: activeWidgetID, title: "Inequality Widget", maxScore: 10),
+                AssignedWidgetSummary(widgetID: inactiveWidgetID, title: "Graph Widget", maxScore: 8),
+                AssignedWidgetSummary(widgetID: submittedWidgetID, title: "Number Line Widget", maxScore: 6)
+            ],
+            assignedAt: Date(timeIntervalSince1970: 500)
+        )
+        let builder = StudentAssignedLessonLiveProgressBuilder(
+            assignmentPacket: packet,
+            studentIdentifier: "ALG-001",
+            submittedWidgetIDs: [submittedWidgetID]
+        )
+
+        let updates = builder.updates(
+            activeWidgetIDs: [activeWidgetID, submittedWidgetID],
+            submittedAt: Date(timeIntervalSince1970: 600)
+        )
+        let updatesByWidgetID = Dictionary(uniqueKeysWithValues: updates.compactMap { update in
+            UUID(uuidString: update.submission.widgetScoreRecord.id).map { ($0, update) }
+        })
+        let activeUpdate = try #require(updatesByWidgetID[activeWidgetID])
+        let inactiveUpdate = try #require(updatesByWidgetID[inactiveWidgetID])
+        let submittedUpdate = try #require(updatesByWidgetID[submittedWidgetID])
+
+        #expect(updates.count == 3)
+        #expect(activeUpdate.isActiveOnStudentScreen)
+        #expect(activeUpdate.submission.widgetScoreRecord.status == .inProgress)
+        #expect(!inactiveUpdate.isActiveOnStudentScreen)
+        #expect(inactiveUpdate.submission.widgetScoreRecord.status == .inProgress)
+        #expect(submittedUpdate.isActiveOnStudentScreen)
+        #expect(submittedUpdate.submission.widgetScoreRecord.status == .complete)
+        #expect(submittedUpdate.submission.studentIdentifier == "ALG-001")
+    }
+
+    @Test func studentAssignedLessonLiveProgressBuilderPreservesCachedInactiveScores() throws {
+        let activeWidgetID = try #require(UUID(uuidString: "11111111-1111-1111-1111-111111111111"))
+        let inactiveWidgetID = try #require(UUID(uuidString: "22222222-2222-2222-2222-222222222222"))
+        let submittedWidgetID = try #require(UUID(uuidString: "33333333-3333-3333-3333-333333333333"))
+        let packet = AssignmentSyncPacket(
+            id: UUID(),
+            teacherID: UUID(),
+            classroomID: UUID(),
+            classroomName: "Period 1",
+            lesson: LessonPackageManifest(id: UUID(), title: "Inequalities"),
+            classLessonCode: "ABC123",
+            widgetSummaries: [
+                AssignedWidgetSummary(widgetID: activeWidgetID, title: "Active Widget", maxScore: 10),
+                AssignedWidgetSummary(widgetID: inactiveWidgetID, title: "Inactive Widget", maxScore: 8),
+                AssignedWidgetSummary(widgetID: submittedWidgetID, title: "Submitted Widget", maxScore: 6)
+            ],
+            assignedAt: Date(timeIntervalSince1970: 500)
+        )
+        var builder = StudentAssignedLessonLiveProgressBuilder(
+            assignmentPacket: packet,
+            studentIdentifier: "ALG-001",
+            submittedWidgetIDs: [submittedWidgetID]
+        )
+        builder.scoreRecordsByWidgetID = [
+            inactiveWidgetID: WidgetActivityScoreRecord(
+                id: inactiveWidgetID.uuidString,
+                title: "Inactive Widget",
+                status: .inProgress,
+                score: 3,
+                attempts: 5,
+                points: 3,
+                pointsPossible: 8,
+                numberCorrectFirstTry: 2,
+                numberCorrectAfterRetry: 1,
+                longestStreak: 2
+            ),
+            submittedWidgetID: WidgetActivityScoreRecord(
+                id: submittedWidgetID.uuidString,
+                title: "Submitted Widget",
+                status: .inProgress,
+                score: 4,
+                attempts: 6,
+                points: 4,
+                pointsPossible: 6,
+                numberCorrectFirstTry: 3,
+                numberCorrectAfterRetry: 1,
+                longestStreak: 3
+            )
+        ]
+
+        let updates = builder.updates(
+            activeWidgetIDs: [activeWidgetID],
+            submittedAt: Date(timeIntervalSince1970: 600)
+        )
+        let updatesByWidgetID = Dictionary(uniqueKeysWithValues: updates.compactMap { update in
+            UUID(uuidString: update.submission.widgetScoreRecord.id).map { ($0, update) }
+        })
+        let inactiveUpdate = try #require(updatesByWidgetID[inactiveWidgetID])
+        let submittedUpdate = try #require(updatesByWidgetID[submittedWidgetID])
+
+        #expect(!inactiveUpdate.isActiveOnStudentScreen)
+        #expect(inactiveUpdate.submission.widgetScoreRecord.status == .inProgress)
+        #expect(inactiveUpdate.submission.widgetScoreRecord.score == 3)
+        #expect(inactiveUpdate.submission.widgetScoreRecord.attempts == 5)
+        #expect(!submittedUpdate.isActiveOnStudentScreen)
+        #expect(submittedUpdate.submission.widgetScoreRecord.status == .complete)
+        #expect(submittedUpdate.submission.widgetScoreRecord.score == 4)
+        #expect(submittedUpdate.submission.widgetScoreRecord.attempts == 6)
+    }
+
     private func makeTemporaryLessonPackage() throws -> URL {
         let lessonURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("MathBoardTests-\(UUID().uuidString).mathboard", isDirectory: true)
@@ -925,6 +2212,46 @@ struct MathBoardTests {
             withIntermediateDirectories: true
         )
         return lessonURL
+    }
+
+    @MainActor
+    private func makeAssignment(
+        in store: ClassroomAssignmentStore,
+        rootURL: URL,
+        classroomID: UUID,
+        widgetID: UUID
+    ) throws -> ClassroomAssignment {
+        let lesson = Lesson(
+            id: UUID(),
+            name: "Practice",
+            url: rootURL.appendingPathComponent("Practice.mathboard", isDirectory: true),
+            createdAt: Date(),
+            modifiedAt: Date()
+        )
+        return try #require(store.createAssignments(
+            for: lesson,
+            classroomIDs: [classroomID],
+            widgetSummaries: [AssignedWidgetSummary(widgetID: widgetID, title: "Widget", maxScore: 10)]
+        ).first)
+    }
+
+    private func makeLiveProgress(
+        status: WidgetActivityScoreStatus,
+        isActiveOnStudentScreen: Bool,
+        updatedAt: Date
+    ) -> StudentWidgetLiveProgress {
+        StudentWidgetLiveProgress(
+            assignmentID: UUID(),
+            classroomID: UUID(),
+            studentID: UUID(),
+            studentName: "Ada Lovelace",
+            widgetID: UUID(),
+            correctCount: 2,
+            attemptedCount: 3,
+            status: status,
+            isActiveOnStudentScreen: isActiveOnStudentScreen,
+            updatedAt: updatedAt
+        )
     }
 
     private func makeTemporaryDocumentRoot() throws -> URL {
@@ -952,6 +2279,7 @@ struct MathBoardTests {
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(metadata)
         try data.write(to: packageURL.appendingPathComponent("document.json"), options: .atomic)
+        try Data("sample".utf8).write(to: packageURL.appendingPathComponent("assets/sample.txt"), options: .atomic)
         return packageURL
     }
 
@@ -960,5 +2288,53 @@ struct MathBoardTests {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(DocumentMetadata.self, from: data).id
+    }
+}
+
+@MainActor
+private final class FakeTeacherAuthProvider: TeacherAuthenticating {
+    var currentUserID: String?
+    var currentEmail: String?
+    var error: Error?
+
+    init(currentUserID: String? = nil, currentEmail: String? = nil, error: Error? = nil) {
+        self.currentUserID = currentUserID
+        self.currentEmail = currentEmail
+        self.error = error
+    }
+
+    func signIn(email: String, password: String) async throws {
+        if let error {
+            throw error
+        }
+        currentUserID = "teacher-user"
+        currentEmail = email
+    }
+
+    func createAccount(email: String, password: String) async throws {
+        if let error {
+            throw error
+        }
+        currentUserID = "teacher-user"
+        currentEmail = email
+    }
+
+    func signOut() throws {
+        if let error {
+            throw error
+        }
+        currentUserID = nil
+        currentEmail = nil
+    }
+}
+
+private enum TeacherAuthTestError: LocalizedError {
+    case failed
+
+    var errorDescription: String? {
+        switch self {
+        case .failed:
+            return "Teacher auth failed."
+        }
     }
 }

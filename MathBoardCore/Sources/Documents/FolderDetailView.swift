@@ -47,6 +47,9 @@ enum LessonSortOrder: String, CaseIterable, Identifiable {
 struct FolderDetailView: View {
     let folder: Folder
     @Environment(DocumentStore.self) private var store
+    @Environment(ClassroomRosterStore.self) private var classroomRosterStore
+    @Environment(ClassroomAssignmentStore.self) private var classroomAssignmentStore
+    @Environment(MathBoardTeacherAuthStore.self) private var teacherAuthStore
     @State private var childFolders: [Folder] = []
     @State private var lessons: [Lesson] = []
     @State private var showNewFolderSheet = false
@@ -59,6 +62,7 @@ struct FolderDetailView: View {
     @State private var lessonToDuplicate: Lesson?
     @State private var lessonToDelete: Lesson?
     @State private var lessonToMove: Lesson?
+    @State private var lessonToAssign: Lesson?
     @State private var selectedLessonIDs: Set<UUID> = []
     @State private var searchText = ""
     @State private var sortOrder: LessonSortOrder = .newest
@@ -227,6 +231,12 @@ struct FolderDetailView: View {
                     move(lesson, to: destination)
                 }
             )
+        }
+        .sheet(item: $lessonToAssign) { lesson in
+            LessonAssignmentSheet(lesson: lesson)
+                .environment(classroomRosterStore)
+                .environment(classroomAssignmentStore)
+                .environment(teacherAuthStore)
         }
         .overlay {
             if let lessonToDuplicate {
@@ -627,6 +637,12 @@ struct FolderDetailView: View {
                         }
                         .disabled(!hasMoveDestinations)
 
+                        Button {
+                            lessonToAssign = lesson
+                        } label: {
+                            Label("Assign Lesson", systemImage: "person.3.sequence")
+                        }
+
                         Button(role: .destructive) {
                             lessonToDelete = lesson
                         } label: {
@@ -698,16 +714,21 @@ struct MoveLessonsSheet: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(folder.name)
                                 .font(.headline)
+                                .accessibilityIdentifier("moveDestination.name.\(folder.name)")
                             Text(folderPath(for: folder))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(2)
+                                .accessibilityIdentifier("moveDestination.path.\(folderPath(for: folder))")
                             Text("^[\(folder.lessonCount) lesson](inflect: true)")
                                 .font(.caption)
                                 .foregroundStyle(.tertiary)
                         }
                     }
                     .contentShape(Rectangle())
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityIdentifier("moveDestination.\(folder.name)")
+                    .accessibilityLabel("\(folder.name), \(folderPath(for: folder))")
                 }
                 .buttonStyle(.plain)
             }
@@ -874,4 +895,6 @@ private struct FolderContentsSearchEmptyState: View {
         ))
     }
     .environment(DocumentStore())
+    .environment(ClassroomRosterStore())
+    .environment(ClassroomAssignmentStore())
 }

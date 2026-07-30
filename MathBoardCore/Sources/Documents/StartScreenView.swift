@@ -48,6 +48,9 @@ private enum FolderSortOrder: String, CaseIterable, Identifiable {
 public struct StartScreenView: View {
     @Environment(DocumentStore.self) private var store
     @Environment(ClassroomRosterStore.self) private var classroomRosterStore
+    @Environment(ClassroomAssignmentStore.self) private var classroomAssignmentStore
+    @Environment(MathBoardUserModeStore.self) private var userModeStore
+    @Environment(MathBoardTeacherAuthStore.self) private var teacherAuthStore
     @State private var searchText: String = ""
     @State private var isSearchPresented = false
     @State private var folderSortOrder: FolderSortOrder = .nameAscending
@@ -55,6 +58,8 @@ public struct StartScreenView: View {
     @State private var showNewFolderSheet = false
     @State private var showLessonImporter = false
     @State private var showClassroomRosters = false
+    @State private var showClassroomAssignments = false
+    @State private var showTeacherAccount = false
     @State private var importedLesson: Lesson?
     @State private var folderToRename: Folder?
     @State private var folderToDelete: Folder?
@@ -93,6 +98,12 @@ public struct StartScreenView: View {
                 sortMenu
 
                 Button {
+                    showTeacherAccount = true
+                } label: {
+                    Label(teacherAccountMenuTitle, systemImage: teacherAuthStore.state.isSignedIn ? "person.crop.circle.badge.checkmark" : "person.crop.circle")
+                }
+
+                Button {
                     showLessonImporter = true
                 } label: {
                     Label("Open Lesson", systemImage: "folder")
@@ -102,6 +113,18 @@ public struct StartScreenView: View {
                     showClassroomRosters = true
                 } label: {
                     Label("Classroom Rosters", systemImage: "person.3.sequence")
+                }
+
+                Button {
+                    showClassroomAssignments = true
+                } label: {
+                    Label("Assignments / Reports", systemImage: "chart.bar.doc.horizontal")
+                }
+
+                Button {
+                    userModeStore.switchToStudentMode()
+                } label: {
+                    Label("Student Mode", systemImage: "person.crop.circle.badge.checkmark")
                 }
             }
 
@@ -188,9 +211,18 @@ public struct StartScreenView: View {
                 }
             )
         }
+        .sheet(isPresented: $showTeacherAccount) {
+            TeacherAccountView()
+                .environment(teacherAuthStore)
+        }
         .classroomRosterPresentation(
             isPresented: $showClassroomRosters,
             classroomRosterStore: classroomRosterStore
+        )
+        .classroomAssignmentsPresentation(
+            isPresented: $showClassroomAssignments,
+            classroomRosterStore: classroomRosterStore,
+            classroomAssignmentStore: classroomAssignmentStore
         )
     }
 
@@ -238,6 +270,13 @@ public struct StartScreenView: View {
 
     private var areAllMatchingLessonsSelected: Bool {
         !matchingLessons.isEmpty && matchingLessons.allSatisfy { selectedSearchLessonIDs.contains($0.id) }
+    }
+
+    private var teacherAccountMenuTitle: String {
+        if let email = teacherAuthStore.state.email {
+            return "Teacher: \(email)"
+        }
+        return "Teacher Sign In"
     }
 
     private func sort(_ folders: [Folder]) -> [Folder] {
@@ -692,6 +731,28 @@ private extension View {
         }
         #endif
     }
+
+    @ViewBuilder
+    func classroomAssignmentsPresentation(
+        isPresented: Binding<Bool>,
+        classroomRosterStore: ClassroomRosterStore,
+        classroomAssignmentStore: ClassroomAssignmentStore
+    ) -> some View {
+        #if os(iOS)
+        fullScreenCover(isPresented: isPresented) {
+            ClassroomAssignmentsView()
+                .environment(classroomRosterStore)
+                .environment(classroomAssignmentStore)
+        }
+        #else
+        sheet(isPresented: isPresented) {
+            ClassroomAssignmentsView()
+                .environment(classroomRosterStore)
+                .environment(classroomAssignmentStore)
+                .frame(minWidth: 980, minHeight: 680)
+        }
+        #endif
+    }
 }
 
 #Preview {
@@ -700,4 +761,7 @@ private extension View {
     }
     .environment(DocumentStore())
     .environment(ClassroomRosterStore())
+    .environment(ClassroomAssignmentStore())
+    .environment(MathBoardUserModeStore())
+    .environment(MathBoardTeacherAuthStore(authProvider: DisabledTeacherAuthProvider()))
 }

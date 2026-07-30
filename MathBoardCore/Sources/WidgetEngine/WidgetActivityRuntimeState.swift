@@ -102,7 +102,10 @@ public struct WidgetMultipleChoiceRuntimeState: Codable, Equatable, Sendable {
             score: score,
             attempts: attempts,
             points: points,
-            pointsPossible: attempts
+            pointsPossible: attempts,
+            numberCorrectFirstTry: numberCorrectFirstTry,
+            numberCorrectAfterRetry: numberCorrectAfterRetry,
+            longestStreak: longestStreak
         )
     }
 
@@ -138,6 +141,14 @@ public struct WidgetMultipleChoiceRuntimeState: Codable, Equatable, Sendable {
         min(Double(streak) * 0.1, 1.0)
     }
 
+    var numberCorrectFirstTry: Int {
+        correctlyAnsweredQuestionIDs.filter { questionAttempts[$0] == 1 }.count
+    }
+
+    var numberCorrectAfterRetry: Int {
+        correctlyAnsweredQuestionIDs.filter { (questionAttempts[$0] ?? 0) > 1 }.count
+    }
+
     var points: Double {
         Double(score) + bonus
     }
@@ -158,6 +169,47 @@ public struct WidgetActivityScoreRecord: Codable, Equatable, Identifiable, Senda
     public var attempts: Int
     public var points: Double
     public var pointsPossible: Int
+    public var numberCorrectFirstTry: Int
+    public var numberCorrectAfterRetry: Int
+    public var longestStreak: Int
+
+    public init(
+        id: String,
+        title: String,
+        status: WidgetActivityScoreStatus,
+        score: Int,
+        attempts: Int,
+        points: Double,
+        pointsPossible: Int,
+        numberCorrectFirstTry: Int = 0,
+        numberCorrectAfterRetry: Int = 0,
+        longestStreak: Int = 0
+    ) {
+        self.id = id
+        self.title = title
+        self.status = status
+        self.score = max(0, score)
+        self.attempts = max(0, attempts)
+        self.points = max(0, points)
+        self.pointsPossible = max(0, pointsPossible)
+        self.numberCorrectFirstTry = max(0, numberCorrectFirstTry)
+        self.numberCorrectAfterRetry = max(0, numberCorrectAfterRetry)
+        self.longestStreak = max(0, longestStreak)
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        status = try container.decode(WidgetActivityScoreStatus.self, forKey: .status)
+        score = max(0, try container.decode(Int.self, forKey: .score))
+        attempts = max(0, try container.decode(Int.self, forKey: .attempts))
+        points = max(0, try container.decode(Double.self, forKey: .points))
+        pointsPossible = max(0, try container.decode(Int.self, forKey: .pointsPossible))
+        numberCorrectFirstTry = max(0, try container.decodeIfPresent(Int.self, forKey: .numberCorrectFirstTry) ?? score)
+        numberCorrectAfterRetry = max(0, try container.decodeIfPresent(Int.self, forKey: .numberCorrectAfterRetry) ?? 0)
+        longestStreak = max(0, try container.decodeIfPresent(Int.self, forKey: .longestStreak) ?? score)
+    }
 
     public var percent: Int? {
         guard attempts > 0 else { return nil }

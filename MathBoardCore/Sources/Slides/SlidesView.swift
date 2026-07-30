@@ -14,6 +14,7 @@ import Library
 import Presentation
 import PDFKit
 import UniformTypeIdentifiers
+import WidgetEngine
 #if os(iOS)
 import UIKit
 #elseif os(macOS)
@@ -47,6 +48,8 @@ public enum MathBoardClassroomMode: String, CaseIterable, Identifiable {
 
 public struct SlidesView: View {
     private let lessonURL: URL
+    private let onActiveWidgetIDsChanged: ((Set<UUID>) -> Void)?
+    private let onActiveWidgetsChanged: (([WidgetObject]) -> Void)?
 
     @State private var store: SlideStore
     @Binding private var classroomMode: MathBoardClassroomMode
@@ -66,9 +69,13 @@ public struct SlidesView: View {
 
     public init(
         lessonURL: URL,
-        classroomMode: Binding<MathBoardClassroomMode> = .constant(.teacher)
+        classroomMode: Binding<MathBoardClassroomMode> = .constant(.teacher),
+        onActiveWidgetIDsChanged: ((Set<UUID>) -> Void)? = nil,
+        onActiveWidgetsChanged: (([WidgetObject]) -> Void)? = nil
     ) {
         self.lessonURL = lessonURL
+        self.onActiveWidgetIDsChanged = onActiveWidgetIDsChanged
+        self.onActiveWidgetsChanged = onActiveWidgetsChanged
         _store = State(initialValue: SlideStore(lessonURL: lessonURL))
         _classroomMode = classroomMode
     }
@@ -165,7 +172,15 @@ public struct SlidesView: View {
             }
         }
         .onDisappear {
+            onActiveWidgetIDsChanged?([])
+            onActiveWidgetsChanged?([])
             flushPendingViewportSave()
+        }
+        .onAppear {
+            publishActiveWidgetIDs()
+        }
+        .onChange(of: activeSlide?.id) { _, _ in
+            publishActiveWidgetIDs()
         }
         .fileImporter(
             isPresented: $isShowingPDFImporter,
@@ -199,6 +214,18 @@ public struct SlidesView: View {
     private var activeSlide: SlideMetadata? {
         guard activeIndex >= 0, activeIndex < store.slides.count else { return nil }
         return store.slides[activeIndex]
+    }
+
+    private func publishActiveWidgetIDs() {
+        guard let activeSlide else {
+            onActiveWidgetIDsChanged?([])
+            onActiveWidgetsChanged?([])
+            return
+        }
+        let widgetSidecarURL = WidgetObject.sidecarURL(forDrawingURL: store.drawingURL(for: activeSlide))
+        let activeWidgets = WidgetObject.load(from: widgetSidecarURL)
+        onActiveWidgetIDsChanged?(Set(activeWidgets.map(\.id)))
+        onActiveWidgetsChanged?(activeWidgets)
     }
 
     private func goToPrevious() {
@@ -661,6 +688,8 @@ public struct SlidesView: View {
     }
 
     private func shouldRestoreViewport(_ viewport: SlideViewportState, for slide: SlideMetadata) -> Bool {
+        guard viewport.isUsableSavedCanvasViewport() else { return false }
+
         if let platform = viewport.platform {
             return platform == Self.viewportPlatformIdentifier
         }

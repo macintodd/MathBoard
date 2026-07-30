@@ -99,6 +99,26 @@ struct RosterCSVPreview: Equatable {
     var mapping: CSVColumnMapping
 }
 
+struct DuplicateRosterIDReport: Equatable {
+    var officialStudentIDs: [String]
+    var alternateStudentIDs: [String]
+
+    var hasDuplicates: Bool {
+        !officialStudentIDs.isEmpty || !alternateStudentIDs.isEmpty
+    }
+
+    var summary: String {
+        var parts: [String] = []
+        if !officialStudentIDs.isEmpty {
+            parts.append("Student ID: \(officialStudentIDs.joined(separator: ", "))")
+        }
+        if !alternateStudentIDs.isEmpty {
+            parts.append("Alternate ID: \(alternateStudentIDs.joined(separator: ", "))")
+        }
+        return parts.joined(separator: "  ")
+    }
+}
+
 @MainActor
 @Observable
 public final class ClassroomRosterStore {
@@ -188,16 +208,22 @@ public final class ClassroomRosterStore {
     }
 
     func deleteStudents(_ studentIDs: Set<UUID>, from classroomID: UUID) throws {
+        guard !studentIDs.isEmpty else { return }
         guard let classroomIndex = classrooms.firstIndex(where: { $0.id == classroomID }) else {
             throw ClassroomRosterStoreError.classroomNotFound
         }
+        let originalCount = classrooms[classroomIndex].students.count
 
         classrooms[classroomIndex].students.removeAll { studentIDs.contains($0.id) }
+        guard classrooms[classroomIndex].students.count != originalCount else {
+            throw ClassroomRosterStoreError.studentNotFound
+        }
         classrooms[classroomIndex].modifiedAt = Date()
         try save()
     }
 
     func moveStudents(_ studentIDs: Set<UUID>, from sourceClassroomID: UUID, to destinationClassroomID: UUID) throws {
+        guard !studentIDs.isEmpty else { return }
         guard sourceClassroomID != destinationClassroomID else { return }
         guard let sourceIndex = classrooms.firstIndex(where: { $0.id == sourceClassroomID }),
               let destinationIndex = classrooms.firstIndex(where: { $0.id == destinationClassroomID }) else {
@@ -205,6 +231,9 @@ public final class ClassroomRosterStore {
         }
 
         let movingStudents = classrooms[sourceIndex].students.filter { studentIDs.contains($0.id) }
+        guard !movingStudents.isEmpty else {
+            throw ClassroomRosterStoreError.studentNotFound
+        }
         classrooms[sourceIndex].students.removeAll { studentIDs.contains($0.id) }
         classrooms[destinationIndex].students.append(contentsOf: movingStudents)
         classrooms[sourceIndex].modifiedAt = Date()
@@ -231,18 +260,55 @@ public final class ClassroomRosterStore {
         }
     }
 
+    func duplicateIDReport(for classroomID: UUID) throws -> DuplicateRosterIDReport {
+        let classroom = try requireClassroom(id: classroomID)
+        return Self.duplicateIDReport(for: classroom.students)
+    }
+
+    func duplicateIDReport(for preview: RosterCSVPreview) -> DuplicateRosterIDReport {
+        guard preview.mapping.canImport,
+              let firstNameIndex = preview.mapping.firstNameIndex,
+              let lastNameIndex = preview.mapping.lastNameIndex,
+              let officialIDIndex = preview.mapping.officialStudentIDIndex else {
+            return DuplicateRosterIDReport(officialStudentIDs: [], alternateStudentIDs: [])
+        }
+
+        let alternateIDIndex = preview.mapping.alternateStudentIDIndex
+        let students = preview.rows.compactMap { row -> RosterStudent? in
+            let firstName = Self.value(in: row, at: firstNameIndex)
+            let lastName = Self.value(in: row, at: lastNameIndex)
+            let officialID = Self.value(in: row, at: officialIDIndex)
+            let alternateID = alternateIDIndex.map { Self.value(in: row, at: $0) } ?? ""
+            guard !firstName.isEmpty || !lastName.isEmpty || !officialID.isEmpty else { return nil }
+            return RosterStudent(
+                firstName: firstName,
+                lastName: lastName,
+                officialStudentID: officialID,
+                alternateStudentID: alternateID
+            )
+        }
+
+        return Self.duplicateIDReport(for: students)
+    }
+
     func generateAlternateIDs(for classroomID: UUID, overwriteExisting: Bool = false) throws {
         guard let classroomIndex = classrooms.firstIndex(where: { $0.id == classroomID }) else {
             throw ClassroomRosterStoreError.classroomNotFound
         }
 
         let prefix = try validatedAlternateIDPrefix(classrooms[classroomIndex].alternateIDPrefix)
-        classrooms[classroomIndex].alternateIDPrefix = prefix
-        for index in classrooms[classroomIndex].students.indices {
-            if overwriteExisting || classrooms[classroomIndex].students[index].alternateStudentID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                classrooms[classroomIndex].students[index].alternateStudentID = "\(prefix)-\(String(format: "%03d", index + 1))"
+        var proposedStudents = classrooms[classroomIndex].students
+        for index in proposedStudents.indices {
+            if overwriteExisting || proposedStudents[index].alternateStudentID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                proposedStudents[index].alternateStudentID = "\(prefix)-\(String(format: "%03d", index + 1))"
             }
         }
+        guard Self.duplicateIDReport(for: proposedStudents).alternateStudentIDs.isEmpty else {
+            throw ClassroomRosterStoreError.duplicateAlternateStudentID
+        }
+
+        classrooms[classroomIndex].alternateIDPrefix = prefix
+        classrooms[classroomIndex].students = proposedStudents
         classrooms[classroomIndex].modifiedAt = Date()
         try save()
     }
@@ -281,6 +347,7 @@ public final class ClassroomRosterStore {
         let importedStudents = try students(from: preview)
         classrooms[classroomIndex].students.insert(contentsOf: importedStudents.sortedForRoster(), at: 0)
         classrooms[classroomIndex].modifiedAt = Date()
+        sortStudents(in: classroomIndex)
         try save()
         return classrooms[classroomIndex]
     }
@@ -428,7 +495,7 @@ public final class ClassroomRosterStore {
             firstNameIndex: firstMatchingIndex(in: headers, candidates: ["first name", "firstname", "first"]),
             lastNameIndex: firstMatchingIndex(in: headers, candidates: ["last name", "lastname", "last", "surname"]),
             officialStudentIDIndex: firstMatchingIndex(in: headers, candidates: ["student id", "studentid", "id", "student number", "number"]),
-            alternateStudentIDIndex: firstMatchingIndex(in: headers, candidates: ["alternate id", "alternateid", "alt id", "teacher id"])
+            alternateStudentIDIndex: firstMatchingIndex(in: headers, candidates: ["alternate id", "alternateid", "alternate", "alt id", "alt", "teacher id", "teacher"])
         )
     }
 
@@ -446,6 +513,25 @@ public final class ClassroomRosterStore {
     private static func value(in row: [String], at index: Int) -> String {
         guard row.indices.contains(index) else { return "" }
         return row[index].trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func duplicateIDReport(for students: [RosterStudent]) -> DuplicateRosterIDReport {
+        DuplicateRosterIDReport(
+            officialStudentIDs: duplicateValues(in: students.map(\.officialStudentID)),
+            alternateStudentIDs: duplicateValues(in: students.map(\.alternateStudentID))
+        )
+    }
+
+    private static func duplicateValues(in values: [String]) -> [String] {
+        let normalizedValues = values
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() }
+            .filter { !$0.isEmpty }
+
+        let counts = Dictionary(normalizedValues.map { ($0, 1) }, uniquingKeysWith: +)
+        return counts
+            .filter { $0.value > 1 }
+            .map(\.key)
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
     private static let jsonEncoder: JSONEncoder = {
@@ -470,6 +556,7 @@ enum ClassroomRosterStoreError: LocalizedError {
     case emptyCSV
     case missingRequiredColumn
     case emptyAlternateIDPrefix
+    case duplicateAlternateStudentID
 
     var errorDescription: String? {
         switch self {
@@ -487,6 +574,8 @@ enum ClassroomRosterStoreError: LocalizedError {
             "Map First Name, Last Name, and Student ID before importing."
         case .emptyAlternateIDPrefix:
             "Number prefix cannot be empty."
+        case .duplicateAlternateStudentID:
+            "Generated alternate IDs would duplicate an existing alternate ID. Change the prefix or regenerate all IDs."
         }
     }
 }

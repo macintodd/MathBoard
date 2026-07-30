@@ -340,6 +340,51 @@ enum InequalityExplorerStateRegistry {
     static func removeState(for widgetID: WidgetObject.ID) {
         statesByWidgetID.removeValue(forKey: widgetID)
     }
+
+    static func scoreRecord(for widgetID: WidgetObject.ID, title: String) -> WidgetActivityScoreRecord {
+        state(for: widgetID).scoreRecord(widgetID: widgetID, title: title)
+    }
+}
+
+private extension InequalityExplorerState {
+    func scoreRecord(widgetID: WidgetObject.ID, title: String) -> WidgetActivityScoreRecord {
+        session.scoreRecord(
+            widgetID: widgetID,
+            title: title.isEmpty ? BuiltInInteractiveKind.inequalitiesExplorer.displayName : title,
+            isComplete: showingFinalSummary
+        )
+    }
+}
+
+private extension StudentSession {
+    func scoreRecord(widgetID: WidgetObject.ID, title: String, isComplete: Bool) -> WidgetActivityScoreRecord {
+        let kind = BuiltInInteractiveKind.inequalitiesExplorer
+        let correctCount = solvedKeys.count
+        let firstTryCount = solvedKeys.subtracting(erroredKeys).count
+        let retryCount = solvedKeys.intersection(erroredKeys).count
+        let status: WidgetActivityScoreStatus
+
+        if isComplete || attemptedCount >= kind.scoreableTaskCount {
+            status = .complete
+        } else if attemptedCount > 0 {
+            status = .inProgress
+        } else {
+            status = .notStarted
+        }
+
+        return WidgetActivityScoreRecord(
+            id: widgetID.uuidString,
+            title: title,
+            status: status,
+            score: correctCount,
+            attempts: attemptedCount,
+            points: Double(score),
+            pointsPossible: kind.pointsPossible,
+            numberCorrectFirstTry: firstTryCount,
+            numberCorrectAfterRetry: retryCount,
+            longestStreak: longestStreak
+        )
+    }
 }
 
 private struct StudentModeView: View {

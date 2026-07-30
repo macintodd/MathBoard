@@ -87,8 +87,39 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
         }
     }
 
+    public var scoreableTaskCount: Int {
+        switch self {
+        case .inequalitiesExplorer: return 50
+        }
+    }
+
+    public var pointsPerTask: Int {
+        switch self {
+        case .inequalitiesExplorer: return 10
+        }
+    }
+
+    public var pointsPossible: Int {
+        scoreableTaskCount * pointsPerTask
+    }
+
     public var widgetCodeString: String {
         "__mathboard_builtin_interactive__:\(rawValue)"
+    }
+
+    public func defaultScoreRecord(widgetID: WidgetObject.ID, title: String) -> WidgetActivityScoreRecord {
+        WidgetActivityScoreRecord(
+            id: widgetID.uuidString,
+            title: title.isEmpty ? displayName : title,
+            status: .notStarted,
+            score: 0,
+            attempts: 0,
+            points: 0,
+            pointsPossible: pointsPossible,
+            numberCorrectFirstTry: 0,
+            numberCorrectAfterRetry: 0,
+            longestStreak: 0
+        )
     }
 
     public static func kind(for codeString: String) -> BuiltInInteractiveKind? {
@@ -141,6 +172,10 @@ extension WidgetObject {
     }
 
     public var activityScoreRecord: WidgetActivityScoreRecord? {
+        if let builtInInteractiveKind {
+            return builtInInteractiveKind.defaultScoreRecord(widgetID: id, title: name)
+        }
+
         guard let document = activityDocument else { return nil }
         let runtimeState = activityRuntimeState ?? WidgetActivityRuntimeState(
             multipleChoice: WidgetMultipleChoiceRuntimeState.initial(for: document)
@@ -149,6 +184,28 @@ extension WidgetObject {
         record.id = id.uuidString
         record.title = name.isEmpty ? record.title : name
         return record
+    }
+
+    @MainActor public var liveActivityScoreRecord: WidgetActivityScoreRecord? {
+        if let builtInInteractiveKind {
+            switch builtInInteractiveKind {
+            case .inequalitiesExplorer:
+                return InequalityExplorerStateRegistry.scoreRecord(for: id, title: name)
+            }
+        }
+
+        return activityScoreRecord
+    }
+
+    @MainActor public static func resetBuiltInRuntimeStates(for widgets: [WidgetObject]) {
+        for widget in widgets {
+            switch widget.builtInInteractiveKind {
+            case .inequalitiesExplorer:
+                InequalityExplorerStateRegistry.removeState(for: widget.id)
+            case .none:
+                continue
+            }
+        }
     }
 
     public static func sidecarURL(forDrawingURL drawingURL: URL) -> URL {

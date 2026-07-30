@@ -2779,9 +2779,11 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private static let maximumZoomScale: CGFloat = 4.0
         private static let minimumContentSize = CanvasBoardMetrics.defaultUsableSize
         private static let viewportFramePublishDebounce: Duration = .milliseconds(120)
+        private static let committedInkFramePublishDebounce: Duration = .milliseconds(320)
         private static let committedFrameOverscan: CGFloat = 2.0
-        private static let minimumLiveStrokePublishInterval: TimeInterval = 1.0 / 30.0
-        private static let maximumLiveStrokePreviewPoints = 240
+        private static let maximumCommittedFramePixelDimension: CGFloat = 6_144
+        private static let minimumLiveStrokePublishInterval: TimeInterval = 1.0 / 60.0
+        private static let maximumLiveStrokePreviewPoints = 220
         private static let minimumLiveStrokeWidthPreviewScale: CGFloat = 0.45
         private static let maximumLiveStrokeWidthPreviewScale: CGFloat = 0.85
         private static let laserPointerLifetime: TimeInterval = 0.14
@@ -2807,6 +2809,11 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private var usableCanvasSize = CanvasBoardMetrics.defaultUsableSize
         private var didSetInitialContentOffset = false
         private var viewportFramePublishTask: Task<Void, Never>?
+        private var isUsingPencilKitTool = false
+        private var needsCommittedInkFrameRefresh = false
+        private var committedFrameBackgroundCache: CommittedFrameBackgroundCache?
+        private var committedFrameImageAssetDirectoryURL: URL?
+        private var committedFrameImageCache: [String: UIImage] = [:]
         private var lastLiveStrokePublishTime: TimeInterval = 0
         private var activeLiveStrokeColor: CanvasStrokeColor?
         private var activeLiveStrokeWidth: CGFloat?
@@ -2898,6 +2905,13 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private weak var activeTextEditor: UITextView?
         private var activeTextObjectID: UUID?
         private var isApplyingTextEditorUpdate = false
+
+        private struct CommittedFrameBackgroundCache {
+            let pdfURL: URL
+            let pageIndex: Int
+            let page: PDFPage
+            let pageBounds: CGRect
+        }
 
         private enum ActiveLiveStrokeTool {
             case pen
@@ -3497,9 +3511,17 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             canvas.scrollsToTop = false
 
             let boundsSize = canvas.bounds.size
-            guard boundsSize.width > 0, boundsSize.height > 0 else {
-                publishViewportStateAfterViewUpdate(from: canvas)
-                return
+            guard boundsSize.width > 0, boundsSize.height > 0 else { return }
+
+            let minimumZoomScale = minimumCenteredBoardZoom(
+                for: boundsSize,
+                drawableSize: usableCanvasSize
+            )
+            if abs(canvas.minimumZoomScale - minimumZoomScale) > 0.0001 {
+                canvas.minimumZoomScale = minimumZoomScale
+                if canvas.zoomScale < minimumZoomScale {
+                    canvas.setZoomScale(minimumZoomScale, animated: false)
+                }
             }
 
             if configuredBoundsSize != boundsSize {
@@ -3511,7 +3533,6 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 fitInitialBackgroundIfNeeded(on: canvas)
             }
             restoreInitialViewportIfNeeded(on: canvas)
-            publishViewportStateAfterViewUpdate(from: canvas)
         }
 
         private func configureContentArea(for canvas: PKCanvasView, boundsSize: CGSize) {
@@ -3547,6 +3568,16 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     zoomScale: initialZoom
                 )
             }
+        }
+
+        private func minimumCenteredBoardZoom(for boundsSize: CGSize, drawableSize: CGSize) -> CGFloat {
+            let origin = PencilKitCanvasGeometry.drawingOriginOffset
+            let horizontalZoom = boundsSize.width / max((origin.x + drawableSize.width / 2) * 2, 1)
+            let verticalZoom = boundsSize.height / max((origin.y + drawableSize.height / 2) * 2, 1)
+            return min(
+                max(Self.minimumZoomScale, horizontalZoom, verticalZoom),
+                Self.maximumZoomScale
+            )
         }
 
         private func initialBoardZoom(for canvas: PKCanvasView, drawableSize: CGSize) -> CGFloat {
@@ -3732,13 +3763,6 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             canvas.setContentOffset(stabilizedOffset, animated: false)
         }
 
-        private func publishViewportStateAfterViewUpdate(from canvas: PKCanvasView) {
-            let state = viewportState(from: canvas)
-            Task { @MainActor [weak self] in
-                await Task.yield()
-                self?.parent.onViewportStateChange?(state)
-            }
-        }
 
         private func viewportState(from canvas: PKCanvasView) -> CanvasViewportState {
             CanvasViewportState(
@@ -3747,6 +3771,22 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 minimumZoomScale: canvas.minimumZoomScale,
                 maximumZoomScale: canvas.maximumZoomScale
             )
+        }
+
+        private func recenterBoardAtMinimumZoomIfNeeded(on canvas: PKCanvasView) {
+            guard canvas.zoomScale <= canvas.minimumZoomScale + 0.001 else { return }
+
+            let centeredOffset = centeredBoardContentOffset(
+                for: canvas,
+                drawableSize: usableCanvasSize,
+                zoomScale: canvas.zoomScale
+            )
+            guard hypot(
+                centeredOffset.x - canvas.contentOffset.x,
+                centeredOffset.y - canvas.contentOffset.y
+            ) > 0.5 else { return }
+
+            canvas.setContentOffset(centeredOffset, animated: false)
         }
 
         func installLiveStrokeRecognizer(on canvas: PKCanvasView) {
@@ -8368,6 +8408,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
 
         func scrollViewDidZoom(_ scrollView: UIScrollView) {
             guard let canvas = scrollView as? PKCanvasView else { return }
+            recenterBoardAtMinimumZoomIfNeeded(on: canvas)
             hostView?.updateBackgroundFrame(using: canvas)
             hostView?.updateCanvasEdgeFrame(using: canvas)
             hostView?.updateImageObjectFrame(using: canvas)
@@ -8385,6 +8426,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
 
         func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) {
             guard let canvas = scrollView as? PKCanvasView else { return }
+            recenterBoardAtMinimumZoomIfNeeded(on: canvas)
             hostView?.updateBackgroundFrame(using: canvas)
             hostView?.updateCanvasEdgeFrame(using: canvas)
             hostView?.updateImageObjectFrame(using: canvas)
@@ -8425,18 +8467,30 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
             parent.drawing = canvasView.drawing
-            if !(canvasView.tool is PKInkingTool) {
+            if canvasView.tool is PKInkingTool {
+                needsCommittedInkFrameRefresh = true
+                if !isUsingPencilKitTool {
+                    scheduleViewportFramePublish()
+                    needsCommittedInkFrameRefresh = false
+                }
+            } else {
                 publishImageFromModel()
             }
         }
 
         func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
             canvas = canvasView
+            isUsingPencilKitTool = true
+            cancelPendingViewportFramePublish()
             parent.onInteractionBegan?()
         }
 
         func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
-            // The live TV vector overlay carries inking while PencilKit owns local drawing.
+            isUsingPencilKitTool = false
+            guard needsCommittedInkFrameRefresh else { return }
+            needsCommittedInkFrameRefresh = false
+            publishViewportSourceRect(from: canvasView)
+            scheduleViewportFramePublish(after: Self.committedInkFramePublishDebounce)
         }
 
         // MARK: - Publish from model (non-stroke renders)
@@ -8455,10 +8509,14 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         }
 
         private func scheduleViewportFramePublish() {
+            scheduleViewportFramePublish(after: Self.viewportFramePublishDebounce)
+        }
+
+        private func scheduleViewportFramePublish(after delay: Duration) {
             guard parent.onFrameUpdate != nil else { return }
             viewportFramePublishTask?.cancel()
             viewportFramePublishTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(for: Self.viewportFramePublishDebounce)
+                try? await Task.sleep(for: delay)
                 guard !Task.isCancelled else { return }
                 self?.publishImageFromModel()
             }
@@ -8489,8 +8547,15 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             )
             let destinationRect = CGRect(origin: .zero, size: destinationSize)
 
+            let maximumDestinationDimension = max(destinationSize.width, destinationSize.height)
+            let rendererScale = min(
+                Self.publishScale,
+                Self.maximumCommittedFramePixelDimension / max(maximumDestinationDimension, 1)
+            )
+            guard rendererScale > 0 else { return }
+
             let format = UIGraphicsImageRendererFormat()
-            format.scale = 2
+            format.scale = rendererScale
             format.opaque = true
 
             // Composite an overscanned committed frame. The external display
@@ -8588,7 +8653,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             let scaleX = destinationRect.width / max(sourceRect.width, 0.001)
             let scaleY = destinationRect.height / max(sourceRect.height, 0.001)
             let zoomedScale = rendererScale * max(scaleX, scaleY)
-            return min(max(rendererScale, zoomedScale), 8)
+            let maximumSourceDimension = max(sourceRect.width, sourceRect.height)
+            let maximumScaleForSourceRect = Self.maximumCommittedFramePixelDimension / max(maximumSourceDimension, 1)
+            return min(max(rendererScale, zoomedScale), 8, maximumScaleForSourceRect)
         }
 
         private func drawBackground(
@@ -8597,10 +8664,10 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             destinationRect: CGRect
         ) {
             guard let background = parent.background,
-                  let document = PDFDocument(url: background.pdfURL),
-                  let page = document.page(at: background.pageIndex) else { return }
+                  let cachedBackground = committedFrameBackground(for: background) else { return }
 
-            let pageBounds = page.bounds(for: .mediaBox)
+            let page = cachedBackground.page
+            let pageBounds = cachedBackground.pageBounds
             let backgroundRect = CGRect(
                 origin: PencilKitCanvasGeometry.drawingOriginOffset,
                 size: pageBounds.size
@@ -8717,12 +8784,15 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             let scaleX = destinationRect.width / max(sourceRect.width, 0.001)
             let scaleY = destinationRect.height / max(sourceRect.height, 0.001)
             let assetDirectoryURL = CanvasImageObject.assetDirectoryURL(forDrawingURL: parent.drawingURL)
+            pruneCommittedFrameImageCache(activeImageFileNames: Set(parent.imageObjects.map(\.imageFileName)))
             context.saveGState()
             context.clip(to: destinationRect)
 
             for object in parent.imageObjects {
-                let imageURL = assetDirectoryURL.appendingPathComponent(object.imageFileName)
-                guard let image = UIImage(contentsOfFile: imageURL.path) else { continue }
+                guard let image = committedFrameImage(
+                    named: object.imageFileName,
+                    assetDirectoryURL: assetDirectoryURL
+                ) else { continue }
                 let imageFrame = CGRect(
                     x: destinationRect.minX + (PencilKitCanvasGeometry.drawingOriginOffset.x + object.x - sourceRect.minX) * scaleX,
                     y: destinationRect.minY + (PencilKitCanvasGeometry.drawingOriginOffset.y + object.y - sourceRect.minY) * scaleY,
@@ -8835,10 +8905,58 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             context.restoreGState()
         }
 
-        private func pdfPageBounds(for background: CanvasBackground) -> CGRect? {
+        private func committedFrameBackground(
+            for background: CanvasBackground
+        ) -> CommittedFrameBackgroundCache? {
+            if let cache = committedFrameBackgroundCache,
+               cache.pdfURL == background.pdfURL,
+               cache.pageIndex == background.pageIndex {
+                return cache
+            }
+
             guard let document = PDFDocument(url: background.pdfURL),
-                  let page = document.page(at: background.pageIndex) else { return nil }
-            return page.bounds(for: .mediaBox)
+                  let page = document.page(at: background.pageIndex) else {
+                committedFrameBackgroundCache = nil
+                return nil
+            }
+
+            let cache = CommittedFrameBackgroundCache(
+                pdfURL: background.pdfURL,
+                pageIndex: background.pageIndex,
+                page: page,
+                pageBounds: page.bounds(for: .mediaBox)
+            )
+            committedFrameBackgroundCache = cache
+            return cache
+        }
+
+        private func committedFrameImage(
+            named fileName: String,
+            assetDirectoryURL: URL
+        ) -> UIImage? {
+            if committedFrameImageAssetDirectoryURL != assetDirectoryURL {
+                committedFrameImageAssetDirectoryURL = assetDirectoryURL
+                committedFrameImageCache.removeAll()
+            }
+
+            if let cachedImage = committedFrameImageCache[fileName] {
+                return cachedImage
+            }
+
+            let imageURL = assetDirectoryURL.appendingPathComponent(fileName)
+            guard let image = UIImage(contentsOfFile: imageURL.path) else { return nil }
+            committedFrameImageCache[fileName] = image
+            return image
+        }
+
+        private func pruneCommittedFrameImageCache(activeImageFileNames: Set<String>) {
+            committedFrameImageCache = committedFrameImageCache.filter { fileName, _ in
+                activeImageFileNames.contains(fileName)
+            }
+        }
+
+        private func pdfPageBounds(for background: CanvasBackground) -> CGRect? {
+            committedFrameBackground(for: background)?.pageBounds
         }
 
         // MARK: - Output Geometry
@@ -8922,6 +9040,7 @@ private final class PencilLiveStrokeGestureRecognizer: UIGestureRecognizer {
         self.onUpdate = onUpdate
         super.init(target: nil, action: nil)
         self.allowedTouchTypes = allowedTouchTypes.map { NSNumber(value: $0.rawValue) }
+        requiresExclusiveTouchType = false
         cancelsTouchesInView = false
         delaysTouchesBegan = false
         delaysTouchesEnded = false

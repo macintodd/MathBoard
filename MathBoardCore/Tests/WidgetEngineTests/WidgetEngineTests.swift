@@ -90,6 +90,55 @@ struct WidgetEngineTests {
         #expect(WidgetObject.load(from: missingURL).isEmpty)
     }
 
+    @Test func builtInInteractiveProvidesDefaultScoreRecordForReports() throws {
+        let widgetID = UUID()
+        let widget = WidgetObject(
+            id: widgetID,
+            name: "Inequalities Practice",
+            codeString: BuiltInInteractiveKind.inequalitiesExplorer.widgetCodeString,
+            frame: CGRect(x: 0, y: 0, width: 900, height: 640)
+        )
+
+        let record = try #require(widget.activityScoreRecord)
+
+        #expect(record.id == widgetID.uuidString)
+        #expect(record.title == "Inequalities Practice")
+        #expect(record.status == .notStarted)
+        #expect(record.score == 0)
+        #expect(record.attempts == 0)
+        #expect(record.pointsPossible == 500)
+    }
+
+    @MainActor
+    @Test func inequalityExplorerLiveScoreRecordUsesSessionState() throws {
+        let widgetID = UUID()
+        let state = InequalityExplorerStateRegistry.state(for: widgetID)
+        state.session.recordCorrect(key: "graph/1", points: 10, firstAttempt: true)
+        state.session.recordError(key: "read/2", inequality: "x > 4", note: "Wrong symbol")
+        state.session.recordCorrect(key: "read/2", points: 10, firstAttempt: false)
+        defer { InequalityExplorerStateRegistry.removeState(for: widgetID) }
+
+        let widget = WidgetObject(
+            id: widgetID,
+            name: "",
+            codeString: BuiltInInteractiveKind.inequalitiesExplorer.widgetCodeString,
+            frame: CGRect(x: 0, y: 0, width: 900, height: 640)
+        )
+        let record = try #require(widget.liveActivityScoreRecord)
+
+        #expect(record.id == widgetID.uuidString)
+        #expect(record.title == "Inequality Explorer")
+        #expect(record.status == .inProgress)
+        #expect(record.score == 2)
+        #expect(record.attempts == 2)
+        #expect(record.points == 20)
+        #expect(record.pointsPossible == 500)
+        #expect(record.numberCorrectFirstTry == 1)
+        #expect(record.numberCorrectAfterRetry == 1)
+        #expect(record.longestStreak == 1)
+        #expect(record.percent == 100)
+    }
+
     @Test func activityJSONRepairsUnescapedLaTeXCommandsFromAIOutput() throws {
         let source = #"""
         {

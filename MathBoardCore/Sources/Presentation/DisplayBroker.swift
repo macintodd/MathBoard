@@ -25,6 +25,12 @@ import GraphCalculator
 import ToolPalette
 import WidgetEngine
 
+public enum ExternalDisplayConnectionRoute: String, Sendable {
+    case none
+    case scene
+    case legacyScreen
+}
+
 @MainActor
 @Observable
 public final class DisplayBroker {
@@ -65,8 +71,11 @@ public final class DisplayBroker {
     /// The latest iPad canvas viewport state for toolbar controls.
     public var viewportState: CanvasViewportState?
 
-    /// True while an external display scene is connected.
+    /// True while MathBoard has attached custom content to an external display.
     public var isExternalDisplayConnected: Bool = false
+
+    /// Which external-display attachment path is currently active.
+    public var externalDisplayConnectionRoute: ExternalDisplayConnectionRoute = .none
 
     /// Size of the iPad canvas container the calculator palette position is
     /// measured in. Published by PresentingCanvasView; read by the external

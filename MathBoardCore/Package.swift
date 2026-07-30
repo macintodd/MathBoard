@@ -60,7 +60,8 @@ let package = Package(
         // Native, offline SwiftUI LaTeX renderer used only by TextEngine's
         // LaTeXPreviewView. No WebView / no network. Isolated behind a single
         // renderer seam so it can be swapped later. See TextEngine_status.md.
-        .package(url: "https://github.com/gonzalezreal/swiftui-math", from: "0.1.0")
+        .package(url: "https://github.com/gonzalezreal/swiftui-math", from: "0.1.0"),
+        .package(url: "https://github.com/firebase/firebase-ios-sdk.git", from: "12.0.0")
     ],
     targets: [
         .target(
@@ -72,7 +73,17 @@ let package = Package(
         ),
         .target(name: "Presentation", dependencies: ["Canvas", "Calculator", "GraphCalculator", "Library", "TextEngine", "ToolPalette", "WidgetEngine"]),
         .target(name: "Slides", dependencies: ["Library", "Presentation", "WidgetEngine"]),
-        .target(name: "Documents", dependencies: ["Slides"]),
+        .target(
+            name: "Documents",
+            dependencies: [
+                "Slides",
+                "WidgetEngine",
+                .product(name: "FirebaseAuth", package: "firebase-ios-sdk"),
+                .product(name: "FirebaseCore", package: "firebase-ios-sdk"),
+                .product(name: "FirebaseFirestore", package: "firebase-ios-sdk"),
+                .product(name: "FirebaseStorage", package: "firebase-ios-sdk")
+            ]
+        ),
 
         // Self-contained calculator/graphing tool. Not yet integrated;
         // nothing else in MathBoardCore depends on it. See Calculator_status.md.

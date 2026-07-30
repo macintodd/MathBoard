@@ -79,6 +79,7 @@ public struct PresentingCanvasView: View {
     @State private var pendingWidgetEdit: PendingWidgetEdit?
     @State private var pendingPDFObjectImport: PendingPDFObjectImport?
     @State private var imageFileImportError: ImageFileImportError?
+    @State private var isExternalDisplayUnavailableAlertPresented = false
     @State private var libraryRecentRefreshID = UUID()
     /// The tool that was active before the most recent tool change, so an
     /// Apple Pencil barrel double tap can toggle back to it.
@@ -345,6 +346,11 @@ public struct PresentingCanvasView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
+        .alert("External Display Not Available", isPresented: $isExternalDisplayUnavailableAlertPresented) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("MathBoard is not receiving a custom external-display route from iPadOS. The monitor will continue to mirror this iPad until iPadOS provides either the external scene path or the legacy external screen path.")
+        }
     }
 
     // Floating overflow menu that replaces the former navigation-bar toolbar.
@@ -405,6 +411,9 @@ public struct PresentingCanvasView: View {
                         systemImage: broker.mode == .present ? "rectangle.dashed" : "rectangle.inset.filled"
                     )
                 }
+
+                Label(externalDisplayStatusTitle, systemImage: externalDisplayStatusIcon)
+                    .foregroundStyle(.secondary)
 
                 Button {
                     calculator.isVisible.toggle()
@@ -647,6 +656,21 @@ public struct PresentingCanvasView: View {
         return "\(Int((viewportState.zoomScale * 100).rounded()))%"
     }
 
+    private var externalDisplayStatusTitle: String {
+        switch broker.externalDisplayConnectionRoute {
+        case .none:
+            return "External: none"
+        case .scene:
+            return "External: scene"
+        case .legacyScreen:
+            return "External: legacy"
+        }
+    }
+
+    private var externalDisplayStatusIcon: String {
+        broker.externalDisplayConnectionRoute == .none ? "display.slash" : "display"
+    }
+
     private var isGraphCalculatorVisibleToUser: Bool {
         broker.isGraphCalculatorVisible && broker.graphCalculator.hasVisibleSection
     }
@@ -728,7 +752,11 @@ public struct PresentingCanvasView: View {
     }
 
     private func togglePresentationMode() {
-        broker.mode = broker.mode == .present ? .mirror : .present
+        let nextMode: CanvasPresentationMode = broker.mode == .present ? .mirror : .present
+        broker.mode = nextMode
+        if nextMode == .present, broker.externalDisplayConnectionRoute == .none {
+            isExternalDisplayUnavailableAlertPresented = true
+        }
     }
 
     /// Handles an Apple Pencil barrel double tap, honoring the person's
