@@ -139,6 +139,13 @@ struct CalculatorFullKeypadView: View {
     }
 
     private func handle(_ key: FullKey) {
+        if state.isAlphaActive, let alpha = key.alpha {
+            keyAction(.insert(alpha))
+            state.isAlphaActive = false
+            state.isSecondActive = false
+            return
+        }
+
         let effectiveCommand = effectiveCommand(for: key)
         let consumesModifier = effectiveCommand != .calculator(.toggleSecond)
             && effectiveCommand != .alpha

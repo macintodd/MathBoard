@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "widgetId": "exponent-rules-fill-in-the-blank-level-1",
+  "activity": "fillInTheBlank",
+  "title": "Exponent Rule Blanks",
+  "description": "Fill in missing exponents after applying exponent rules.",
+  "learningObjective": "Students apply product, quotient, and power rules for integer exponents.",
+  "difficulty": "medium",
+  "presentation": {
+    "preferredTheme": "paperArcade",
+    "preferredExperience": "paperQuiz"
+  },
+  "rules": {
+    "scoreMode": "correctOutOfAttempted",
+    "advanceMode": "manual",
+    "allowRetry": true,
+    "shuffleQuestions": false,
+    "maxAttemptsPerQuestion": 3,
+    "calculatorAllowed": false
+  },
+  "feedback": {
+    "defaultCorrect": "Correct. The exponent rule was applied properly.",
+    "defaultIncorrect": "Not yet. Decide whether to add, subtract, or multiply the exponents.",
+    "defaultEncouragement": "Name the exponent rule first, then simplify."
+  },
+  "questions": [
+    {
+      "id": "q1",
+      "prompt": "Use the product rule.",
+      "expression": "x^4 \\cdot x^3 = x^{\\_}",
+      "blanks": [
+        {
+          "id": "exponent",
+          "label": "Exponent",
+          "kind": "numeric",
+          "acceptedAnswers": ["7"],
+          "tolerance": 0
+        }
+      ],
+      "hints": [
+        "Same base, multiplication.",
+        "Add the exponents: 4 + 3."
+      ],
+      "correctFeedback": "Yes. x^4 times x^3 equals x^7.",
+      "incorrectFeedback": "For multiplying powers with the same base, add exponents.",
+      "skillTag": "product-rule"
+    },
+    {
+      "id": "q2",
+      "prompt": "Use the quotient rule.",
+      "expression": "\\frac{y^9}{y^2} = y^{\\_}",
+      "blanks": [
+        {
+          "id": "exponent",
+          "label": "Exponent",
+          "kind": "numeric",
+          "acceptedAnswers": ["7"],
+          "tolerance": 0
+        }
+      ],
+      "hints": [
+        "Same base, division.",
+        "Subtract the exponents: 9 - 2."
+      ],
+      "correctFeedback": "Correct. y^9 divided by y^2 equals y^7.",
+      "incorrectFeedback": "For dividing powers with the same base, subtract exponents.",
+      "skillTag": "quotient-rule"
+    },
+    {
+      "id": "q3",
+      "prompt": "Use the power rule.",
+      "expression": "(a^3)^4 = a^{\\_}",
+      "blanks": [
+        {
+          "id": "exponent",
+          "label": "Exponent",
+          "kind": "numeric",
+          "acceptedAnswers": ["12"],
+          "tolerance": 0
+        }
+      ],
+      "hints": [
+        "A power raised to a power.",
+        "Multiply the exponents: 3 times 4."
+      ],
+      "correctFeedback": "Right. (a^3)^4 equals a^12.",
+      "incorrectFeedback": "For a power raised to a power, multiply exponents.",
+      "skillTag": "power-rule"
+    },
+    {
+      "id": "q4",
+      "prompt": "Type the rule name used here.",
+      "expression": "m^6 \\cdot m^5 = m^{11}",
+      "blanks": [
+        {
+          "id": "rule",
+          "label": "Rule",
+          "kind": "text",
+          "acceptedAnswers": ["product", "product rule", "multiplication"],
+          "caseSensitive": false
+        }
+      ],
+      "hints": [
+        "The bases are the same.",
+        "The powers are being multiplied."
+      ],
+      "correctFeedback": "Correct. This uses the product rule.",
+      "incorrectFeedback": "Since the powers are multiplied, this is the product rule.",
+      "skillTag": "rule-identification"
+    }
+  ]
+}

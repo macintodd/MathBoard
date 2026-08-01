@@ -15,6 +15,7 @@
 import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
+import WidgetEngine
 #if os(iOS)
 import UIKit
 #elseif os(macOS)
@@ -53,10 +54,17 @@ public struct LibraryDrawerPrototypeView: View {
     @State private var librarySearch: String = ""
     /// Transient footer feedback (e.g. "Added … to Quadratics").
     @State private var feedback: String?
+    @State private var isCatalogPresented = false
+    @State private var catalogItems: [MathtivityCatalogItem] = []
+    @State private var catalogSearch: String = ""
+    @State private var isCatalogLoading = false
+    @State private var catalogErrorMessage: String?
+    @State private var openingCatalogItemIDs: Set<String> = []
 
     private let recentLessonURL: URL?
     private let recentRefreshID: UUID
     private let onInsertItem: (@MainActor (LibraryCanvasDragPayload) -> Void)?
+    private let onPreviewCatalogMathtivity: (@MainActor (DownloadedMathtivityCatalogItem) -> Void)?
 
     /// - Parameters:
     ///   - startOpen: whether the drawer begins open (handy for previews).
@@ -67,11 +75,13 @@ public struct LibraryDrawerPrototypeView: View {
         startOpen: Bool = true,
         recentLessonURL: URL? = nil,
         recentRefreshID: UUID = UUID(),
-        onInsertItem: (@MainActor (LibraryCanvasDragPayload) -> Void)? = nil
+        onInsertItem: (@MainActor (LibraryCanvasDragPayload) -> Void)? = nil,
+        onPreviewCatalogMathtivity: (@MainActor (DownloadedMathtivityCatalogItem) -> Void)? = nil
     ) {
         self.recentLessonURL = recentLessonURL
         self.recentRefreshID = recentRefreshID
         self.onInsertItem = onInsertItem
+        self.onPreviewCatalogMathtivity = onPreviewCatalogMathtivity
         _isOpen = State(initialValue: startOpen)
     }
 
@@ -89,6 +99,22 @@ public struct LibraryDrawerPrototypeView: View {
         .task(id: recentRefreshID) {
             loadPersistedRecentItems()
             reloadStoredLibraries()
+        }
+        .sheet(isPresented: $isCatalogPresented) {
+            MathtivityCatalogSheet(
+                destinationName: destination.name,
+                items: catalogItems,
+                searchText: $catalogSearch,
+                isLoading: isCatalogLoading,
+                errorMessage: catalogErrorMessage,
+                openingItemIDs: openingCatalogItemIDs,
+                onRefresh: {
+                    await loadMathtivityCatalog()
+                },
+                onOpen: { item in
+                    await openCatalogMathtivity(item)
+                }
+            )
         }
         .alert("New Library", isPresented: $isNewLibrarySheetPresented) {
             TextField("Library name", text: $newLibraryName)
@@ -262,6 +288,21 @@ public struct LibraryDrawerPrototypeView: View {
                 .font(.system(size: 20, weight: .bold))
                 .foregroundStyle(LibraryTheme.ink)
             Spacer()
+            Button {
+                isCatalogPresented = true
+            } label: {
+                Label("Catalog", systemImage: "square.grid.2x2.badge.plus")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(LibraryTheme.accent)
+                    .padding(.horizontal, 9)
+                    .frame(height: 30)
+                    .background(
+                        Capsule()
+                            .fill(LibraryTheme.accent.opacity(0.10))
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("View Mathtivity Catalog")
             Button {
                 withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
                     isOpen = false
@@ -894,6 +935,43 @@ public struct LibraryDrawerPrototypeView: View {
         }
 
         refreshRecentStarStates()
+    }
+
+    private func loadMathtivityCatalog() async {
+        guard !isCatalogLoading else { return }
+        isCatalogLoading = true
+        catalogErrorMessage = nil
+        defer { isCatalogLoading = false }
+
+        do {
+            catalogItems = try await FirebaseMathtivityCatalogService().fetchPublishedCatalog(limit: 80)
+        } catch {
+            catalogErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func openCatalogMathtivity(_ item: MathtivityCatalogItem) async {
+        guard !openingCatalogItemIDs.contains(item.id) else { return }
+        openingCatalogItemIDs.insert(item.id)
+        defer { openingCatalogItemIDs.remove(item.id) }
+
+        do {
+            let downloadedItem = try await FirebaseMathtivityCatalogService().downloadMathtivity(item)
+            if let expectedActivityKind = item.activityType.widgetActivityKind {
+                let report = JSONMathtivityTestContract.evaluate(
+                    source: downloadedItem.jsonSource,
+                    expectedActivityKind: expectedActivityKind
+                )
+                guard report.isValid else {
+                    throw MathtivityCatalogError.invalidJSONMathtivity(report.errors)
+                }
+            }
+            isCatalogPresented = false
+            onPreviewCatalogMathtivity?(downloadedItem)
+        } catch {
+            catalogErrorMessage = error.localizedDescription
+            feedback = "Could not open \(item.title)"
+        }
     }
 
     private func createLibrary() {

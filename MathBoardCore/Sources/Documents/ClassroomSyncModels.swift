@@ -97,6 +97,7 @@ public struct StudentSubmissionPacket: Codable, Identifiable {
     public var assignmentID: UUID
     public var classLessonCode: String
     public var studentIdentifier: String
+    public var studentPreferredFirstName: String?
     public var widgetScoreRecord: WidgetActivityScoreRecord
     public var submittedAt: Date
 
@@ -107,6 +108,7 @@ public struct StudentSubmissionPacket: Codable, Identifiable {
         assignmentID: UUID,
         classLessonCode: String,
         studentIdentifier: String,
+        studentPreferredFirstName: String? = nil,
         widgetScoreRecord: WidgetActivityScoreRecord,
         submittedAt: Date = Date()
     ) {
@@ -116,6 +118,7 @@ public struct StudentSubmissionPacket: Codable, Identifiable {
         self.assignmentID = assignmentID
         self.classLessonCode = classLessonCode
         self.studentIdentifier = studentIdentifier
+        self.studentPreferredFirstName = studentPreferredFirstName
         self.widgetScoreRecord = widgetScoreRecord
         self.submittedAt = submittedAt
     }
@@ -128,7 +131,9 @@ public struct StudentWidgetLiveProgress: Codable, Hashable, Identifiable {
     public var assignmentID: UUID
     public var classroomID: UUID
     public var studentID: UUID
+    public var studentIdentifier: String
     public var studentName: String
+    public var studentPreferredFirstName: String?
     public var widgetID: UUID
     public var correctCount: Int
     public var attemptedCount: Int
@@ -140,7 +145,9 @@ public struct StudentWidgetLiveProgress: Codable, Hashable, Identifiable {
         assignmentID: UUID,
         classroomID: UUID,
         studentID: UUID,
+        studentIdentifier: String = "",
         studentName: String,
+        studentPreferredFirstName: String? = nil,
         widgetID: UUID,
         correctCount: Int,
         attemptedCount: Int,
@@ -151,7 +158,9 @@ public struct StudentWidgetLiveProgress: Codable, Hashable, Identifiable {
         self.assignmentID = assignmentID
         self.classroomID = classroomID
         self.studentID = studentID
+        self.studentIdentifier = studentIdentifier
         self.studentName = studentName
+        self.studentPreferredFirstName = studentPreferredFirstName
         self.widgetID = widgetID
         self.correctCount = max(0, correctCount)
         self.attemptedCount = max(0, attemptedCount)

@@ -46,8 +46,9 @@ enum WidgetSamples {
       "questions": []
     }
 
-    Currently supported activity:
+    Currently supported activities:
     - multipleChoice: Use for four-choice or small-choice practice, first-step questions, vocabulary checks, expression interpretation, identifying equivalent forms, and simple review.
+    - fillInTheBlank: Use when students should type a missing number, short text phrase, rule name, or small answer. Each question uses a "blanks" array instead of choices.
 
     Multiple-choice flow:
     - Always set "advanceMode": "manual".
@@ -93,9 +94,12 @@ enum WidgetSamples {
     - title and learningObjective must be non-empty.
     - questions must contain at least one question.
     - each question must have a prompt or expression.
-    - each question must have 2-6 choices.
-    - each question must have exactly one correct choice.
-    - every choice needs a non-empty id and label.
+    - multipleChoice questions must have 2-6 choices.
+    - multipleChoice questions must have exactly one correct choice.
+    - every multipleChoice choice needs a non-empty id and label.
+    - fillInTheBlank questions must have at least one blank.
+    - every fillInTheBlank blank needs a non-empty id and at least one accepted answer.
+    - fillInTheBlank blank kind may be "numeric" or "text"; use numeric tolerance only for numeric blanks.
 
     Calculator policy:
     - Set "calculatorAllowed": false when the activity is meant to assess mental arithmetic, operation sense, factoring fluency, basic equation steps, or calculator-free reasoning.
@@ -234,6 +238,140 @@ enum WidgetSamples {
           ],
           "correctFeedback": "Correct. Multiply 4 and 3 first, leaving 12 - 5.",
           "incorrectFeedback": "The star symbol means multiplication, and multiplication happens before subtraction."
+        }
+      ]
+    }
+    """#
+
+    static let quadraticFormActivityJSON = #"""
+    {
+      "schemaVersion": 1,
+      "widgetId": "quadratic-form-features-level-1",
+      "activity": "multipleChoice",
+      "title": "Vertex or Roots?",
+      "description": "Identify what each quadratic form reveals before solving or graphing.",
+      "learningObjective": "Students choose the most useful feature from vertex, factored, and standard forms of a quadratic function.",
+      "difficulty": "medium",
+      "presentation": {
+        "preferredTheme": "cleanClassroom",
+        "preferredExperience": "paperQuiz"
+      },
+      "rules": {
+        "scoreMode": "correctOutOfAttempted",
+        "advanceMode": "manual",
+        "allowRetry": true,
+        "shuffleQuestions": false,
+        "shuffleChoices": false,
+        "maxAttemptsPerQuestion": 2,
+        "calculatorAllowed": false
+      },
+      "feedback": {
+        "defaultCorrect": "Correct. You used the form of the quadratic to find the easiest feature.",
+        "defaultIncorrect": "Not yet. Ask what the current form gives away without extra algebra.",
+        "defaultEncouragement": "Try again. Look for vertex form, factored form, or standard form clues."
+      },
+      "questions": [
+        {
+          "id": "q1",
+          "prompt": "What feature is easiest to read from this form?",
+          "expression": "f(x)=2(x-3)^2-5",
+          "choices": [
+            { "id": "a", "label": "Vertex (3, -5)", "isCorrect": true },
+            { "id": "b", "label": "Roots 3 and -5", "isCorrect": false },
+            { "id": "c", "label": "y-intercept -5", "isCorrect": false },
+            { "id": "d", "label": "Axis of symmetry x = -5", "isCorrect": false }
+          ],
+          "hints": [
+            "This is vertex form: a(x-h)^2+k.",
+            "In vertex form, the vertex is (h, k)."
+          ],
+          "correctFeedback": "Yes. f(x)=2(x-3)^2-5 is vertex form, so h=3 and k=-5.",
+          "incorrectFeedback": "Look at the squared binomial and the outside constant. That form reveals the vertex."
+        },
+        {
+          "id": "q2",
+          "prompt": "What feature is easiest to read from this form?",
+          "expression": "g(x)=-(x+4)(x-2)",
+          "choices": [
+            { "id": "a", "label": "Vertex (-4, 2)", "isCorrect": false },
+            { "id": "b", "label": "Roots -4 and 2", "isCorrect": true },
+            { "id": "c", "label": "y-intercept -2", "isCorrect": false },
+            { "id": "d", "label": "Axis of symmetry x = 4", "isCorrect": false }
+          ],
+          "hints": [
+            "This is factored form.",
+            "Set each factor equal to zero."
+          ],
+          "correctFeedback": "Correct. x+4=0 gives x=-4, and x-2=0 gives x=2.",
+          "incorrectFeedback": "Factored form makes the x-intercepts easiest to read."
+        },
+        {
+          "id": "q3",
+          "prompt": "Which form would make the vertex easiest to identify?",
+          "expression": "f(x)=x^2-6x+11",
+          "choices": [
+            { "id": "a", "label": "f(x)=(x-3)^2+2", "isCorrect": true },
+            { "id": "b", "label": "f(x)=(x-1)(x-11)", "isCorrect": false },
+            { "id": "c", "label": "f(x)=x(x-6)+11", "isCorrect": false },
+            { "id": "d", "label": "f(x)=x^2+11-6x", "isCorrect": false }
+          ],
+          "hints": [
+            "Vertex form looks like a(x-h)^2+k.",
+            "Complete the square: x^2-6x+9+2."
+          ],
+          "correctFeedback": "Yes. f(x)=(x-3)^2+2 shows the vertex (3, 2).",
+          "incorrectFeedback": "Choose the version that has one squared binomial plus or minus a number."
+        },
+        {
+          "id": "q4",
+          "prompt": "Which statement is true?",
+          "expression": "h(x)=(x-5)(x+1)",
+          "choices": [
+            { "id": "a", "label": "The roots are 5 and -1.", "isCorrect": true },
+            { "id": "b", "label": "The roots are -5 and 1.", "isCorrect": false },
+            { "id": "c", "label": "The vertex is (5, -1).", "isCorrect": false },
+            { "id": "d", "label": "The y-intercept is 5.", "isCorrect": false }
+          ],
+          "hints": [
+            "A root makes one factor equal zero.",
+            "x-5=0 gives x=5; x+1=0 gives x=-1."
+          ],
+          "correctFeedback": "Correct. The signs change when each factor is set equal to zero.",
+          "incorrectFeedback": "Set each factor equal to zero rather than copying the signs from the parentheses."
+        },
+        {
+          "id": "q5",
+          "prompt": "What does the value 12 tell you immediately?",
+          "expression": "p(x)=3x^2-7x+12",
+          "choices": [
+            { "id": "a", "label": "The y-intercept is 12.", "isCorrect": true },
+            { "id": "b", "label": "The vertex y-value is 12.", "isCorrect": false },
+            { "id": "c", "label": "One root is 12.", "isCorrect": false },
+            { "id": "d", "label": "The axis of symmetry is x = 12.", "isCorrect": false }
+          ],
+          "hints": [
+            "This is standard form: ax^2+bx+c.",
+            "The constant term c is f(0)."
+          ],
+          "correctFeedback": "Right. In standard form, c=12 is the y-intercept because p(0)=12.",
+          "incorrectFeedback": "The constant term in standard form tells where the graph crosses the y-axis."
+        },
+        {
+          "id": "q6",
+          "prompt": "Which form is best if your next step is graphing the vertex and axis of symmetry?",
+          "expression": "f(x)=a(x-h)^2+k",
+          "choices": [
+            { "id": "a", "label": "Vertex form", "isCorrect": true },
+            { "id": "b", "label": "Factored form", "isCorrect": false },
+            { "id": "c", "label": "Standard form only", "isCorrect": false },
+            { "id": "d", "label": "A table only", "isCorrect": false }
+          ],
+          "hints": [
+            "The symbols h and k name the vertex directly.",
+            "The axis of symmetry is x=h."
+          ],
+          "correctFeedback": "Correct. Vertex form gives the vertex (h, k) and axis x=h immediately.",
+          "incorrectFeedback": "For graphing the vertex quickly, use the form that names h and k."
         }
       ]
     }

@@ -191,6 +191,7 @@ struct PencilKitCanvasContainer: View {
     let onExtractedRegionPlaced: (@MainActor (CanvasExtractedRegion) -> Void)?
     let onExtractActionCompleted: (@MainActor () -> Void)?
     let onWidgetEditRequested: (@MainActor (WidgetObject) -> Void)?
+    let onWidgetMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)?
     let allowsWidgetAuthoring: Bool
 
     @State private var drawing: PKDrawing = PKDrawing()
@@ -310,6 +311,7 @@ struct PencilKitCanvasContainer: View {
             onExtractedRegionPlaced: onExtractedRegionPlaced,
             onExtractActionCompleted: onExtractActionCompleted,
             onWidgetEditRequested: onWidgetEditRequested,
+            onWidgetMathInputRequested: onWidgetMathInputRequested,
             allowsWidgetAuthoring: allowsWidgetAuthoring
         )
     }
@@ -793,6 +795,7 @@ private final class PencilKitCanvasHostView: UIView {
     private var widgetCanvasIdentity = ""
     private var onEditWidget: (@MainActor (WidgetObject) -> Void)?
     private var onWidgetInteractionChanged: (@MainActor (Bool) -> Void)?
+    private var onWidgetMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)?
     private var allowsWidgetAuthoring = true
 
     override init(frame: CGRect) {
@@ -1005,7 +1008,8 @@ private final class PencilKitCanvasHostView: UIView {
         canvasIdentity: String,
         onEditWidget: (@MainActor (WidgetObject) -> Void)? = nil,
         allowsWidgetAuthoring: Bool = true,
-        onWidgetInteractionChanged: (@MainActor (Bool) -> Void)? = nil
+        onWidgetInteractionChanged: (@MainActor (Bool) -> Void)? = nil,
+        onWidgetMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)? = nil
     ) {
         if widgetCanvasIdentity != canvasIdentity {
             widgetCanvasIdentity = canvasIdentity
@@ -1016,6 +1020,7 @@ private final class PencilKitCanvasHostView: UIView {
         self.onEditWidget = onEditWidget
         self.allowsWidgetAuthoring = allowsWidgetAuthoring
         self.onWidgetInteractionChanged = onWidgetInteractionChanged
+        self.onWidgetMathInputRequested = onWidgetMathInputRequested
         let viewport = WidgetCanvasViewport(
             zoomScale: canvas.zoomScale,
             contentOffset: canvas.contentOffset,
@@ -1041,7 +1046,8 @@ private final class PencilKitCanvasHostView: UIView {
             onWidgetInteractionChanged: onWidgetInteractionChanged,
             onWidgetDisplayFrameChanged: { [weak self] id, frame in
                 self?.updateActiveWidgetDisplayFrame(id: id, frame: frame)
-            }
+            },
+            onMathInputRequested: onWidgetMathInputRequested
         )
 
         if let widgetOverlayController {
@@ -1083,7 +1089,8 @@ private final class PencilKitCanvasHostView: UIView {
             onWidgetInteractionChanged: onWidgetInteractionChanged,
             onWidgetDisplayFrameChanged: { [weak self] id, frame in
                 self?.updateActiveWidgetDisplayFrame(id: id, frame: frame)
-            }
+            },
+            onMathInputRequested: onWidgetMathInputRequested
         )
     }
 
@@ -2595,6 +2602,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
     let onExtractedRegionPlaced: (@MainActor (CanvasExtractedRegion) -> Void)?
     let onExtractActionCompleted: (@MainActor () -> Void)?
     let onWidgetEditRequested: (@MainActor (WidgetObject) -> Void)?
+    let onWidgetMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)?
     let allowsWidgetAuthoring: Bool
 
     func makeUIView(context: Context) -> PencilKitCanvasHostView {
@@ -2635,7 +2643,8 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             allowsWidgetAuthoring: allowsWidgetAuthoring,
             onWidgetInteractionChanged: { [weak canvas] isInteracting in
                 canvas?.isScrollEnabled = !isInteracting
-            }
+            },
+            onWidgetMathInputRequested: onWidgetMathInputRequested
         )
         context.coordinator.publishWidgetObjects(using: canvas)
         hostView.updateTextObjects(textObjects, using: canvas)
@@ -2671,7 +2680,8 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 allowsWidgetAuthoring: self.allowsWidgetAuthoring,
                 onWidgetInteractionChanged: { [weak canvas] isInteracting in
                     canvas?.isScrollEnabled = !isInteracting
-                }
+                },
+                onWidgetMathInputRequested: self.onWidgetMathInputRequested
             )
             context.coordinator.publishWidgetObjects(using: canvas)
             hostView.updateTextObjects(
@@ -2716,7 +2726,8 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             allowsWidgetAuthoring: allowsWidgetAuthoring,
             onWidgetInteractionChanged: { [weak canvas] isInteracting in
                 canvas?.isScrollEnabled = !isInteracting
-            }
+            },
+            onWidgetMathInputRequested: onWidgetMathInputRequested
         )
         context.coordinator.publishWidgetObjects(using: canvas)
         hostView.updateTextObjects(
@@ -7959,7 +7970,8 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 allowsWidgetAuthoring: parent.allowsWidgetAuthoring,
                 onWidgetInteractionChanged: { [weak canvas] isInteracting in
                     canvas?.isScrollEnabled = !isInteracting
-                }
+                },
+                onWidgetMathInputRequested: parent.onWidgetMathInputRequested
             )
             publishWidgetObjects(using: canvas)
         }

@@ -132,12 +132,14 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
 
 public enum WidgetObjectActivityKind: String, Sendable {
     case multipleChoice
+    case fillInTheBlank
     case builtInInteractive
     case unknown
 
     public var displayCode: String {
         switch self {
         case .multipleChoice: return "MC"
+        case .fillInTheBlank: return "FIB"
         case .builtInInteractive: return "BI"
         case .unknown: return "W"
         }
@@ -146,6 +148,7 @@ public enum WidgetObjectActivityKind: String, Sendable {
     public var displayName: String {
         switch self {
         case .multipleChoice: return "Multiple Choice"
+        case .fillInTheBlank: return "Fill in the Blank"
         case .builtInInteractive: return "Built-In Interactive"
         case .unknown: return "Widget"
         }
@@ -168,6 +171,8 @@ extension WidgetObject {
         switch document.activity {
         case .multipleChoice:
             return .multipleChoice
+        case .fillInTheBlank:
+            return .fillInTheBlank
         }
     }
 
@@ -178,7 +183,8 @@ extension WidgetObject {
 
         guard let document = activityDocument else { return nil }
         let runtimeState = activityRuntimeState ?? WidgetActivityRuntimeState(
-            multipleChoice: WidgetMultipleChoiceRuntimeState.initial(for: document)
+            multipleChoice: WidgetMultipleChoiceRuntimeState.initial(for: document),
+            fillInTheBlank: WidgetFillInTheBlankRuntimeState.initial(for: document)
         )
         var record = runtimeState.scoreRecord(for: document)
         record.id = id.uuidString

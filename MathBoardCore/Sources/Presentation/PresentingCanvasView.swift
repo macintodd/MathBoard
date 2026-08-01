@@ -76,7 +76,13 @@ public struct PresentingCanvasView: View {
     @State private var isPhotoImporterPresented = false
     @State private var isCameraImporterPresented = false
     @State private var isWidgetEditorPresented = false
+    @State private var pendingCatalogWidgetPreview: PendingCatalogWidgetPreview?
     @State private var pendingWidgetEdit: PendingWidgetEdit?
+    @State private var activeWidgetMathInputRequest: WidgetMathInputKeypadRequest?
+    @State private var widgetMathKeypadPosition: CGPoint?
+    @State private var widgetMathKeypadDragStart: WidgetMathKeypadDragStart?
+    @State private var widgetMathKeypadSizeOverride: CGSize?
+    @State private var widgetMathKeypadResizeStart: CGSize?
     @State private var pendingPDFObjectImport: PendingPDFObjectImport?
     @State private var imageFileImportError: ImageFileImportError?
     @State private var isExternalDisplayUnavailableAlertPresented = false
@@ -147,6 +153,7 @@ public struct PresentingCanvasView: View {
                 onExtractedRegionPlaced: recordExtractedRegionPlacement,
                 onExtractActionCompleted: activateSelectToolAfterExtractAction,
                 onWidgetEditRequested: allowsWidgetAuthoring ? requestWidgetEdit : nil,
+                onWidgetMathInputRequested: handleWidgetMathInputRequest,
                 allowsWidgetAuthoring: allowsWidgetAuthoring
             )
             ViewfinderOverlay()
@@ -165,6 +172,8 @@ public struct PresentingCanvasView: View {
                 )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+
+            widgetMathInputKeypadOverlay
 
             selectedTextActionHUD
 
@@ -196,6 +205,68 @@ public struct PresentingCanvasView: View {
         .ignoresSafeArea()
     }
 
+    @ViewBuilder
+    private var widgetMathInputKeypadOverlay: some View {
+        if let request = activeWidgetMathInputRequest {
+            GeometryReader { proxy in
+                let panelSize = widgetMathKeypadSize(in: proxy.size)
+                let center = resolvedWidgetMathKeypadPosition(panelSize: panelSize, in: proxy.size)
+                let panelShape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+
+                VStack(spacing: 0) {
+                    HStack(spacing: 10) {
+                        Image(systemName: request.kind == .numeric ? "number" : "keyboard")
+                            .font(.headline.weight(.bold))
+                        Text(request.title)
+                            .font(.headline.weight(.semibold))
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                        Button {
+                            activeWidgetMathInputRequest = nil
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.title3)
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .foregroundStyle(.black.opacity(0.78))
+                    .padding(.horizontal, 14)
+                    .frame(height: 42)
+                    .background(Color.white)
+                    .contentShape(Rectangle())
+                    .gesture(widgetMathKeypadDragGesture(panelSize: panelSize, in: proxy.size))
+
+                    MathInputKeyboardView(
+                        profile: request.kind == .numeric ? .numericAnswer : .alphanumericAnswer,
+                        onInsert: { text in insertWidgetMathInputText(text, into: request) },
+                        onDelete: { request.applyAction(.deleteBackward) },
+                        onClear: { request.applyAction(.clear) },
+                        onReturn: { request.applyAction(.returnKey) },
+                        onMoveLeft: { request.applyAction(.moveCursorLeft) },
+                        onMoveRight: { request.applyAction(.moveCursorRight) }
+                    )
+                    .frame(height: max(120, panelSize.height - 42))
+                }
+                .frame(width: panelSize.width, height: panelSize.height)
+                .background(Color.white, in: panelShape)
+                .clipShape(panelShape)
+                .overlay(
+                    panelShape
+                        .strokeBorder(Color.black.opacity(0.16), lineWidth: 1)
+                )
+                .overlay(alignment: .bottomTrailing) {
+                    widgetMathKeypadResizeHandle(panelSize: panelSize, containerSize: proxy.size)
+                }
+                .shadow(color: .black.opacity(0.28), radius: 18, x: 0, y: 8)
+                .position(center)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            .ignoresSafeArea()
+            .zIndex(30)
+        }
+    }
+
     public var body: some View {
         ZStack(alignment: .topTrailing) {
             canvasStack
@@ -203,7 +274,8 @@ public struct PresentingCanvasView: View {
                 startOpen: false,
                 recentLessonURL: LibraryRecentStore.lessonURL(forDrawingURL: drawingURL),
                 recentRefreshID: libraryRecentRefreshID,
-                onInsertItem: placeLibraryItemAtViewportCenter
+                onInsertItem: placeLibraryItemAtViewportCenter,
+                onPreviewCatalogMathtivity: presentCatalogWidgetPreview
             )
             floatingToolMenu
                 .padding(.top, 8)
@@ -282,6 +354,19 @@ public struct PresentingCanvasView: View {
                 isWidgetEditorPresented = false
                 activateSelectTool()
             })
+        }
+        .platformEditorCover(item: $pendingCatalogWidgetPreview) { preview in
+            WidgetEditorView(
+                initialJSONSource: preview.downloadedItem.jsonSource,
+                insertButtonTitle: "Insert Widget"
+            ) { insertion in
+                insertWidget(insertion)
+                pendingCatalogWidgetPreview = nil
+                activateSelectTool()
+            } onCancel: {
+                pendingCatalogWidgetPreview = nil
+                activateSelectTool()
+            }
         }
         .platformEditorCover(item: $pendingWidgetEdit) { edit in
             WidgetEditorView(
@@ -909,6 +994,13 @@ public struct PresentingCanvasView: View {
         }
     }
 
+    private func presentCatalogWidgetPreview(_ downloadedItem: DownloadedMathtivityCatalogItem) {
+        Task { @MainActor in
+            await Task.yield()
+            pendingCatalogWidgetPreview = PendingCatalogWidgetPreview(downloadedItem: downloadedItem)
+        }
+    }
+
     private static func isGeometryEditCommand(_ command: ToolPaletteCommand) -> Bool {
         switch command {
         case .setStrokeColor, .setPaletteColor, .setStrokeWidth, .setOpacity, .setFillColor,
@@ -1367,6 +1459,124 @@ public struct PresentingCanvasView: View {
         pendingWidgetEdit = PendingWidgetEdit(widget: widget)
     }
 
+    private func handleWidgetMathInputRequest(_ request: WidgetMathInputKeypadRequest) {
+        activeWidgetMathInputRequest = request
+    }
+
+    private func insertWidgetMathInputText(_ text: String, into request: WidgetMathInputKeypadRequest) {
+        guard let filteredText = filteredWidgetInputText(text, for: request.kind), !filteredText.isEmpty else { return }
+        request.applyAction(.insert(filteredText))
+    }
+
+    private func filteredWidgetInputText(
+        _ text: String,
+        for kind: WidgetMathInputKeypadKind
+    ) -> String? {
+        switch kind {
+        case .alphanumeric:
+            return text
+        case .numeric:
+            let allowedCharacters = CharacterSet(charactersIn: "0123456789.-/ ")
+            let filteredScalars = text.unicodeScalars.filter { allowedCharacters.contains($0) }
+            return String(String.UnicodeScalarView(filteredScalars))
+        }
+    }
+
+    private func widgetMathKeypadSize(in containerSize: CGSize) -> CGSize {
+        let defaultSize = CGSize(
+            width: min(max(containerSize.width - 32, 520), 760),
+            height: 252
+        )
+        let proposed = widgetMathKeypadSizeOverride ?? defaultSize
+        return clampWidgetMathKeypadSize(proposed, in: containerSize)
+    }
+
+    private func resolvedWidgetMathKeypadPosition(panelSize: CGSize, in containerSize: CGSize) -> CGPoint {
+        let defaultCenter = CGPoint(
+            x: containerSize.width / 2,
+            y: max(panelSize.height / 2 + 16, containerSize.height - panelSize.height / 2 - 34)
+        )
+        return clampWidgetMathKeypadPosition(widgetMathKeypadPosition ?? defaultCenter, panelSize: panelSize, in: containerSize)
+    }
+
+    private func widgetMathKeypadDragGesture(panelSize: CGSize, in containerSize: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 1, coordinateSpace: .global)
+            .onChanged { value in
+                let start = widgetMathKeypadDragStart ?? WidgetMathKeypadDragStart(
+                    center: resolvedWidgetMathKeypadPosition(panelSize: panelSize, in: containerSize),
+                    location: value.startLocation
+                )
+                if widgetMathKeypadDragStart == nil {
+                    widgetMathKeypadDragStart = start
+                }
+                let translation = CGSize(
+                    width: value.location.x - start.location.x,
+                    height: value.location.y - start.location.y
+                )
+                widgetMathKeypadPosition = clampWidgetMathKeypadPosition(
+                    CGPoint(x: start.center.x + translation.width, y: start.center.y + translation.height),
+                    panelSize: panelSize,
+                    in: containerSize
+                )
+            }
+            .onEnded { _ in
+                widgetMathKeypadDragStart = nil
+            }
+    }
+
+    private func widgetMathKeypadResizeHandle(panelSize: CGSize, containerSize: CGSize) -> some View {
+        ZStack {
+            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                .font(.caption.weight(.black))
+                .foregroundStyle(.black.opacity(0.54))
+                .frame(width: 34, height: 34)
+                .background(.white.opacity(0.92), in: Circle())
+                .overlay(Circle().strokeBorder(.black.opacity(0.16), lineWidth: 1))
+        }
+        .padding(8)
+        .contentShape(Rectangle())
+        .gesture(widgetMathKeypadResizeGesture(panelSize: panelSize, in: containerSize))
+    }
+
+    private func widgetMathKeypadResizeGesture(panelSize: CGSize, in containerSize: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 1, coordinateSpace: .local)
+            .onChanged { value in
+                let start = widgetMathKeypadResizeStart ?? panelSize
+                if widgetMathKeypadResizeStart == nil {
+                    widgetMathKeypadResizeStart = start
+                }
+
+                let nextSize = CGSize(
+                    width: start.width + value.translation.width,
+                    height: start.height + value.translation.height
+                )
+                let clampedSize = clampWidgetMathKeypadSize(nextSize, in: containerSize)
+                widgetMathKeypadSizeOverride = clampedSize
+
+                if let position = widgetMathKeypadPosition {
+                    widgetMathKeypadPosition = clampWidgetMathKeypadPosition(position, panelSize: clampedSize, in: containerSize)
+                }
+            }
+            .onEnded { _ in
+                widgetMathKeypadResizeStart = nil
+            }
+    }
+
+    private func clampWidgetMathKeypadSize(_ size: CGSize, in containerSize: CGSize) -> CGSize {
+        CGSize(
+            width: min(max(size.width, 420), max(420, containerSize.width - 24)),
+            height: min(max(size.height, 172), max(172, containerSize.height - 24))
+        )
+    }
+
+    private func clampWidgetMathKeypadPosition(_ position: CGPoint, panelSize: CGSize, in containerSize: CGSize) -> CGPoint {
+        let halfWidth = panelSize.width / 2
+        let halfHeight = panelSize.height / 2
+        let x = min(max(position.x, halfWidth + 12), max(halfWidth + 12, containerSize.width - halfWidth - 12))
+        let y = min(max(position.y, halfHeight + 12), max(halfHeight + 12, containerSize.height - halfHeight - 12))
+        return CGPoint(x: x, y: y)
+    }
+
     private func activateSelectTool() {
         var state = broker.toolPaletteState
         ToolPaletteReducer.reduce(&state, command: .selectTool(.selection))
@@ -1753,6 +1963,16 @@ private struct PendingWidgetEdit: Identifiable {
     var id: UUID {
         widget.id
     }
+}
+
+private struct WidgetMathKeypadDragStart {
+    var center: CGPoint
+    var location: CGPoint
+}
+
+private struct PendingCatalogWidgetPreview: Identifiable {
+    let id = UUID()
+    var downloadedItem: DownloadedMathtivityCatalogItem
 }
 
 private extension WidgetObject {

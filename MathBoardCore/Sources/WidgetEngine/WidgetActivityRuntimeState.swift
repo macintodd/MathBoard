@@ -10,9 +10,31 @@ import Foundation
 
 public struct WidgetActivityRuntimeState: Codable, Equatable, Sendable {
     public var multipleChoice: WidgetMultipleChoiceRuntimeState
+    public var fillInTheBlank: WidgetFillInTheBlankRuntimeState
 
-    public init(multipleChoice: WidgetMultipleChoiceRuntimeState = WidgetMultipleChoiceRuntimeState()) {
+    public init(
+        multipleChoice: WidgetMultipleChoiceRuntimeState = WidgetMultipleChoiceRuntimeState(),
+        fillInTheBlank: WidgetFillInTheBlankRuntimeState = WidgetFillInTheBlankRuntimeState()
+    ) {
         self.multipleChoice = multipleChoice
+        self.fillInTheBlank = fillInTheBlank
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case multipleChoice
+        case fillInTheBlank
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        multipleChoice = try container.decodeIfPresent(WidgetMultipleChoiceRuntimeState.self, forKey: .multipleChoice) ?? WidgetMultipleChoiceRuntimeState()
+        fillInTheBlank = try container.decodeIfPresent(WidgetFillInTheBlankRuntimeState.self, forKey: .fillInTheBlank) ?? WidgetFillInTheBlankRuntimeState()
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(multipleChoice, forKey: .multipleChoice)
+        try container.encode(fillInTheBlank, forKey: .fillInTheBlank)
     }
 }
 
@@ -21,6 +43,8 @@ extension WidgetActivityRuntimeState {
         switch document.activity {
         case .multipleChoice:
             return multipleChoice.scoreRecord(for: document)
+        case .fillInTheBlank:
+            return fillInTheBlank.scoreRecord(for: document)
         }
     }
 }
@@ -31,6 +55,7 @@ public struct WidgetMultipleChoiceRuntimeState: Codable, Equatable, Sendable {
     public var choiceOrders: [String: [String]]
     public var selectedChoiceID: String?
     public var submittedChoiceID: String?
+    public var submittedChoiceIDsByQuestionID: [String: String]?
     public var score: Int
     public var attempts: Int
     public var streak: Int
@@ -42,6 +67,7 @@ public struct WidgetMultipleChoiceRuntimeState: Codable, Equatable, Sendable {
     public var correctlyAnsweredQuestionIDs: Set<String>
     public var questionAttempts: [String: Int]
     public var nextButtonPressToken: Int?
+    public var flow: WidgetActivityAttemptFlowState?
 
     public init(
         currentQuestionIndex: Int = 0,
@@ -49,6 +75,7 @@ public struct WidgetMultipleChoiceRuntimeState: Codable, Equatable, Sendable {
         choiceOrders: [String: [String]] = [:],
         selectedChoiceID: String? = nil,
         submittedChoiceID: String? = nil,
+        submittedChoiceIDsByQuestionID: [String: String]? = nil,
         score: Int = 0,
         attempts: Int = 0,
         streak: Int = 0,
@@ -59,13 +86,15 @@ public struct WidgetMultipleChoiceRuntimeState: Codable, Equatable, Sendable {
         answeredQuestionIDs: Set<String> = [],
         correctlyAnsweredQuestionIDs: Set<String> = [],
         questionAttempts: [String: Int] = [:],
-        nextButtonPressToken: Int? = nil
+        nextButtonPressToken: Int? = nil,
+        flow: WidgetActivityAttemptFlowState? = nil
     ) {
         self.currentQuestionIndex = currentQuestionIndex
         self.questionOrder = questionOrder
         self.choiceOrders = choiceOrders
         self.selectedChoiceID = selectedChoiceID
         self.submittedChoiceID = submittedChoiceID
+        self.submittedChoiceIDsByQuestionID = submittedChoiceIDsByQuestionID
         self.score = score
         self.attempts = attempts
         self.streak = streak
@@ -77,6 +106,7 @@ public struct WidgetMultipleChoiceRuntimeState: Codable, Equatable, Sendable {
         self.correctlyAnsweredQuestionIDs = correctlyAnsweredQuestionIDs
         self.questionAttempts = questionAttempts
         self.nextButtonPressToken = nextButtonPressToken
+        self.flow = flow
     }
 
     var isStarted: Bool {
@@ -151,6 +181,148 @@ public struct WidgetMultipleChoiceRuntimeState: Codable, Equatable, Sendable {
 
     var points: Double {
         Double(score) + bonus
+    }
+}
+
+public struct WidgetFillInTheBlankRuntimeState: Codable, Equatable, Sendable {
+    public var currentQuestionIndex: Int
+    public var questionOrder: [Int]
+    public var responsesByBlankID: [String: String]
+    public var score: Int
+    public var attempts: Int
+    public var streak: Int
+    public var longestStreak: Int
+    public var hintLevel: Int
+    public var feedbackMessage: String?
+    public var feedbackKind: WidgetActivityFeedbackStateKind
+    public var answeredQuestionIDs: Set<String>
+    public var correctlyAnsweredQuestionIDs: Set<String>
+    public var questionAttempts: [String: Int]
+    public var nextButtonPressToken: Int?
+    public var flow: WidgetActivityAttemptFlowState?
+
+    public init(
+        currentQuestionIndex: Int = 0,
+        questionOrder: [Int] = [],
+        responsesByBlankID: [String: String] = [:],
+        score: Int = 0,
+        attempts: Int = 0,
+        streak: Int = 0,
+        longestStreak: Int = 0,
+        hintLevel: Int = 0,
+        feedbackMessage: String? = nil,
+        feedbackKind: WidgetActivityFeedbackStateKind = .neutral,
+        answeredQuestionIDs: Set<String> = [],
+        correctlyAnsweredQuestionIDs: Set<String> = [],
+        questionAttempts: [String: Int] = [:],
+        nextButtonPressToken: Int? = nil,
+        flow: WidgetActivityAttemptFlowState? = nil
+    ) {
+        self.currentQuestionIndex = currentQuestionIndex
+        self.questionOrder = questionOrder
+        self.responsesByBlankID = responsesByBlankID
+        self.score = score
+        self.attempts = attempts
+        self.streak = streak
+        self.longestStreak = longestStreak
+        self.hintLevel = hintLevel
+        self.feedbackMessage = feedbackMessage
+        self.feedbackKind = feedbackKind
+        self.answeredQuestionIDs = answeredQuestionIDs
+        self.correctlyAnsweredQuestionIDs = correctlyAnsweredQuestionIDs
+        self.questionAttempts = questionAttempts
+        self.nextButtonPressToken = nextButtonPressToken
+        self.flow = flow
+    }
+
+    var isStarted: Bool {
+        attempts > 0 || !answeredQuestionIDs.isEmpty || !responsesByBlankID.isEmpty
+    }
+
+    func isComplete(totalQuestions: Int) -> Bool {
+        totalQuestions > 0 && answeredQuestionIDs.count >= totalQuestions
+    }
+
+    func scoreRecord(for document: ActivityWidgetDocument) -> WidgetActivityScoreRecord {
+        let status: WidgetActivityScoreStatus
+        if isComplete(totalQuestions: document.questions.count) {
+            status = .complete
+        } else {
+            status = isStarted ? .inProgress : .notStarted
+        }
+
+        return WidgetActivityScoreRecord(
+            id: document.widgetId ?? document.title,
+            title: document.title,
+            status: status,
+            score: score,
+            attempts: attempts,
+            points: points,
+            pointsPossible: attempts,
+            numberCorrectFirstTry: numberCorrectFirstTry,
+            numberCorrectAfterRetry: numberCorrectAfterRetry,
+            longestStreak: longestStreak
+        )
+    }
+
+    mutating func reset(questionOrder: [Int]) {
+        self = WidgetFillInTheBlankRuntimeState(questionOrder: questionOrder)
+    }
+
+    static func initial(for document: ActivityWidgetDocument) -> WidgetFillInTheBlankRuntimeState {
+        WidgetFillInTheBlankRuntimeState(questionOrder: makeQuestionOrder(for: document))
+    }
+
+    private static func makeQuestionOrder(for document: ActivityWidgetDocument) -> [Int] {
+        let order = Array(document.questions.indices)
+        return document.rules?.shuffleQuestions == true ? order.shuffled() : order
+    }
+
+    var bonus: Double {
+        min(Double(streak) * 0.1, 1.0)
+    }
+
+    var numberCorrectFirstTry: Int {
+        correctlyAnsweredQuestionIDs.filter { questionAttempts[$0] == 1 }.count
+    }
+
+    var numberCorrectAfterRetry: Int {
+        correctlyAnsweredQuestionIDs.filter { (questionAttempts[$0] ?? 0) > 1 }.count
+    }
+
+    var points: Double {
+        Double(score) + bonus
+    }
+}
+
+public struct WidgetActivityAttemptFlowState: Codable, Equatable, Sendable {
+    public var isShowingFinalScore: Bool
+    public var isRetryingMissed: Bool
+    public var isReviewingAnswers: Bool?
+    public var retryQuestionIDs: [String]
+    public var retryQuestionIndex: Int
+    public var skippedRetryQuestionIDs: Set<String>
+    public var hasSubmittedScore: Bool
+    public var submittedRecord: WidgetActivityScoreRecord?
+
+    public init(
+        isShowingFinalScore: Bool = false,
+        isRetryingMissed: Bool = false,
+        isReviewingAnswers: Bool? = nil,
+        retryQuestionIDs: [String] = [],
+        retryQuestionIndex: Int = 0,
+        skippedRetryQuestionIDs: Set<String> = [],
+        hasSubmittedScore: Bool = false,
+        submittedRecord: WidgetActivityScoreRecord? = nil
+    ) {
+        self.isShowingFinalScore = isShowingFinalScore
+        self.isRetryingMissed = isRetryingMissed
+        self.isReviewingAnswers = isReviewingAnswers
+        self.retryQuestionIDs = retryQuestionIDs
+        self.retryQuestionIndex = retryQuestionIndex
+        self.skippedRetryQuestionIDs = skippedRetryQuestionIDs
+        self.hasSubmittedScore = hasSubmittedScore
+        self.submittedRecord = submittedRecord
     }
 }
 

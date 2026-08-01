@@ -7,8 +7,9 @@ public struct StudentModeView: View {
     @Environment(ClassroomRosterStore.self) private var rosterStore
     @Environment(ClassroomAssignmentStore.self) private var assignmentStore
     @Environment(DocumentStore.self) private var documentStore
+    @AppStorage("MathBoardStudentPreferredFirstName") private var studentPreferredFirstName = ""
+    @AppStorage("MathBoardStudentIdentifier") private var studentIdentifier = ""
     @State private var lessonCode = ""
-    @State private var studentIdentifier = ""
     @State private var selectedWidgetID: UUID?
     @State private var score = 0
     @State private var attempts = 1
@@ -25,6 +26,7 @@ public struct StudentModeView: View {
     @State private var liveProgressTask: Task<Void, Never>?
     @State private var isDownloadingLesson = false
     @State private var openedAssignedLesson: StudentAssignedLessonDestination?
+    @State private var isStudentProfilePresented = false
 
     public init() {}
 
@@ -56,7 +58,7 @@ public struct StudentModeView: View {
                         ContentUnavailableView(
                             "Ready to Search",
                             systemImage: "magnifyingglass",
-                            description: Text("Tap Find Online Lesson when your code and student ID are entered.")
+                            description: Text("Tap Find Online Lesson after entering the class lesson code.")
                         )
                         .frame(maxWidth: .infinity, minHeight: 220)
                     }
@@ -98,11 +100,26 @@ public struct StudentModeView: View {
             .onChange(of: studentIdentifier) { _, _ in
                 scheduleLiveProgressUpdate()
             }
+            .onChange(of: studentPreferredFirstName) { _, _ in
+                scheduleLiveProgressUpdate()
+            }
             .onChange(of: selectedWidgetID) { _, _ in
                 scheduleLiveProgressUpdate()
             }
             .onChange(of: currentScoreDraft) { _, _ in
                 scheduleLiveProgressUpdate()
+            }
+            .sheet(isPresented: $isStudentProfilePresented) {
+                StudentProfileSettingsView(
+                    preferredFirstName: $studentPreferredFirstName,
+                    studentIdentifier: $studentIdentifier
+                )
+                .interactiveDismissDisabled(!hasCompleteStudentProfile)
+            }
+            .onAppear {
+                if !hasCompleteStudentProfile {
+                    isStudentProfilePresented = true
+                }
             }
             .onDisappear {
                 liveProgressTask?.cancel()
@@ -129,6 +146,18 @@ public struct StudentModeView: View {
         !normalizedLessonCode.isEmpty
     }
 
+    private var normalizedStudentIdentifier: String {
+        studentIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var normalizedPreferredFirstName: String {
+        studentPreferredFirstName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var hasCompleteStudentProfile: Bool {
+        !normalizedPreferredFirstName.isEmpty && !normalizedStudentIdentifier.isEmpty
+    }
+
     private var resolvedAssignmentPacket: AssignmentSyncPacket? {
         if let localPacket = try? syncService.resolveAssignment(classLessonCode: lessonCode) {
             return localPacket
@@ -145,7 +174,7 @@ public struct StudentModeView: View {
     private var canSubmit: Bool {
         resolvedAssignmentPacket != nil &&
         selectedWidget != nil &&
-        !studentIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        hasCompleteStudentProfile &&
         attempts > 0
     }
 
@@ -164,7 +193,7 @@ public struct StudentModeView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Join an Assigned Lesson")
                 .font(.largeTitle.weight(.bold))
-            Text("Enter the class lesson code and your student ID.")
+            Text("Enter the class lesson code. Your student profile is saved on this device.")
                 .font(.headline)
                 .foregroundStyle(.secondary)
         }
@@ -183,13 +212,7 @@ public struct StudentModeView: View {
                 .textFieldStyle(.roundedBorder)
                 .accessibilityIdentifier("studentMode.lessonCodeField")
 
-            TextField("Student ID or alternate ID", text: $studentIdentifier)
-                .textInputAutocapitalization(.characters)
-                #if os(iOS)
-                .keyboardType(.asciiCapable)
-                #endif
-                .textFieldStyle(.roundedBorder)
-                .accessibilityIdentifier("studentMode.studentIDField")
+            studentProfileSummary
 
             Button {
                 Task {
@@ -205,11 +228,38 @@ public struct StudentModeView: View {
                 }
             }
             .buttonStyle(.bordered)
-            .disabled(!hasEnteredLessonCode || isFindingOnlineLesson || (try? syncService.resolveAssignment(classLessonCode: lessonCode)) != nil)
+            .disabled(!hasEnteredLessonCode || !hasCompleteStudentProfile || isFindingOnlineLesson || (try? syncService.resolveAssignment(classLessonCode: lessonCode)) != nil)
             .accessibilityIdentifier("studentMode.findOnlineLessonButton")
         }
         .padding(16)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var studentProfileSummary: some View {
+        HStack(spacing: 12) {
+            Image(systemName: hasCompleteStudentProfile ? "person.crop.circle.fill.badge.checkmark" : "person.crop.circle.badge.exclamationmark")
+                .foregroundStyle(hasCompleteStudentProfile ? .green : .orange)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(hasCompleteStudentProfile ? normalizedPreferredFirstName : "Student profile needed")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Text(hasCompleteStudentProfile ? "ID: \(normalizedStudentIdentifier)" : "Add your first name and teacher-supplied ID.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            Button("Edit") {
+                isStudentProfilePresented = true
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(hasCompleteStudentProfile ? "Student profile, \(normalizedPreferredFirstName), ID \(normalizedStudentIdentifier)" : "Student profile needed")
     }
 
     private func assignmentCard(_ assignmentPacket: AssignmentSyncPacket) -> some View {
@@ -337,7 +387,8 @@ public struct StudentModeView: View {
             classroomID: assignmentPacket.classroomID,
             assignmentID: assignmentPacket.id,
             classLessonCode: assignmentPacket.classLessonCode,
-            studentIdentifier: studentIdentifier,
+            studentIdentifier: normalizedStudentIdentifier,
+            studentPreferredFirstName: normalizedPreferredFirstName,
             widgetScoreRecord: scoreRecord
         )
 
@@ -358,6 +409,7 @@ public struct StudentModeView: View {
         defer { isFindingOnlineLesson = false }
 
         do {
+            try await ensureOnlineStudentAccess()
             let packet = try await FirebaseClassroomSyncService().resolveAssignment(classLessonCode: code)
             remoteAssignmentPacket = packet
             remoteAssignmentCode = code
@@ -374,6 +426,7 @@ public struct StudentModeView: View {
         defer { isDownloadingLesson = false }
 
         do {
+            try await ensureOnlineStudentAccess()
             let archiveData = try await FirebaseClassroomSyncService()
                 .downloadLessonPackageData(for: assignmentPacket.lesson)
             let sourceLesson = try documentStore.importSharedLessonPackageArchive(
@@ -383,12 +436,13 @@ public struct StudentModeView: View {
             let studentLesson = try documentStore.studentAssignedLessonWorkingCopy(
                 for: sourceLesson,
                 assignmentID: assignmentPacket.id,
-                studentIdentifier: studentIdentifier
+                studentIdentifier: normalizedStudentIdentifier
             )
             openedAssignedLesson = StudentAssignedLessonDestination(
                 lesson: studentLesson,
                 assignmentPacket: assignmentPacket,
-                studentIdentifier: studentIdentifier
+                studentIdentifier: normalizedStudentIdentifier,
+                studentPreferredFirstName: normalizedPreferredFirstName
             )
         } catch {
             statusMessage = StudentSubmissionStatusMessage(
@@ -413,6 +467,7 @@ public struct StudentModeView: View {
 
     private func submitOnlineScore(_ submission: StudentSubmissionPacket) async {
         do {
+            try await ensureOnlineStudentAccess()
             let result = try await FirebaseClassroomSyncService().submitWidgetScore(submission)
             _ = try await FirebaseClassroomSyncService().publishLiveProgress(
                 submission,
@@ -444,6 +499,7 @@ public struct StudentModeView: View {
             do {
                 try await Task.sleep(for: .milliseconds(500))
                 guard !Task.isCancelled else { return }
+                try await ensureOnlineStudentAccess()
                 _ = try await FirebaseClassroomSyncService().publishLiveProgress(
                     submission,
                     isActiveOnStudentScreen: true
@@ -474,7 +530,7 @@ public struct StudentModeView: View {
               remoteAssignmentCode == normalizedLessonCode,
               (try? syncService.resolveAssignment(classLessonCode: assignmentPacket.classLessonCode)) == nil,
               draft.attempts > 0,
-              !studentIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+              hasCompleteStudentProfile else {
             return nil
         }
 
@@ -483,7 +539,8 @@ public struct StudentModeView: View {
             classroomID: assignmentPacket.classroomID,
             assignmentID: assignmentPacket.id,
             classLessonCode: assignmentPacket.classLessonCode,
-            studentIdentifier: studentIdentifier,
+            studentIdentifier: normalizedStudentIdentifier,
+            studentPreferredFirstName: normalizedPreferredFirstName,
             widgetScoreRecord: scoreRecord(for: widget, draft: draft, status: status),
             submittedAt: Date()
         )
@@ -528,6 +585,7 @@ public struct StudentModeView: View {
 
         Task { @MainActor in
             do {
+                try await ensureOnlineStudentAccess()
                 _ = try await FirebaseClassroomSyncService().publishLiveProgress(
                     submission,
                     isActiveOnStudentScreen: isActiveOnStudentScreen
@@ -586,6 +644,58 @@ public struct StudentModeView: View {
     }
 }
 
+private struct StudentProfileSettingsView: View {
+    @Binding var preferredFirstName: String
+    @Binding var studentIdentifier: String
+    @Environment(\.dismiss) private var dismiss
+
+    private var trimmedPreferredFirstName: String {
+        preferredFirstName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedStudentIdentifier: String {
+        studentIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var canSave: Bool {
+        !trimmedPreferredFirstName.isEmpty && !trimmedStudentIdentifier.isEmpty
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("First name", text: $preferredFirstName)
+                        .textInputAutocapitalization(.words)
+                        .accessibilityIdentifier("studentProfile.firstNameField")
+                    TextField("Teacher-supplied ID", text: $studentIdentifier)
+                        .textInputAutocapitalization(.characters)
+                        #if os(iOS)
+                        .keyboardType(.asciiCapable)
+                        #endif
+                        .accessibilityIdentifier("studentProfile.studentIDField")
+                } header: {
+                    Text("Student Profile")
+                } footer: {
+                    Text("This stays saved on this device. Your teacher uses the ID to match your classroom roster row.")
+                }
+            }
+            .navigationTitle("Student Profile")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        preferredFirstName = String(trimmedPreferredFirstName.prefix(40))
+                        studentIdentifier = trimmedStudentIdentifier
+                        dismiss()
+                    }
+                    .disabled(!canSave)
+                }
+            }
+        }
+    }
+}
+
 private struct StudentSubmissionStatusMessage: Identifiable {
     var id = UUID()
     var message: String
@@ -595,6 +705,7 @@ private struct StudentAssignedLessonDestination: Identifiable, Hashable {
     var lesson: Lesson
     var assignmentPacket: AssignmentSyncPacket
     var studentIdentifier: String
+    var studentPreferredFirstName: String
 
     var id: String {
         "\(assignmentPacket.id.uuidString)-\(lesson.url.path)-\(studentIdentifier)"
@@ -609,6 +720,7 @@ struct StudentAssignedLessonLiveProgressUpdate {
 struct StudentAssignedLessonLiveProgressBuilder {
     var assignmentPacket: AssignmentSyncPacket
     var studentIdentifier: String
+    var studentPreferredFirstName: String = ""
     var submittedWidgetIDs: Set<UUID>
     var scoreRecordsByWidgetID: [UUID: WidgetActivityScoreRecord] = [:]
 
@@ -626,6 +738,7 @@ struct StudentAssignedLessonLiveProgressBuilder {
                 assignmentID: assignmentPacket.id,
                 classLessonCode: assignmentPacket.classLessonCode,
                 studentIdentifier: studentIdentifier,
+                studentPreferredFirstName: studentPreferredFirstName,
                 widgetScoreRecord: scoreRecord,
                 submittedAt: submittedAt
             )
@@ -666,6 +779,8 @@ struct StudentAssignedLessonLiveProgressBuilder {
 }
 
 private struct StudentAssignedLessonView: View {
+    @Environment(\.dismiss) private var dismiss
+
     let destination: StudentAssignedLessonDestination
     let submittedWidgetIDs: Set<UUID>
     @State private var activeWidgetIDs: Set<UUID> = []
@@ -697,12 +812,19 @@ private struct StudentAssignedLessonView: View {
             onActiveWidgetIDsChanged: handleActiveWidgetIDsChanged,
             onActiveWidgetsChanged: handleActiveWidgetsChanged
         )
-            .navigationTitle(destination.lesson.name)
+            .navigationTitle(studentDisplayName)
             .navigationBarTitleDisplayMode(.inline)
+            .navigationBarBackButtonHidden(true)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    studentNameTitle
+                }
                 ToolbarItem(placement: .primaryAction) {
                     submitWidgetMenu
                 }
+            }
+            .overlay(alignment: .topLeading) {
+                studentLessonChrome
             }
             .alert(
                 "Widget Submission",
@@ -730,6 +852,72 @@ private struct StudentAssignedLessonView: View {
             .onDisappear {
                 publishLiveProgress(forActiveWidgetIDs: [], activeWidgets: [])
             }
+    }
+
+    private var studentLessonChrome: some View {
+        HStack(spacing: 10) {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "chevron.backward")
+                    .font(.system(size: 18, weight: .semibold))
+                    .frame(width: 40, height: 40)
+                    .background(.ultraThinMaterial, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Back")
+
+            Text(shortStudentLessonHeaderTitle)
+                .font(.headline)
+                .lineLimit(1)
+                .padding(.horizontal, 12)
+                .frame(height: 40)
+                .background(.ultraThinMaterial, in: Capsule())
+                .accessibilityLabel("Lesson file \(studentLessonFileName)")
+        }
+        .padding(.top, 8)
+        .padding(.leading, 12)
+    }
+
+    private var studentNameTitle: some View {
+        Text(studentDisplayName)
+            .font(.headline.weight(.semibold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .accessibilityLabel("Student \(studentDisplayName)")
+    }
+
+    private var shortStudentLessonHeaderTitle: String {
+        String(studentLessonFileName.prefix(20))
+    }
+
+    private var studentLessonFileName: String {
+        if let packageFileName = destination.assignmentPacket.lesson.packageFileName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !packageFileName.isEmpty {
+            return packageFileName.replacingOccurrences(of: ".mathboard", with: "")
+        }
+        return destination.lesson.url.deletingPathExtension().lastPathComponent
+    }
+
+    private var studentLessonHeaderTitle: String {
+        let title = destination.assignmentPacket.lesson.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !title.isEmpty {
+            return title
+        }
+        if let packageFileName = destination.assignmentPacket.lesson.packageFileName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !packageFileName.isEmpty {
+            return packageFileName.replacingOccurrences(of: ".mathboard", with: "")
+        }
+        return destination.lesson.url.deletingPathExtension().lastPathComponent
+    }
+
+    private var studentDisplayName: String {
+        let preferredFirstName = destination.studentPreferredFirstName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !preferredFirstName.isEmpty {
+            return preferredFirstName
+        }
+        let identifier = destination.studentIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        return identifier.isEmpty ? "Unknown" : identifier
     }
 
     @ViewBuilder
@@ -807,6 +995,7 @@ private struct StudentAssignedLessonView: View {
         let builder = StudentAssignedLessonLiveProgressBuilder(
             assignmentPacket: destination.assignmentPacket,
             studentIdentifier: destination.studentIdentifier,
+            studentPreferredFirstName: destination.studentPreferredFirstName,
             submittedWidgetIDs: localSubmittedWidgetIDs,
             scoreRecordsByWidgetID: mergedScoreRecords
         )
@@ -814,6 +1003,7 @@ private struct StudentAssignedLessonView: View {
         for update in builder.updates(activeWidgetIDs: activeWidgetIDs) {
             Task { @MainActor in
                 do {
+                    try await ensureOnlineStudentAccess()
                     _ = try await FirebaseClassroomSyncService().publishLiveProgress(
                         update.submission,
                         isActiveOnStudentScreen: update.isActiveOnStudentScreen
@@ -878,12 +1068,14 @@ private struct StudentAssignedLessonView: View {
             assignmentID: destination.assignmentPacket.id,
             classLessonCode: destination.assignmentPacket.classLessonCode,
             studentIdentifier: destination.studentIdentifier,
+            studentPreferredFirstName: destination.studentPreferredFirstName,
             widgetScoreRecord: completedScoreRecord,
             submittedAt: Date()
         )
 
         Task { @MainActor in
             do {
+                try await ensureOnlineStudentAccess()
                 _ = try await FirebaseClassroomSyncService().submitWidgetScore(submission)
                 _ = try await FirebaseClassroomSyncService().publishLiveProgress(
                     submission,
@@ -919,6 +1111,13 @@ private struct StudentAssignedLessonView: View {
             studentIdentifier: studentIdentifier
         )
     }
+}
+
+@MainActor
+@discardableResult
+private func ensureOnlineStudentAccess() async throws -> String {
+    try await MathBoardStudentFirebaseAccessAuthorizer()
+        .ensureAuthenticatedForOnlineLessonAccess()
 }
 
 private enum StudentAssignedLessonScoreRecordCache {

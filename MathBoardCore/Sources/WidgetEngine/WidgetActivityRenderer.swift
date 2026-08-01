@@ -13,6 +13,7 @@ struct WidgetActivityRenderer: View {
     var experienceOverride: WidgetActivityExperience?
     var scoreSheet: WidgetActivityScoreSheet?
     var onEditWidget: (() -> Void)?
+    var onMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)?
     private var runtimeStateBinding: Binding<WidgetActivityRuntimeState>?
     @State private var localRuntimeState: WidgetActivityRuntimeState
 
@@ -22,6 +23,7 @@ struct WidgetActivityRenderer: View {
         experienceOverride: WidgetActivityExperience? = nil,
         scoreSheet: WidgetActivityScoreSheet? = nil,
         onEditWidget: (() -> Void)? = nil,
+        onMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)? = nil,
         runtimeState: Binding<WidgetActivityRuntimeState>? = nil
     ) {
         self.document = document
@@ -29,10 +31,12 @@ struct WidgetActivityRenderer: View {
         self.experienceOverride = experienceOverride
         self.scoreSheet = scoreSheet
         self.onEditWidget = onEditWidget
+        self.onMathInputRequested = onMathInputRequested
         self.runtimeStateBinding = runtimeState
         _localRuntimeState = State(
             initialValue: WidgetActivityRuntimeState(
-                multipleChoice: WidgetMultipleChoiceRuntimeState.initial(for: document)
+                multipleChoice: WidgetMultipleChoiceRuntimeState.initial(for: document),
+                fillInTheBlank: WidgetFillInTheBlankRuntimeState.initial(for: document)
             )
         )
     }
@@ -55,6 +59,15 @@ struct WidgetActivityRenderer: View {
                 onEditWidget: onEditWidget,
                 theme: resolvedTheme,
                 experience: experienceOverride ?? document.presentation?.preferredExperience
+            )
+        case .fillInTheBlank:
+            FillInTheBlankActivityView(
+                document: document,
+                runtimeState: activityRuntimeState.fillInTheBlank,
+                scoreSheet: scoreSheet,
+                onEditWidget: onEditWidget,
+                theme: resolvedTheme,
+                onMathInputRequested: onMathInputRequested
             )
         }
     }
@@ -152,6 +165,11 @@ private struct MultipleChoiceActivityView: View {
         nonmutating set { runtimeState.submittedChoiceID = newValue }
     }
 
+    private var submittedChoiceIDsByQuestionID: [String: String] {
+        get { runtimeState.submittedChoiceIDsByQuestionID ?? [:] }
+        nonmutating set { runtimeState.submittedChoiceIDsByQuestionID = newValue }
+    }
+
     private var score: Int {
         get { runtimeState.score }
         nonmutating set { runtimeState.score = newValue }
@@ -207,18 +225,32 @@ private struct MultipleChoiceActivityView: View {
         nonmutating set { runtimeState.nextButtonPressToken = newValue }
     }
 
+    private var flow: WidgetActivityAttemptFlowState {
+        get { runtimeState.flow ?? WidgetActivityAttemptFlowState() }
+        nonmutating set { runtimeState.flow = newValue }
+    }
+
     private var hasQuestions: Bool {
         !document.questions.isEmpty
     }
 
     private var currentQuestion: WidgetActivityQuestion? {
         guard hasQuestions else { return nil }
+        if flow.isRetryingMissed,
+           let questionID = flow.retryQuestionIDs[safe: flow.retryQuestionIndex],
+           let retryQuestion = document.questions.first(where: { $0.id == questionID }) {
+            return retryQuestion
+        }
         let orderedIndex = questionOrder[safe: currentQuestionIndex] ?? currentQuestionIndex
         return document.questions[safe: orderedIndex] ?? document.questions[0]
     }
 
     private var currentQuestionID: String {
         currentQuestion?.id ?? ""
+    }
+
+    private var isReviewingAnswers: Bool {
+        flow.isReviewingAnswers == true
     }
 
     private var currentChoices: [WidgetActivityChoice] {
@@ -234,6 +266,16 @@ private struct MultipleChoiceActivityView: View {
     private var progressValue: Double {
         guard !document.questions.isEmpty else { return 0 }
         return Double(answeredQuestionIDs.count) / Double(document.questions.count)
+    }
+
+    private var missedQuestionIDs: [String] {
+        document.questions
+            .map(\.id)
+            .filter { answeredQuestionIDs.contains($0) && !correctlyAnsweredQuestionIDs.contains($0) }
+    }
+
+    private var missedQuestionCount: Int {
+        missedQuestionIDs.count
     }
 
     private var accuracyValue: Double {
@@ -290,13 +332,21 @@ private struct MultipleChoiceActivityView: View {
 
     private var canShowHint: Bool {
         guard let currentQuestion else { return false }
+        guard !flow.isShowingFinalScore else { return false }
+        guard !isReviewingAnswers else { return false }
         return hintLevel < currentQuestion.hints.count
     }
 
     private var isCurrentQuestionLocked: Bool {
         guard let currentQuestion else { return true }
+        guard !flow.isShowingFinalScore else { return true }
+        guard !isReviewingAnswers else { return true }
         if submittedChoiceID != nil {
             return true
+        }
+
+        if flow.isRetryingMissed {
+            return false
         }
 
         if correctlyAnsweredQuestionIDs.contains(currentQuestion.id) {
@@ -347,10 +397,6 @@ private struct MultipleChoiceActivityView: View {
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay {
             quietWidgetBorder
-        }
-        .overlay(alignment: .topTrailing) {
-            sparkleBadge
-                .padding(18)
         }
         .onAppear {
             prepareRuntimeStateIfNeeded()
@@ -488,6 +534,9 @@ private struct MultipleChoiceActivityView: View {
             percent: percentAccuracyLabel,
             bonus: bonusLabel,
             points: pointsLabel,
+            questionStarItems: questionStarItems,
+            onSelectQuestion: navigateToQuestion,
+            onShowFinalScore: showFinalScore,
             flashingMeterIndex: flashingMeterIndex,
             scoreSheet: fileScoreSheet,
             showsScoreSheet: $showsScoreSheet,
@@ -499,10 +548,14 @@ private struct MultipleChoiceActivityView: View {
 
     private var practicePanel: some View {
         VStack(alignment: .leading, spacing: 16) {
-            questionCard
-            choiceGrid
-            controls
-            hintPanel
+            if flow.isShowingFinalScore {
+                finalScorePanel
+            } else {
+                questionCard
+                choiceGrid
+                controls
+                hintPanel
+            }
         }
         .padding(18)
         .background(
@@ -524,6 +577,108 @@ private struct MultipleChoiceActivityView: View {
             }
         )
         .shadow(color: .black.opacity(0.08), radius: 12, x: 0, y: 6)
+    }
+
+    private var finalScorePanel: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .center, spacing: 12) {
+                Image(systemName: missedQuestionCount == 0 ? "checkmark.seal.fill" : "flag.checkered")
+                    .font(.system(size: 42, weight: .black))
+                    .foregroundStyle(missedQuestionCount == 0 ? theme.correct : theme.accent)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Final Score")
+                        .font(.system(size: 30, weight: .black, design: .rounded))
+                        .foregroundStyle(theme.primaryText)
+                    Text(finalScoreMessage)
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(theme.secondaryText)
+                }
+            }
+
+            HStack(spacing: 12) {
+                finalScoreMetric(title: "Score", value: "\(score)/\(document.questions.count)", tint: theme.correct)
+                finalScoreMetric(title: "Missed", value: "\(missedQuestionCount)", tint: missedQuestionCount == 0 ? theme.correct : theme.incorrect)
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    beginReviewMathtivity()
+                } label: {
+                    Label("Review Mathtivity", systemImage: "list.bullet.rectangle")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(theme.accent)
+
+                Button {
+                    beginRetryMissed()
+                } label: {
+                    Label("Retry Missed", systemImage: "arrow.counterclockwise.circle.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(theme.accent)
+                .disabled(missedQuestionCount == 0)
+
+                Button {
+                    resetWidget()
+                } label: {
+                    Label("Reset", systemImage: "restart.circle")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(theme.warning)
+
+                Button {
+                    submitCurrentScore()
+                } label: {
+                    Label(flow.hasSubmittedScore ? "Resubmit" : "Submit", systemImage: "paperplane.circle.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(theme.accent)
+                .disabled(!isMathtivityComplete)
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(theme.accent.opacity(0.35), lineWidth: 1.5)
+        )
+    }
+
+    private var isMathtivityComplete: Bool {
+        answeredQuestionIDs.count >= document.questions.count
+    }
+
+    private var finalScoreMessage: String {
+        if !isMathtivityComplete {
+            return "You have answered \(answeredQuestionIDs.count) of \(document.questions.count) questions. Finish the mathtivity before submitting."
+        }
+        if flow.isRetryingMissed {
+            return "Review missed questions, then come back to this screen."
+        }
+        if missedQuestionCount == 0 {
+            return flow.hasSubmittedScore ? "All questions are correct. Your score has been submitted." : "All questions are correct. Submit when ready."
+        }
+        return "You missed \(missedQuestionCount) \(missedQuestionCount == 1 ? "question" : "questions"). Retry them or submit this score."
+    }
+
+    private func finalScoreMetric(title: String, value: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title.uppercased())
+                .font(.caption.weight(.black))
+                .foregroundStyle(theme.secondaryText)
+            Text(value)
+                .font(.system(size: 28, weight: .black, design: .rounded))
+                .foregroundStyle(tint)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.panel, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private var questionCard: some View {
@@ -628,44 +783,62 @@ private struct MultipleChoiceActivityView: View {
     }
 
     private var canSelectChoice: Bool {
-        !isQuestionTyping && isExpressionRevealed && !isCurrentQuestionLocked
+        !flow.isShowingFinalScore && !isReviewingAnswers && !isQuestionTyping && isExpressionRevealed && !isCurrentQuestionLocked
     }
 
     private var canCheckAnswer: Bool {
-        guard !isQuestionTyping, isExpressionRevealed, !isCurrentQuestionLocked, let selectedChoiceID else { return false }
+        guard !flow.isShowingFinalScore, !isReviewingAnswers, !isQuestionTyping, isExpressionRevealed, !isCurrentQuestionLocked, let selectedChoiceID else { return false }
         return selectedChoiceID != submittedChoiceID
     }
 
     private var canAdvanceToNextQuestion: Bool {
+        guard !flow.isShowingFinalScore else { return false }
         guard !isQuestionTyping, isExpressionRevealed else { return false }
+        if isReviewingAnswers {
+            return true
+        }
         guard let currentQuestion else { return false }
         return submittedChoiceID != nil || answeredQuestionIDs.contains(currentQuestion.id)
     }
 
     private var controls: some View {
         HStack(spacing: 10) {
-            Button {
-                revealHint()
-            } label: {
-                Image(systemName: "lightbulb.fill")
-                    .font(.headline.weight(.bold))
-                    .frame(width: 44, height: 38)
-            }
-            .buttonStyle(.bordered)
-            .tint(theme.accent)
-            .disabled(!canShowHint)
-            .accessibilityLabel("Show hint")
+            if !isReviewingAnswers {
+                Button {
+                    revealHint()
+                } label: {
+                    Image(systemName: "lightbulb.fill")
+                        .font(.headline.weight(.bold))
+                        .frame(width: 44, height: 38)
+                }
+                .buttonStyle(.bordered)
+                .tint(theme.accent)
+                .disabled(!canShowHint)
+                .accessibilityLabel("Show hint")
 
-            Button {
-                checkAnswer()
-            } label: {
-                Label("Check", systemImage: "checkmark.circle.fill")
-                    .frame(maxWidth: .infinity)
+                Button {
+                    checkAnswer()
+                } label: {
+                    Label("Check", systemImage: "checkmark.circle.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(theme.accent)
+                .controlSize(.regular)
+                .disabled(!canCheckAnswer)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(theme.accent)
-            .controlSize(.regular)
-            .disabled(!canCheckAnswer)
+
+            if flow.isRetryingMissed {
+                Button {
+                    skipRetryQuestion()
+                } label: {
+                    Label("Skip", systemImage: "forward.circle")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(theme.warning)
+                .controlSize(.regular)
+            }
 
             Button {
                 nextQuestion()
@@ -723,19 +896,55 @@ private struct MultipleChoiceActivityView: View {
         }
     }
 
-    private var sparkleBadge: some View {
-        VStack(spacing: 2) {
-            Image(systemName: "sparkles")
-                .font(.title2.weight(.black))
-            Text("\(streak)")
-                .font(.caption.weight(.black))
+    private var questionStarItems: [ActivityQuestionStarItem] {
+        document.questions.enumerated().map { index, question in
+            ActivityQuestionStarItem(
+                index: index,
+                title: "Question \(index + 1)",
+                status: starStatus(for: question),
+                isCurrent: question.id == currentQuestionID && !flow.isShowingFinalScore
+            )
         }
-        .foregroundStyle(theme.accent)
-        .padding(10)
-        .background(theme.panel, in: Circle())
-        .overlay(Circle().strokeBorder(theme.border, lineWidth: 1))
-        .scaleEffect(celebrate ? 1.18 : 1)
-        .animation(.spring(response: 0.28, dampingFraction: 0.45), value: celebrate)
+    }
+
+    private func starStatus(for question: WidgetActivityQuestion) -> ActivityQuestionStarStatus {
+        if correctlyAnsweredQuestionIDs.contains(question.id) {
+            return (questionAttempts[question.id] ?? 0) > 1 ? .corrected : .correct
+        }
+
+        if answeredQuestionIDs.contains(question.id) {
+            return .incorrect
+        }
+
+        return .unanswered
+    }
+
+    private func navigateToQuestion(_ index: Int) {
+        guard document.questions.indices.contains(index) else { return }
+        var nextFlow = flow
+        nextFlow.isShowingFinalScore = false
+        nextFlow.isRetryingMissed = false
+        nextFlow.isReviewingAnswers = false
+        nextFlow.retryQuestionIDs = []
+        nextFlow.retryQuestionIndex = 0
+        flow = nextFlow
+
+        currentQuestionIndex = questionOrder.firstIndex(of: index) ?? index
+        if let question = currentQuestion {
+            let submittedChoice = submittedChoiceIDsByQuestionID[question.id]
+            selectedChoiceID = submittedChoice
+            submittedChoiceID = submittedChoice
+            if answeredQuestionIDs.contains(question.id) {
+                feedbackKind = correctlyAnsweredQuestionIDs.contains(question.id) ? .correct : .incorrect
+                feedbackMessage = reviewFeedback(for: question)
+            } else {
+                feedbackKind = .neutral
+                feedbackMessage = nil
+            }
+        }
+
+        hintLevel = 0
+        startQuestionReveal(force: true)
     }
 
     private func checkAnswer() {
@@ -778,6 +987,9 @@ private struct MultipleChoiceActivityView: View {
         }
 
         submittedChoiceID = choice.id
+        var submittedChoices = submittedChoiceIDsByQuestionID
+        submittedChoices[currentQuestion.id] = choice.id
+        submittedChoiceIDsByQuestionID = submittedChoices
         attempts += 1
         questionAttempts[currentQuestion.id, default: 0] += 1
         answeredQuestionIDs.insert(currentQuestion.id)
@@ -813,7 +1025,29 @@ private struct MultipleChoiceActivityView: View {
     private func nextQuestion() {
         guard !document.questions.isEmpty, canAdvanceToNextQuestion else { return }
         nextButtonPressToken = (nextButtonPressToken ?? 0) + 1
-        currentQuestionIndex = (currentQuestionIndex + 1) % document.questions.count
+
+        if isReviewingAnswers {
+            guard currentQuestionIndex < document.questions.count - 1 else {
+                showFinalScore()
+                return
+            }
+            currentQuestionIndex += 1
+            prepareReviewQuestion()
+            startQuestionReveal(force: true)
+            return
+        }
+
+        if flow.isRetryingMissed {
+            advanceRetryQuestionOrFinish()
+            return
+        }
+
+        guard currentQuestionIndex < document.questions.count - 1 else {
+            showFinalScore()
+            return
+        }
+
+        currentQuestionIndex += 1
         selectedChoiceID = nil
         submittedChoiceID = nil
         hintLevel = 0
@@ -828,8 +1062,13 @@ private struct MultipleChoiceActivityView: View {
     }
 
     private func resetWidget() {
+        let submittedState = flow
         questionRevealToken = UUID()
         runtimeState = WidgetMultipleChoiceRuntimeState.initial(for: document)
+        runtimeState.flow = WidgetActivityAttemptFlowState(
+            hasSubmittedScore: submittedState.hasSubmittedScore,
+            submittedRecord: submittedState.submittedRecord
+        )
         feedbackKind = .neutral
         feedbackMessage = nil
         celebrate = false
@@ -840,6 +1079,108 @@ private struct MultipleChoiceActivityView: View {
         questionAttempts = [:]
         showsScoreSheet = false
         startQuestionReveal(force: true)
+    }
+
+    private func showFinalScore() {
+        var nextFlow = flow
+        nextFlow.isShowingFinalScore = true
+        nextFlow.isRetryingMissed = false
+        nextFlow.isReviewingAnswers = false
+        nextFlow.retryQuestionIndex = 0
+        nextFlow.retryQuestionIDs = []
+        flow = nextFlow
+        selectedChoiceID = nil
+        submittedChoiceID = nil
+        hintLevel = 0
+        feedbackKind = .neutral
+        feedbackMessage = nil
+    }
+
+    private func beginRetryMissed() {
+        let missedIDs = missedQuestionIDs
+        guard !missedIDs.isEmpty else { return }
+        var nextFlow = flow
+        nextFlow.isShowingFinalScore = false
+        nextFlow.isRetryingMissed = true
+        nextFlow.isReviewingAnswers = false
+        nextFlow.retryQuestionIDs = missedIDs
+        nextFlow.retryQuestionIndex = 0
+        nextFlow.skippedRetryQuestionIDs = []
+        flow = nextFlow
+        selectedChoiceID = nil
+        submittedChoiceID = nil
+        hintLevel = 0
+        feedbackKind = .neutral
+        feedbackMessage = nil
+        startQuestionReveal(force: true)
+    }
+
+    private func beginReviewMathtivity() {
+        guard !document.questions.isEmpty else { return }
+        var nextFlow = flow
+        nextFlow.isShowingFinalScore = false
+        nextFlow.isRetryingMissed = false
+        nextFlow.isReviewingAnswers = true
+        nextFlow.retryQuestionIDs = []
+        nextFlow.retryQuestionIndex = 0
+        flow = nextFlow
+        currentQuestionIndex = 0
+        prepareReviewQuestion()
+        startQuestionReveal(force: true)
+    }
+
+    private func prepareReviewQuestion() {
+        guard let currentQuestion else { return }
+        let submittedChoice = submittedChoiceIDsByQuestionID[currentQuestion.id]
+        selectedChoiceID = submittedChoice
+        submittedChoiceID = submittedChoice
+        hintLevel = 0
+        feedbackKind = correctlyAnsweredQuestionIDs.contains(currentQuestion.id) ? .correct : .incorrect
+        feedbackMessage = reviewFeedback(for: currentQuestion)
+    }
+
+    private func reviewFeedback(for question: WidgetActivityQuestion) -> String {
+        let status = correctlyAnsweredQuestionIDs.contains(question.id) ? "Correct." : "Missed."
+        if let explanation = question.explanation, !explanation.isEmpty {
+            return "\(status) \(explanation)"
+        }
+        return status
+    }
+
+    private func skipRetryQuestion() {
+        guard flow.isRetryingMissed, let currentQuestion else { return }
+        var nextFlow = flow
+        nextFlow.skippedRetryQuestionIDs.insert(currentQuestion.id)
+        flow = nextFlow
+        advanceRetryQuestionOrFinish()
+    }
+
+    private func advanceRetryQuestionOrFinish() {
+        var nextFlow = flow
+        let nextIndex = nextFlow.retryQuestionIndex + 1
+        guard nextIndex < nextFlow.retryQuestionIDs.count else {
+            showFinalScore()
+            return
+        }
+
+        nextFlow.retryQuestionIndex = nextIndex
+        flow = nextFlow
+        selectedChoiceID = nil
+        submittedChoiceID = nil
+        hintLevel = 0
+        feedbackKind = .neutral
+        feedbackMessage = nil
+        startQuestionReveal(force: true)
+    }
+
+    private func submitCurrentScore() {
+        var nextFlow = flow
+        nextFlow.hasSubmittedScore = true
+        nextFlow.submittedRecord = currentScoreRecord
+        flow = nextFlow
+        feedbackKind = .correct
+        feedbackMessage = nextFlow.submittedRecord == nil ? "Score submitted." : "Score submitted. You can resubmit if you retry or reset."
+        triggerMeterFlashSequence()
     }
 
     private func prepareRuntimeStateIfNeeded() {
@@ -1020,6 +1361,1258 @@ private struct MultipleChoiceActivityView: View {
     }
 }
 
+private struct FillInTheBlankActivityView: View {
+    let document: ActivityWidgetDocument
+    @Binding var runtimeState: WidgetFillInTheBlankRuntimeState
+    let scoreSheet: WidgetActivityScoreSheet?
+    let onEditWidget: (() -> Void)?
+    let theme: WidgetActivityVisualTheme
+    let onMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)?
+
+    @State private var showsLearningObjective = false
+    @State private var showsScoreSheet = false
+    @State private var celebrate = false
+    @State private var shake = false
+    @State private var flashingMeterIndex: Int?
+    @State private var isNextButtonHighlighted = false
+    @State private var activeMathInputRequestID: String?
+    @State private var mathInputCursorOffsets: [String: Int] = [:]
+    @State private var isMathInputCursorVisible = true
+
+    private var currentQuestionIndex: Int {
+        get { runtimeState.currentQuestionIndex }
+        nonmutating set { runtimeState.currentQuestionIndex = newValue }
+    }
+
+    private var questionOrder: [Int] {
+        get { runtimeState.questionOrder }
+        nonmutating set { runtimeState.questionOrder = newValue }
+    }
+
+    private var responsesByBlankID: [String: String] {
+        get { runtimeState.responsesByBlankID }
+        nonmutating set { runtimeState.responsesByBlankID = newValue }
+    }
+
+    private var score: Int {
+        get { runtimeState.score }
+        nonmutating set { runtimeState.score = newValue }
+    }
+
+    private var attempts: Int {
+        get { runtimeState.attempts }
+        nonmutating set { runtimeState.attempts = newValue }
+    }
+
+    private var streak: Int {
+        get { runtimeState.streak }
+        nonmutating set { runtimeState.streak = newValue }
+    }
+
+    private var longestStreak: Int {
+        get { runtimeState.longestStreak }
+        nonmutating set { runtimeState.longestStreak = newValue }
+    }
+
+    private var hintLevel: Int {
+        get { runtimeState.hintLevel }
+        nonmutating set { runtimeState.hintLevel = newValue }
+    }
+
+    private var feedbackMessage: String? {
+        get { runtimeState.feedbackMessage }
+        nonmutating set { runtimeState.feedbackMessage = newValue }
+    }
+
+    private var feedbackKind: FeedbackKind {
+        get { FeedbackKind(runtimeState.feedbackKind) }
+        nonmutating set { runtimeState.feedbackKind = newValue.runtimeKind }
+    }
+
+    private var answeredQuestionIDs: Set<String> {
+        get { runtimeState.answeredQuestionIDs }
+        nonmutating set { runtimeState.answeredQuestionIDs = newValue }
+    }
+
+    private var correctlyAnsweredQuestionIDs: Set<String> {
+        get { runtimeState.correctlyAnsweredQuestionIDs }
+        nonmutating set { runtimeState.correctlyAnsweredQuestionIDs = newValue }
+    }
+
+    private var questionAttempts: [String: Int] {
+        get { runtimeState.questionAttempts }
+        nonmutating set { runtimeState.questionAttempts = newValue }
+    }
+
+    private var nextButtonPressToken: Int? {
+        get { runtimeState.nextButtonPressToken }
+        nonmutating set { runtimeState.nextButtonPressToken = newValue }
+    }
+
+    private var flow: WidgetActivityAttemptFlowState {
+        get { runtimeState.flow ?? WidgetActivityAttemptFlowState() }
+        nonmutating set { runtimeState.flow = newValue }
+    }
+
+    private var hasQuestions: Bool {
+        !document.questions.isEmpty
+    }
+
+    private var currentQuestion: WidgetActivityQuestion? {
+        guard hasQuestions else { return nil }
+        if flow.isRetryingMissed,
+           let questionID = flow.retryQuestionIDs[safe: flow.retryQuestionIndex],
+           let retryQuestion = document.questions.first(where: { $0.id == questionID }) {
+            return retryQuestion
+        }
+        let orderedIndex = questionOrder[safe: currentQuestionIndex] ?? currentQuestionIndex
+        return document.questions[safe: orderedIndex] ?? document.questions[0]
+    }
+
+    private var isReviewingAnswers: Bool {
+        flow.isReviewingAnswers == true
+    }
+
+    private var progressValue: Double {
+        guard !document.questions.isEmpty else { return 0 }
+        return Double(answeredQuestionIDs.count) / Double(document.questions.count)
+    }
+
+    private var missedQuestionIDs: [String] {
+        document.questions
+            .map(\.id)
+            .filter { answeredQuestionIDs.contains($0) && !correctlyAnsweredQuestionIDs.contains($0) }
+    }
+
+    private var missedQuestionCount: Int {
+        missedQuestionIDs.count
+    }
+
+    private var accuracyValue: Double {
+        guard attempts > 0 else { return 0 }
+        return Double(score) / Double(attempts)
+    }
+
+    private var simplifiedAccuracyLabel: String {
+        guard attempts > 0 else { return "0/0" }
+        let divisor = Self.greatestCommonDivisor(score, attempts)
+        return "\(score / divisor)/\(attempts / divisor)"
+    }
+
+    private var equivalentAccuracyLabel: String {
+        guard attempts > 0 else { return "0/100" }
+        return "\(Int((accuracyValue * 100).rounded()))/100"
+    }
+
+    private var currentScoreRecord: WidgetActivityScoreRecord {
+        runtimeState.scoreRecord(for: document)
+    }
+
+    private var fileScoreSheet: WidgetActivityScoreSheet {
+        scoreSheet ?? WidgetActivityScoreSheet(records: [currentScoreRecord])
+    }
+
+    private var questionStarItems: [ActivityQuestionStarItem] {
+        document.questions.enumerated().map { index, question in
+            ActivityQuestionStarItem(
+                index: index,
+                title: "Question \(index + 1)",
+                status: starStatus(for: question),
+                isCurrent: question.id == currentQuestion?.id && !flow.isShowingFinalScore
+            )
+        }
+    }
+
+    private func starStatus(for question: WidgetActivityQuestion) -> ActivityQuestionStarStatus {
+        if correctlyAnsweredQuestionIDs.contains(question.id) {
+            return (questionAttempts[question.id] ?? 0) > 1 ? .corrected : .correct
+        }
+
+        if answeredQuestionIDs.contains(question.id) {
+            return .incorrect
+        }
+
+        return .unanswered
+    }
+
+    private func navigateToQuestion(_ index: Int) {
+        guard document.questions.indices.contains(index) else { return }
+        var nextFlow = flow
+        nextFlow.isShowingFinalScore = false
+        nextFlow.isRetryingMissed = false
+        nextFlow.isReviewingAnswers = false
+        nextFlow.retryQuestionIDs = []
+        nextFlow.retryQuestionIndex = 0
+        flow = nextFlow
+
+        currentQuestionIndex = questionOrder.firstIndex(of: index) ?? index
+        activeMathInputRequestID = nil
+        if let question = currentQuestion, answeredQuestionIDs.contains(question.id) {
+            feedbackKind = correctlyAnsweredQuestionIDs.contains(question.id) ? .correct : .incorrect
+            feedbackMessage = reviewFeedback(for: question)
+        } else {
+            feedbackKind = .neutral
+            feedbackMessage = nil
+        }
+
+        hintLevel = 0
+    }
+
+    private var canShowHint: Bool {
+        guard let currentQuestion else { return false }
+        guard !flow.isShowingFinalScore else { return false }
+        guard !isReviewingAnswers else { return false }
+        return hintLevel < currentQuestion.hints.count
+    }
+
+    private var isCurrentQuestionLocked: Bool {
+        guard let currentQuestion else { return true }
+        guard !flow.isShowingFinalScore else { return true }
+        guard !isReviewingAnswers else { return true }
+        if flow.isRetryingMissed {
+            return false
+        }
+        if correctlyAnsweredQuestionIDs.contains(currentQuestion.id) {
+            return true
+        }
+        if answeredQuestionIDs.contains(currentQuestion.id), document.rules?.allowRetry == false {
+            return true
+        }
+        if let maxAttempts = document.rules?.maxAttemptsPerQuestion,
+           maxAttempts > 0,
+           (questionAttempts[currentQuestion.id] ?? 0) >= maxAttempts {
+            return true
+        }
+        return false
+    }
+
+    private var canCheckAnswer: Bool {
+        guard !flow.isShowingFinalScore, !isReviewingAnswers, let currentQuestion, !isCurrentQuestionLocked else { return false }
+        return currentQuestion.blanks.allSatisfy { blank in
+            !response(for: blank, in: currentQuestion).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    private var canAdvanceToNextQuestion: Bool {
+        guard !flow.isShowingFinalScore else { return false }
+        if isReviewingAnswers {
+            return true
+        }
+        guard let currentQuestion else { return false }
+        return answeredQuestionIDs.contains(currentQuestion.id)
+    }
+
+    var body: some View {
+        Group {
+            if hasQuestions {
+                GeometryReader { proxy in
+                    let contentInset: CGFloat = 22
+                    let contentWidth = max(proxy.size.width - contentInset * 2, 0)
+
+                    ScrollView {
+                        activityContent(usesWideLayout: contentWidth >= 720)
+                            .padding(contentInset)
+                    }
+                }
+            } else {
+                emptyState
+            }
+        }
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(Color.black.opacity(0.82), lineWidth: 1)
+                .allowsHitTesting(false)
+        }
+        .onAppear {
+            prepareRuntimeStateIfNeeded()
+        }
+    }
+
+    @ViewBuilder
+    private func activityContent(usesWideLayout: Bool) -> some View {
+        if usesWideLayout {
+            HStack(alignment: .top, spacing: 18) {
+                VStack(alignment: .leading, spacing: 16) {
+                    header
+                    practicePanel
+                    feedbackPanel
+                }
+                .frame(minWidth: 380, maxWidth: .infinity, alignment: .topLeading)
+                .layoutPriority(1)
+
+                progressPanel
+                    .frame(width: 320)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 18) {
+                header
+                practicePanel
+                feedbackPanel
+                progressPanel
+            }
+        }
+    }
+
+    private var emptyState: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            header
+            Label("This activity needs at least one question.", systemImage: "exclamationmark.triangle.fill")
+                .font(.headline)
+                .foregroundStyle(theme.warning)
+                .padding(18)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .padding(22)
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                showsLearningObjective.toggle()
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(document.title)
+                        .font(.system(size: 30, weight: .black, design: .rounded))
+                        .lineLimit(2)
+
+                    Image(systemName: "info.circle")
+                        .font(.caption.weight(.bold))
+                        .opacity(0.45)
+                }
+                .foregroundStyle(theme.primaryText)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .popover(isPresented: $showsLearningObjective, arrowEdge: .top) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Learning Objective")
+                        .font(.headline.weight(.bold))
+                    Text(document.learningObjective)
+                        .font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .foregroundStyle(theme.primaryText)
+                .padding(16)
+                .frame(width: 280, alignment: .leading)
+                .background(theme.card)
+            }
+
+            if let description = document.description, !description.isEmpty {
+                Text(description)
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(theme.secondaryText)
+            }
+        }
+        .padding(.trailing, 70)
+    }
+
+    private var progressPanel: some View {
+        ActivityScoreGaugePanel(
+            progress: progressValue,
+            answeredCount: answeredQuestionIDs.count,
+            totalCount: document.questions.count,
+            score: score,
+            attempts: attempts,
+            streak: streak,
+            longestStreak: longestStreak,
+            simplifiedFraction: simplifiedAccuracyLabel,
+            equivalentFraction: equivalentAccuracyLabel,
+            decimal: String(format: "%.2f", accuracyValue),
+            percent: "\(Int((accuracyValue * 100).rounded()))%",
+            bonus: String(format: "%.1f", runtimeState.bonus),
+            points: String(format: "%.1f", runtimeState.points),
+            questionStarItems: questionStarItems,
+            onSelectQuestion: navigateToQuestion,
+            onShowFinalScore: showFinalScore,
+            flashingMeterIndex: flashingMeterIndex,
+            scoreSheet: fileScoreSheet,
+            showsScoreSheet: $showsScoreSheet,
+            onResetWidget: resetWidget,
+            onEditWidget: onEditWidget,
+            theme: theme
+        )
+    }
+
+    private var practicePanel: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if flow.isShowingFinalScore {
+                finalScorePanel
+            } else {
+                questionCard
+                blankFields
+                controls
+                hintPanel
+            }
+        }
+        .padding(18)
+        .background(
+            LinearGradient(
+                colors: [
+                    Color.white,
+                    Color(red: 0.97, green: 0.99, blue: 1.00)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            ),
+            in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(theme.border.opacity(0.55), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.08), radius: 12, x: 0, y: 6)
+        .offset(x: shake ? -8 : 0)
+        .animation(.default.repeatCount(3, autoreverses: true), value: shake)
+    }
+
+    private var finalScorePanel: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .center, spacing: 12) {
+                Image(systemName: missedQuestionCount == 0 ? "checkmark.seal.fill" : "flag.checkered")
+                    .font(.system(size: 42, weight: .black))
+                    .foregroundStyle(missedQuestionCount == 0 ? theme.correct : theme.accent)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Final Score")
+                        .font(.system(size: 30, weight: .black, design: .rounded))
+                        .foregroundStyle(theme.primaryText)
+                    Text(finalScoreMessage)
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(theme.secondaryText)
+                }
+            }
+
+            HStack(spacing: 12) {
+                finalScoreMetric(title: "Score", value: "\(score)/\(document.questions.count)", tint: theme.correct)
+                finalScoreMetric(title: "Missed", value: "\(missedQuestionCount)", tint: missedQuestionCount == 0 ? theme.correct : theme.incorrect)
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    beginReviewMathtivity()
+                } label: {
+                    Label("Review Mathtivity", systemImage: "list.bullet.rectangle")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(theme.accent)
+
+                Button {
+                    beginRetryMissed()
+                } label: {
+                    Label("Retry Missed", systemImage: "arrow.counterclockwise.circle.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(theme.accent)
+                .disabled(missedQuestionCount == 0)
+
+                Button {
+                    resetWidget()
+                } label: {
+                    Label("Reset", systemImage: "restart.circle")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(theme.warning)
+
+                Button {
+                    submitCurrentScore()
+                } label: {
+                    Label(flow.hasSubmittedScore ? "Resubmit" : "Submit", systemImage: "paperplane.circle.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(theme.accent)
+                .disabled(!isMathtivityComplete)
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(theme.accent.opacity(0.35), lineWidth: 1.5)
+        )
+    }
+
+    private var isMathtivityComplete: Bool {
+        answeredQuestionIDs.count >= document.questions.count
+    }
+
+    private var finalScoreMessage: String {
+        if !isMathtivityComplete {
+            return "You have answered \(answeredQuestionIDs.count) of \(document.questions.count) questions. Finish the mathtivity before submitting."
+        }
+        if missedQuestionCount == 0 {
+            return flow.hasSubmittedScore ? "All questions are correct. Your score has been submitted." : "All questions are correct. Submit when ready."
+        }
+        return "You missed \(missedQuestionCount) \(missedQuestionCount == 1 ? "question" : "questions"). Retry them or submit this score."
+    }
+
+    private func finalScoreMetric(title: String, value: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title.uppercased())
+                .font(.caption.weight(.black))
+                .foregroundStyle(theme.secondaryText)
+            Text(value)
+                .font(.system(size: 28, weight: .black, design: .rounded))
+                .foregroundStyle(tint)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.panel, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private var questionCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("Question:")
+                    .font(.system(size: 26, weight: .black, design: .rounded))
+                    .foregroundStyle(theme.accent)
+                Text(currentQuestion?.prompt ?? "")
+                    .font(.system(size: 26, weight: .bold, design: .rounded))
+                    .foregroundStyle(theme.primaryText)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if let expression = currentQuestion?.expression, !expression.isEmpty {
+                WidgetMathTextView(
+                    source: expression,
+                    fontSize: 42,
+                    weight: .black,
+                    foregroundColor: theme.expressionText,
+                    alignment: .center,
+                    lineLimit: 2,
+                    minimumScaleFactor: 0.55
+                )
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 20)
+                .padding(.horizontal, 14)
+                .background(theme.expressionBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(theme.accent.opacity(0.35), lineWidth: 2)
+                )
+                .scaleEffect(celebrate ? 1.035 : 1)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var blankFields: some View {
+        if let currentQuestion {
+            if let fractionLayout = fractionResponseLayout(for: currentQuestion) {
+                VStack(alignment: .leading, spacing: 12) {
+                    fractionResponseField(
+                        fractionLayout,
+                        label: currentQuestion.responseLayout?.label,
+                        in: currentQuestion
+                    )
+
+                    ForEach(remainingBlanks(after: fractionLayout, in: currentQuestion)) { blank in
+                        blankField(for: blank, in: currentQuestion)
+                    }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(currentQuestion.blanks) { blank in
+                        blankField(for: blank, in: currentQuestion)
+                    }
+                }
+            }
+        }
+    }
+
+    private func fractionResponseLayout(for question: WidgetActivityQuestion) -> (numerator: WidgetActivityBlank, denominator: WidgetActivityBlank)? {
+        guard question.responseLayout?.type == .fraction,
+              let numeratorID = question.responseLayout?.numeratorBlankId,
+              let denominatorID = question.responseLayout?.denominatorBlankId,
+              let numerator = question.blanks.first(where: { $0.id == numeratorID }),
+              let denominator = question.blanks.first(where: { $0.id == denominatorID })
+        else {
+            return nil
+        }
+
+        return (numerator, denominator)
+    }
+
+    private func remainingBlanks(
+        after fractionLayout: (numerator: WidgetActivityBlank, denominator: WidgetActivityBlank),
+        in question: WidgetActivityQuestion
+    ) -> [WidgetActivityBlank] {
+        question.blanks.filter { blank in
+            blank.id != fractionLayout.numerator.id && blank.id != fractionLayout.denominator.id
+        }
+    }
+
+    private func fractionResponseField(
+        _ fractionLayout: (numerator: WidgetActivityBlank, denominator: WidgetActivityBlank),
+        label: String?,
+        in question: WidgetActivityQuestion
+    ) -> some View {
+        let trimmedLabel = label?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayLabel = trimmedLabel?.isEmpty == false ? trimmedLabel ?? "Answer" : "Answer"
+
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("Fraction Answer")
+                .font(.caption.weight(.black))
+                .foregroundStyle(theme.secondaryText)
+
+            HStack(alignment: .center, spacing: 14) {
+                Text(displayLabel)
+                    .font(.system(size: 28, weight: .black, design: .rounded))
+                    .foregroundStyle(theme.expressionText)
+
+                VStack(spacing: 7) {
+                    compactBlankTextField(
+                        for: fractionLayout.numerator,
+                        in: question,
+                        placeholder: fractionLayout.numerator.label ?? "Numerator"
+                    )
+                    .frame(width: 118)
+
+                    Rectangle()
+                        .fill(theme.expressionText.opacity(0.82))
+                        .frame(width: 132, height: 2)
+
+                    compactBlankTextField(
+                        for: fractionLayout.denominator,
+                        in: question,
+                        placeholder: fractionLayout.denominator.label ?? "Denominator"
+                    )
+                    .frame(width: 118)
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(theme.expressionBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(theme.accent.opacity(0.28), lineWidth: 1)
+            )
+        }
+    }
+
+    private func blankField(for blank: WidgetActivityBlank, in question: WidgetActivityQuestion) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(blank.label ?? blank.id)
+                .font(.caption.weight(.black))
+                .foregroundStyle(theme.secondaryText)
+            compactBlankTextField(for: blank, in: question, placeholder: "Answer")
+        }
+    }
+
+    @ViewBuilder
+    private func compactBlankTextField(
+        for blank: WidgetActivityBlank,
+        in question: WidgetActivityQuestion,
+        placeholder: String
+    ) -> some View {
+        #if os(iOS)
+        if onMathInputRequested != nil {
+            Button {
+                requestMathInput(for: blank, in: question)
+            } label: {
+                let isActive = activeMathInputRequestID == mathInputRequestID(for: blank, in: question)
+                HStack {
+                    let value = responseBinding(for: blank, in: question).wrappedValue
+                    HStack(spacing: 2) {
+                        if isActive {
+                            activeMathInputText(value: value, placeholder: placeholder, requestID: mathInputRequestID(for: blank, in: question))
+                        } else if value.isEmpty {
+                            Text(placeholder)
+                                .foregroundStyle(theme.secondaryText.opacity(0.72))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
+                        } else {
+                            WidgetMathTextView(
+                                source: value,
+                                fontSize: 22,
+                                weight: .semibold,
+                                foregroundColor: theme.primaryText,
+                                lineLimit: 1,
+                                minimumScaleFactor: 0.7
+                            )
+                        }
+
+                    }
+                    Spacer(minLength: 6)
+                    Image(systemName: blank.kind == .numeric ? "number" : "keyboard")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(theme.secondaryText)
+                }
+                .font(.title3.weight(.semibold))
+                .padding(.horizontal, 10)
+                .frame(minHeight: 38)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(isActive ? theme.accent : theme.border.opacity(0.85), lineWidth: isActive ? 3 : 1)
+                )
+                .shadow(color: isActive ? theme.accent.opacity(0.28) : .clear, radius: 5, x: 0, y: 0)
+            }
+            .buttonStyle(.plain)
+            .disabled(isCurrentQuestionLocked)
+            .accessibilityLabel(blank.label ?? blank.id)
+            .accessibilityValue(responseBinding(for: blank, in: question).wrappedValue)
+        } else {
+            fallbackTextField(for: blank, in: question, placeholder: placeholder)
+        }
+        #else
+        fallbackTextField(for: blank, in: question, placeholder: placeholder)
+        #endif
+    }
+
+    private func fallbackTextField(
+        for blank: WidgetActivityBlank,
+        in question: WidgetActivityQuestion,
+        placeholder: String
+    ) -> some View {
+        TextField(placeholder, text: responseBinding(for: blank, in: question))
+            .textFieldStyle(.roundedBorder)
+            .font(.title3.weight(.semibold))
+            .disabled(isCurrentQuestionLocked)
+#if os(iOS)
+            .keyboardType(blank.kind == .numeric ? .numbersAndPunctuation : .default)
+            .textInputAutocapitalization(.never)
+#endif
+    }
+
+    private func requestMathInput(for blank: WidgetActivityBlank, in question: WidgetActivityQuestion) {
+        guard let onMathInputRequested else { return }
+
+        let binding = responseBinding(for: blank, in: question)
+        let title = blank.label ?? question.prompt
+        let kind: WidgetMathInputKeypadKind = blank.kind == .numeric ? .numeric : .alphanumeric
+        let requestID = mathInputRequestID(for: blank, in: question)
+        mathInputCursorOffsets[requestID] = cursorOffset(for: requestID, value: binding.wrappedValue)
+        activeMathInputRequestID = requestID
+        restartMathInputCursorBlink()
+
+        onMathInputRequested(
+            WidgetMathInputKeypadRequest(
+                id: requestID,
+                title: title,
+                kind: kind,
+                applyAction: { action in
+                    switch action {
+                    case .insert(let text):
+                        insertMathInputText(text, into: binding, requestID: requestID)
+                    case .deleteBackward:
+                        deleteMathInputText(from: binding, requestID: requestID)
+                    case .clear:
+                        binding.wrappedValue = ""
+                        mathInputCursorOffsets[requestID] = 0
+                    case .moveCursorLeft:
+                        moveMathInputCursor(for: requestID, value: binding.wrappedValue, delta: -1)
+                    case .moveCursorRight:
+                        moveMathInputCursor(for: requestID, value: binding.wrappedValue, delta: 1)
+                    case .returnKey:
+                        handleMathInputReturn(from: blank, in: question)
+                    }
+                }
+            )
+        )
+    }
+
+    private func mathInputRequestID(for blank: WidgetActivityBlank, in question: WidgetActivityQuestion) -> String {
+        let widgetID = document.widgetId ?? document.title
+        return "\(widgetID)-\(question.id)-\(blank.id)"
+    }
+
+    private func handleMathInputReturn(from blank: WidgetActivityBlank, in question: WidgetActivityQuestion) {
+        guard !isCurrentQuestionLocked else { return }
+        if let currentIndex = question.blanks.firstIndex(where: { $0.id == blank.id }) {
+            let remainingBlanks = question.blanks[(currentIndex + 1)...]
+            if let nextBlank = remainingBlanks.first(where: { nextBlank in
+                response(for: nextBlank, in: question).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }) {
+                requestMathInput(for: nextBlank, in: question)
+                return
+            }
+        }
+
+        if canCheckAnswer {
+            checkAnswer()
+        }
+    }
+
+    private func activeMathInputText(value: String, placeholder: String, requestID: String) -> some View {
+        let offset = cursorOffset(for: requestID, value: value)
+        let parts = split(value, at: offset)
+
+        return HStack(spacing: 2) {
+            if value.isEmpty {
+                Text(placeholder)
+                    .foregroundStyle(theme.secondaryText.opacity(0.72))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            } else {
+                if !parts.leading.isEmpty {
+                    Text(parts.leading)
+                        .foregroundStyle(theme.primaryText)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                mathInputCursor
+                if !parts.trailing.isEmpty {
+                    Text(parts.trailing)
+                        .foregroundStyle(theme.primaryText)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+            }
+
+            if value.isEmpty {
+                mathInputCursor
+            }
+        }
+    }
+
+    private var mathInputCursor: some View {
+        Rectangle()
+            .fill(theme.accent)
+            .frame(width: 2, height: 24)
+            .opacity(isMathInputCursorVisible ? 1 : 0.18)
+            .accessibilityHidden(true)
+    }
+
+    private func insertMathInputText(
+        _ text: String,
+        into binding: Binding<String>,
+        requestID: String
+    ) {
+        var value = binding.wrappedValue
+        let offset = cursorOffset(for: requestID, value: value)
+        let index = value.index(value.startIndex, offsetBy: offset)
+        value.insert(contentsOf: text, at: index)
+        binding.wrappedValue = value
+        mathInputCursorOffsets[requestID] = offset + text.count
+    }
+
+    private func deleteMathInputText(from binding: Binding<String>, requestID: String) {
+        var value = binding.wrappedValue
+        let offset = cursorOffset(for: requestID, value: value)
+        guard offset > 0 else { return }
+        let removalIndex = value.index(value.startIndex, offsetBy: offset - 1)
+        value.remove(at: removalIndex)
+        binding.wrappedValue = value
+        mathInputCursorOffsets[requestID] = offset - 1
+    }
+
+    private func moveMathInputCursor(for requestID: String, value: String, delta: Int) {
+        let offset = cursorOffset(for: requestID, value: value)
+        mathInputCursorOffsets[requestID] = min(max(offset + delta, 0), value.count)
+        restartMathInputCursorBlink()
+    }
+
+    private func cursorOffset(for requestID: String, value: String) -> Int {
+        min(max(mathInputCursorOffsets[requestID] ?? value.count, 0), value.count)
+    }
+
+    private func split(_ value: String, at offset: Int) -> (leading: String, trailing: String) {
+        let splitIndex = value.index(value.startIndex, offsetBy: min(max(offset, 0), value.count))
+        return (String(value[..<splitIndex]), String(value[splitIndex...]))
+    }
+
+    private func restartMathInputCursorBlink() {
+        isMathInputCursorVisible = true
+        withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
+            isMathInputCursorVisible = false
+        }
+    }
+
+    private var controls: some View {
+        HStack(spacing: 10) {
+            if !isReviewingAnswers {
+                Button {
+                    revealHint()
+                } label: {
+                    Image(systemName: "lightbulb.fill")
+                        .font(.headline.weight(.bold))
+                        .frame(width: 44, height: 38)
+                }
+                .buttonStyle(.bordered)
+                .tint(theme.accent)
+                .disabled(!canShowHint)
+                .accessibilityLabel("Show hint")
+
+                Button {
+                    checkAnswer()
+                } label: {
+                    Label("Check", systemImage: "checkmark.circle.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(theme.accent)
+                .disabled(!canCheckAnswer)
+            }
+
+            if flow.isRetryingMissed {
+                Button {
+                    skipRetryQuestion()
+                } label: {
+                    Label("Skip", systemImage: "forward.circle")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(theme.warning)
+            }
+
+            Button {
+                nextQuestion()
+            } label: {
+                Label("Next", systemImage: "arrow.right.circle")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(WidgetNextButtonStyle(
+                theme: theme,
+                isEnabled: canAdvanceToNextQuestion,
+                isHighlighted: isNextButtonHighlighted
+            ))
+            .disabled(!canAdvanceToNextQuestion)
+        }
+        .onChange(of: nextButtonPressToken) { _, _ in
+            pulseNextButton()
+        }
+    }
+
+    @ViewBuilder
+    private var hintPanel: some View {
+        if let currentQuestion, !currentQuestion.hints.isEmpty, hintLevel > 0 {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(currentQuestion.hints.prefix(hintLevel).enumerated()), id: \.offset) { index, hint in
+                    Text("Hint \(index + 1): \(hint)")
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(theme.primaryText)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(theme.hintBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var feedbackPanel: some View {
+        if let feedbackMessage {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: feedbackKind.systemImage)
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(feedbackKind.color(theme: theme))
+                    .frame(width: 30, height: 30)
+
+                Text(feedbackMessage)
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(theme.primaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: 0)
+            }
+            .padding(14)
+            .background(feedbackKind.background(theme: theme), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+    }
+
+    private func checkAnswer() {
+        guard let currentQuestion else { return }
+
+        if correctlyAnsweredQuestionIDs.contains(currentQuestion.id) {
+            feedbackKind = .neutral
+            feedbackMessage = "This question is already correct. Move to the next one."
+            return
+        }
+
+        if let maxAttempts = document.rules?.maxAttemptsPerQuestion,
+           maxAttempts > 0,
+           (questionAttempts[currentQuestion.id] ?? 0) >= maxAttempts {
+            feedbackKind = .warning
+            feedbackMessage = "You have used all attempts for this question. Move to the next one."
+            triggerShake()
+            return
+        }
+
+        let unansweredBlank = currentQuestion.blanks.first { blank in
+            response(for: blank, in: currentQuestion).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        if let unansweredBlank {
+            feedbackKind = .warning
+            feedbackMessage = "Fill in \(unansweredBlank.label ?? unansweredBlank.id) first, then check it."
+            triggerShake()
+            return
+        }
+
+        let alreadyAnswered = answeredQuestionIDs.contains(currentQuestion.id)
+        if alreadyAnswered && document.rules?.allowRetry == false {
+            feedbackKind = .neutral
+            feedbackMessage = "This one is already locked in. Move to the next question."
+            return
+        }
+
+        let incorrectBlanks = currentQuestion.blanks.filter { blank in
+            !WidgetActivityAnswerChecker.response(response(for: blank, in: currentQuestion), matches: blank)
+        }
+
+        attempts += 1
+        questionAttempts[currentQuestion.id, default: 0] += 1
+        answeredQuestionIDs.insert(currentQuestion.id)
+
+        if incorrectBlanks.isEmpty {
+            if !correctlyAnsweredQuestionIDs.contains(currentQuestion.id) {
+                score += 1
+            }
+            correctlyAnsweredQuestionIDs.insert(currentQuestion.id)
+            streak += 1
+            longestStreak = max(longestStreak, streak)
+            feedbackKind = .correct
+            feedbackMessage = currentQuestion.correctFeedback
+                ?? document.feedback?.defaultCorrect
+                ?? "Correct. Nice work."
+            triggerCelebration()
+            triggerMeterFlashSequence()
+        } else {
+            streak = 0
+            feedbackKind = .incorrect
+            feedbackMessage = incorrectBlanks.first?.feedback
+                ?? currentQuestion.incorrectFeedback
+                ?? document.feedback?.defaultIncorrect
+                ?? document.feedback?.defaultEncouragement
+                ?? "Not yet. Check your answer and try again."
+            triggerShake()
+        }
+    }
+
+    private func nextQuestion() {
+        guard !document.questions.isEmpty, canAdvanceToNextQuestion else { return }
+        nextButtonPressToken = (nextButtonPressToken ?? 0) + 1
+
+        if isReviewingAnswers {
+            guard currentQuestionIndex < document.questions.count - 1 else {
+                showFinalScore()
+                return
+            }
+            currentQuestionIndex += 1
+            prepareReviewQuestion()
+            return
+        }
+
+        if flow.isRetryingMissed {
+            advanceRetryQuestionOrFinish()
+            return
+        }
+
+        guard currentQuestionIndex < document.questions.count - 1 else {
+            showFinalScore()
+            return
+        }
+
+        currentQuestionIndex += 1
+        hintLevel = 0
+        feedbackKind = .neutral
+        feedbackMessage = nil
+    }
+
+    private func revealHint() {
+        guard let currentQuestion else { return }
+        hintLevel = min(hintLevel + 1, currentQuestion.hints.count)
+    }
+
+    private func resetWidget() {
+        let submittedState = flow
+        runtimeState = WidgetFillInTheBlankRuntimeState.initial(for: document)
+        runtimeState.flow = WidgetActivityAttemptFlowState(
+            hasSubmittedScore: submittedState.hasSubmittedScore,
+            submittedRecord: submittedState.submittedRecord
+        )
+        feedbackKind = .neutral
+        feedbackMessage = nil
+        celebrate = false
+        shake = false
+        flashingMeterIndex = nil
+        answeredQuestionIDs = []
+        correctlyAnsweredQuestionIDs = []
+        questionAttempts = [:]
+        showsScoreSheet = false
+    }
+
+    private func showFinalScore() {
+        var nextFlow = flow
+        nextFlow.isShowingFinalScore = true
+        nextFlow.isRetryingMissed = false
+        nextFlow.isReviewingAnswers = false
+        nextFlow.retryQuestionIndex = 0
+        nextFlow.retryQuestionIDs = []
+        flow = nextFlow
+        hintLevel = 0
+        feedbackKind = .neutral
+        feedbackMessage = nil
+    }
+
+    private func beginReviewMathtivity() {
+        guard !document.questions.isEmpty else { return }
+        var nextFlow = flow
+        nextFlow.isShowingFinalScore = false
+        nextFlow.isRetryingMissed = false
+        nextFlow.isReviewingAnswers = true
+        nextFlow.retryQuestionIDs = []
+        nextFlow.retryQuestionIndex = 0
+        flow = nextFlow
+        currentQuestionIndex = 0
+        prepareReviewQuestion()
+    }
+
+    private func prepareReviewQuestion() {
+        guard let currentQuestion else { return }
+        activeMathInputRequestID = nil
+        hintLevel = 0
+        feedbackKind = correctlyAnsweredQuestionIDs.contains(currentQuestion.id) ? .correct : .incorrect
+        feedbackMessage = reviewFeedback(for: currentQuestion)
+    }
+
+    private func reviewFeedback(for question: WidgetActivityQuestion) -> String {
+        let status = correctlyAnsweredQuestionIDs.contains(question.id) ? "Correct." : "Missed."
+        if let explanation = question.explanation, !explanation.isEmpty {
+            return "\(status) \(explanation)"
+        }
+        return status
+    }
+
+    private func beginRetryMissed() {
+        let missedIDs = missedQuestionIDs
+        guard !missedIDs.isEmpty else { return }
+        var nextFlow = flow
+        nextFlow.isShowingFinalScore = false
+        nextFlow.isRetryingMissed = true
+        nextFlow.isReviewingAnswers = false
+        nextFlow.retryQuestionIDs = missedIDs
+        nextFlow.retryQuestionIndex = 0
+        nextFlow.skippedRetryQuestionIDs = []
+        flow = nextFlow
+        hintLevel = 0
+        feedbackKind = .neutral
+        feedbackMessage = nil
+    }
+
+    private func skipRetryQuestion() {
+        guard flow.isRetryingMissed, let currentQuestion else { return }
+        var nextFlow = flow
+        nextFlow.skippedRetryQuestionIDs.insert(currentQuestion.id)
+        flow = nextFlow
+        advanceRetryQuestionOrFinish()
+    }
+
+    private func advanceRetryQuestionOrFinish() {
+        var nextFlow = flow
+        let nextIndex = nextFlow.retryQuestionIndex + 1
+        guard nextIndex < nextFlow.retryQuestionIDs.count else {
+            showFinalScore()
+            return
+        }
+
+        nextFlow.retryQuestionIndex = nextIndex
+        flow = nextFlow
+        hintLevel = 0
+        feedbackKind = .neutral
+        feedbackMessage = nil
+    }
+
+    private func submitCurrentScore() {
+        var nextFlow = flow
+        nextFlow.hasSubmittedScore = true
+        nextFlow.submittedRecord = currentScoreRecord
+        flow = nextFlow
+        feedbackKind = .correct
+        feedbackMessage = "Score submitted. You can resubmit if you retry or reset."
+        triggerMeterFlashSequence()
+    }
+
+    private func prepareRuntimeStateIfNeeded() {
+        if questionOrder.count != document.questions.count {
+            runtimeState.questionOrder = WidgetFillInTheBlankRuntimeState.initial(for: document).questionOrder
+        }
+
+        if currentQuestionIndex >= max(document.questions.count, 1) {
+            currentQuestionIndex = 0
+        }
+    }
+
+    private func responseBinding(for blank: WidgetActivityBlank, in question: WidgetActivityQuestion) -> Binding<String> {
+        let key = responseKey(for: blank, in: question)
+        return Binding(
+            get: { responsesByBlankID[key] ?? "" },
+            set: { responsesByBlankID[key] = $0 }
+        )
+    }
+
+    private func response(for blank: WidgetActivityBlank, in question: WidgetActivityQuestion) -> String {
+        responsesByBlankID[responseKey(for: blank, in: question)] ?? ""
+    }
+
+    private func responseKey(for blank: WidgetActivityBlank, in question: WidgetActivityQuestion) -> String {
+        "\(question.id)::\(blank.id)"
+    }
+
+    private func triggerCelebration() {
+        celebrate = true
+        Task {
+            try? await Task.sleep(for: .milliseconds(420))
+            celebrate = false
+        }
+    }
+
+    private func triggerMeterFlashSequence() {
+        Task {
+            for index in [0, 1, 3, 2] {
+                await MainActor.run {
+                    withAnimation(.easeOut(duration: 0.08)) {
+                        flashingMeterIndex = index
+                    }
+                }
+                try? await Task.sleep(for: .milliseconds(130))
+                await MainActor.run {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        flashingMeterIndex = nil
+                    }
+                }
+                try? await Task.sleep(for: .milliseconds(55))
+            }
+        }
+    }
+
+    private func triggerShake() {
+        shake = true
+        Task {
+            try? await Task.sleep(for: .milliseconds(360))
+            shake = false
+        }
+    }
+
+    private func pulseNextButton() {
+        isNextButtonHighlighted = true
+        Task {
+            try? await Task.sleep(for: .milliseconds(260))
+            isNextButtonHighlighted = false
+        }
+    }
+
+    private static func greatestCommonDivisor(_ left: Int, _ right: Int) -> Int {
+        var a = abs(left)
+        var b = abs(right)
+        while b != 0 {
+            let remainder = a % b
+            a = b
+            b = remainder
+        }
+        return max(a, 1)
+    }
+}
+
 private struct WidgetNextButtonStyle: ButtonStyle {
     let theme: WidgetActivityVisualTheme
     let isEnabled: Bool
@@ -1080,6 +2673,9 @@ private struct ActivityScoreGaugePanel: View {
     let percent: String
     let bonus: String
     let points: String
+    let questionStarItems: [ActivityQuestionStarItem]
+    let onSelectQuestion: (Int) -> Void
+    let onShowFinalScore: () -> Void
     let flashingMeterIndex: Int?
     let scoreSheet: WidgetActivityScoreSheet
     @Binding var showsScoreSheet: Bool
@@ -1140,6 +2736,9 @@ private struct ActivityScoreGaugePanel: View {
             score: "\(score)/\(attempts)",
             bonus: bonus,
             points: points,
+            questionStarItems: questionStarItems,
+            onSelectQuestion: onSelectQuestion,
+            onShowFinalScore: onShowFinalScore,
             scoreSheet: scoreSheet,
             showsScoreSheet: $showsScoreSheet,
             onResetWidget: onResetWidget,
@@ -1616,6 +3215,9 @@ private struct ScoreSummaryTable: View {
     let score: String
     let bonus: String
     let points: String
+    let questionStarItems: [ActivityQuestionStarItem]
+    let onSelectQuestion: (Int) -> Void
+    let onShowFinalScore: () -> Void
     let scoreSheet: WidgetActivityScoreSheet
     @Binding var showsScoreSheet: Bool
     let onResetWidget: () -> Void
@@ -1636,10 +3238,16 @@ private struct ScoreSummaryTable: View {
                         .strokeBorder(theme.border, lineWidth: 1)
                 )
 
-            StreakStars(count: streak, totalCount: totalCount, theme: theme)
+            StreakStars(
+                count: streak,
+                totalCount: totalCount,
+                questionItems: questionStarItems,
+                theme: theme,
+                onSelectQuestion: onSelectQuestion
+            )
 
             VStack(alignment: .leading, spacing: 8) {
-                ScoreSummaryRow(label: "Score", value: score, theme: theme)
+                scoreNavigationRow
                 ScoreSummaryRow(label: "Longest Streak", value: "\(longestStreak)", theme: theme)
                 ScoreSummaryRow(label: "Bonus", value: bonus, theme: theme)
                 ScoreSummaryRow(label: "Points", value: points, theme: theme)
@@ -1671,6 +3279,30 @@ private struct ScoreSummaryTable: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(theme.border, lineWidth: 1)
         )
+    }
+
+    private var scoreNavigationRow: some View {
+        Button(action: onShowFinalScore) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("Score")
+                    .font(.caption.weight(.black))
+                    .textCase(.uppercase)
+                    .foregroundStyle(theme.accent)
+                Spacer(minLength: 8)
+                Text(score)
+                    .font(.system(size: 17, weight: .black, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(theme.primaryText)
+                Image(systemName: "arrow.right.circle.fill")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(theme.accent)
+            }
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Show final score")
+        .accessibilityValue(score)
     }
 
     private var scoreSheetButton: some View {
@@ -1885,32 +3517,90 @@ private struct ScoreSummaryRow: View {
 private struct StreakStars: View {
     let count: Int
     let totalCount: Int
+    let questionItems: [ActivityQuestionStarItem]
     let theme: WidgetActivityVisualTheme
+    let onSelectQuestion: (Int) -> Void
 
     var body: some View {
-        let visibleStarCount = min(max(totalCount, 1), 25)
-        let cappedCount = min(max(count, 0), visibleStarCount)
+        let items = questionItems.isEmpty
+            ? (0..<min(max(totalCount, 1), 25)).map { index in
+                ActivityQuestionStarItem(
+                    index: index,
+                    title: "Question \(index + 1)",
+                    status: index < count ? .correct : .unanswered,
+                    isCurrent: false
+                )
+            }
+            : Array(questionItems.prefix(25))
         let generalsBlue = Color(red: 0.00, green: 0.31, blue: 0.58)
 
         LazyVGrid(columns: Array(repeating: GridItem(.fixed(24), spacing: 6), count: 5), spacing: 8) {
-            ForEach(0..<visibleStarCount, id: \.self) { index in
-                Image(systemName: index < cappedCount ? "star.fill" : "star")
-                    .font(.system(size: 17, weight: .black))
-                    .foregroundStyle(index < cappedCount ? generalsBlue : theme.secondaryText.opacity(0.42))
-                    .frame(width: 24, height: 24)
-                    .background(
-                        Circle()
-                            .fill(index < cappedCount ? generalsBlue.opacity(0.14) : Color.clear)
-                    )
-                    .overlay(
-                        Circle()
-                            .strokeBorder(index < cappedCount ? generalsBlue.opacity(0.46) : Color.clear, lineWidth: 1)
-                    )
+            ForEach(items) { item in
+                Button {
+                    onSelectQuestion(item.index)
+                } label: {
+                    Image(systemName: item.status == .unanswered ? "star" : "star.fill")
+                        .font(.system(size: 17, weight: .black))
+                        .foregroundStyle(starColor(for: item.status, defaultBlue: generalsBlue))
+                        .frame(width: 24, height: 24)
+                        .background(
+                            Circle()
+                                .fill(starColor(for: item.status, defaultBlue: generalsBlue).opacity(item.status == .unanswered ? 0.04 : 0.14))
+                        )
+                        .overlay(
+                            Circle()
+                                .strokeBorder(item.isCurrent ? theme.accent : starColor(for: item.status, defaultBlue: generalsBlue).opacity(item.status == .unanswered ? 0 : 0.46), lineWidth: item.isCurrent ? 2.5 : 1)
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(item.title), \(accessibilityStatus(for: item.status))")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityLabel("Current streak \(count) out of \(visibleStarCount)")
+        .accessibilityLabel("Question navigator")
     }
+
+    private func starColor(for status: ActivityQuestionStarStatus, defaultBlue: Color) -> Color {
+        switch status {
+        case .unanswered:
+            return theme.secondaryText.opacity(0.42)
+        case .correct:
+            return Color(red: 0.96, green: 0.67, blue: 0.08)
+        case .incorrect:
+            return theme.incorrect
+        case .corrected:
+            return theme.correct
+        }
+    }
+
+    private func accessibilityStatus(for status: ActivityQuestionStarStatus) -> String {
+        switch status {
+        case .unanswered:
+            return "not answered"
+        case .correct:
+            return "correct"
+        case .incorrect:
+            return "incorrect"
+        case .corrected:
+            return "corrected"
+        }
+    }
+}
+
+private enum ActivityQuestionStarStatus: Equatable {
+    case unanswered
+    case correct
+    case incorrect
+    case corrected
+}
+
+private struct ActivityQuestionStarItem: Identifiable, Equatable {
+    let index: Int
+    let title: String
+    let status: ActivityQuestionStarStatus
+    let isCurrent: Bool
+
+    var id: Int { index }
 }
 
 private enum FeedbackKind {

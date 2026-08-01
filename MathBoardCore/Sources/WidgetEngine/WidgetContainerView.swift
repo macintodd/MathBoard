@@ -82,6 +82,7 @@ public struct WidgetContainerView: View {
     private let onDeleteWidget: (() -> Void)?
     private let onInteractionChanged: ((Bool) -> Void)?
     private let onDisplayFrameChanged: ((CGRect?) -> Void)?
+    private let onMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)?
 
     /// Live frame, seeded from `widget.frame`. This is the single source of
     /// truth for position and size while the object floats on the board.
@@ -109,7 +110,8 @@ public struct WidgetContainerView: View {
         onEditWidget: (() -> Void)? = nil,
         onDeleteWidget: (() -> Void)? = nil,
         onInteractionChanged: ((Bool) -> Void)? = nil,
-        onDisplayFrameChanged: ((CGRect?) -> Void)? = nil
+        onDisplayFrameChanged: ((CGRect?) -> Void)? = nil,
+        onMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)? = nil
     ) {
         _widget = widget
         self.scoreSheet = scoreSheet
@@ -118,6 +120,7 @@ public struct WidgetContainerView: View {
         self.onDeleteWidget = onDeleteWidget
         self.onInteractionChanged = onInteractionChanged
         self.onDisplayFrameChanged = onDisplayFrameChanged
+        self.onMathInputRequested = onMathInputRequested
         _frame = State(initialValue: widget.wrappedValue.frame)
         _committedOrigin = State(initialValue: widget.wrappedValue.frame.origin)
         _committedSize = State(initialValue: widget.wrappedValue.frame.size)
@@ -131,6 +134,7 @@ public struct WidgetContainerView: View {
         self.onDeleteWidget = nil
         self.onInteractionChanged = nil
         self.onDisplayFrameChanged = nil
+        self.onMathInputRequested = nil
         _frame = State(initialValue: widget.frame)
         _committedOrigin = State(initialValue: widget.frame.origin)
         _committedSize = State(initialValue: widget.frame.size)
@@ -187,6 +191,7 @@ public struct WidgetContainerView: View {
                 document: document,
                 scoreSheet: scoreSheet,
                 onEditWidget: onEditWidget,
+                onMathInputRequested: onMathInputRequested,
                 runtimeState: activityRuntimeStateBinding(for: document)
             )
         } else {

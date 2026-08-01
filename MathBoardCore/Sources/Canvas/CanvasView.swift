@@ -41,6 +41,7 @@ public struct CanvasView: View {
     private let onExtractedRegionPlaced: (@MainActor (CanvasExtractedRegion) -> Void)?
     private let onExtractActionCompleted: (@MainActor () -> Void)?
     private let onWidgetEditRequested: (@MainActor (WidgetObject) -> Void)?
+    private let onWidgetMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)?
     private let allowsWidgetAuthoring: Bool
 
     public init(
@@ -69,6 +70,7 @@ public struct CanvasView: View {
         onExtractedRegionPlaced: (@MainActor (CanvasExtractedRegion) -> Void)? = nil,
         onExtractActionCompleted: (@MainActor () -> Void)? = nil,
         onWidgetEditRequested: (@MainActor (WidgetObject) -> Void)? = nil,
+        onWidgetMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)? = nil,
         allowsWidgetAuthoring: Bool = true
     ) {
         self.drawingURL = drawingURL
@@ -96,6 +98,7 @@ public struct CanvasView: View {
         self.onExtractedRegionPlaced = onExtractedRegionPlaced
         self.onExtractActionCompleted = onExtractActionCompleted
         self.onWidgetEditRequested = onWidgetEditRequested
+        self.onWidgetMathInputRequested = onWidgetMathInputRequested
         self.allowsWidgetAuthoring = allowsWidgetAuthoring
     }
 
@@ -127,6 +130,7 @@ public struct CanvasView: View {
             onExtractedRegionPlaced: onExtractedRegionPlaced,
             onExtractActionCompleted: onExtractActionCompleted,
             onWidgetEditRequested: onWidgetEditRequested,
+            onWidgetMathInputRequested: onWidgetMathInputRequested,
             allowsWidgetAuthoring: allowsWidgetAuthoring
         )
         #else

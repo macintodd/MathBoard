@@ -115,6 +115,9 @@ let package = Package(
             name: "WidgetEngine",
             dependencies: [
                 .product(name: "SwiftUIMath", package: "swiftui-math")
+            ],
+            resources: [
+                .process("JSONMathtivities")
             ]
         ),
         .testTarget(name: "WidgetEngineTests", dependencies: ["WidgetEngine"]),
@@ -134,7 +137,16 @@ let package = Package(
         // Library drawer + per-lesson Recent sidecar. The drawer remains UI-only
         // for placement, but supported inserted objects now record Recent metadata
         // and optional PNG thumbnails. See MathBoard/LibraryDrawer_status.md.
-        .target(name: "Library"),
+        .target(
+            name: "Library",
+            dependencies: [
+                "WidgetEngine",
+                .product(name: "FirebaseAuth", package: "firebase-ios-sdk"),
+                .product(name: "FirebaseCore", package: "firebase-ios-sdk"),
+                .product(name: "FirebaseFirestore", package: "firebase-ios-sdk"),
+                .product(name: "FirebaseStorage", package: "firebase-ios-sdk")
+            ]
+        ),
 
         // Slide-navigator redesign sandbox. See SlideNav/SlideNav_status.md.
         .target(name: "SlideNav")

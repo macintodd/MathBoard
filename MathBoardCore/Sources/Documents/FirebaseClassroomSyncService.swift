@@ -158,14 +158,14 @@ struct FirebaseClassroomSyncService {
             throw ClassroomAssignmentStoreError.widgetNotAssigned
         }
 
-        let student = try student(
-            matching: submission.studentIdentifier,
-            in: rosterStudents(from: data)
-        )
+        let normalizedIdentifier = normalizedStudentIdentifier(submission.studentIdentifier)
+        guard !normalizedIdentifier.isEmpty else {
+            throw ClassroomAssignmentStoreError.studentNotFound
+        }
         let result = StudentWidgetResult(
             assignmentID: packet.id,
             classroomID: packet.classroomID,
-            studentID: student.id,
+            studentID: stableStudentID(for: normalizedIdentifier),
             widgetID: widgetID,
             numberCorrectFirstTry: submission.widgetScoreRecord.numberCorrectFirstTry,
             numberCorrectAfterRetry: submission.widgetScoreRecord.numberCorrectAfterRetry,
@@ -173,9 +173,9 @@ struct FirebaseClassroomSyncService {
             finalPercentScore: Double(percent),
             submittedAt: submission.submittedAt
         )
-        try await setData(submissionDocument(result: result, student: student), at: document
+        try await setData(submissionDocument(result: result, submission: submission), at: document
             .collection("submissions")
-            .document(submissionDocumentID(studentID: student.id, widgetID: widgetID))
+            .document(submissionDocumentID(studentIdentifier: normalizedIdentifier, widgetID: widgetID))
         )
         return result
     }
@@ -217,15 +217,18 @@ struct FirebaseClassroomSyncService {
             throw ClassroomAssignmentStoreError.widgetNotAssigned
         }
 
-        let student = try student(
-            matching: submission.studentIdentifier,
-            in: rosterStudents(from: data)
-        )
+        let normalizedIdentifier = normalizedStudentIdentifier(submission.studentIdentifier)
+        guard !normalizedIdentifier.isEmpty else {
+            throw ClassroomAssignmentStoreError.studentNotFound
+        }
+        let preferredFirstName = normalizedPreferredFirstName(submission.studentPreferredFirstName)
         let progress = StudentWidgetLiveProgress(
             assignmentID: packet.id,
             classroomID: packet.classroomID,
-            studentID: student.id,
-            studentName: student.displayName,
+            studentID: stableStudentID(for: normalizedIdentifier),
+            studentIdentifier: normalizedIdentifier,
+            studentName: preferredFirstName ?? "Student \(normalizedIdentifier)",
+            studentPreferredFirstName: preferredFirstName,
             widgetID: widgetID,
             correctCount: submission.widgetScoreRecord.score,
             attemptedCount: submission.widgetScoreRecord.attempts,
@@ -235,7 +238,7 @@ struct FirebaseClassroomSyncService {
         )
         try await setData(liveProgressDocument(progress), at: document
             .collection("liveProgress")
-            .document(submissionDocumentID(studentID: student.id, widgetID: widgetID))
+            .document(submissionDocumentID(studentIdentifier: normalizedIdentifier, widgetID: widgetID))
         )
         return progress
     }
@@ -357,8 +360,7 @@ struct FirebaseClassroomSyncService {
             "lessonTitle": packet.lesson.title,
             "classLessonCode": packet.classLessonCode,
             "assignedAt": Timestamp(date: packet.assignedAt),
-            "widgetSummaries": packet.widgetSummaries.map(widgetSummaryDocument),
-            "students": classroom.students.map(rosterStudentDocument)
+            "widgetSummaries": packet.widgetSummaries.map(widgetSummaryDocument)
         ]
         if let teacherEmail {
             document["teacherEmail"] = teacherEmail
@@ -487,14 +489,13 @@ struct FirebaseClassroomSyncService {
         return student
     }
 
-    private func submissionDocument(result: StudentWidgetResult, student: RosterStudent) -> [String: Any] {
-        [
+    private func submissionDocument(result: StudentWidgetResult, submission: StudentSubmissionPacket) -> [String: Any] {
+        var document: [String: Any] = [
             "id": result.id.uuidString,
             "assignmentID": result.assignmentID.uuidString,
             "classroomID": result.classroomID.uuidString,
             "studentID": result.studentID.uuidString,
-            "studentFirstName": student.firstName,
-            "studentLastName": student.lastName,
+            "studentIdentifier": normalizedStudentIdentifier(submission.studentIdentifier),
             "widgetID": result.widgetID.uuidString,
             "numberCorrectFirstTry": result.numberCorrectFirstTry,
             "numberCorrectAfterRetry": result.numberCorrectAfterRetry,
@@ -502,13 +503,18 @@ struct FirebaseClassroomSyncService {
             "finalPercentScore": result.finalPercentScore,
             "submittedAt": Timestamp(date: result.submittedAt)
         ]
+        if let preferredFirstName = normalizedPreferredFirstName(submission.studentPreferredFirstName) {
+            document["studentPreferredFirstName"] = preferredFirstName
+        }
+        return document
     }
 
     private func liveProgressDocument(_ progress: StudentWidgetLiveProgress) -> [String: Any] {
-        [
+        var document: [String: Any] = [
             "assignmentID": progress.assignmentID.uuidString,
             "classroomID": progress.classroomID.uuidString,
             "studentID": progress.studentID.uuidString,
+            "studentIdentifier": progress.studentIdentifier,
             "studentName": progress.studentName,
             "widgetID": progress.widgetID.uuidString,
             "correctCount": progress.correctCount,
@@ -517,6 +523,10 @@ struct FirebaseClassroomSyncService {
             "isActiveOnStudentScreen": progress.isActiveOnStudentScreen,
             "updatedAt": Timestamp(date: progress.updatedAt)
         ]
+        if let preferredFirstName = normalizedPreferredFirstName(progress.studentPreferredFirstName) {
+            document["studentPreferredFirstName"] = preferredFirstName
+        }
+        return document
     }
 
     private func submissionResult(from data: [String: Any]) -> StudentWidgetResult? {
@@ -544,16 +554,19 @@ struct FirebaseClassroomSyncService {
     private func liveProgress(from data: [String: Any]) -> StudentWidgetLiveProgress? {
         guard let assignmentID = uuidValue(data["assignmentID"]),
               let classroomID = uuidValue(data["classroomID"]),
-              let studentID = uuidValue(data["studentID"]),
               let widgetID = uuidValue(data["widgetID"]) else {
             return nil
         }
+        let studentIdentifier = normalizedStudentIdentifier(data["studentIdentifier"] as? String ?? "")
+        let studentID = uuidValue(data["studentID"]) ?? stableStudentID(for: studentIdentifier)
         let status = (data["status"] as? String).flatMap(WidgetActivityScoreStatus.init(rawValue:)) ?? .inProgress
         return StudentWidgetLiveProgress(
             assignmentID: assignmentID,
             classroomID: classroomID,
             studentID: studentID,
+            studentIdentifier: studentIdentifier,
             studentName: data["studentName"] as? String ?? "Unnamed Student",
+            studentPreferredFirstName: normalizedPreferredFirstName(data["studentPreferredFirstName"] as? String),
             widgetID: widgetID,
             correctCount: intValue(data["correctCount"]),
             attemptedCount: intValue(data["attemptedCount"]),
@@ -563,8 +576,17 @@ struct FirebaseClassroomSyncService {
         )
     }
 
-    private func submissionDocumentID(studentID: UUID, widgetID: UUID) -> String {
-        "\(studentID.uuidString)_\(widgetID.uuidString)"
+    private func submissionDocumentID(studentIdentifier: String, widgetID: UUID) -> String {
+        "\(safeDocumentIDComponent(studentIdentifier))_\(widgetID.uuidString)"
+    }
+
+    private func safeDocumentIDComponent(_ value: String) -> String {
+        let allowedCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        let scalars = value.unicodeScalars.map { scalar in
+            allowedCharacters.contains(scalar) ? Character(scalar) : Character("-")
+        }
+        let component = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return component.isEmpty ? "student" : component
     }
 
     private func uuidValue(_ value: Any?) -> UUID? {
@@ -622,6 +644,23 @@ struct FirebaseClassroomSyncService {
 
     private func normalizedStudentIdentifier(_ identifier: String) -> String {
         identifier.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+    }
+
+    private func normalizedPreferredFirstName(_ name: String?) -> String? {
+        guard let name else { return nil }
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedName.isEmpty ? nil : String(trimmedName.prefix(40))
+    }
+
+    private func stableStudentID(for normalizedIdentifier: String) -> UUID {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in normalizedIdentifier.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 0x100000001b3
+        }
+        let hex = String(format: "%016llX%016llX", hash, hash ^ 0xA5A5A5A5A5A5A5A5)
+        let uuidString = "\(hex.prefix(8))-\(hex.dropFirst(8).prefix(4))-\(hex.dropFirst(12).prefix(4))-\(hex.dropFirst(16).prefix(4))-\(hex.dropFirst(20).prefix(12))"
+        return UUID(uuidString: uuidString) ?? UUID()
     }
 
     private func setData(_ data: [String: Any], at document: DocumentReference) async throws {

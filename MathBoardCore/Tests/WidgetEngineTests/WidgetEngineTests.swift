@@ -139,6 +139,68 @@ struct WidgetEngineTests {
         #expect(record.percent == 100)
     }
 
+    @Test func quadraticFormActivitySampleDecodesAsValidActivity() throws {
+        let result = WidgetActivityJSONCodec.decode(WidgetSamples.quadraticFormActivityJSON)
+        let document = try #require(result.document)
+
+        #expect(result.errors.isEmpty)
+        #expect(document.title == "Vertex or Roots?")
+        #expect(document.widgetId == "quadratic-form-features-level-1")
+        #expect(document.activity == .multipleChoice)
+        #expect(document.questions.count == 6)
+        #expect(document.questions.allSatisfy { question in
+            question.choices.filter(\.isCorrect).count == 1
+        })
+    }
+
+    @Test func fillInTheBlankMathtivityResourceDecodesAsValidActivity() throws {
+        let source = try #require(JSONMathtivityCatalog.source(for: JSONMathtivityCatalog.linearEquationFillInTheBlank))
+        let result = WidgetActivityJSONCodec.decode(source)
+        let document = try #require(result.document)
+
+        #expect(result.errors.isEmpty)
+        #expect(document.title == "Equation Blanks")
+        #expect(document.widgetId == "linear-equation-fill-in-the-blank-level-1")
+        #expect(document.activity == WidgetActivityKind.fillInTheBlank)
+        #expect(document.questions.count == 4)
+        #expect(document.questions.allSatisfy { !$0.blanks.isEmpty })
+        #expect(document.questions.flatMap(\.blanks).contains { $0.kind == .text })
+        #expect(document.questions.flatMap(\.blanks).contains { $0.kind == .numeric })
+    }
+
+    @Test func bundledJSONMathtivitiesPassStandardTestContract() throws {
+        for entry in JSONMathtivityCatalog.bundledEntries {
+            let source = try #require(JSONMathtivityCatalog.source(for: entry))
+            let report = JSONMathtivityTestContract.evaluate(source: source)
+
+            #expect(report.isValid, "Contract failures for \(entry.resourceName): \(report.errors)")
+            #expect(report.widgetID != nil)
+            #expect(report.title == entry.title)
+            #expect(report.activityKind != .unknown)
+            #expect(report.questionCount > 0)
+            #expect(report.pointsPossible > 0)
+        }
+    }
+
+    @Test func fillInTheBlankAnswerCheckerMatchesTextAndNumericAnswers() {
+        let numericBlank = WidgetActivityBlank(
+            id: "x",
+            kind: .numeric,
+            acceptedAnswers: ["\\frac{1}{2}"],
+            tolerance: 0.0001
+        )
+        let textBlank = WidgetActivityBlank(
+            id: "operation",
+            kind: .text,
+            acceptedAnswers: ["subtract 2"],
+            caseSensitive: false
+        )
+
+        #expect(WidgetActivityAnswerChecker.response("0.5", matches: numericBlank))
+        #expect(WidgetActivityAnswerChecker.response(" Subtract   2 ", matches: textBlank))
+        #expect(!WidgetActivityAnswerChecker.response("add 2", matches: textBlank))
+    }
+
     @Test func activityJSONRepairsUnescapedLaTeXCommandsFromAIOutput() throws {
         let source = #"""
         {

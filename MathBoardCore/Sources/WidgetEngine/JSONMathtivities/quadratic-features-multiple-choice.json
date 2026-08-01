@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "widgetId": "quadratic-features-multiple-choice-level-1",
+  "activity": "multipleChoice",
+  "title": "Quadratic Features",
+  "description": "Identify what each form of a quadratic tells you quickly.",
+  "learningObjective": "Students identify vertex, roots, and y-intercept information from common quadratic forms.",
+  "difficulty": "medium",
+  "presentation": {
+    "preferredTheme": "cleanClassroom",
+    "preferredExperience": "paperQuiz"
+  },
+  "rules": {
+    "scoreMode": "correctOutOfAttempted",
+    "advanceMode": "manual",
+    "allowRetry": true,
+    "shuffleQuestions": false,
+    "shuffleChoices": false,
+    "maxAttemptsPerQuestion": 2,
+    "calculatorAllowed": false
+  },
+  "feedback": {
+    "defaultCorrect": "Correct. You matched the form to the feature it reveals.",
+    "defaultIncorrect": "Not yet. Look at the structure of the quadratic before doing extra work.",
+    "defaultEncouragement": "Ask what the form shows immediately."
+  },
+  "questions": [
+    {
+      "id": "q1",
+      "prompt": "Which feature is easiest to identify from this form?",
+      "expression": "f(x) = 2(x - 3)^2 + 5",
+      "choices": [
+        { "id": "a", "label": "Vertex", "isCorrect": true },
+        { "id": "b", "label": "Roots", "isCorrect": false },
+        { "id": "c", "label": "Y-intercept", "isCorrect": false },
+        { "id": "d", "label": "Axis scale only", "isCorrect": false }
+      ],
+      "hints": [
+        "This is vertex form.",
+        "Vertex form is a(x - h)^2 + k."
+      ],
+      "correctFeedback": "Yes. The vertex is (3, 5).",
+      "incorrectFeedback": "This form shows the vertex directly."
+    },
+    {
+      "id": "q2",
+      "prompt": "Which feature is easiest to identify from this form?",
+      "expression": "g(x) = (x + 4)(x - 2)",
+      "choices": [
+        { "id": "a", "label": "Axis of symmetry only", "isCorrect": false },
+        { "id": "b", "label": "Roots", "isCorrect": true },
+        { "id": "c", "label": "Maximum value", "isCorrect": false },
+        { "id": "d", "label": "Leading coefficient sign only", "isCorrect": false }
+      ],
+      "hints": [
+        "This is factored form.",
+        "Set each factor equal to zero."
+      ],
+      "correctFeedback": "Correct. The roots are x = -4 and x = 2.",
+      "incorrectFeedback": "Factored form shows the roots most directly."
+    },
+    {
+      "id": "q3",
+      "prompt": "What does the constant term show immediately?",
+      "expression": "h(x) = 3x^2 - 6x + 8",
+      "choices": [
+        { "id": "a", "label": "The y-intercept is 8", "isCorrect": true },
+        { "id": "b", "label": "The vertex is (3, 8)", "isCorrect": false },
+        { "id": "c", "label": "The roots are 3 and -6", "isCorrect": false },
+        { "id": "d", "label": "The axis of symmetry is x = 8", "isCorrect": false }
+      ],
+      "hints": [
+        "The y-intercept happens when x = 0.",
+        "Only the constant remains when x = 0."
+      ],
+      "correctFeedback": "Yes. h(0) = 8.",
+      "incorrectFeedback": "In standard form, the constant term is the y-intercept."
+    }
+  ]
+}

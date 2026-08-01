@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 1,
+  "widgetId": "linear-equation-fill-in-the-blank-level-1",
+  "activity": "fillInTheBlank",
+  "title": "Equation Blanks",
+  "description": "Solve simple linear equations by filling in the missing value.",
+  "learningObjective": "Solve one-variable linear equations and identify the value that makes each equation true.",
+  "difficulty": "easy",
+  "presentation": {
+    "preferredTheme": "cleanClassroom",
+    "preferredExperience": "paperQuiz"
+  },
+  "rules": {
+    "scoreMode": "correctOutOfAttempted",
+    "advanceMode": "manual",
+    "allowRetry": true,
+    "shuffleQuestions": false,
+    "maxAttemptsPerQuestion": 3,
+    "calculatorAllowed": false
+  },
+  "feedback": {
+    "defaultCorrect": "Correct. The value makes both sides equal.",
+    "defaultIncorrect": "Not yet. Undo the operation around the variable and try again.",
+    "defaultEncouragement": "Use inverse operations to isolate the variable."
+  },
+  "questions": [
+    {
+      "id": "q1",
+      "prompt": "Fill in the solution.",
+      "expression": "x + 7 = 15,\\quad x = \\_",
+      "blanks": [
+        {
+          "id": "x",
+          "label": "x",
+          "kind": "numeric",
+          "acceptedAnswers": ["8"],
+          "tolerance": 0
+        }
+      ],
+      "hints": [
+        "Subtract 7 from both sides.",
+        "15 - 7 = 8."
+      ],
+      "correctFeedback": "Yes. 8 + 7 = 15.",
+      "incorrectFeedback": "Check the inverse operation: subtract 7 from 15.",
+      "explanation": "x + 7 = 15, so x = 15 - 7 = 8.",
+      "skillTag": "one-step-equations"
+    },
+    {
+      "id": "q2",
+      "prompt": "Fill in the missing value.",
+      "expression": "3x = 27,\\quad x = \\_",
+      "blanks": [
+        {
+          "id": "x",
+          "label": "x",
+          "kind": "numeric",
+          "acceptedAnswers": ["9"],
+          "tolerance": 0
+        }
+      ],
+      "hints": [
+        "Divide both sides by 3.",
+        "27 divided by 3 is 9."
+      ],
+      "correctFeedback": "Correct. 3 times 9 is 27.",
+      "incorrectFeedback": "Try dividing 27 by the coefficient 3.",
+      "explanation": "3x = 27, so x = 27 / 3 = 9.",
+      "skillTag": "one-step-equations"
+    },
+    {
+      "id": "q3",
+      "prompt": "Solve for the variable.",
+      "expression": "2x - 5 = 11,\\quad x = \\_",
+      "blanks": [
+        {
+          "id": "x",
+          "label": "x",
+          "kind": "numeric",
+          "acceptedAnswers": ["8"],
+          "tolerance": 0
+        }
+      ],
+      "hints": [
+        "Add 5 to both sides first.",
+        "Then divide 16 by 2."
+      ],
+      "correctFeedback": "Correct. 2(8) - 5 = 11.",
+      "incorrectFeedback": "First undo the -5, then undo the times 2.",
+      "explanation": "2x - 5 = 11 gives 2x = 16, so x = 8.",
+      "skillTag": "two-step-equations"
+    },
+    {
+      "id": "q4",
+      "prompt": "Type the word that describes the first inverse operation.",
+      "expression": "\\frac{x}{4} + 2 = 9",
+      "blanks": [
+        {
+          "id": "operation",
+          "label": "First inverse operation",
+          "kind": "text",
+          "acceptedAnswers": ["subtract", "subtraction", "subtract 2"],
+          "caseSensitive": false
+        }
+      ],
+      "hints": [
+        "Start with the operation farthest from x.",
+        "The +2 is undone before the divide by 4."
+      ],
+      "correctFeedback": "Right. Subtract 2 first.",
+      "incorrectFeedback": "Look at the +2. What inverse operation removes it?",
+      "explanation": "To solve, subtract 2 from both sides, then multiply by 4.",
+      "skillTag": "inverse-operations"
+    }
+  ]
+}

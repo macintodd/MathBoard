@@ -75,6 +75,7 @@ public struct WidgetCanvasOverlayView: View {
     private let allowsWidgetAuthoring: Bool
     private let onWidgetInteractionChanged: ((Bool) -> Void)?
     private let onWidgetDisplayFrameChanged: ((WidgetObject.ID, CGRect?) -> Void)?
+    private let onMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)?
 
     public init(
         widgets: Binding<[WidgetObject]>,
@@ -84,7 +85,8 @@ public struct WidgetCanvasOverlayView: View {
         onEditWidget: ((WidgetObject) -> Void)? = nil,
         allowsWidgetAuthoring: Bool = true,
         onWidgetInteractionChanged: ((Bool) -> Void)? = nil,
-        onWidgetDisplayFrameChanged: ((WidgetObject.ID, CGRect?) -> Void)? = nil
+        onWidgetDisplayFrameChanged: ((WidgetObject.ID, CGRect?) -> Void)? = nil,
+        onMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)? = nil
     ) {
         _widgets = widgets
         self.viewport = viewport
@@ -94,6 +96,7 @@ public struct WidgetCanvasOverlayView: View {
         self.allowsWidgetAuthoring = allowsWidgetAuthoring
         self.onWidgetInteractionChanged = onWidgetInteractionChanged
         self.onWidgetDisplayFrameChanged = onWidgetDisplayFrameChanged
+        self.onMathInputRequested = onMathInputRequested
     }
 
     public var body: some View {
@@ -109,7 +112,8 @@ public struct WidgetCanvasOverlayView: View {
                         onInteractionChanged: onWidgetInteractionChanged,
                         onDisplayFrameChanged: { frame in
                             onWidgetDisplayFrameChanged?(widget.id, frame)
-                        }
+                        },
+                        onMathInputRequested: onMathInputRequested
                     )
                     .id("\(canvasIdentity)-\(widget.id.uuidString)")
                 }

@@ -374,15 +374,18 @@ private struct LiveProgressDrawerView: View {
             LazyVStack(spacing: 8) {
                 if let classroom {
                     ForEach(classroom.students) { student in
+                        let studentProgress = progress(for: student)
                         LiveProgressStudentRow(
                             studentName: student.displayName,
-                            progress: progress(for: student.id)
+                            preferredFirstName: studentProgress?.studentPreferredFirstName,
+                            progress: studentProgress
                         )
                     }
                 } else {
                     ForEach(filteredProgressRows) { progress in
                         LiveProgressStudentRow(
                             studentName: progress.studentName,
+                            preferredFirstName: progress.studentPreferredFirstName,
                             progress: progress
                         )
                     }
@@ -392,8 +395,16 @@ private struct LiveProgressDrawerView: View {
         .frame(maxHeight: .infinity)
     }
 
-    private func progress(for studentID: UUID) -> StudentWidgetLiveProgress? {
-        filteredProgressRows.first { $0.studentID == studentID }
+    private func progress(for student: RosterStudent) -> StudentWidgetLiveProgress? {
+        filteredProgressRows.first { progress in
+            progress.studentID == student.id ||
+            normalizedStudentIdentifier(progress.studentIdentifier) == normalizedStudentIdentifier(student.officialStudentID) ||
+            normalizedStudentIdentifier(progress.studentIdentifier) == normalizedStudentIdentifier(student.alternateStudentID)
+        }
+    }
+
+    private func normalizedStudentIdentifier(_ identifier: String) -> String {
+        identifier.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
     }
 }
 
@@ -413,6 +424,7 @@ private enum LiveProgressDrawerTheme {
 
 private struct LiveProgressStudentRow: View {
     let studentName: String
+    let preferredFirstName: String?
     let progress: StudentWidgetLiveProgress?
 
     var body: some View {
@@ -425,9 +437,18 @@ private struct LiveProgressStudentRow: View {
                 Text(studentName)
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
-                Text(statusText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Text(statusText)
+                    if let displayedPreferredFirstName {
+                        Text(displayedPreferredFirstName)
+                            .font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(.yellow.opacity(0.18), in: Capsule())
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             Spacer(minLength: 8)
@@ -450,6 +471,13 @@ private struct LiveProgressStudentRow: View {
         return "\(progress.correctCount)/\(progress.attemptedCount)"
     }
 
+    private var displayedPreferredFirstName: String? {
+        guard let preferredFirstName else { return nil }
+        let trimmedName = preferredFirstName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return nil }
+        return String(trimmedName.prefix(8))
+    }
+
     private var statusText: String {
         progress.liveProgressIndicatorState().displayName
     }
@@ -464,7 +492,7 @@ private struct LiveProgressStudentRow: View {
         case .notStarted, .inactive, .offline:
             return .secondary
         case .active:
-            return .blue
+            return .yellow
         case .submitted:
             return .green
         }

@@ -70,6 +70,62 @@ public struct WidgetEditorView: View {
         var id: String { rawValue }
     }
 
+    private enum PromptMode {
+        case create
+        case remix
+    }
+
+    private enum ActivityStarter: String, CaseIterable, Identifiable {
+        case multipleChoice
+        case fillInTheBlank
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .multipleChoice:
+                return "Multiple Choice"
+            case .fillInTheBlank:
+                return "Fill in the Blank"
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .multipleChoice:
+                return "checklist"
+            case .fillInTheBlank:
+                return "rectangle.and.pencil.and.ellipsis"
+            }
+        }
+
+        var activityKind: WidgetObjectActivityKind {
+            switch self {
+            case .multipleChoice:
+                return .multipleChoice
+            case .fillInTheBlank:
+                return .fillInTheBlank
+            }
+        }
+
+        var starterJSON: String {
+            WidgetMathtivityPromptFactory.starterJSON(for: activityKind)
+        }
+
+        static func starter(for source: String) -> ActivityStarter {
+            guard let document = WidgetActivityJSONCodec.decode(source).document else {
+                return .multipleChoice
+            }
+
+            switch document.activity {
+            case .multipleChoice:
+                return .multipleChoice
+            case .fillInTheBlank:
+                return .fillInTheBlank
+            }
+        }
+    }
+
     private let insertButtonTitle: String
     private let onInsertWidget: ((WidgetEditorInsertion) -> Void)?
     private let onCancel: (() -> Void)?
@@ -81,8 +137,8 @@ public struct WidgetEditorView: View {
     @State private var copiedInstructionsTitle = "Copy"
     @State private var didPasteWidgetCode = false
     @State private var didCopyErrorReport = false
-    @State private var themeOverride: WidgetActivityTheme?
-    @State private var experienceOverride: WidgetActivityExperience?
+    @State private var selectedActivityStarter: ActivityStarter
+    @State private var promptMode: PromptMode
 
     public init(
         initialJSONSource: String? = nil,
@@ -93,8 +149,11 @@ public struct WidgetEditorView: View {
         self.insertButtonTitle = insertButtonTitle
         self.onInsertWidget = onInsertWidget
         self.onCancel = onCancel
+        let startingSource = initialJSONSource ?? WidgetSamples.orderOpsActivityJSON
         _editorMode = State(initialValue: .nativeJSON)
-        _jsonSource = State(initialValue: initialJSONSource ?? WidgetSamples.orderOpsActivityJSON)
+        _jsonSource = State(initialValue: startingSource)
+        _selectedActivityStarter = State(initialValue: ActivityStarter.starter(for: startingSource))
+        _promptMode = State(initialValue: initialJSONSource == nil ? .create : .remix)
     }
 
     private var validationResult: WidgetNativeJSONValidation {
@@ -194,15 +253,87 @@ public struct WidgetEditorView: View {
                 systemImage: "curlybraces",
                 statusText: validationResult.statusText,
                 isValid: validationResult.isValid,
-                onPaste: { jsonSource = $0 },
+                onPaste: { pastedSource in
+                    jsonSource = pastedSource
+                    selectedActivityStarter = ActivityStarter.starter(for: pastedSource)
+                    promptMode = .remix
+                },
                 onSelectAll: selectAllJSON,
-                resetTitle: "Load Sample"
+                resetTitle: "First Move"
             ) {
-                jsonSource = WidgetSamples.orderOpsActivityJSON
-                selectAllJSON()
+                loadJSONSample(WidgetSamples.orderOpsActivityJSON)
             }
 
+            activityTypeChooser
+
+            Menu {
+                Button("First Move") {
+                    loadJSONSample(WidgetSamples.orderOpsActivityJSON)
+                }
+                Button("Vertex or Roots?") {
+                    loadJSONSample(WidgetSamples.quadraticFormActivityJSON)
+                }
+                Divider()
+                ForEach(JSONMathtivityCatalog.bundledEntries) { entry in
+                    Button("\(entry.title) (\(entry.topic))") {
+                        if let source = JSONMathtivityCatalog.source(for: entry) {
+                            loadJSONSample(source)
+                        }
+                    }
+                }
+            } label: {
+                Label("More Samples", systemImage: "square.grid.2x2")
+            }
+            .buttonStyle(.bordered)
+
             WidgetReadOnlyCodeView(source: jsonSource)
+        }
+    }
+
+    private var activityTypeChooser: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Activity Type")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    activityTypeButtons
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    activityTypeButtons
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("JSON Mathtivity Activity Type")
+    }
+
+    private var activityTypeButtons: some View {
+        ForEach(ActivityStarter.allCases) { starter in
+            activityTypeButton(for: starter)
+        }
+    }
+
+    @ViewBuilder
+    private func activityTypeButton(for starter: ActivityStarter) -> some View {
+        if selectedActivityStarter == starter {
+            Button {
+                selectActivityStarter(starter)
+            } label: {
+                Label(starter.title, systemImage: starter.systemImage)
+                    .lineLimit(1)
+            }
+            .buttonStyle(.borderedProminent)
+        } else {
+            Button {
+                selectActivityStarter(starter)
+            } label: {
+                Label(starter.title, systemImage: starter.systemImage)
+                    .lineLimit(1)
+            }
+            .buttonStyle(.bordered)
         }
     }
 
@@ -217,23 +348,27 @@ public struct WidgetEditorView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            activityTypeChooser
+
             VStack(alignment: .leading, spacing: 12) {
-                workflowStep(number: 1, text: "Press the blue copy prompt button.") {
+                workflowStep(number: 1, text: "Choose a JSON activity structure, then copy its AI prompt.") {
                     Button {
-                        copyAIInstructions(WidgetSamples.activityAuthoringInstructions, title: "Prompt")
+                        copyCurrentMathtivityPrompt()
                     } label: {
-                        Label(didCopyInstructions ? "Copied" : "Copy Prompt", systemImage: didCopyInstructions ? "checkmark" : "doc.on.doc")
+                        Label(promptButtonTitle, systemImage: didCopyInstructions ? "checkmark" : "doc.on.doc")
                     }
                     .buttonStyle(.borderedProminent)
                 }
 
-                workflowStep(number: 2, text: "Paste the prompt into an AI chatbot and append a description of what skill you want the widget to assess.")
+                workflowStep(number: 2, text: "Paste the prompt into an AI chatbot and describe what skill, topic, or edits you want.")
                 workflowStep(number: 3, text: "Copy the generated code.")
 
                 workflowStep(number: 4, text: "Press Paste to load the generated code.") {
                     HStack(spacing: 8) {
                         WidgetPasteTextButton { pastedSource in
                             jsonSource = pastedSource
+                            selectedActivityStarter = ActivityStarter.starter(for: pastedSource)
+                            promptMode = .remix
                             didPasteWidgetCode = true
                         }
                         if didPasteWidgetCode {
@@ -259,8 +394,7 @@ public struct WidgetEditorView: View {
                     }
                 }
 
-                workflowStep(number: 6, text: "If there were errors, paste the copied errors back into the AI you just used.")
-                workflowStep(number: 7, text: "Paste the corrected code back into the widget engine.")
+                workflowStep(number: 6, text: "If there were errors, paste the copied errors back into the AI, then paste the corrected code here.")
             }
 
             Spacer(minLength: 0)
@@ -293,12 +427,9 @@ public struct WidgetEditorView: View {
                     .disabled(!validationResult.canPlaceOnCanvas)
                 }
             }
-            activityPresentationControls
             WidgetNativeJSONPreview(
                 validationResult: validationResult,
-                jsonSource: jsonSource,
-                themeOverride: themeOverride,
-                experienceOverride: experienceOverride
+                jsonSource: jsonSource
             )
                 .id(jsonSource)
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -307,43 +438,6 @@ public struct WidgetEditorView: View {
                         .strokeBorder(Color.primary.opacity(0.10), lineWidth: 1)
                 )
         }
-    }
-
-    @ViewBuilder
-    private var activityPresentationControls: some View {
-        if activityDocument != nil {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) {
-                    themePicker
-                    experiencePicker
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    themePicker
-                    experiencePicker
-                }
-            }
-        }
-    }
-
-    private var themePicker: some View {
-        Picker("Theme", selection: $themeOverride) {
-            Text("AI Theme").tag(WidgetActivityTheme?.none)
-            ForEach(WidgetActivityTheme.allCases, id: \.self) { theme in
-                Text(theme.rawValue).tag(WidgetActivityTheme?.some(theme))
-            }
-        }
-        .pickerStyle(.menu)
-    }
-
-    private var experiencePicker: some View {
-        Picker("Experience", selection: $experienceOverride) {
-            Text("AI Experience").tag(WidgetActivityExperience?.none)
-            ForEach(WidgetActivityExperience.allCases, id: \.self) { experience in
-                Text(experience.rawValue).tag(WidgetActivityExperience?.some(experience))
-            }
-        }
-        .pickerStyle(.menu)
     }
 
     private func workflowStep<Accessory: View>(
@@ -424,6 +518,19 @@ public struct WidgetEditorView: View {
         }
     }
 
+    private var promptButtonTitle: String {
+        if didCopyInstructions {
+            return "Copied Prompt"
+        }
+
+        switch promptMode {
+        case .create:
+            return "Copy \(selectedActivityStarter.title) Prompt"
+        case .remix:
+            return "Copy Remix Prompt"
+        }
+    }
+
     private func setClipboard(_ string: String) {
         #if os(iOS)
         UIPasteboard.general.string = string
@@ -444,6 +551,38 @@ public struct WidgetEditorView: View {
             try? await Task.sleep(for: .seconds(1.5))
             didCopyErrorReport = false
         }
+    }
+
+    private func copyCurrentMathtivityPrompt() {
+        copyAIInstructions(currentMathtivityPrompt(), title: "Prompt")
+    }
+
+    private func currentMathtivityPrompt() -> String {
+        let intent: WidgetMathtivityPromptIntent
+        switch promptMode {
+        case .create:
+            intent = .create
+        case .remix:
+            intent = .remix(sourceJSON: jsonSource)
+        }
+
+        return WidgetMathtivityPromptFactory.prompt(
+            for: currentPromptActivityKind,
+            intent: intent
+        )
+    }
+
+    private var currentPromptActivityKind: WidgetObjectActivityKind {
+        if let document = activityDocument {
+            switch document.activity {
+            case .multipleChoice:
+                return .multipleChoice
+            case .fillInTheBlank:
+                return .fillInTheBlank
+            }
+        }
+
+        return selectedActivityStarter.activityKind
     }
 
     private func currentErrorReport() -> String {
@@ -545,6 +684,19 @@ public struct WidgetEditorView: View {
         ))
     }
 
+    private func selectActivityStarter(_ starter: ActivityStarter) {
+        selectedActivityStarter = starter
+        jsonSource = starter.starterJSON
+        promptMode = .create
+    }
+
+    private func loadJSONSample(_ source: String) {
+        jsonSource = source
+        selectedActivityStarter = ActivityStarter.starter(for: source)
+        promptMode = .remix
+        selectAllJSON()
+    }
+
     private var widgetName: String {
         if let title = activityDocument?.title.trimmingCharacters(in: .whitespacesAndNewlines),
            !title.isEmpty {
@@ -598,8 +750,6 @@ private struct WidgetEditorToolbar: View {
 private struct WidgetNativeJSONPreview: View {
     let validationResult: WidgetNativeJSONValidation
     let jsonSource: String
-    var themeOverride: WidgetActivityTheme?
-    var experienceOverride: WidgetActivityExperience?
 
     @State private var didCopyErrorReport = false
 
@@ -607,11 +757,7 @@ private struct WidgetNativeJSONPreview: View {
         switch validationResult {
         case .activity(let result):
             if let document = result.document {
-                WidgetActivityRenderer(
-                    document: document,
-                    themeOverride: themeOverride,
-                    experienceOverride: experienceOverride
-                )
+                WidgetActivityRenderer(document: document)
                     .frame(maxWidth: .infinity)
             } else {
                 errorView(title: "Activity JSON is not valid", errors: result.errors)

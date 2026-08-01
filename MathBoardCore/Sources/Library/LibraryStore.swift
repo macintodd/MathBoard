@@ -8,6 +8,7 @@
 //
 
 import Foundation
+import WidgetEngine
 
 public struct LibraryStoredFolder: Codable, Identifiable, Sendable, Equatable {
     public var id: UUID
@@ -209,6 +210,63 @@ public enum LibraryStore {
         )
         var items = loadItems(in: folderID)
         items.removeAll { $0.recentID == recentID }
+        items.insert(item, at: 0)
+        if items.count > maximumItemsPerLibrary {
+            items = Array(items.prefix(maximumItemsPerLibrary))
+        }
+        try saveItems(items, in: folderID)
+        try touchFolder(folderID)
+    }
+
+    public static func addCatalogMathtivity(
+        _ downloadedItem: DownloadedMathtivityCatalogItem,
+        to folderID: UUID
+    ) throws {
+        guard let expectedActivityKind = downloadedItem.item.activityType.widgetActivityKind else {
+            throw MathtivityCatalogError.invalidJSONMathtivity([
+                "\(downloadedItem.item.activityType.displayName) catalog items are not supported by this app build yet."
+            ])
+        }
+        let report = JSONMathtivityTestContract.evaluate(
+            source: downloadedItem.jsonSource,
+            expectedActivityKind: expectedActivityKind
+        )
+        guard report.isValid else {
+            throw MathtivityCatalogError.invalidJSONMathtivity(report.errors)
+        }
+
+        try FileManager.default.createDirectory(
+            at: folderDirectoryURL(for: folderID),
+            withIntermediateDirectories: true
+        )
+
+        let itemID = UUID()
+        let thumbnailFileName: String?
+        if let thumbnailPNGData = downloadedItem.thumbnailPNGData {
+            try FileManager.default.createDirectory(
+                at: assetsDirectoryURL(for: folderID),
+                withIntermediateDirectories: true
+            )
+            let fileName = "\(itemID.uuidString).png"
+            try thumbnailPNGData.write(
+                to: assetsDirectoryURL(for: folderID).appendingPathComponent(fileName),
+                options: .atomic
+            )
+            thumbnailFileName = fileName
+        } else {
+            thumbnailFileName = nil
+        }
+
+        let item = LibraryStoredItem(
+            id: itemID,
+            recentID: downloadedItem.item.catalogLibraryRecentID,
+            title: downloadedItem.item.title,
+            kind: .widget,
+            thumbnailPNGFileName: thumbnailFileName,
+            widgetCodeString: downloadedItem.jsonSource
+        )
+        var items = loadItems(in: folderID)
+        items.removeAll { $0.recentID == downloadedItem.item.catalogLibraryRecentID }
         items.insert(item, at: 0)
         if items.count > maximumItemsPerLibrary {
             items = Array(items.prefix(maximumItemsPerLibrary))

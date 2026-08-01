@@ -50,6 +50,7 @@ struct ActivityWidgetDocument: Codable, Equatable, Sendable {
 
 enum WidgetActivityKind: String, Codable, CaseIterable, Sendable {
     case multipleChoice
+    case fillInTheBlank
 }
 
 enum WidgetActivityDifficulty: String, Codable, CaseIterable, Sendable {
@@ -148,6 +149,8 @@ struct WidgetActivityQuestion: Codable, Equatable, Identifiable, Sendable {
     var prompt: String
     var expression: String?
     var choices: [WidgetActivityChoice]
+    var blanks: [WidgetActivityBlank]
+    var responseLayout: WidgetActivityResponseLayout?
     var hints: [String]
     var correctFeedback: String?
     var incorrectFeedback: String?
@@ -160,6 +163,8 @@ struct WidgetActivityQuestion: Codable, Equatable, Identifiable, Sendable {
         prompt: String,
         expression: String? = nil,
         choices: [WidgetActivityChoice],
+        blanks: [WidgetActivityBlank] = [],
+        responseLayout: WidgetActivityResponseLayout? = nil,
         hints: [String] = [],
         correctFeedback: String? = nil,
         incorrectFeedback: String? = nil,
@@ -171,6 +176,8 @@ struct WidgetActivityQuestion: Codable, Equatable, Identifiable, Sendable {
         self.prompt = prompt
         self.expression = expression
         self.choices = choices
+        self.blanks = blanks
+        self.responseLayout = responseLayout
         self.hints = hints
         self.correctFeedback = correctFeedback
         self.incorrectFeedback = incorrectFeedback
@@ -184,6 +191,8 @@ struct WidgetActivityQuestion: Codable, Equatable, Identifiable, Sendable {
         case prompt
         case expression
         case choices
+        case blanks
+        case responseLayout
         case hints
         case correctFeedback
         case incorrectFeedback
@@ -197,13 +206,92 @@ struct WidgetActivityQuestion: Codable, Equatable, Identifiable, Sendable {
         id = try container.decode(String.self, forKey: .id)
         prompt = try container.decodeIfPresent(String.self, forKey: .prompt) ?? ""
         expression = try container.decodeIfPresent(String.self, forKey: .expression)
-        choices = try container.decode([WidgetActivityChoice].self, forKey: .choices)
+        choices = try container.decodeIfPresent([WidgetActivityChoice].self, forKey: .choices) ?? []
+        blanks = try container.decodeIfPresent([WidgetActivityBlank].self, forKey: .blanks) ?? []
+        responseLayout = try container.decodeIfPresent(WidgetActivityResponseLayout.self, forKey: .responseLayout)
         hints = try container.decodeIfPresent([String].self, forKey: .hints) ?? []
         correctFeedback = try container.decodeIfPresent(String.self, forKey: .correctFeedback)
         incorrectFeedback = try container.decodeIfPresent(String.self, forKey: .incorrectFeedback)
         explanation = try container.decodeIfPresent(String.self, forKey: .explanation)
         difficulty = try container.decodeIfPresent(WidgetActivityDifficulty.self, forKey: .difficulty)
         skillTag = try container.decodeIfPresent(String.self, forKey: .skillTag)
+    }
+}
+
+enum WidgetActivityResponseLayoutType: String, Codable, Sendable {
+    case fraction
+}
+
+struct WidgetActivityResponseLayout: Codable, Equatable, Sendable {
+    var type: WidgetActivityResponseLayoutType
+    var label: String?
+    var numeratorBlankId: String?
+    var denominatorBlankId: String?
+
+    init(
+        type: WidgetActivityResponseLayoutType,
+        label: String? = nil,
+        numeratorBlankId: String? = nil,
+        denominatorBlankId: String? = nil
+    ) {
+        self.type = type
+        self.label = label
+        self.numeratorBlankId = numeratorBlankId
+        self.denominatorBlankId = denominatorBlankId
+    }
+}
+
+enum WidgetActivityBlankKind: String, Codable, CaseIterable, Sendable {
+    case text
+    case numeric
+}
+
+struct WidgetActivityBlank: Codable, Equatable, Identifiable, Sendable {
+    var id: String
+    var label: String?
+    var kind: WidgetActivityBlankKind
+    var acceptedAnswers: [String]
+    var tolerance: Double?
+    var caseSensitive: Bool?
+    var feedback: String?
+
+    init(
+        id: String,
+        label: String? = nil,
+        kind: WidgetActivityBlankKind = .text,
+        acceptedAnswers: [String],
+        tolerance: Double? = nil,
+        caseSensitive: Bool? = nil,
+        feedback: String? = nil
+    ) {
+        self.id = id
+        self.label = label
+        self.kind = kind
+        self.acceptedAnswers = acceptedAnswers
+        self.tolerance = tolerance
+        self.caseSensitive = caseSensitive
+        self.feedback = feedback
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case label
+        case kind
+        case acceptedAnswers
+        case tolerance
+        case caseSensitive
+        case feedback
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        label = try container.decodeIfPresent(String.self, forKey: .label)
+        kind = try container.decodeIfPresent(WidgetActivityBlankKind.self, forKey: .kind) ?? .text
+        acceptedAnswers = try container.decodeIfPresent([String].self, forKey: .acceptedAnswers) ?? []
+        tolerance = try container.decodeIfPresent(Double.self, forKey: .tolerance)
+        caseSensitive = try container.decodeIfPresent(Bool.self, forKey: .caseSensitive)
+        feedback = try container.decodeIfPresent(String.self, forKey: .feedback)
     }
 }
 
@@ -275,6 +363,98 @@ enum WidgetActivityValidator {
         switch document.activity {
         case .multipleChoice:
             errors.append(contentsOf: validateMultipleChoice(document))
+        case .fillInTheBlank:
+            errors.append(contentsOf: validateFillInTheBlank(document))
+        }
+
+        return errors
+    }
+
+    private static func validateFillInTheBlank(_ document: ActivityWidgetDocument) -> [String] {
+        var errors: [String] = []
+
+        if document.questions.isEmpty {
+            errors.append("fillInTheBlank activities need at least one question.")
+        }
+
+        for (questionIndex, question) in document.questions.enumerated() {
+            let questionLabel = question.id.isEmpty ? "Question \(questionIndex + 1)" : "Question \(question.id)"
+            let hasPrompt = !question.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let hasExpression = !(question.expression?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+
+            if !hasPrompt && !hasExpression {
+                errors.append("\(questionLabel) needs a prompt or expression.")
+            }
+
+            if question.blanks.isEmpty {
+                errors.append("\(questionLabel) needs at least one blank.")
+            }
+
+            var blankIDs = Set<String>()
+            for (blankIndex, blank) in question.blanks.enumerated() {
+                let blankLabel = blank.id.isEmpty ? "blank \(blankIndex + 1)" : "blank \(blank.id)"
+                let trimmedID = blank.id.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmedID.isEmpty {
+                    errors.append("\(questionLabel) blank \(blankIndex + 1) needs an id.")
+                } else if !blankIDs.insert(trimmedID).inserted {
+                    errors.append("\(questionLabel) has duplicate blank id '\(trimmedID)'.")
+                }
+
+                let cleanedAnswers = blank.acceptedAnswers.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                if cleanedAnswers.isEmpty || cleanedAnswers.contains(where: \.isEmpty) {
+                    errors.append("\(questionLabel) \(blankLabel) needs at least one non-empty accepted answer.")
+                }
+
+                if let tolerance = blank.tolerance, tolerance < 0 {
+                    errors.append("\(questionLabel) \(blankLabel) tolerance cannot be negative.")
+                }
+
+                if blank.kind == .numeric {
+                    for answer in cleanedAnswers where !answer.isEmpty && evaluatedMathValue(from: answer) == nil {
+                        errors.append("\(questionLabel) \(blankLabel) numeric answer '\(answer)' must be a numeric value or expression.")
+                    }
+                }
+            }
+
+            if let responseLayout = question.responseLayout {
+                errors.append(contentsOf: validateResponseLayout(
+                    responseLayout,
+                    blankIDs: blankIDs,
+                    questionLabel: questionLabel
+                ))
+            }
+        }
+
+        return errors
+    }
+
+    private static func validateResponseLayout(
+        _ responseLayout: WidgetActivityResponseLayout,
+        blankIDs: Set<String>,
+        questionLabel: String
+    ) -> [String] {
+        var errors: [String] = []
+
+        switch responseLayout.type {
+        case .fraction:
+            let numeratorID = responseLayout.numeratorBlankId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let denominatorID = responseLayout.denominatorBlankId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+            if numeratorID.isEmpty {
+                errors.append("\(questionLabel) fraction responseLayout needs numeratorBlankId.")
+            } else if !blankIDs.contains(numeratorID) {
+                errors.append("\(questionLabel) fraction responseLayout numeratorBlankId '\(numeratorID)' must match a blank id.")
+            }
+
+            if denominatorID.isEmpty {
+                errors.append("\(questionLabel) fraction responseLayout needs denominatorBlankId.")
+            } else if !blankIDs.contains(denominatorID) {
+                errors.append("\(questionLabel) fraction responseLayout denominatorBlankId '\(denominatorID)' must match a blank id.")
+            }
+
+            if !numeratorID.isEmpty, numeratorID == denominatorID {
+                errors.append("\(questionLabel) fraction responseLayout numeratorBlankId and denominatorBlankId must be different.")
+            }
         }
 
         return errors
@@ -388,7 +568,7 @@ enum WidgetActivityValidator {
         return errors
     }
 
-    private static func evaluatedMathValue(from source: String) -> Double? {
+    static func evaluatedMathValue(from source: String) -> Double? {
         guard let calculatorSource = calculatorSource(from: source),
               isAuditableNumericExpression(calculatorSource)
         else {
@@ -558,8 +738,8 @@ enum WidgetActivityValidator {
             .filter { !$0.isWhitespace }
     }
 
-    private static func valuesMatch(_ lhs: Double, _ rhs: Double) -> Bool {
-        let tolerance = max(1e-8, max(abs(lhs), abs(rhs)) * 1e-8)
+    static func valuesMatch(_ lhs: Double, _ rhs: Double, tolerance explicitTolerance: Double? = nil) -> Bool {
+        let tolerance = explicitTolerance ?? max(1e-8, max(abs(lhs), abs(rhs)) * 1e-8)
         return abs(lhs - rhs) <= tolerance
     }
 
@@ -568,6 +748,41 @@ enum WidgetActivityValidator {
             return String(Int64(value))
         }
         return String(format: "%.8g", value)
+    }
+}
+
+enum WidgetActivityAnswerChecker {
+    static func response(_ response: String, matches blank: WidgetActivityBlank) -> Bool {
+        switch blank.kind {
+        case .text:
+            return textResponse(response, matches: blank)
+        case .numeric:
+            return numericResponse(response, matches: blank)
+        }
+    }
+
+    private static func textResponse(_ response: String, matches blank: WidgetActivityBlank) -> Bool {
+        let normalizedResponse = normalizedText(response, caseSensitive: blank.caseSensitive == true)
+        return blank.acceptedAnswers.contains { answer in
+            normalizedText(answer, caseSensitive: blank.caseSensitive == true) == normalizedResponse
+        }
+    }
+
+    private static func numericResponse(_ response: String, matches blank: WidgetActivityBlank) -> Bool {
+        guard let responseValue = WidgetActivityValidator.evaluatedMathValue(from: response) else { return false }
+        return blank.acceptedAnswers.contains { answer in
+            guard let acceptedValue = WidgetActivityValidator.evaluatedMathValue(from: answer) else { return false }
+            return WidgetActivityValidator.valuesMatch(responseValue, acceptedValue, tolerance: blank.tolerance)
+        }
+    }
+
+    private static func normalizedText(_ source: String, caseSensitive: Bool) -> String {
+        let collapsedWhitespace = source
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        return caseSensitive ? collapsedWhitespace : collapsedWhitespace.lowercased()
     }
 }
 

@@ -11,13 +11,14 @@ enum WidgetJSONRepair {
     private static let latexCommands: Set<String> = [
         "cdot", "frac", "sqrt", "pi", "theta", "alpha", "beta",
         "left", "right", "times", "div", "pm", "le", "ge", "neq",
-        "lt", "gt", "sin", "cos", "tan", "log", "ln"
+        "lt", "gt", "sin", "cos", "tan", "log", "ln", "quad"
     ]
 
     static func escapingUnescapedLaTeXCommands(in source: String) -> String {
-        let characters = Array(source)
+        let normalizedSource = normalizingTypographicJSONCharacters(in: source)
+        let characters = Array(normalizedSource)
         var repaired = ""
-        repaired.reserveCapacity(source.count)
+        repaired.reserveCapacity(normalizedSource.count)
 
         var isInsideString = false
         var index = 0
@@ -58,6 +59,13 @@ enum WidgetJSONRepair {
                     }
                 }
 
+                if nextCharacter == "_" {
+                    repaired.append("\\\\")
+                    repaired.append(nextCharacter)
+                    index += 2
+                    continue
+                }
+
                 if nextCharacter == "\"" || nextCharacter == "/" || nextCharacter == "b" || nextCharacter == "f" || nextCharacter == "n" || nextCharacter == "r" || nextCharacter == "t" {
                     repaired.append(character)
                     repaired.append(nextCharacter)
@@ -71,5 +79,21 @@ enum WidgetJSONRepair {
         }
 
         return repaired
+    }
+
+    private static func normalizingTypographicJSONCharacters(in source: String) -> String {
+        source
+            .replacingOccurrences(of: "\\”", with: "\\\\_”")
+            .replacingOccurrences(of: "\\“", with: "\\\\_“")
+            .replacingOccurrences(of: "\\„", with: "\\\\_„")
+            .replacingOccurrences(of: "\\‟", with: "\\\\_‟")
+            .replacingOccurrences(of: "“", with: "\"")
+            .replacingOccurrences(of: "”", with: "\"")
+            .replacingOccurrences(of: "„", with: "\"")
+            .replacingOccurrences(of: "‟", with: "\"")
+            .replacingOccurrences(of: "‘", with: "'")
+            .replacingOccurrences(of: "’", with: "'")
+            .replacingOccurrences(of: "‚", with: "'")
+            .replacingOccurrences(of: "‛", with: "'")
     }
 }

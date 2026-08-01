@@ -8,6 +8,7 @@ import Foundation
 import Testing
 @testable import Documents
 @testable import Canvas
+@testable import Library
 import Slides
 @testable import WidgetEngine
 
@@ -518,6 +519,171 @@ struct MathBoardTests {
         #expect(question.hints.isEmpty)
     }
 
+    @Test func fillInTheBlankMathtivityResourceDecodesAsValidActivity() throws {
+        let source = try #require(JSONMathtivityCatalog.source(for: JSONMathtivityCatalog.linearEquationFillInTheBlank))
+        let result = WidgetActivityJSONCodec.decode(source)
+        let document = try #require(result.document)
+
+        #expect(result.errors.isEmpty)
+        #expect(document.activity == WidgetActivityKind.fillInTheBlank)
+        #expect(document.title == "Equation Blanks")
+        #expect(document.questions.count == 4)
+        #expect(document.questions.allSatisfy { !$0.blanks.isEmpty })
+    }
+
+    @Test func fillInTheBlankSupportsFractionResponseLayout() throws {
+        let json = #"""
+        {
+          "schemaVersion": 1,
+          "widgetId": "slope-fraction-layout",
+          "activity": "fillInTheBlank",
+          "title": "Slope Fraction",
+          "learningObjective": "Enter numerator and denominator for a fractional slope.",
+          "questions": [
+            {
+              "id": "q1",
+              "prompt": "Enter the slope as a fraction.",
+              "expression": "y = \\frac{2}{3}x + 5",
+              "responseLayout": {
+                "type": "fraction",
+                "label": "m =",
+                "numeratorBlankId": "numerator",
+                "denominatorBlankId": "denominator"
+              },
+              "blanks": [
+                {
+                  "id": "numerator",
+                  "label": "Numerator",
+                  "kind": "numeric",
+                  "acceptedAnswers": ["2"],
+                  "tolerance": 0
+                },
+                {
+                  "id": "denominator",
+                  "label": "Denominator",
+                  "kind": "numeric",
+                  "acceptedAnswers": ["3"],
+                  "tolerance": 0
+                }
+              ]
+            }
+          ]
+        }
+        """#
+
+        let result = WidgetActivityJSONCodec.decode(json)
+        let question = try #require(result.document?.questions.first)
+
+        #expect(result.errors.isEmpty)
+        #expect(question.responseLayout?.type == .fraction)
+        #expect(question.responseLayout?.label == "m =")
+        #expect(question.responseLayout?.numeratorBlankId == "numerator")
+        #expect(question.responseLayout?.denominatorBlankId == "denominator")
+    }
+
+    @Test func fillInTheBlankRejectsFractionResponseLayoutWithMissingBlankIDs() {
+        let json = #"""
+        {
+          "schemaVersion": 1,
+          "widgetId": "bad-fraction-layout",
+          "activity": "fillInTheBlank",
+          "title": "Bad Fraction Layout",
+          "learningObjective": "Reject broken response layouts.",
+          "questions": [
+            {
+              "id": "q1",
+              "prompt": "Enter the slope.",
+              "responseLayout": {
+                "type": "fraction",
+                "numeratorBlankId": "top",
+                "denominatorBlankId": "bottom"
+              },
+              "blanks": [
+                {
+                  "id": "numerator",
+                  "kind": "numeric",
+                  "acceptedAnswers": ["2"]
+                },
+                {
+                  "id": "denominator",
+                  "kind": "numeric",
+                  "acceptedAnswers": ["3"]
+                }
+              ]
+            }
+          ]
+        }
+        """#
+
+        let result = WidgetActivityJSONCodec.decode(json)
+
+        #expect(result.document == nil)
+        #expect(result.errors.contains { $0.contains("numeratorBlankId 'top' must match a blank id") })
+        #expect(result.errors.contains { $0.contains("denominatorBlankId 'bottom' must match a blank id") })
+    }
+
+    @Test func bundledJSONMathtivitiesPassStandardTestContract() throws {
+        for entry in JSONMathtivityCatalog.bundledEntries {
+            let source = try #require(JSONMathtivityCatalog.source(for: entry))
+            let report = JSONMathtivityTestContract.evaluate(source: source)
+
+            #expect(report.isValid, "Contract failures for \(entry.resourceName): \(report.errors)")
+            #expect(report.title == entry.title)
+            #expect(report.activityKind != .unknown)
+            #expect(report.questionCount > 0)
+            #expect(report.pointsPossible > 0)
+        }
+    }
+
+    @Test func mathtivityCatalogItemParsesFirestoreDocumentShape() throws {
+        let item = try #require(MathtivityCatalogItem(
+            id: "linear-equation-fill-in-the-blank",
+            firestoreData: [
+                "title": "Equation Blanks",
+                "topic": "Linear Equations",
+                "course": "Algebra 1",
+                "activityType": "fillInTheBlank",
+                "mode": "scored",
+                "topicLevel": 1,
+                "difficulty": "easy",
+                "description": "Practice inverse operations.",
+                "tags": ["equations", "fill-in-the-blank"],
+                "schemaVersion": 1,
+                "jsonStoragePath": "jsonMathtivities/linear-equation-fill-in-the-blank.json",
+                "thumbnailStoragePath": "jsonMathtivities/thumbnails/linear-equation-fill-in-the-blank.png",
+                "isPublished": true,
+                "version": 3
+            ]
+        ))
+
+        #expect(item.title == "Equation Blanks")
+        #expect(item.activityType == .fillInTheBlank)
+        #expect(item.mode == .scored)
+        #expect(item.topicLevel == 1)
+        #expect(item.catalogLibraryRecentID == "catalog.linear-equation-fill-in-the-blank")
+        #expect(item.jsonStoragePath == "jsonMathtivities/linear-equation-fill-in-the-blank.json")
+        #expect(item.version == 3)
+    }
+
+    @Test func fillInTheBlankAnswerCheckerMatchesTextAndNumericAnswers() {
+        let numericBlank = WidgetActivityBlank(
+            id: "x",
+            kind: .numeric,
+            acceptedAnswers: ["\\frac{1}{2}"],
+            tolerance: 0.0001
+        )
+        let textBlank = WidgetActivityBlank(
+            id: "operation",
+            kind: .text,
+            acceptedAnswers: ["subtract 2"],
+            caseSensitive: false
+        )
+
+        #expect(WidgetActivityAnswerChecker.response("0.5", matches: numericBlank))
+        #expect(WidgetActivityAnswerChecker.response(" Subtract   2 ", matches: textBlank))
+        #expect(!WidgetActivityAnswerChecker.response("add 2", matches: textBlank))
+    }
+
     @Test func widgetJSONRepairPreservesOrdinaryJSONEscapes() {
         let json = #"""
         { "message": "Line one\nLine two", "quote": "She said \"yes\"." }
@@ -536,6 +702,95 @@ struct MathBoardTests {
         let repaired = WidgetJSONRepair.escapingUnescapedLaTeXCommands(in: json)
 
         #expect(repaired == json)
+    }
+
+    @Test func widgetJSONRepairNormalizesSmartQuotesFromAIPaste() {
+        let json = """
+        { “schemaVersion”: 1, “widgetId”: “smart-quotes”, “activity”: “multipleChoice”, “title”: “Smart Quotes”, “questions”: [] }
+        """
+
+        let repaired = WidgetJSONRepair.escapingUnescapedLaTeXCommands(in: json)
+
+        #expect(repaired.contains(#""schemaVersion": 1"#))
+        #expect(repaired.contains(#""widgetId": "smart-quotes""#))
+        #expect(!repaired.contains("“"))
+        #expect(!repaired.contains("”"))
+    }
+
+    @Test func activityWidgetJSONRepairsAIAuthoredFillInBlankLatexAndDanglingBlankMarker() throws {
+        let json = #"""
+        {
+          “schemaVersion”: 1,
+          “widgetId”: “slope-from-slope-intercept-form-level-1”,
+          “activity”: “fillInTheBlank”,
+          “title”: “Identify the Slope”,
+          “learningObjective”: “Identify the fractional slope m in an equation written in the form y = mx + b.”,
+          “questions”: [
+            {
+              “id”: “q1”,
+              “prompt”: “Enter the slope as a fraction in simplest form.”,
+              “expression”: “y = \frac{2}{3}x + 5,\quad m = \”,
+              “blanks”: [
+                {
+                  “id”: “slope”,
+                  “label”: “Slope”,
+                  “kind”: “text”,
+                  “acceptedAnswers”: [“2/3”, “2 / 3”],
+                  “caseSensitive”: false
+                }
+              ],
+              “hints”: [
+                “Slope-intercept form is y = mx + b.”
+              ],
+              “correctFeedback”: “Correct. The coefficient of x is 2/3.”,
+              “incorrectFeedback”: “Look at the fraction directly in front of x.”,
+              “explanation”: “In y = mx + b, m is the slope.”
+            }
+          ]
+        }
+        """#
+
+        let result = WidgetActivityJSONCodec.decode(json)
+        let document = try #require(result.document)
+        let expression = try #require(document.questions.first?.expression)
+
+        #expect(result.errors.isEmpty)
+        #expect(document.activity == WidgetActivityKind.fillInTheBlank)
+        #expect(expression.contains(#"\frac{2}{3}"#))
+        #expect(expression.contains(#"\quad"#))
+        #expect(expression.hasSuffix(#"\_"#))
+    }
+
+    @Test func multipleChoicePromptUsesStarterContractAndHidesVisualSettings() {
+        let prompt = WidgetMathtivityPromptFactory.prompt(
+            for: .multipleChoice,
+            intent: .create
+        )
+
+        #expect(prompt.contains("MathBoard Multiple Choice JSON mathtivity"))
+        #expect(prompt.contains(#"activity as "multipleChoice""#))
+        #expect(prompt.contains("Mark exactly one choice per question with isCorrect: true."))
+        #expect(prompt.contains("Use plain ASCII straight double quotes"))
+        #expect(prompt.contains(#"Write \\frac, \\quad, and \\_ in JSON"#))
+        #expect(prompt.contains("Do not add teacher-facing theme, experience, CSS, scoring visual"))
+        #expect(prompt.contains("Starter JSON structure for Multiple Choice:"))
+    }
+
+    @Test func fillInTheBlankPromptAppendsCatalogJSONForRemix() throws {
+        let source = try #require(JSONMathtivityCatalog.source(for: JSONMathtivityCatalog.linearEquationFillInTheBlank))
+
+        let prompt = WidgetMathtivityPromptFactory.prompt(
+            for: .fillInTheBlank,
+            intent: .remix(sourceJSON: source)
+        )
+
+        #expect(prompt.contains("MathBoard Fill in the Blank JSON mathtivity"))
+        #expect(prompt.contains(#"activity as "fillInTheBlank""#))
+        #expect(prompt.contains("Use blanks instead of choices."))
+        #expect(prompt.contains(#""type": "fraction""#))
+        #expect(prompt.contains("numeratorBlankId"))
+        #expect(prompt.contains("Existing JSON mathtivity to revise:"))
+        #expect(prompt.contains(source))
     }
 
     @Test func widgetScoreSheetTotalsOnlyCompletedWidgets() throws {
@@ -1936,6 +2191,29 @@ struct MathBoardTests {
     }
 
     @MainActor
+    @Test func studentFirebaseAccessAuthorizerReusesCurrentAuthUser() async throws {
+        let authProvider = FakeStudentFirebaseAuthProvider(currentUserID: "existing-student")
+        let authorizer = MathBoardStudentFirebaseAccessAuthorizer(authProvider: authProvider)
+
+        let userID = try await authorizer.ensureAuthenticatedForOnlineLessonAccess()
+
+        #expect(userID == "existing-student")
+        #expect(authProvider.anonymousSignInCount == 0)
+    }
+
+    @MainActor
+    @Test func studentFirebaseAccessAuthorizerSignsInAnonymouslyWhenNeeded() async throws {
+        let authProvider = FakeStudentFirebaseAuthProvider(anonymousUserID: "anonymous-student")
+        let authorizer = MathBoardStudentFirebaseAccessAuthorizer(authProvider: authProvider)
+
+        let userID = try await authorizer.ensureAuthenticatedForOnlineLessonAccess()
+
+        #expect(userID == "anonymous-student")
+        #expect(authProvider.currentUserID == "anonymous-student")
+        #expect(authProvider.anonymousSignInCount == 1)
+    }
+
+    @MainActor
     @Test func classroomAssignmentStoreLooksUpAssignmentByNormalizedLessonCode() throws {
         let rootURL = try makeTemporaryDocumentRoot()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -2106,6 +2384,7 @@ struct MathBoardTests {
         let builder = StudentAssignedLessonLiveProgressBuilder(
             assignmentPacket: packet,
             studentIdentifier: "ALG-001",
+            studentPreferredFirstName: "Alexander",
             submittedWidgetIDs: [submittedWidgetID]
         )
 
@@ -2128,6 +2407,7 @@ struct MathBoardTests {
         #expect(submittedUpdate.isActiveOnStudentScreen)
         #expect(submittedUpdate.submission.widgetScoreRecord.status == .complete)
         #expect(submittedUpdate.submission.studentIdentifier == "ALG-001")
+        #expect(submittedUpdate.submission.studentPreferredFirstName == "Alexander")
     }
 
     @Test func studentAssignedLessonLiveProgressBuilderPreservesCachedInactiveScores() throws {
@@ -2288,6 +2568,24 @@ struct MathBoardTests {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(DocumentMetadata.self, from: data).id
+    }
+}
+
+@MainActor
+private final class FakeStudentFirebaseAuthProvider: StudentFirebaseAuthenticating {
+    var currentUserID: String?
+    let anonymousUserID: String
+    var anonymousSignInCount = 0
+
+    init(currentUserID: String? = nil, anonymousUserID: String = "anonymous-student") {
+        self.currentUserID = currentUserID
+        self.anonymousUserID = anonymousUserID
+    }
+
+    func signInAnonymously() async throws -> String {
+        anonymousSignInCount += 1
+        currentUserID = anonymousUserID
+        return anonymousUserID
     }
 }
 
