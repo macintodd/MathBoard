@@ -10,7 +10,9 @@
 //
 
 import SwiftUI
+import Canvas
 import Library
+import LiveClassroom
 import Presentation
 import PDFKit
 import UniformTypeIdentifiers
@@ -48,6 +50,7 @@ public enum MathBoardClassroomMode: String, CaseIterable, Identifiable {
 
 public struct SlidesView: View {
     private let lessonURL: URL
+    private let liveClassroomConfiguration: LiveClassroomSessionConfiguration?
     private let onActiveWidgetIDsChanged: ((Set<UUID>) -> Void)?
     private let onActiveWidgetsChanged: (([WidgetObject]) -> Void)?
 
@@ -64,16 +67,20 @@ public struct SlidesView: View {
     @State private var pendingPDFImport: PendingPDFImport?
     @State private var viewportSaveTask: Task<Void, Never>?
     @State private var pendingViewportSave: PendingViewportSave?
+    @State private var liveTeacherInkCoordinator = LiveTeacherInkCoordinator()
+    @State private var currentViewportSourceRect: CGRect?
 
     private static let viewportSaveDebounce: Duration = .milliseconds(300)
 
     public init(
         lessonURL: URL,
         classroomMode: Binding<MathBoardClassroomMode> = .constant(.teacher),
+        liveClassroomConfiguration: LiveClassroomSessionConfiguration? = nil,
         onActiveWidgetIDsChanged: ((Set<UUID>) -> Void)? = nil,
         onActiveWidgetsChanged: (([WidgetObject]) -> Void)? = nil
     ) {
         self.lessonURL = lessonURL
+        self.liveClassroomConfiguration = liveClassroomConfiguration
         self.onActiveWidgetIDsChanged = onActiveWidgetIDsChanged
         self.onActiveWidgetsChanged = onActiveWidgetsChanged
         _store = State(initialValue: SlideStore(lessonURL: lessonURL))
@@ -100,10 +107,18 @@ public struct SlidesView: View {
                         flushPendingViewportSave()
                         isShowingPDFExporter = true
                     },
+                    onViewportSourceRectChange: { sourceRect in
+                        currentViewportSourceRect = sourceRect
+                    },
+                    onLiveStrokeUpdate: { stroke in
+                        liveTeacherInkCoordinator.publishTeacherStroke(stroke, slideID: slide.id)
+                    },
                     allowsWidgetAuthoring: classroomMode.allowsWidgetAuthoring
                 )
                     .id(slide.id)
             }
+
+            liveTeacherInkOverlay
 
             if !isTextEditingOnCanvas {
                 SlideNavigatorView(
@@ -174,10 +189,15 @@ public struct SlidesView: View {
         .onDisappear {
             onActiveWidgetIDsChanged?([])
             onActiveWidgetsChanged?([])
+            liveTeacherInkCoordinator.stop()
             flushPendingViewportSave()
         }
         .onAppear {
             publishActiveWidgetIDs()
+            liveTeacherInkCoordinator.configure(liveClassroomConfiguration)
+        }
+        .onChange(of: liveClassroomConfiguration) { _, newConfiguration in
+            liveTeacherInkCoordinator.configure(newConfiguration)
         }
         .onChange(of: activeSlide?.id) { _, _ in
             publishActiveWidgetIDs()
@@ -214,6 +234,27 @@ public struct SlidesView: View {
     private var activeSlide: SlideMetadata? {
         guard activeIndex >= 0, activeIndex < store.slides.count else { return nil }
         return store.slides[activeIndex]
+    }
+
+    @ViewBuilder
+    private var liveTeacherInkOverlay: some View {
+        if liveClassroomConfiguration?.role == .student,
+           let activeSlide {
+            let strokes = liveTeacherInkCoordinator.receivedStrokes(for: activeSlide.id)
+            if !strokes.isEmpty {
+                GeometryReader { proxy in
+                    LiveTeacherInkOverlay(
+                        strokes: strokes,
+                        viewportSourceRect: currentViewportSourceRect,
+                        fallbackSourceSize: CanvasBoardMetrics.defaultUsableSize,
+                        fittedSize: proxy.size
+                    )
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                }
+                .allowsHitTesting(false)
+                .zIndex(0.5)
+            }
+        }
     }
 
     private func publishActiveWidgetIDs() {

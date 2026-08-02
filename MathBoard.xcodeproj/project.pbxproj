@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		E44A3B282FECD14C00B53DB9 /* Project_status.md in Resources */ = {isa = PBXBuildFile; fileRef = E44A3B272FECD14C00B53DB9 /* Project_status.md */; };
 		E48FA98D2FE4AA3900CA2F40 /* Documents in Frameworks */ = {isa = PBXBuildFile; productRef = E48FA98C2FE4AA3900CA2F40 /* Documents */; };
+		E4F836E8301DA28900F9167E /* TeacherLiveInkSync_POC.md in Resources */ = {isa = PBXBuildFile; fileRef = E4F836E7301DA28900F9167E /* TeacherLiveInkSync_POC.md */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -35,6 +36,7 @@
 		E48FA9512FE47E1100CA2F40 /* MathBoard.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MathBoard.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E48FA95E2FE47E1200CA2F40 /* MathBoardTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MathBoardTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E48FA9682FE47E1200CA2F40 /* MathBoardUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MathBoardUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		E4F836E7301DA28900F9167E /* TeacherLiveInkSync_POC.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = TeacherLiveInkSync_POC.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -103,6 +105,7 @@
 				E48FA9532FE47E1100CA2F40 /* MathBoard */,
 				E48FA9612FE47E1200CA2F40 /* MathBoardTests */,
 				E48FA96B2FE47E1200CA2F40 /* MathBoardUITests */,
+				E4F836E7301DA28900F9167E /* TeacherLiveInkSync_POC.md */,
 				E48FA9522FE47E1100CA2F40 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -241,6 +244,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E4F836E8301DA28900F9167E /* TeacherLiveInkSync_POC.md in Resources */,
 				E44A3B282FECD14C00B53DB9 /* Project_status.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

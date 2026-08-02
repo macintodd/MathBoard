@@ -54,6 +54,8 @@ public struct PresentingCanvasView: View {
     private let onImportPDF: (@MainActor () -> Void)?
     private let onImportPDFObjects: (@MainActor (URL, [Int]) -> Void)?
     private let onExportPDF: (@MainActor () -> Void)?
+    private let onViewportSourceRectChange: (@MainActor (CGRect) -> Void)?
+    private let onLiveStrokeUpdate: (@MainActor (CanvasLiveStroke?) -> Void)?
     private let allowsWidgetAuthoring: Bool
     private let broker = DisplayBroker.shared
     private let calculator = CalculatorState.shared
@@ -105,6 +107,8 @@ public struct PresentingCanvasView: View {
         onImportPDF: (@MainActor () -> Void)? = nil,
         onImportPDFObjects: (@MainActor (URL, [Int]) -> Void)? = nil,
         onExportPDF: (@MainActor () -> Void)? = nil,
+        onViewportSourceRectChange: (@MainActor (CGRect) -> Void)? = nil,
+        onLiveStrokeUpdate: (@MainActor (CanvasLiveStroke?) -> Void)? = nil,
         allowsWidgetAuthoring: Bool = true
     ) {
         self.drawingURL = drawingURL
@@ -118,6 +122,8 @@ public struct PresentingCanvasView: View {
         self.onImportPDF = onImportPDF
         self.onImportPDFObjects = onImportPDFObjects
         self.onExportPDF = onExportPDF
+        self.onViewportSourceRectChange = onViewportSourceRectChange
+        self.onLiveStrokeUpdate = onLiveStrokeUpdate
         self.allowsWidgetAuthoring = allowsWidgetAuthoring
     }
 
@@ -139,8 +145,8 @@ public struct PresentingCanvasView: View {
                 selectionState: $selectionState,
                 showsSystemToolPicker: !paletteSettings.isCustomPaletteEnabled,
                 onFrameUpdate: broker.isExternalDisplayConnected ? Self.publishFrame : nil,
-                onViewportSourceRectChange: Self.publishViewportSourceRect,
-                onLiveStrokeUpdate: Self.publishLiveStroke,
+                onViewportSourceRectChange: publishViewportSourceRect,
+                onLiveStrokeUpdate: publishLiveStroke,
                 onWidgetObjectsChange: Self.publishWidgets,
                 onViewportStateChange: publishViewportState,
                 onEditStateChange: publishEditState,
@@ -1622,6 +1628,12 @@ public struct PresentingCanvasView: View {
     }
 
     @MainActor
+    private func publishViewportSourceRect(_ sourceRect: CGRect) {
+        Self.publishViewportSourceRect(sourceRect)
+        onViewportSourceRectChange?(sourceRect)
+    }
+
+    @MainActor
     private func insertGraphSnapshot(_ snapshot: GraphCalculatorSnapshot) {
         let aspect = snapshot.size.width / max(snapshot.size.height, 1)
         let baseDisplayWidth: CGFloat = 160
@@ -1908,6 +1920,12 @@ public struct PresentingCanvasView: View {
     @MainActor
     private static func publishLiveStroke(_ stroke: CanvasLiveStroke?) {
         DisplayBroker.shared.publishLiveStroke(stroke)
+    }
+
+    @MainActor
+    private func publishLiveStroke(_ stroke: CanvasLiveStroke?) {
+        Self.publishLiveStroke(stroke)
+        onLiveStrokeUpdate?(stroke)
     }
 
     @MainActor

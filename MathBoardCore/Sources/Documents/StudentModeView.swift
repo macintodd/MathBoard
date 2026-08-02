@@ -1,4 +1,5 @@
 import SwiftUI
+import LiveClassroom
 import Slides
 import WidgetEngine
 
@@ -648,6 +649,8 @@ private struct StudentProfileSettingsView: View {
     @Binding var preferredFirstName: String
     @Binding var studentIdentifier: String
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(LiveClassroomSettings.enabledKey) private var isLiveTeacherInkEnabled = false
+    @AppStorage(LiveClassroomSettings.ablyAPIKeyKey) private var liveTeacherInkAblyAPIKey = ""
 
     private var trimmedPreferredFirstName: String {
         preferredFirstName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -678,6 +681,17 @@ private struct StudentProfileSettingsView: View {
                     Text("Student Profile")
                 } footer: {
                     Text("This stays saved on this device. Your teacher uses the ID to match your classroom roster row.")
+                }
+
+                Section {
+                    Toggle("Receive live teacher ink", isOn: $isLiveTeacherInkEnabled)
+                    SecureField("Ably API key", text: $liveTeacherInkAblyAPIKey)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                } header: {
+                    Text("Live Ink POC")
+                } footer: {
+                    Text("Temporary testing setting. Production should use a short-lived token instead of an API key on student devices.")
                 }
             }
             .navigationTitle("Student Profile")
@@ -780,6 +794,8 @@ struct StudentAssignedLessonLiveProgressBuilder {
 
 private struct StudentAssignedLessonView: View {
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(LiveClassroomSettings.enabledKey) private var isLiveTeacherInkEnabled = false
+    @AppStorage(LiveClassroomSettings.ablyAPIKeyKey) private var liveTeacherInkAblyAPIKey = ""
 
     let destination: StudentAssignedLessonDestination
     let submittedWidgetIDs: Set<UUID>
@@ -809,6 +825,7 @@ private struct StudentAssignedLessonView: View {
         SlidesView(
             lessonURL: destination.lesson.url,
             classroomMode: .constant(.student),
+            liveClassroomConfiguration: liveClassroomConfiguration,
             onActiveWidgetIDsChanged: handleActiveWidgetIDsChanged,
             onActiveWidgetsChanged: handleActiveWidgetsChanged
         )
@@ -877,6 +894,17 @@ private struct StudentAssignedLessonView: View {
         }
         .padding(.top, 8)
         .padding(.leading, 12)
+    }
+
+    private var liveClassroomConfiguration: LiveClassroomSessionConfiguration? {
+        guard isLiveTeacherInkEnabled else { return nil }
+        let configuration = LiveClassroomSessionConfiguration(
+            lessonCode: destination.assignmentPacket.classLessonCode,
+            role: .student,
+            clientID: "student-\(destination.studentIdentifier)",
+            apiKey: liveTeacherInkAblyAPIKey
+        )
+        return configuration.isUsable ? configuration : nil
     }
 
     private var studentNameTitle: some View {

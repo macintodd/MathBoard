@@ -5,13 +5,13 @@
 // `Documents` — start screen, folder browsing, `.mathboard` file format, store.
 // `Slides` — per-lesson slide management (slides.json + per-slide drawing files).
 // `Presentation` — viewfinder overlay, external display routing, viewport controls.
+// `LiveClassroom` — optional realtime classroom events such as teacher ink sync.
 // `Canvas` — PencilKit drawing surface (iPad) + Mac placeholder.
-// Future targets: Collaboration.
 //
-// Dependency chain: Documents → Slides → Presentation → Canvas. Only Documents
-// is a library product; everything else is transitively linked through it, so
-// the app target needs no Xcode framework-link work as internal modules
-// are added.
+// Dependency chain: Documents → Slides → Presentation → Canvas. Documents,
+// Slides, and Presentation optionally link LiveClassroom for realtime classroom
+// features. Only Documents is a required app-facing library product, so the app
+// target needs no Xcode framework-link work as internal modules are added.
 
 import PackageDescription
 
@@ -49,6 +49,7 @@ let package = Package(
         // Slides record supported inserted objects into the per-lesson Recent
         // sidecar. See MathBoard/LibraryDrawer_status.md.
         .library(name: "Library", targets: ["Library"]),
+        .library(name: "LiveClassroom", targets: ["LiveClassroom"]),
 
         // Isolated slide-navigator redesign prototype. Exposed as a product only
         // so Xcode offers a "SlideNav" scheme for SwiftUI previews. Nothing links
@@ -60,6 +61,7 @@ let package = Package(
         // Native, offline SwiftUI LaTeX renderer used only by TextEngine's
         // LaTeXPreviewView. No WebView / no network. Isolated behind a single
         // renderer seam so it can be swapped later. See TextEngine_status.md.
+        .package(url: "https://github.com/ably/ably-cocoa", from: "1.2.62"),
         .package(url: "https://github.com/gonzalezreal/swiftui-math", from: "0.1.0"),
         .package(url: "https://github.com/firebase/firebase-ios-sdk.git", from: "12.0.0")
     ],
@@ -71,11 +73,19 @@ let package = Package(
                 .product(name: "SwiftUIMath", package: "swiftui-math")
             ]
         ),
-        .target(name: "Presentation", dependencies: ["Canvas", "Calculator", "GraphCalculator", "Library", "TextEngine", "ToolPalette", "WidgetEngine"]),
-        .target(name: "Slides", dependencies: ["Library", "Presentation", "WidgetEngine"]),
+        .target(
+            name: "LiveClassroom",
+            dependencies: [
+                "Canvas",
+                .product(name: "Ably", package: "ably-cocoa")
+            ]
+        ),
+        .target(name: "Presentation", dependencies: ["Canvas", "Calculator", "GraphCalculator", "Library", "LiveClassroom", "TextEngine", "ToolPalette", "WidgetEngine"]),
+        .target(name: "Slides", dependencies: ["Library", "LiveClassroom", "Presentation", "WidgetEngine"]),
         .target(
             name: "Documents",
             dependencies: [
+                "LiveClassroom",
                 "Slides",
                 "WidgetEngine",
                 .product(name: "FirebaseAuth", package: "firebase-ios-sdk"),

@@ -8,6 +8,7 @@
 //
 
 import SwiftUI
+import LiveClassroom
 import Presentation
 import Slides
 import WidgetEngine
@@ -17,6 +18,9 @@ struct LessonDetailView: View {
 
     @Environment(ClassroomRosterStore.self) private var rosterStore
     @Environment(ClassroomAssignmentStore.self) private var assignmentStore
+    @Environment(MathBoardTeacherAuthStore.self) private var teacherAuthStore
+    @AppStorage(LiveClassroomSettings.enabledKey) private var isLiveTeacherInkEnabled = false
+    @AppStorage(LiveClassroomSettings.ablyAPIKeyKey) private var liveTeacherInkAblyAPIKey = ""
     @State private var classroomMode: MathBoardClassroomMode = .teacher
     @State private var isLiveProgressDrawerOpen = false
     @State private var selectedLiveProgressAssignmentID: UUID?
@@ -24,13 +28,18 @@ struct LessonDetailView: View {
     @State private var liveProgressRows: [StudentWidgetLiveProgress] = []
     @State private var isRefreshingLiveProgress = false
     @State private var liveProgressErrorMessage: String?
+    @State private var isLiveTeacherInkSettingsPresented = false
 
     #if canImport(UIKit)
     @Environment(\.dismiss) private var dismiss
     #endif
 
     var body: some View {
-        SlidesView(lessonURL: lesson.url, classroomMode: $classroomMode)
+        SlidesView(
+            lessonURL: lesson.url,
+            classroomMode: $classroomMode,
+            liveClassroomConfiguration: liveClassroomConfiguration
+        )
             .onAppear { DisplayBroker.shared.lessonURL = lesson.url }
             .overlay(alignment: .trailing) {
                 liveProgressOverlay
@@ -46,6 +55,12 @@ struct LessonDetailView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(liveProgressErrorMessage ?? "")
+            }
+            .sheet(isPresented: $isLiveTeacherInkSettingsPresented) {
+                LiveTeacherInkSettingsView(
+                    isEnabled: $isLiveTeacherInkEnabled,
+                    apiKey: $liveTeacherInkAblyAPIKey
+                )
             }
             #if canImport(UIKit)
             .navigationBarBackButtonHidden(true)
@@ -100,6 +115,31 @@ struct LessonDetailView: View {
                 }
             }
         )
+    }
+
+    private var liveClassroomConfiguration: LiveClassroomSessionConfiguration? {
+        guard isLiveTeacherInkEnabled else { return nil }
+        let clientID = "teacher-\(teacherAuthStore.state.userID ?? "local")"
+        let configuration = LiveClassroomSessionConfiguration(
+            lessonCode: selectedLiveProgressAssignment?.classLessonCode ?? lessonAssignments.first?.classLessonCode ?? "",
+            role: .teacher,
+            clientID: clientID,
+            apiKey: liveTeacherInkAblyAPIKey
+        )
+        return configuration.isUsable ? configuration : nil
+    }
+
+    private var liveTeacherInkStatus: LiveTeacherInkStatus {
+        if !isLiveTeacherInkEnabled {
+            return .off
+        }
+        if lessonAssignments.isEmpty {
+            return .missingLessonCode
+        }
+        if liveTeacherInkAblyAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .missingAPIKey
+        }
+        return .ready
     }
 
     @ViewBuilder
@@ -262,6 +302,15 @@ struct LessonDetailView: View {
                         }
                     }
                 }
+                Section("Live Teacher Ink") {
+                    Label(liveTeacherInkStatus.title, systemImage: liveTeacherInkStatus.systemImage)
+                        .foregroundStyle(liveTeacherInkStatus.color)
+                    Toggle("Sync teacher ink", isOn: $isLiveTeacherInkEnabled)
+                    Button(liveTeacherInkAblyAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Set Ably API Key" : "Edit Ably API Key") {
+                        isLiveTeacherInkSettingsPresented = true
+                    }
+                    .disabled(lessonAssignments.isEmpty)
+                }
             } label: {
                 HStack(spacing: 8) {
                     Text(lesson.name)
@@ -285,6 +334,78 @@ struct LessonDetailView: View {
         .padding(.leading, 12)
     }
     #endif
+}
+
+private enum LiveTeacherInkStatus {
+    case off
+    case missingLessonCode
+    case missingAPIKey
+    case ready
+
+    var title: String {
+        switch self {
+        case .off:
+            return "Live ink off"
+        case .missingLessonCode:
+            return "Assign lesson first"
+        case .missingAPIKey:
+            return "Missing Ably key"
+        case .ready:
+            return "Ready to sync"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .off:
+            return "icloud.slash"
+        case .missingLessonCode, .missingAPIKey:
+            return "exclamationmark.triangle"
+        case .ready:
+            return "dot.radiowaves.left.and.right"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .off:
+            return .secondary
+        case .missingLessonCode, .missingAPIKey:
+            return .orange
+        case .ready:
+            return .green
+        }
+    }
+}
+
+private struct LiveTeacherInkSettingsView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    @Binding var isEnabled: Bool
+    @Binding var apiKey: String
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Toggle("Sync teacher ink", isOn: $isEnabled)
+                    SecureField("Ably API key", text: $apiKey)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                } footer: {
+                    Text("This proof of concept stores the key locally on this device. Production should replace this with short-lived Ably tokens from a server.")
+                }
+            }
+            .navigationTitle("Live Teacher Ink")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
 }
 
 private struct LiveProgressDrawerView: View {

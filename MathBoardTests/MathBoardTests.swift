@@ -9,6 +9,7 @@ import Testing
 @testable import Documents
 @testable import Canvas
 @testable import Library
+@testable import LiveClassroom
 import Slides
 @testable import WidgetEngine
 
@@ -2568,6 +2569,149 @@ struct MathBoardTests {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(DocumentMetadata.self, from: data).id
+    }
+
+    @MainActor
+    @Test func liveClassroomLessonCodeNormalizesForChannelName() {
+        let configuration = LiveClassroomSessionConfiguration(
+            lessonCode: " ab-12 c ",
+            role: .teacher,
+            clientID: "teacher-local",
+            apiKey: "test-key"
+        )
+
+        #expect(configuration.lessonCode == "AB12C")
+        #expect(configuration.inkChannelName == "classroom:AB12C:ink")
+    }
+
+    @MainActor
+    @Test func liveClassroomStrokeChunkCapsTransportPointCount() {
+        let slideID = UUID()
+        let stroke = liveClassroomStroke(pointCount: TeacherInkStrokeChunk.maximumPointCount + 75)
+
+        let chunk = TeacherInkStrokeChunk(
+            stroke: stroke,
+            lessonCode: "ABC123",
+            slideID: slideID,
+            strokeID: UUID(),
+            sequence: 0,
+            isFinalChunk: false
+        )
+
+        #expect(chunk?.points.count == TeacherInkStrokeChunk.maximumPointCount)
+        #expect(chunk?.points.first?.x == 0)
+        #expect(chunk?.points.last?.x == Double(stroke.samples.count - 1))
+    }
+
+    @MainActor
+    @Test func liveClassroomCoordinatorFiltersReceivedInkBySlideID() {
+        let slideA = UUID()
+        let slideB = UUID()
+        let session = FakeLiveClassroomSession()
+        let coordinator = LiveTeacherInkCoordinator(sessionFactory: { _ in session })
+        coordinator.configure(liveClassroomStudentConfiguration())
+
+        session.deliver(liveClassroomChunk(slideID: slideA, strokeID: UUID(), x: 10))
+        session.deliver(liveClassroomChunk(slideID: slideB, strokeID: UUID(), x: 20))
+
+        #expect(coordinator.receivedStrokes(for: slideA).count == 1)
+        #expect(coordinator.receivedStrokes(for: slideB).count == 1)
+        #expect(coordinator.receivedStrokes(for: slideA).first?.samples.first?.location.x == 10)
+    }
+
+    @MainActor
+    @Test func liveClassroomCoordinatorPublishesFinalChunkImmediatelyOnStrokeEnd() {
+        let slideID = UUID()
+        let session = FakeLiveClassroomSession()
+        let coordinator = LiveTeacherInkCoordinator(
+            publishInterval: .seconds(10),
+            sessionFactory: { _ in session }
+        )
+        coordinator.configure(liveClassroomTeacherConfiguration())
+
+        coordinator.publishTeacherStroke(liveClassroomStroke(pointCount: 8), slideID: slideID)
+        #expect(session.publishedChunks.isEmpty)
+
+        coordinator.publishTeacherStroke(nil, slideID: slideID)
+
+        #expect(session.publishedChunks.count == 1)
+        #expect(session.publishedChunks.first?.isFinalChunk == true)
+        #expect(session.publishedChunks.first?.slideID == slideID)
+    }
+
+    private func liveClassroomTeacherConfiguration() -> LiveClassroomSessionConfiguration {
+        LiveClassroomSessionConfiguration(
+            lessonCode: "ABC123",
+            role: .teacher,
+            clientID: "teacher-test",
+            apiKey: "test-key"
+        )
+    }
+
+    private func liveClassroomStudentConfiguration() -> LiveClassroomSessionConfiguration {
+        LiveClassroomSessionConfiguration(
+            lessonCode: "ABC123",
+            role: .student,
+            clientID: "student-test",
+            apiKey: "test-key"
+        )
+    }
+
+    private func liveClassroomStroke(pointCount: Int) -> CanvasLiveStroke {
+        CanvasLiveStroke(
+            samples: (0..<pointCount).map { index in
+                CanvasLiveStrokePoint(
+                    location: CGPoint(x: index, y: index * 2),
+                    pressure: 0.5,
+                    timestamp: Double(index) / 120
+                )
+            },
+            lineWidth: 8,
+            color: CanvasStrokeColor(red: 0.1, green: 0.2, blue: 0.3, alpha: 1),
+            kind: .ink
+        )
+    }
+
+    private func liveClassroomChunk(slideID: UUID, strokeID: UUID, x: Double) -> TeacherInkStrokeChunk {
+        TeacherInkStrokeChunk(
+            lessonCode: "ABC123",
+            slideID: slideID,
+            strokeID: strokeID,
+            sequence: 0,
+            isFinalChunk: true,
+            colorHex: "#000000",
+            alpha: 1,
+            width: 4,
+            points: [
+                TeacherInkPoint(x: x, y: 1, timestampOffset: 0),
+                TeacherInkPoint(x: x + 1, y: 2, timestampOffset: 0.01)
+            ]
+        )
+    }
+}
+
+@MainActor
+private final class FakeLiveClassroomSession: LiveClassroomSessioning {
+    var onTeacherInkChunk: ((TeacherInkStrokeChunk) -> Void)?
+    private(set) var lastErrorMessage: String?
+    private(set) var didStart = false
+    private(set) var didStop = false
+    private(set) var publishedChunks: [TeacherInkStrokeChunk] = []
+
+    func start() {
+        didStart = true
+    }
+
+    func publishTeacherInkChunk(_ chunk: TeacherInkStrokeChunk) {
+        publishedChunks.append(chunk)
+    }
+
+    func stop() {
+        didStop = true
+    }
+
+    func deliver(_ chunk: TeacherInkStrokeChunk) {
+        onTeacherInkChunk?(chunk)
     }
 }
 
