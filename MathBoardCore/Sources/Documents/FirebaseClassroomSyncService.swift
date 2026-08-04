@@ -1,6 +1,9 @@
+import Canvas
+import CryptoKit
 import FirebaseFirestore
 import FirebaseStorage
 import Foundation
+import LiveClassroom
 import WidgetEngine
 
 @MainActor
@@ -9,6 +12,8 @@ struct FirebaseClassroomSyncService {
     private var teacherEmail: String?
     private var firestore: Firestore
     private var storage: Storage
+    private static let inlineTeacherObjectSnapshotLimit = 700_000
+    private static let teacherObjectSnapshotStorageMaxSize: Int64 = 75 * 1024 * 1024
 
     init(
         teacherUserID: String? = nil,
@@ -44,6 +49,12 @@ struct FirebaseClassroomSyncService {
             teacherEmail: teacherEmail
         )
         try await setData(document, at: codeDocument(for: code))
+        try await publishStudentAssignmentAccessDocuments(
+            packet: packet,
+            classroom: classroom,
+            teacherUserID: teacherUserID,
+            teacherEmail: teacherEmail
+        )
         return packet
     }
 
@@ -130,6 +141,29 @@ struct FirebaseClassroomSyncService {
         return try assignmentPacket(from: data, fallbackCode: code)
     }
 
+    func resolveAssignment(classLessonCode: String, studentIdentifier: String) async throws -> AssignmentSyncPacket {
+        let code = ClassroomAssignmentStore.normalizedClassLessonCode(classLessonCode)
+        let normalizedIdentifier = normalizedStudentIdentifier(studentIdentifier)
+        guard !code.isEmpty, !normalizedIdentifier.isEmpty else {
+            throw ClassroomAssignmentStoreError.classLessonCodeNotFound
+        }
+        let identifierHash = studentIdentifierHash(forNormalizedIdentifier: normalizedIdentifier)
+        return try await resolveAssignmentForValidatedStudent(code: code, studentIdentifierHash: identifierHash)
+    }
+
+    private func resolveAssignmentForValidatedStudent(code: String, studentIdentifierHash: String) async throws -> AssignmentSyncPacket {
+        do {
+            let data = try await getData(from: studentAccessDocument(forCode: code, studentIdentifierHash: studentIdentifierHash))
+            let packet = try assignmentPacket(from: data, fallbackCode: code)
+            try validateStudentIdentifierHash(studentIdentifierHash, isAllowedFor: packet)
+            return packet
+        } catch ClassroomAssignmentStoreError.classLessonCodeNotFound {
+            let packet = try await resolveAssignment(classLessonCode: code)
+            try validateStudentIdentifierHash(studentIdentifierHash, isAllowedFor: packet)
+            return packet
+        }
+    }
+
     @discardableResult
     func submitWidgetScore(_ submission: StudentSubmissionPacket) async throws -> StudentWidgetResult {
         let code = ClassroomAssignmentStore.normalizedClassLessonCode(submission.classLessonCode)
@@ -137,9 +171,16 @@ struct FirebaseClassroomSyncService {
             throw ClassroomAssignmentStoreError.classLessonCodeNotFound
         }
 
+        let normalizedIdentifier = normalizedStudentIdentifier(submission.studentIdentifier)
+        guard !normalizedIdentifier.isEmpty else {
+            throw ClassroomAssignmentStoreError.studentNotFound
+        }
+        let identifierHash = studentIdentifierHash(forNormalizedIdentifier: normalizedIdentifier)
         let document = codeDocument(for: code)
-        let data = try await getData(from: document)
-        let packet = try assignmentPacket(from: data, fallbackCode: code)
+        let packet = try await resolveAssignmentForValidatedStudent(
+            code: code,
+            studentIdentifierHash: identifierHash
+        )
         guard packet.id == submission.assignmentID else {
             throw ClassroomAssignmentStoreError.assignmentNotFound
         }
@@ -158,10 +199,6 @@ struct FirebaseClassroomSyncService {
             throw ClassroomAssignmentStoreError.widgetNotAssigned
         }
 
-        let normalizedIdentifier = normalizedStudentIdentifier(submission.studentIdentifier)
-        guard !normalizedIdentifier.isEmpty else {
-            throw ClassroomAssignmentStoreError.studentNotFound
-        }
         let result = StudentWidgetResult(
             assignmentID: packet.id,
             classroomID: packet.classroomID,
@@ -192,6 +229,61 @@ struct FirebaseClassroomSyncService {
     }
 
     @discardableResult
+    func publishLessonPresence(
+        assignmentPacket: AssignmentSyncPacket,
+        studentIdentifier: String,
+        studentPreferredFirstName: String?
+    ) async throws -> StudentWidgetLiveProgress {
+        let code = ClassroomAssignmentStore.normalizedClassLessonCode(assignmentPacket.classLessonCode)
+        guard !code.isEmpty else {
+            throw ClassroomAssignmentStoreError.classLessonCodeNotFound
+        }
+
+        let normalizedIdentifier = normalizedStudentIdentifier(studentIdentifier)
+        guard !normalizedIdentifier.isEmpty else {
+            throw ClassroomAssignmentStoreError.studentNotFound
+        }
+        let identifierHash = studentIdentifierHash(forNormalizedIdentifier: normalizedIdentifier)
+        let packet = try await resolveAssignmentForValidatedStudent(
+            code: code,
+            studentIdentifierHash: identifierHash
+        )
+        guard packet.id == assignmentPacket.id else {
+            throw ClassroomAssignmentStoreError.assignmentNotFound
+        }
+        guard packet.classroomID == assignmentPacket.classroomID else {
+            throw ClassroomAssignmentStoreError.classroomMismatch
+        }
+
+        let preferredFirstName = normalizedPreferredFirstName(studentPreferredFirstName)
+        let presence = StudentWidgetLiveProgress(
+            assignmentID: packet.id,
+            classroomID: packet.classroomID,
+            studentID: stableStudentID(for: normalizedIdentifier),
+            studentIdentifier: normalizedIdentifier,
+            studentName: preferredFirstName ?? "Student \(normalizedIdentifier)",
+            studentPreferredFirstName: preferredFirstName,
+            widgetID: StudentWidgetLiveProgress.lessonPresenceWidgetID,
+            correctCount: 0,
+            attemptedCount: 0,
+            status: .inProgress,
+            isActiveOnStudentScreen: false,
+            updatedAt: Date()
+        )
+        try await setData(
+            liveProgressDocument(
+                presence,
+                classLessonCode: code,
+                studentIdentifierHash: identifierHash
+            ),
+            at: codeDocument(for: code)
+                .collection("liveProgress")
+                .document(submissionDocumentID(studentIdentifier: normalizedIdentifier, widgetID: StudentWidgetLiveProgress.lessonPresenceWidgetID))
+        )
+        return presence
+    }
+
+    @discardableResult
     func publishLiveProgress(
         _ submission: StudentSubmissionPacket,
         isActiveOnStudentScreen: Bool = true
@@ -201,9 +293,16 @@ struct FirebaseClassroomSyncService {
             throw ClassroomAssignmentStoreError.classLessonCodeNotFound
         }
 
+        let normalizedIdentifier = normalizedStudentIdentifier(submission.studentIdentifier)
+        guard !normalizedIdentifier.isEmpty else {
+            throw ClassroomAssignmentStoreError.studentNotFound
+        }
+        let identifierHash = studentIdentifierHash(forNormalizedIdentifier: normalizedIdentifier)
         let document = codeDocument(for: code)
-        let data = try await getData(from: document)
-        let packet = try assignmentPacket(from: data, fallbackCode: code)
+        let packet = try await resolveAssignmentForValidatedStudent(
+            code: code,
+            studentIdentifierHash: identifierHash
+        )
         guard packet.id == submission.assignmentID else {
             throw ClassroomAssignmentStoreError.assignmentNotFound
         }
@@ -217,10 +316,6 @@ struct FirebaseClassroomSyncService {
             throw ClassroomAssignmentStoreError.widgetNotAssigned
         }
 
-        let normalizedIdentifier = normalizedStudentIdentifier(submission.studentIdentifier)
-        guard !normalizedIdentifier.isEmpty else {
-            throw ClassroomAssignmentStoreError.studentNotFound
-        }
         let preferredFirstName = normalizedPreferredFirstName(submission.studentPreferredFirstName)
         let progress = StudentWidgetLiveProgress(
             assignmentID: packet.id,
@@ -236,7 +331,13 @@ struct FirebaseClassroomSyncService {
             isActiveOnStudentScreen: isActiveOnStudentScreen,
             updatedAt: submission.submittedAt
         )
-        try await setData(liveProgressDocument(progress), at: document
+        try await setData(
+            liveProgressDocument(
+                progress,
+                classLessonCode: code,
+                studentIdentifierHash: identifierHash
+            ),
+            at: document
             .collection("liveProgress")
             .document(submissionDocumentID(studentIdentifier: normalizedIdentifier, widgetID: widgetID))
         )
@@ -259,8 +360,255 @@ struct FirebaseClassroomSyncService {
             }
     }
 
+    func publishTeacherInkChunk(_ chunk: TeacherInkStrokeChunk) async throws {
+        let code = ClassroomAssignmentStore.normalizedClassLessonCode(chunk.lessonCode)
+        guard !code.isEmpty else {
+            throw ClassroomAssignmentStoreError.classLessonCodeNotFound
+        }
+        guard chunk.isFinalChunk else { return }
+        guard let teacherUserID, !teacherUserID.isEmpty else {
+            throw FirebaseClassroomSyncError.teacherNotSignedIn
+        }
+        let assignmentData = try await getData(from: codeDocument(for: code))
+        guard assignmentData["teacherUserID"] as? String == teacherUserID else {
+            throw FirebaseClassroomSyncError.teacherNotSignedIn
+        }
+
+        try await setData(
+            teacherInkDocument(chunk, teacherUserID: teacherUserID),
+            at: codeDocument(for: code)
+                .collection("teacherInk")
+                .document(chunk.strokeID.uuidString)
+        )
+    }
+
+    func fetchTeacherInkChunks(classLessonCode: String) async throws -> [TeacherInkStrokeChunk] {
+        let code = ClassroomAssignmentStore.normalizedClassLessonCode(classLessonCode)
+        guard !code.isEmpty else {
+            throw ClassroomAssignmentStoreError.classLessonCodeNotFound
+        }
+
+        let snapshot = try await getDocuments(
+            from: codeDocument(for: code)
+                .collection("teacherInk")
+                .order(by: "sentAt")
+        )
+        return snapshot.documents.compactMap { teacherInkChunk(from: $0.data(), fallbackCode: code) }
+            .filter(\.isFinalChunk)
+            .sorted { first, second in
+                if first.sentAt == second.sentAt {
+                    return first.sequence < second.sequence
+                }
+                return first.sentAt < second.sentAt
+            }
+    }
+
+    func publishTeacherInkDrawingSnapshot(_ snapshot: TeacherInkDrawingSnapshot) async throws {
+        let code = ClassroomAssignmentStore.normalizedClassLessonCode(snapshot.lessonCode)
+        guard !code.isEmpty else {
+            throw ClassroomAssignmentStoreError.classLessonCodeNotFound
+        }
+        guard let teacherUserID, !teacherUserID.isEmpty else {
+            throw FirebaseClassroomSyncError.teacherNotSignedIn
+        }
+        let assignmentData = try await getData(from: codeDocument(for: code))
+        guard assignmentData["teacherUserID"] as? String == teacherUserID else {
+            throw FirebaseClassroomSyncError.teacherNotSignedIn
+        }
+
+        let document = codeDocument(for: code)
+            .collection("teacherInkSnapshots")
+            .document(snapshot.slideID.uuidString)
+        guard try await shouldWriteRevision(snapshot.revision, to: document) else { return }
+
+        try await setData(
+            teacherInkDrawingSnapshotDocument(snapshot, teacherUserID: teacherUserID),
+            at: document
+        )
+    }
+
+    func fetchTeacherInkDrawingSnapshots(classLessonCode: String) async throws -> [TeacherInkDrawingSnapshot] {
+        let code = ClassroomAssignmentStore.normalizedClassLessonCode(classLessonCode)
+        guard !code.isEmpty else {
+            throw ClassroomAssignmentStoreError.classLessonCodeNotFound
+        }
+
+        let snapshot = try await getDocuments(from: codeDocument(for: code).collection("teacherInkSnapshots"))
+        return snapshot.documents.compactMap { teacherInkDrawingSnapshot(from: $0.data(), fallbackCode: code) }
+            .sorted { first, second in
+                if first.slideID == second.slideID {
+                    return first.revision < second.revision
+                }
+                return first.sentAt < second.sentAt
+            }
+    }
+
+    func publishTeacherObjectSnapshot(_ snapshot: TeacherObjectSnapshot) async throws {
+        let code = ClassroomAssignmentStore.normalizedClassLessonCode(snapshot.lessonCode)
+        guard !code.isEmpty else {
+            throw ClassroomAssignmentStoreError.classLessonCodeNotFound
+        }
+        guard let teacherUserID, !teacherUserID.isEmpty else {
+            throw FirebaseClassroomSyncError.teacherNotSignedIn
+        }
+        let assignmentData = try await getData(from: codeDocument(for: code))
+        guard assignmentData["teacherUserID"] as? String == teacherUserID else {
+            throw FirebaseClassroomSyncError.teacherNotSignedIn
+        }
+
+        let document = codeDocument(for: code)
+            .collection("teacherObjects")
+            .document(snapshot.slideID.uuidString)
+        guard try await shouldWriteRevision(snapshot.revision, to: document) else { return }
+
+        let snapshotDocument = try await storageBackedTeacherObjectSnapshotDocumentIfNeeded(
+            snapshot,
+            code: code,
+            teacherUserID: teacherUserID
+        )
+        try await setData(
+            snapshotDocument,
+            at: document
+        )
+    }
+
+    func fetchTeacherObjectSnapshots(classLessonCode: String) async throws -> [TeacherObjectSnapshot] {
+        let code = ClassroomAssignmentStore.normalizedClassLessonCode(classLessonCode)
+        guard !code.isEmpty else {
+            throw ClassroomAssignmentStoreError.classLessonCodeNotFound
+        }
+
+        let snapshot = try await getDocuments(from: codeDocument(for: code).collection("teacherObjects"))
+        var objectSnapshots: [TeacherObjectSnapshot] = []
+        for document in snapshot.documents {
+            if let objectSnapshot = try await teacherObjectSnapshot(from: document.data(), fallbackCode: code) {
+                objectSnapshots.append(objectSnapshot)
+            }
+        }
+        return sortedTeacherObjectSnapshots(objectSnapshots)
+    }
+
+    func listenToTeacherObjectSnapshots(
+        classLessonCode: String,
+        onChange: @escaping @MainActor ([TeacherObjectSnapshot]) -> Void
+    ) -> ListenerRegistration? {
+        let code = ClassroomAssignmentStore.normalizedClassLessonCode(classLessonCode)
+        guard !code.isEmpty else { return nil }
+
+        return codeDocument(for: code)
+            .collection("teacherObjects")
+            .addSnapshotListener { snapshot, error in
+                Task { @MainActor in
+                    if let error {
+                        print("[StudentMode] durable teacher object listener error: \(error)")
+                        return
+                    }
+                    guard let snapshot else { return }
+                    do {
+                        var objectSnapshots: [TeacherObjectSnapshot] = []
+                        for document in snapshot.documents {
+                            if let objectSnapshot = try await teacherObjectSnapshot(from: document.data(), fallbackCode: code) {
+                                objectSnapshots.append(objectSnapshot)
+                            }
+                        }
+                        objectSnapshots = sortedTeacherObjectSnapshots(objectSnapshots)
+                        print("[StudentMode] durable teacher object listener received snapshots=\(objectSnapshots.count)")
+                        onChange(objectSnapshots)
+                    } catch {
+                        print("[StudentMode] durable teacher object listener hydration error: \(error)")
+                    }
+                }
+            }
+    }
+
+    func publishTeacherSlideManifestSnapshot(_ snapshot: TeacherSlideManifestSnapshot) async throws {
+        let code = ClassroomAssignmentStore.normalizedClassLessonCode(snapshot.lessonCode)
+        guard !code.isEmpty else {
+            throw ClassroomAssignmentStoreError.classLessonCodeNotFound
+        }
+        guard let teacherUserID, !teacherUserID.isEmpty else {
+            throw FirebaseClassroomSyncError.teacherNotSignedIn
+        }
+        let assignmentData = try await getData(from: codeDocument(for: code))
+        guard assignmentData["teacherUserID"] as? String == teacherUserID else {
+            throw FirebaseClassroomSyncError.teacherNotSignedIn
+        }
+
+        let document = codeDocument(for: code)
+            .collection("teacherSlides")
+            .document("current")
+        guard try await shouldWriteRevision(snapshot.revision, to: document) else { return }
+
+        let storageBackedSnapshot = try await snapshotWithUploadedSlideBackgroundAssets(snapshot, code: code)
+        guard try await shouldWriteRevision(storageBackedSnapshot.revision, to: document) else { return }
+
+        try await setData(
+            teacherSlideManifestSnapshotDocument(storageBackedSnapshot, teacherUserID: teacherUserID),
+            at: document
+        )
+    }
+
+    func fetchTeacherSlideManifestSnapshot(classLessonCode: String) async throws -> TeacherSlideManifestSnapshot? {
+        let code = ClassroomAssignmentStore.normalizedClassLessonCode(classLessonCode)
+        guard !code.isEmpty else {
+            throw ClassroomAssignmentStoreError.classLessonCodeNotFound
+        }
+
+        do {
+            let data = try await getData(
+                from: codeDocument(for: code)
+                    .collection("teacherSlides")
+                    .document("current")
+            )
+            guard let snapshot = teacherSlideManifestSnapshot(from: data, fallbackCode: code) else { return nil }
+            return try await snapshotWithDownloadedSlideBackgroundAssets(snapshot)
+        } catch ClassroomAssignmentStoreError.classLessonCodeNotFound {
+            return nil
+        }
+    }
+
+    func listenToTeacherSlideManifestSnapshot(
+        classLessonCode: String,
+        onChange: @escaping @MainActor (TeacherSlideManifestSnapshot) -> Void
+    ) -> ListenerRegistration? {
+        let code = ClassroomAssignmentStore.normalizedClassLessonCode(classLessonCode)
+        guard !code.isEmpty else { return nil }
+        let document = codeDocument(for: code)
+            .collection("teacherSlides")
+            .document("current")
+
+        return document.addSnapshotListener { snapshot, error in
+            Task { @MainActor in
+                if let error {
+                    print("[StudentMode] durable teacher slide manifest listener error: \(error)")
+                    return
+                }
+                guard let data = snapshot?.data(),
+                      let snapshot = teacherSlideManifestSnapshot(from: data, fallbackCode: code) else {
+                    return
+                }
+
+                do {
+                    let hydratedSnapshot = try await snapshotWithDownloadedSlideBackgroundAssets(snapshot)
+                    print("[StudentMode] durable teacher slide manifest listener received revision=\(hydratedSnapshot.revision) slides=\(hydratedSnapshot.slides.count)")
+                    onChange(hydratedSnapshot)
+                } catch {
+                    print("[StudentMode] durable teacher slide manifest listener hydration error: \(error)")
+                }
+            }
+        }
+    }
+
     private func codeDocument(for code: String) -> DocumentReference {
         firestore.collection("classLessonCodes").document(code)
+    }
+
+    private func studentAccessDocument(forCode code: String, studentIdentifierHash: String) -> DocumentReference {
+        firestore.collection("studentAssignmentAccess").document(studentAccessDocumentID(forCode: code, studentIdentifierHash: studentIdentifierHash))
+    }
+
+    private func studentAccessDocumentID(forCode code: String, studentIdentifierHash: String) -> String {
+        "\(ClassroomAssignmentStore.normalizedClassLessonCode(code))_\(studentIdentifierHash)"
     }
 
     private func lessonDocument(for lessonID: UUID) -> DocumentReference {
@@ -340,7 +688,8 @@ struct FirebaseClassroomSyncService {
             classLessonCode: ClassroomAssignmentStore.normalizedClassLessonCode(assignment.classLessonCode),
             shareURL: assignment.shareURL,
             widgetSummaries: assignment.widgetSummaries,
-            assignedAt: assignment.assignedAt
+            assignedAt: assignment.assignedAt,
+            allowedStudentIdentifierHashes: allowedStudentIdentifierHashes(for: classroom)
         )
     }
 
@@ -360,7 +709,8 @@ struct FirebaseClassroomSyncService {
             "lessonTitle": packet.lesson.title,
             "classLessonCode": packet.classLessonCode,
             "assignedAt": Timestamp(date: packet.assignedAt),
-            "widgetSummaries": packet.widgetSummaries.map(widgetSummaryDocument)
+            "widgetSummaries": packet.widgetSummaries.map(widgetSummaryDocument),
+            "allowedStudentIdentifierHashes": allowedStudentIdentifierHashes(for: classroom)
         ]
         if let teacherEmail {
             document["teacherEmail"] = teacherEmail
@@ -386,6 +736,50 @@ struct FirebaseClassroomSyncService {
         if let packageChecksum = packet.lesson.packageChecksum {
             document["lessonPackageChecksum"] = packageChecksum
         }
+        return document
+    }
+
+    private func publishStudentAssignmentAccessDocuments(
+        packet: AssignmentSyncPacket,
+        classroom: Classroom,
+        teacherUserID: String,
+        teacherEmail: String?
+    ) async throws {
+        let code = ClassroomAssignmentStore.normalizedClassLessonCode(packet.classLessonCode)
+        let hashes = allowedStudentIdentifierHashes(for: classroom)
+        guard !code.isEmpty, !hashes.isEmpty else { return }
+
+        for hash in hashes {
+            try await setData(
+                studentAssignmentAccessDocument(
+                    packet: packet,
+                    studentIdentifierHash: hash,
+                    teacherUserID: teacherUserID,
+                    teacherEmail: teacherEmail
+                ),
+                at: studentAccessDocument(forCode: code, studentIdentifierHash: hash)
+            )
+        }
+    }
+
+    private func studentAssignmentAccessDocument(
+        packet: AssignmentSyncPacket,
+        studentIdentifierHash: String,
+        teacherUserID: String,
+        teacherEmail: String?
+    ) -> [String: Any] {
+        var document = assignmentDocument(
+            packet: packet,
+            classroom: Classroom(id: packet.classroomID, name: packet.classroomName),
+            teacherUserID: teacherUserID,
+            teacherEmail: teacherEmail
+        )
+        document["studentIdentifierHash"] = studentIdentifierHash
+        document["accessDocumentID"] = studentAccessDocumentID(
+            forCode: packet.classLessonCode,
+            studentIdentifierHash: studentIdentifierHash
+        )
+        document["allowedStudentIdentifierHashes"] = [studentIdentifierHash]
         return document
     }
 
@@ -418,7 +812,8 @@ struct FirebaseClassroomSyncService {
             classLessonCode: data["classLessonCode"] as? String ?? fallbackCode,
             shareURL: shareURL,
             widgetSummaries: widgetSummaries,
-            assignedAt: assignedAt
+            assignedAt: assignedAt,
+            allowedStudentIdentifierHashes: data["allowedStudentIdentifierHashes"] as? [String] ?? []
         )
     }
 
@@ -489,6 +884,42 @@ struct FirebaseClassroomSyncService {
         return student
     }
 
+    private func validateStudentIdentifier(_ identifier: String, isAllowedFor packet: AssignmentSyncPacket) throws {
+        let normalizedIdentifier = normalizedStudentIdentifier(identifier)
+        guard !normalizedIdentifier.isEmpty else {
+            throw ClassroomAssignmentStoreError.studentNotFound
+        }
+        try validateStudentIdentifierHash(
+            studentIdentifierHash(forNormalizedIdentifier: normalizedIdentifier),
+            isAllowedFor: packet
+        )
+    }
+
+    private func validateStudentIdentifierHash(_ identifierHash: String, isAllowedFor packet: AssignmentSyncPacket) throws {
+        let allowedHashes = Set(packet.allowedStudentIdentifierHashes)
+        guard !allowedHashes.isEmpty else { return }
+        guard allowedHashes.contains(identifierHash) else {
+            throw ClassroomAssignmentStoreError.studentNotFound
+        }
+    }
+
+    private func allowedStudentIdentifierHashes(for classroom: Classroom) -> [String] {
+        let identifiers = classroom.students.flatMap { student in
+            [student.officialStudentID, student.alternateStudentID]
+        }
+        let hashes = identifiers.compactMap { identifier -> String? in
+            let normalizedIdentifier = normalizedStudentIdentifier(identifier)
+            guard !normalizedIdentifier.isEmpty else { return nil }
+            return studentIdentifierHash(forNormalizedIdentifier: normalizedIdentifier)
+        }
+        return Array(Set(hashes)).sorted()
+    }
+
+    private func studentIdentifierHash(forNormalizedIdentifier normalizedIdentifier: String) -> String {
+        let digest = SHA256.hash(data: Data(normalizedIdentifier.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
     private func submissionDocument(result: StudentWidgetResult, submission: StudentSubmissionPacket) -> [String: Any] {
         var document: [String: Any] = [
             "id": result.id.uuidString,
@@ -496,6 +927,15 @@ struct FirebaseClassroomSyncService {
             "classroomID": result.classroomID.uuidString,
             "studentID": result.studentID.uuidString,
             "studentIdentifier": normalizedStudentIdentifier(submission.studentIdentifier),
+            "studentIdentifierHash": studentIdentifierHash(
+                forNormalizedIdentifier: normalizedStudentIdentifier(submission.studentIdentifier)
+            ),
+            "studentAccessDocumentID": studentAccessDocumentID(
+                forCode: submission.classLessonCode,
+                studentIdentifierHash: studentIdentifierHash(
+                    forNormalizedIdentifier: normalizedStudentIdentifier(submission.studentIdentifier)
+                )
+            ),
             "widgetID": result.widgetID.uuidString,
             "numberCorrectFirstTry": result.numberCorrectFirstTry,
             "numberCorrectAfterRetry": result.numberCorrectAfterRetry,
@@ -509,12 +949,21 @@ struct FirebaseClassroomSyncService {
         return document
     }
 
-    private func liveProgressDocument(_ progress: StudentWidgetLiveProgress) -> [String: Any] {
+    private func liveProgressDocument(
+        _ progress: StudentWidgetLiveProgress,
+        classLessonCode: String,
+        studentIdentifierHash: String
+    ) -> [String: Any] {
         var document: [String: Any] = [
             "assignmentID": progress.assignmentID.uuidString,
             "classroomID": progress.classroomID.uuidString,
             "studentID": progress.studentID.uuidString,
             "studentIdentifier": progress.studentIdentifier,
+            "studentIdentifierHash": studentIdentifierHash,
+            "studentAccessDocumentID": studentAccessDocumentID(
+                forCode: classLessonCode,
+                studentIdentifierHash: studentIdentifierHash
+            ),
             "studentName": progress.studentName,
             "widgetID": progress.widgetID.uuidString,
             "correctCount": progress.correctCount,
@@ -576,6 +1025,410 @@ struct FirebaseClassroomSyncService {
         )
     }
 
+    private func teacherInkDocument(_ chunk: TeacherInkStrokeChunk, teacherUserID: String) -> [String: Any] {
+        [
+            "id": chunk.id.uuidString,
+            "lessonCode": ClassroomAssignmentStore.normalizedClassLessonCode(chunk.lessonCode),
+            "teacherUserID": teacherUserID,
+            "slideID": chunk.slideID.uuidString,
+            "strokeID": chunk.strokeID.uuidString,
+            "sequence": chunk.sequence,
+            "isFinalChunk": chunk.isFinalChunk,
+            "colorHex": chunk.colorHex,
+            "alpha": chunk.alpha,
+            "width": chunk.width,
+            "points": chunk.points.map(teacherInkPointDocument),
+            "sentAt": Timestamp(date: chunk.sentAt)
+        ]
+    }
+
+    private func teacherInkPointDocument(_ point: TeacherInkPoint) -> [String: Any] {
+        var document: [String: Any] = [
+            "x": point.x,
+            "y": point.y,
+            "timestampOffset": point.timestampOffset
+        ]
+        if let force = point.force {
+            document["force"] = force
+        }
+        return document
+    }
+
+    private func teacherInkChunk(from data: [String: Any], fallbackCode: String) -> TeacherInkStrokeChunk? {
+        guard let id = uuidValue(data["id"]),
+              let slideID = uuidValue(data["slideID"]),
+              let strokeID = uuidValue(data["strokeID"]),
+              let colorHex = data["colorHex"] as? String else {
+            return nil
+        }
+        let points = (data["points"] as? [[String: Any]] ?? []).compactMap(teacherInkPoint)
+        guard !points.isEmpty else { return nil }
+        return TeacherInkStrokeChunk(
+            id: id,
+            lessonCode: data["lessonCode"] as? String ?? fallbackCode,
+            slideID: slideID,
+            strokeID: strokeID,
+            sequence: intValue(data["sequence"]),
+            isFinalChunk: data["isFinalChunk"] as? Bool ?? true,
+            colorHex: colorHex,
+            alpha: doubleValue(data["alpha"]),
+            width: doubleValue(data["width"]),
+            points: points,
+            sentAt: timestampValue(data["sentAt"])
+        )
+    }
+
+    private func teacherInkPoint(from data: [String: Any]) -> TeacherInkPoint? {
+        guard let x = optionalDoubleValue(data["x"]),
+              let y = optionalDoubleValue(data["y"]) else {
+            return nil
+        }
+        return TeacherInkPoint(
+            x: x,
+            y: y,
+            force: optionalDoubleValue(data["force"]),
+            timestampOffset: optionalDoubleValue(data["timestampOffset"]) ?? 0
+        )
+    }
+
+    private func teacherInkDrawingSnapshotDocument(_ snapshot: TeacherInkDrawingSnapshot, teacherUserID: String) -> [String: Any] {
+        [
+            "id": snapshot.id.uuidString,
+            "lessonCode": ClassroomAssignmentStore.normalizedClassLessonCode(snapshot.lessonCode),
+            "teacherUserID": teacherUserID,
+            "slideID": snapshot.slideID.uuidString,
+            "revision": snapshot.revision,
+            "drawingDataBase64": snapshot.drawingDataBase64,
+            "sentAt": Timestamp(date: snapshot.sentAt)
+        ]
+    }
+
+    private func teacherInkDrawingSnapshot(from data: [String: Any], fallbackCode: String) -> TeacherInkDrawingSnapshot? {
+        guard let id = uuidValue(data["id"]),
+              let slideID = uuidValue(data["slideID"]),
+              let drawingDataBase64 = data["drawingDataBase64"] as? String else {
+            return nil
+        }
+        return TeacherInkDrawingSnapshot(
+            id: id,
+            lessonCode: data["lessonCode"] as? String ?? fallbackCode,
+            slideID: slideID,
+            revision: intValue(data["revision"]),
+            drawingDataBase64: drawingDataBase64,
+            sentAt: timestampValue(data["sentAt"])
+        )
+    }
+
+    private func storageBackedTeacherObjectSnapshotDocumentIfNeeded(
+        _ snapshot: TeacherObjectSnapshot,
+        code: String,
+        teacherUserID: String
+    ) async throws -> [String: Any] {
+        let inlineDocument = teacherObjectSnapshotDocument(snapshot, teacherUserID: teacherUserID)
+        guard estimatedFirestorePayloadSize(inlineDocument) > Self.inlineTeacherObjectSnapshotLimit else {
+            return inlineDocument
+        }
+
+        let storagePath = "classLessonAssets/\(code)/teacherObjects/\(snapshot.slideID.uuidString).json"
+        let snapshotData = try JSONEncoder().encode(snapshot)
+        let metadata = StorageMetadata()
+        metadata.contentType = "application/json"
+        metadata.customMetadata = [
+            "classLessonCode": code,
+            "slideID": snapshot.slideID.uuidString,
+            "revision": "\(snapshot.revision)"
+        ]
+        try await putData(snapshotData, metadata: metadata, at: storage.reference(withPath: storagePath))
+
+        print("[FirebaseSync] stored teacher object snapshot in Storage slide=\(snapshot.slideID) revision=\(snapshot.revision) bytes=\(snapshotData.count)")
+        return teacherObjectSnapshotReferenceDocument(
+            snapshot,
+            teacherUserID: teacherUserID,
+            storagePath: storagePath
+        )
+    }
+
+    private func teacherObjectSnapshotDocument(_ snapshot: TeacherObjectSnapshot, teacherUserID: String) -> [String: Any] {
+        [
+            "id": snapshot.id.uuidString,
+            "lessonCode": ClassroomAssignmentStore.normalizedClassLessonCode(snapshot.lessonCode),
+            "teacherUserID": teacherUserID,
+            "slideID": snapshot.slideID.uuidString,
+            "revision": snapshot.revision,
+            "capturedAt": Timestamp(date: snapshot.snapshot.capturedAt),
+            "sentAt": Timestamp(date: snapshot.sentAt),
+            "sidecarFiles": snapshot.snapshot.sidecarFiles.map(canvasObjectSnapshotFileDocument),
+            "imageAssetFiles": snapshot.snapshot.imageAssetFiles.map(canvasObjectSnapshotFileDocument)
+        ]
+    }
+
+    private func teacherObjectSnapshotReferenceDocument(
+        _ snapshot: TeacherObjectSnapshot,
+        teacherUserID: String,
+        storagePath: String
+    ) -> [String: Any] {
+        [
+            "id": snapshot.id.uuidString,
+            "lessonCode": ClassroomAssignmentStore.normalizedClassLessonCode(snapshot.lessonCode),
+            "teacherUserID": teacherUserID,
+            "slideID": snapshot.slideID.uuidString,
+            "revision": snapshot.revision,
+            "capturedAt": Timestamp(date: snapshot.snapshot.capturedAt),
+            "sentAt": Timestamp(date: snapshot.sentAt),
+            "objectSnapshotStoragePath": storagePath
+        ]
+    }
+
+    private func canvasObjectSnapshotFileDocument(_ file: CanvasObjectSnapshotFile) -> [String: Any] {
+        [
+            "name": file.name,
+            "base64Data": file.base64Data
+        ]
+    }
+
+    private func teacherObjectSnapshot(from data: [String: Any], fallbackCode: String) async throws -> TeacherObjectSnapshot? {
+        if let storagePath = data["objectSnapshotStoragePath"] as? String,
+           !storagePath.isEmpty {
+            let snapshotData = try await getData(
+                from: storage.reference(withPath: storagePath),
+                maxSize: Self.teacherObjectSnapshotStorageMaxSize
+            )
+            return try JSONDecoder().decode(TeacherObjectSnapshot.self, from: snapshotData)
+        }
+
+        guard let id = uuidValue(data["id"]),
+              let slideID = uuidValue(data["slideID"]) else {
+            return nil
+        }
+        let sidecarFiles = (data["sidecarFiles"] as? [[String: Any]] ?? []).compactMap(canvasObjectSnapshotFile)
+        let imageAssetFiles = (data["imageAssetFiles"] as? [[String: Any]] ?? []).compactMap(canvasObjectSnapshotFile)
+        let snapshot = CanvasObjectSnapshot(
+            slideID: slideID,
+            revision: intValue(data["revision"]),
+            capturedAt: timestampValue(data["capturedAt"]),
+            sidecarFiles: sidecarFiles,
+            imageAssetFiles: imageAssetFiles
+        )
+        return TeacherObjectSnapshot(
+            id: id,
+            lessonCode: data["lessonCode"] as? String ?? fallbackCode,
+            slideID: slideID,
+            revision: intValue(data["revision"]),
+            snapshot: snapshot,
+            sentAt: timestampValue(data["sentAt"])
+        )
+    }
+
+    private func canvasObjectSnapshotFile(from data: [String: Any]) -> CanvasObjectSnapshotFile? {
+        guard let name = data["name"] as? String,
+              let base64Data = data["base64Data"] as? String else {
+            return nil
+        }
+        return CanvasObjectSnapshotFile(name: name, base64Data: base64Data)
+    }
+
+    private func sortedTeacherObjectSnapshots(_ snapshots: [TeacherObjectSnapshot]) -> [TeacherObjectSnapshot] {
+        snapshots.sorted { first, second in
+            if first.slideID == second.slideID {
+                return first.revision < second.revision
+            }
+            return first.sentAt < second.sentAt
+        }
+    }
+
+    private func estimatedFirestorePayloadSize(_ value: Any) -> Int {
+        switch value {
+        case let string as String:
+            return string.utf8.count
+        case let array as [Any]:
+            return array.reduce(0) { $0 + estimatedFirestorePayloadSize($1) }
+        case let dictionary as [String: Any]:
+            return dictionary.reduce(0) { total, item in
+                total + item.key.utf8.count + estimatedFirestorePayloadSize(item.value)
+            }
+        default:
+            return 32
+        }
+    }
+
+    private func teacherSlideManifestSnapshotDocument(
+        _ snapshot: TeacherSlideManifestSnapshot,
+        teacherUserID: String
+    ) -> [String: Any] {
+        var document: [String: Any] = [
+            "id": snapshot.id.uuidString,
+            "lessonCode": ClassroomAssignmentStore.normalizedClassLessonCode(snapshot.lessonCode),
+            "teacherUserID": teacherUserID,
+            "revision": snapshot.revision,
+            "slides": snapshot.slides.map(teacherSlideDocument),
+            "sentAt": Timestamp(date: snapshot.sentAt)
+        ]
+        if let activeSlideID = snapshot.activeSlideID {
+            document["activeSlideID"] = activeSlideID.uuidString
+        }
+        return document
+    }
+
+    private func teacherSlideDocument(_ slide: TeacherSlideMetadata) -> [String: Any] {
+        var document: [String: Any] = [
+            "id": slide.id.uuidString,
+            "createdAt": Timestamp(date: slide.createdAt)
+        ]
+        if let viewport = slide.viewport {
+            document["viewport"] = teacherSlideViewportDocument(viewport)
+        }
+        if let background = slide.background {
+            document["background"] = teacherSlideBackgroundDocument(background)
+        }
+        return document
+    }
+
+    private func teacherSlideViewportDocument(_ viewport: TeacherSlideViewport) -> [String: Any] {
+        var document: [String: Any] = [
+            "zoomScale": viewport.zoomScale,
+            "contentOffsetX": viewport.contentOffsetX,
+            "contentOffsetY": viewport.contentOffsetY
+        ]
+        if let platform = viewport.platform {
+            document["platform"] = platform
+        }
+        return document
+    }
+
+    private func snapshotWithUploadedSlideBackgroundAssets(
+        _ snapshot: TeacherSlideManifestSnapshot,
+        code: String
+    ) async throws -> TeacherSlideManifestSnapshot {
+        var slides = snapshot.slides
+        for index in slides.indices {
+            guard var background = slides[index].background,
+                  let assetBase64Data = background.assetBase64Data,
+                  let assetData = Data(base64Encoded: assetBase64Data) else {
+                continue
+            }
+
+            let storagePath = background.assetStoragePath
+                ?? "classLessonAssets/\(code)/backgrounds/\(background.assetFileName)"
+            let metadata = StorageMetadata()
+            metadata.contentType = "application/octet-stream"
+            metadata.customMetadata = [
+                "classLessonCode": code,
+                "assetFileName": background.assetFileName,
+                "kind": background.kind
+            ]
+            try await putData(assetData, metadata: metadata, at: storage.reference(withPath: storagePath))
+            background.assetStoragePath = storagePath
+            background.assetBase64Data = nil
+            slides[index].background = background
+        }
+
+        return TeacherSlideManifestSnapshot(
+            id: snapshot.id,
+            lessonCode: snapshot.lessonCode,
+            revision: snapshot.revision,
+            slides: slides,
+            activeSlideID: snapshot.activeSlideID,
+            sentAt: snapshot.sentAt
+        )
+    }
+
+    private func snapshotWithDownloadedSlideBackgroundAssets(
+        _ snapshot: TeacherSlideManifestSnapshot
+    ) async throws -> TeacherSlideManifestSnapshot {
+        var slides = snapshot.slides
+        for index in slides.indices {
+            guard var background = slides[index].background,
+                  background.assetBase64Data == nil,
+                  let storagePath = background.assetStoragePath,
+                  !storagePath.isEmpty else {
+                continue
+            }
+
+            let assetData = try await getData(from: storage.reference(withPath: storagePath), maxSize: 75 * 1024 * 1024)
+            background.assetBase64Data = assetData.base64EncodedString()
+            slides[index].background = background
+        }
+
+        return TeacherSlideManifestSnapshot(
+            id: snapshot.id,
+            lessonCode: snapshot.lessonCode,
+            revision: snapshot.revision,
+            slides: slides,
+            activeSlideID: snapshot.activeSlideID,
+            sentAt: snapshot.sentAt
+        )
+    }
+
+    private func teacherSlideBackgroundDocument(_ background: TeacherSlideBackground) -> [String: Any] {
+        var document: [String: Any] = [
+            "kind": background.kind,
+            "assetFileName": background.assetFileName,
+            "pageIndex": background.pageIndex
+        ]
+        if let assetBase64Data = background.assetBase64Data {
+            document["assetBase64Data"] = assetBase64Data
+        }
+        if let assetStoragePath = background.assetStoragePath {
+            document["assetStoragePath"] = assetStoragePath
+        }
+        return document
+    }
+
+    private func teacherSlideManifestSnapshot(
+        from data: [String: Any],
+        fallbackCode: String
+    ) -> TeacherSlideManifestSnapshot? {
+        guard let id = uuidValue(data["id"]) else { return nil }
+        let slides = (data["slides"] as? [[String: Any]] ?? []).compactMap(teacherSlide)
+        guard !slides.isEmpty else { return nil }
+        return TeacherSlideManifestSnapshot(
+            id: id,
+            lessonCode: data["lessonCode"] as? String ?? fallbackCode,
+            revision: intValue(data["revision"]),
+            slides: slides,
+            activeSlideID: uuidValue(data["activeSlideID"]),
+            sentAt: timestampValue(data["sentAt"])
+        )
+    }
+
+    private func teacherSlide(from data: [String: Any]) -> TeacherSlideMetadata? {
+        guard let id = uuidValue(data["id"]) else { return nil }
+        return TeacherSlideMetadata(
+            id: id,
+            createdAt: timestampValue(data["createdAt"]),
+            viewport: (data["viewport"] as? [String: Any]).flatMap(teacherSlideViewport),
+            background: (data["background"] as? [String: Any]).flatMap(teacherSlideBackground)
+        )
+    }
+
+    private func teacherSlideViewport(from data: [String: Any]) -> TeacherSlideViewport? {
+        guard let zoomScale = optionalDoubleValue(data["zoomScale"]),
+              let contentOffsetX = optionalDoubleValue(data["contentOffsetX"]),
+              let contentOffsetY = optionalDoubleValue(data["contentOffsetY"]) else {
+            return nil
+        }
+        return TeacherSlideViewport(
+            zoomScale: zoomScale,
+            contentOffsetX: contentOffsetX,
+            contentOffsetY: contentOffsetY,
+            platform: data["platform"] as? String
+        )
+    }
+
+    private func teacherSlideBackground(from data: [String: Any]) -> TeacherSlideBackground? {
+        guard let kind = data["kind"] as? String,
+              let assetFileName = data["assetFileName"] as? String else {
+            return nil
+        }
+        return TeacherSlideBackground(
+            kind: kind,
+            assetFileName: assetFileName,
+            pageIndex: intValue(data["pageIndex"]),
+            assetBase64Data: data["assetBase64Data"] as? String,
+            assetStoragePath: data["assetStoragePath"] as? String
+        )
+    }
+
     private func submissionDocumentID(studentIdentifier: String, widgetID: UUID) -> String {
         "\(safeDocumentIDComponent(studentIdentifier))_\(widgetID.uuidString)"
     }
@@ -620,6 +1473,10 @@ struct FirebaseClassroomSyncService {
     }
 
     private func doubleValue(_ value: Any?) -> Double {
+        optionalDoubleValue(value) ?? 0
+    }
+
+    private func optionalDoubleValue(_ value: Any?) -> Double? {
         if let double = value as? Double {
             return double
         }
@@ -629,7 +1486,7 @@ struct FirebaseClassroomSyncService {
         if let number = value as? NSNumber {
             return number.doubleValue
         }
-        return 0
+        return nil
     }
 
     private func timestampValue(_ value: Any?) -> Date {
@@ -672,6 +1529,15 @@ struct FirebaseClassroomSyncService {
                     continuation.resume(returning: ())
                 }
             }
+        }
+    }
+
+    private func shouldWriteRevision(_ revision: Int, to document: DocumentReference) async throws -> Bool {
+        do {
+            let existingData = try await getData(from: document)
+            return intValue(existingData["revision"]) <= revision
+        } catch ClassroomAssignmentStoreError.classLessonCodeNotFound {
+            return true
         }
     }
 

@@ -6,6 +6,11 @@
 import Canvas
 import SwiftUI
 
+#if os(iOS)
+import PencilKit
+import UIKit
+#endif
+
 public struct LiveTeacherInkOverlay: View {
     private let strokes: [CanvasLiveStroke]
     private let viewportSourceRect: CGRect?
@@ -119,3 +124,49 @@ public struct LiveTeacherInkOverlay: View {
         }
     }
 }
+
+#if os(iOS)
+public struct LiveTeacherInkDrawingSnapshotOverlay: View {
+    @Environment(\.displayScale) private var displayScale
+
+    private let snapshot: TeacherInkDrawingSnapshot
+    private let viewportSourceRect: CGRect?
+    private let fallbackSourceSize: CGSize
+    private let fittedSize: CGSize
+
+    public init(
+        snapshot: TeacherInkDrawingSnapshot,
+        viewportSourceRect: CGRect?,
+        fallbackSourceSize: CGSize,
+        fittedSize: CGSize
+    ) {
+        self.snapshot = snapshot
+        self.viewportSourceRect = viewportSourceRect
+        self.fallbackSourceSize = fallbackSourceSize
+        self.fittedSize = fittedSize
+    }
+
+    public var body: some View {
+        if let image = renderImage() {
+            Image(uiImage: image)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: fittedSize.width, height: fittedSize.height)
+                .allowsHitTesting(false)
+        }
+    }
+
+    private func renderImage() -> UIImage? {
+        guard fittedSize.width > 0,
+              fittedSize.height > 0,
+              let data = Data(base64Encoded: snapshot.drawingDataBase64),
+              let drawing = try? PKDrawing(data: data) else {
+            return nil
+        }
+
+        let sourceRect = viewportSourceRect ?? CGRect(origin: .zero, size: fallbackSourceSize)
+        guard sourceRect.width > 0, sourceRect.height > 0 else { return nil }
+        return drawing.image(from: sourceRect, scale: max(displayScale, 1))
+    }
+}
+#endif

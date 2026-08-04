@@ -1,7 +1,10 @@
 import FirebaseCore
+import FirebaseFirestore
 import Foundation
 
 public enum MathBoardFirebaseBootstrap {
+    private static let oversizedTeacherObjectQueueResetKey = "MathBoardClearedFirestoreOversizedTeacherObjectQueue20260804"
+
     public static func configureIfPossible() {
         guard FirebaseApp.app() == nil else { return }
 
@@ -12,5 +15,19 @@ public enum MathBoardFirebaseBootstrap {
         }
 
         FirebaseApp.configure(options: options)
+        clearOversizedTeacherObjectPendingWritesIfNeeded()
+    }
+
+    private static func clearOversizedTeacherObjectPendingWritesIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: oversizedTeacherObjectQueueResetKey) else { return }
+
+        Firestore.firestore().clearPersistence { error in
+            if let error {
+                print("[MathBoardFirebaseBootstrap] Firestore pending-write reset failed: \(error)")
+                return
+            }
+            UserDefaults.standard.set(true, forKey: oversizedTeacherObjectQueueResetKey)
+            print("[MathBoardFirebaseBootstrap] Cleared Firestore pending writes/cache after oversized teacher-object snapshot fix.")
+        }
     }
 }

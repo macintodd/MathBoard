@@ -1,0 +1,145 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function codePath(code) {
+      return /databases/$(database)/documents/classLessonCodes/$(code);
+    }
+
+    function accessPath(accessDocumentID) {
+      return /databases/$(database)/documents/studentAssignmentAccess/$(accessDocumentID);
+    }
+
+    function lessonPath(lessonID) {
+      return /databases/$(database)/documents/lessons/$(lessonID);
+    }
+
+    function isCodeOwner(code) {
+      return signedIn()
+        && exists(codePath(code))
+        && get(codePath(code)).data.teacherUserID == request.auth.uid;
+    }
+
+    function isAccessOwner() {
+      return signedIn()
+        && request.resource.data.teacherUserID == request.auth.uid;
+    }
+
+    function hasStudentAccess(code) {
+      return signedIn()
+        && request.resource.data.studentAccessDocumentID is string
+        && exists(accessPath(request.resource.data.studentAccessDocumentID))
+        && get(accessPath(request.resource.data.studentAccessDocumentID)).data.classLessonCode == code
+        && get(accessPath(request.resource.data.studentAccessDocumentID)).data.assignmentID == request.resource.data.assignmentID
+        && get(accessPath(request.resource.data.studentAccessDocumentID)).data.classroomID == request.resource.data.classroomID
+        && get(accessPath(request.resource.data.studentAccessDocumentID)).data.studentIdentifierHash == request.resource.data.studentIdentifierHash;
+    }
+
+    match /classLessonCodes/{code} {
+      allow get, list: if isCodeOwner(code);
+      allow create: if signedIn()
+        && request.resource.data.teacherUserID == request.auth.uid
+        && request.resource.data.classLessonCode == code;
+      allow update: if isCodeOwner(code)
+        && request.resource.data.teacherUserID == resource.data.teacherUserID
+        && request.resource.data.classLessonCode == code;
+      allow delete: if isCodeOwner(code);
+
+      match /liveProgress/{progressID} {
+        allow get, list: if isCodeOwner(code);
+        allow create, update: if hasStudentAccess(code)
+          && request.resource.data.widgetID is string
+          && request.resource.data.studentIdentifierHash is string;
+        allow delete: if isCodeOwner(code);
+      }
+
+      match /submissions/{submissionID} {
+        allow get, list: if isCodeOwner(code);
+        allow create, update: if hasStudentAccess(code)
+          && request.resource.data.widgetID is string
+          && request.resource.data.studentIdentifierHash is string;
+        allow delete: if isCodeOwner(code);
+      }
+
+      match /teacherInk/{strokeID} {
+        allow get, list: if signedIn();
+        allow create, update: if isCodeOwner(code)
+          && request.resource.data.teacherUserID == request.auth.uid
+          && request.resource.data.lessonCode == code
+          && request.resource.data.strokeID == strokeID
+          && request.resource.data.isFinalChunk == true;
+        allow delete: if isCodeOwner(code);
+      }
+
+      match /teacherInkSnapshots/{slideID} {
+        allow get, list: if signedIn();
+        allow create, update: if isCodeOwner(code)
+          && request.resource.data.teacherUserID == request.auth.uid
+          && request.resource.data.lessonCode == code
+          && request.resource.data.slideID == slideID;
+        allow delete: if isCodeOwner(code);
+      }
+
+      match /teacherObjects/{slideID} {
+        allow get, list: if signedIn();
+        allow create, update: if isCodeOwner(code)
+          && request.resource.data.teacherUserID == request.auth.uid
+          && request.resource.data.lessonCode == code
+          && request.resource.data.slideID == slideID;
+        allow delete: if isCodeOwner(code);
+      }
+
+      match /teacherSlides/{manifestID} {
+        allow get, list: if signedIn();
+        allow create, update: if manifestID == "current"
+          && isCodeOwner(code)
+          && request.resource.data.teacherUserID == request.auth.uid
+          && request.resource.data.lessonCode == code;
+        allow delete: if isCodeOwner(code);
+      }
+    }
+
+    match /studentAssignmentAccess/{accessDocumentID} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if isAccessOwner()
+        && request.resource.data.accessDocumentID == accessDocumentID
+        && request.resource.data.studentIdentifierHash is string
+        && request.resource.data.classLessonCode is string;
+      allow update: if signedIn()
+        && resource.data.teacherUserID == request.auth.uid
+        && request.resource.data.teacherUserID == resource.data.teacherUserID
+        && request.resource.data.accessDocumentID == accessDocumentID
+        && request.resource.data.studentIdentifierHash == resource.data.studentIdentifierHash
+        && request.resource.data.classLessonCode == resource.data.classLessonCode;
+      allow delete: if signedIn()
+        && resource.data.teacherUserID == request.auth.uid;
+    }
+
+    match /lessons/{lessonID} {
+      allow get: if signedIn()
+        && (!exists(lessonPath(lessonID)) || resource.data.ownerID == request.auth.uid);
+      allow list: if signedIn() && resource.data.ownerID == request.auth.uid;
+      allow create, update: if signedIn()
+        && request.resource.data.ownerID == request.auth.uid
+        && request.resource.data.lessonID == lessonID;
+      allow delete: if signedIn() && resource.data.ownerID == request.auth.uid;
+    }
+
+    match /lessonVersions/{versionID} {
+      allow get, list: if signedIn() && resource.data.ownerID == request.auth.uid;
+      allow create, update: if signedIn()
+        && request.resource.data.ownerID == request.auth.uid
+        && request.resource.data.versionID == versionID;
+      allow delete: if signedIn() && resource.data.ownerID == request.auth.uid;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

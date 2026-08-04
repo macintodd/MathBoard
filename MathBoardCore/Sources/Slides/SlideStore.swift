@@ -24,24 +24,66 @@ public final class SlideStore {
     public private(set) var slides: [SlideMetadata]
 
     private let lessonURL: URL
+    private let classroomSessionCode: String?
     private let fileManager: FileManager
 
     private static let manifestFileName = "slides.json"
     private static let strokesDirName = "strokes"
+    private static let classSessionsDirName = "class-sessions"
     private static let assetsDirName = "assets"
     private static let legacyDrawingFileName = "main.drawing"
+    private static let canvasSidecarExtensions = [
+        "strokecolors.json",
+        "textobjects.json",
+        "imageobjects.json",
+        "latexobjects.json",
+        "geometryobjects.json",
+        "coverobjects.json",
+        "widgets.json",
+        "objectlayers.json"
+    ]
+    private static let canvasSidecarDirectoryExtensions = ["imageobjects"]
 
-    public init(lessonURL: URL) {
+    public init(lessonURL: URL, classroomSessionCode: String? = nil) {
         self.lessonURL = lessonURL
+        self.classroomSessionCode = Self.normalizedClassroomSessionCode(classroomSessionCode)
         self.fileManager = .default
-        self.slides = Self.loadOrMigrate(lessonURL: lessonURL, fileManager: .default)
+        self.slides = Self.loadOrMigrate(
+            lessonURL: lessonURL,
+            classroomSessionCode: Self.normalizedClassroomSessionCode(classroomSessionCode),
+            fileManager: .default
+        )
     }
 
     /// File URL where the given slide's `PKDrawing` data lives. Returned
     /// even if the file doesn't exist yet — the canvas loader handles a
     /// missing file by starting with an empty drawing.
     public func drawingURL(for slide: SlideMetadata) -> URL {
-        Self.drawingURL(in: lessonURL, slideID: slide.id)
+        let masterDrawingURL = Self.drawingURL(in: lessonURL, slideID: slide.id)
+        guard let classroomSessionCode else {
+            return masterDrawingURL
+        }
+        let sessionDrawingURL = Self.sessionDrawingURL(
+            in: lessonURL,
+            sessionCode: classroomSessionCode,
+            slideID: slide.id
+        )
+        Self.seedClassSessionIfNeeded(from: masterDrawingURL, to: sessionDrawingURL, fileManager: fileManager)
+        return sessionDrawingURL
+    }
+
+    public func drawingURL(for slide: SlideMetadata, classroomSessionCode: String?) -> URL {
+        let masterDrawingURL = Self.drawingURL(in: lessonURL, slideID: slide.id)
+        guard let classroomSessionCode = Self.normalizedClassroomSessionCode(classroomSessionCode) else {
+            return drawingURL(for: slide)
+        }
+        let sessionDrawingURL = Self.sessionDrawingURL(
+            in: lessonURL,
+            sessionCode: classroomSessionCode,
+            slideID: slide.id
+        )
+        Self.seedClassSessionIfNeeded(from: masterDrawingURL, to: sessionDrawingURL, fileManager: fileManager)
+        return sessionDrawingURL
     }
 
     public func backgroundURL(for background: SlideBackground) -> URL {
@@ -118,6 +160,33 @@ public final class SlideStore {
             throw SlideStoreError.invalidSlideIndex
         }
         try updateViewport(viewport, forSlideAt: index)
+    }
+
+    @discardableResult
+    public func mergeTeacherSlides(
+        _ teacherSlides: [SlideMetadata],
+        deferredTeacherSlideIDs: Set<UUID> = []
+    ) -> Bool {
+        guard !teacherSlides.isEmpty || !deferredTeacherSlideIDs.isEmpty else { return false }
+
+        let originalSlides = slides
+        let teacherSlideIDs = Set(teacherSlides.map(\.id))
+        let remainingLocalSlides = slides.filter { localSlide in
+            !teacherSlideIDs.contains(localSlide.id) && !deferredTeacherSlideIDs.contains(localSlide.id)
+        }
+        let mergedTeacherSlides = teacherSlides.map { teacherSlide in
+            if let localSlide = originalSlides.first(where: { $0.id == teacherSlide.id }) {
+                var mergedSlide = teacherSlide
+                mergedSlide.viewport = localSlide.viewport ?? teacherSlide.viewport
+                return mergedSlide
+            }
+            return teacherSlide
+        }
+
+        slides = mergedTeacherSlides + remainingLocalSlides
+        guard slides != originalSlides else { return false }
+        saveManifest()
+        return true
     }
 
     @discardableResult
@@ -205,8 +274,9 @@ public final class SlideStore {
     // MARK: - Manifest persistence
 
     private func saveManifest() {
-        let url = lessonURL.appendingPathComponent(Self.manifestFileName)
+        let url = Self.manifestURL(in: lessonURL, classroomSessionCode: classroomSessionCode)
         do {
+            try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             let data = try Self.jsonEncoder.encode(SlideManifest(slides: slides))
             try data.write(to: url, options: .atomic)
         } catch {
@@ -214,8 +284,36 @@ public final class SlideStore {
         }
     }
 
-    private static func loadOrMigrate(lessonURL: URL, fileManager: FileManager) -> [SlideMetadata] {
-        let manifestURL = lessonURL.appendingPathComponent(manifestFileName)
+    private static func loadOrMigrate(
+        lessonURL: URL,
+        classroomSessionCode: String?,
+        fileManager: FileManager
+    ) -> [SlideMetadata] {
+        let masterSlides = loadOrMigrateMasterSlides(lessonURL: lessonURL, fileManager: fileManager)
+        guard let classroomSessionCode else { return masterSlides }
+
+        let sessionManifestURL = manifestURL(in: lessonURL, classroomSessionCode: classroomSessionCode)
+        if let data = try? Data(contentsOf: sessionManifestURL),
+           let manifest = try? jsonDecoder.decode(SlideManifest.self, from: data),
+           !manifest.slides.isEmpty {
+            return manifest.slides
+        }
+
+        do {
+            try fileManager.createDirectory(
+                at: sessionManifestURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let data = try jsonEncoder.encode(SlideManifest(slides: masterSlides))
+            try data.write(to: sessionManifestURL, options: .atomic)
+        } catch {
+            print("[Slides] class session manifest seed error: \(error)")
+        }
+        return masterSlides
+    }
+
+    private static func loadOrMigrateMasterSlides(lessonURL: URL, fileManager: FileManager) -> [SlideMetadata] {
+        let manifestURL = manifestURL(in: lessonURL, classroomSessionCode: nil)
 
         if let data = try? Data(contentsOf: manifestURL),
            let manifest = try? jsonDecoder.decode(SlideManifest.self, from: data) {
@@ -246,10 +344,89 @@ public final class SlideStore {
         return migrated
     }
 
+    private static func manifestURL(in lessonURL: URL, classroomSessionCode: String?) -> URL {
+        if let classroomSessionCode {
+            return lessonURL
+                .appendingPathComponent(classSessionsDirName, isDirectory: true)
+                .appendingPathComponent(classroomSessionCode, isDirectory: true)
+                .appendingPathComponent(manifestFileName)
+        }
+        return lessonURL.appendingPathComponent(manifestFileName)
+    }
+
     private static func drawingURL(in lessonURL: URL, slideID: UUID) -> URL {
         lessonURL
             .appendingPathComponent(strokesDirName, isDirectory: true)
             .appendingPathComponent("slide-\(slideID.uuidString).drawing")
+    }
+
+    private static func sessionDrawingURL(in lessonURL: URL, sessionCode: String, slideID: UUID) -> URL {
+        lessonURL
+            .appendingPathComponent(classSessionsDirName, isDirectory: true)
+            .appendingPathComponent(sessionCode, isDirectory: true)
+            .appendingPathComponent(strokesDirName, isDirectory: true)
+            .appendingPathComponent("slide-\(slideID.uuidString).drawing")
+    }
+
+    private static func normalizedClassroomSessionCode(_ code: String?) -> String? {
+        let normalized = (code ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+            .filter { $0.isLetter || $0.isNumber }
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private static func seedClassSessionIfNeeded(
+        from masterDrawingURL: URL,
+        to sessionDrawingURL: URL,
+        fileManager: FileManager
+    ) {
+        do {
+            try fileManager.createDirectory(
+                at: sessionDrawingURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try copyCanvasState(from: masterDrawingURL, to: sessionDrawingURL, fileManager: fileManager)
+        } catch {
+            // The canvas can still open and save into the session URL if seeding fails.
+        }
+    }
+
+    private static func copyCanvasState(
+        from masterDrawingURL: URL,
+        to sessionDrawingURL: URL,
+        fileManager: FileManager
+    ) throws {
+        try copyItemIfPresent(from: masterDrawingURL, to: sessionDrawingURL, fileManager: fileManager)
+
+        let masterBaseURL = masterDrawingURL.deletingPathExtension()
+        let sessionBaseURL = sessionDrawingURL.deletingPathExtension()
+        for sidecarExtension in canvasSidecarExtensions {
+            try copyItemIfPresent(
+                from: masterBaseURL.appendingPathExtension(sidecarExtension),
+                to: sessionBaseURL.appendingPathExtension(sidecarExtension),
+                fileManager: fileManager
+            )
+        }
+        for directoryExtension in canvasSidecarDirectoryExtensions {
+            try copyItemIfPresent(
+                from: masterBaseURL.appendingPathExtension(directoryExtension),
+                to: sessionBaseURL.appendingPathExtension(directoryExtension),
+                fileManager: fileManager
+            )
+        }
+    }
+
+    private static func copyItemIfPresent(from sourceURL: URL, to destinationURL: URL, fileManager: FileManager) throws {
+        guard fileManager.fileExists(atPath: sourceURL.path),
+              !fileManager.fileExists(atPath: destinationURL.path) else {
+            return
+        }
+        try fileManager.createDirectory(
+            at: destinationURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try fileManager.copyItem(at: sourceURL, to: destinationURL)
     }
 
     private struct SlideManifest: Codable {

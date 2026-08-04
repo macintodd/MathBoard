@@ -119,6 +119,7 @@ public struct WidgetCanvasOverlayView: View {
                 }
             }
         }
+        .ignoresSafeArea()
     }
 
     private func deleteWidget(id: WidgetObject.ID) {

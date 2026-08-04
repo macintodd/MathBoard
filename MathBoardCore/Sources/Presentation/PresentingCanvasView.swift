@@ -56,7 +56,12 @@ public struct PresentingCanvasView: View {
     private let onExportPDF: (@MainActor () -> Void)?
     private let onViewportSourceRectChange: (@MainActor (CGRect) -> Void)?
     private let onLiveStrokeUpdate: (@MainActor (CanvasLiveStroke?) -> Void)?
+    private let onDrawingDataChange: (@MainActor (Data) -> Void)?
+    private let onCanvasObjectStateChange: (@MainActor () -> Void)?
+    private let objectStateReloadCommand: CanvasObjectCommand?
     private let allowsWidgetAuthoring: Bool
+    private static let importedPhotoMaxPixelSide: CGFloat = 1800
+    private static let importedPhotoJPEGCompressionQuality: CGFloat = 0.82
     private let broker = DisplayBroker.shared
     private let calculator = CalculatorState.shared
     private let paletteSettings = ToolPaletteSettings.shared
@@ -109,6 +114,9 @@ public struct PresentingCanvasView: View {
         onExportPDF: (@MainActor () -> Void)? = nil,
         onViewportSourceRectChange: (@MainActor (CGRect) -> Void)? = nil,
         onLiveStrokeUpdate: (@MainActor (CanvasLiveStroke?) -> Void)? = nil,
+        onDrawingDataChange: (@MainActor (Data) -> Void)? = nil,
+        onCanvasObjectStateChange: (@MainActor () -> Void)? = nil,
+        objectStateReloadCommand: CanvasObjectCommand? = nil,
         allowsWidgetAuthoring: Bool = true
     ) {
         self.drawingURL = drawingURL
@@ -124,6 +132,9 @@ public struct PresentingCanvasView: View {
         self.onExportPDF = onExportPDF
         self.onViewportSourceRectChange = onViewportSourceRectChange
         self.onLiveStrokeUpdate = onLiveStrokeUpdate
+        self.onDrawingDataChange = onDrawingDataChange
+        self.onCanvasObjectStateChange = onCanvasObjectStateChange
+        self.objectStateReloadCommand = objectStateReloadCommand
         self.allowsWidgetAuthoring = allowsWidgetAuthoring
     }
 
@@ -147,7 +158,9 @@ public struct PresentingCanvasView: View {
                 onFrameUpdate: broker.isExternalDisplayConnected ? Self.publishFrame : nil,
                 onViewportSourceRectChange: publishViewportSourceRect,
                 onLiveStrokeUpdate: publishLiveStroke,
+                onDrawingDataChange: publishDrawingData,
                 onWidgetObjectsChange: Self.publishWidgets,
+                onCanvasObjectStateChange: onCanvasObjectStateChange,
                 onViewportStateChange: publishViewportState,
                 onEditStateChange: publishEditState,
                 onInteractionBegan: handleCanvasInteractionBegan,
@@ -288,7 +301,11 @@ public struct PresentingCanvasView: View {
                 .padding(.trailing, 12)
         }
         .onAppear {
+            applyObjectStateReloadCommandIfNeeded()
             applyCurrentToolPaletteStateIfNeeded(triggering: .selectTool(broker.toolPaletteState.activeTool))
+        }
+        .onChange(of: objectStateReloadCommand) { _, _ in
+            applyObjectStateReloadCommandIfNeeded()
         }
         .task(id: drawingURL) {
             await Task.yield()
@@ -1315,6 +1332,14 @@ public struct PresentingCanvasView: View {
         libraryRecentRefreshID = UUID()
     }
 
+    private func applyObjectStateReloadCommandIfNeeded() {
+        guard let objectStateReloadCommand,
+              objectCommand?.id != objectStateReloadCommand.id else {
+            return
+        }
+        objectCommand = objectStateReloadCommand
+    }
+
     private func insertText(_ result: TextEditorResult, placement: PendingTextPlacement) {
         let state = broker.toolPaletteState
         let canvasFontSize = canvasFontSize(forEditorFontSize: result.fontSize)
@@ -1702,6 +1727,7 @@ public struct PresentingCanvasView: View {
             .insertImageNearViewport(
                 CanvasViewportImageInsertion(
                     pngData: importedImage.pngData,
+                    imageFileExtension: importedImage.imageFileExtension,
                     displaySize: importedImage.displaySize,
                     margin: 24,
                     selectAfterInsert: true
@@ -1816,10 +1842,10 @@ public struct PresentingCanvasView: View {
     private static func importedCanvasImage(fromImageData data: Data) throws -> ImportedCanvasImage {
         #if os(iOS)
         guard let image = UIImage(data: data),
-              let pngData = image.pngData() else {
+              let preparedImage = preparedCanvasImage(from: image) else {
             throw ImageFileImportError(message: "MathBoard could not read this image file.")
         }
-        return ImportedCanvasImage(pngData: pngData, imageSize: image.size)
+        return preparedImage
         #elseif os(macOS)
         guard let image = NSImage(data: data),
               let tiffData = image.tiffRepresentation,
@@ -1830,6 +1856,53 @@ public struct PresentingCanvasView: View {
         return ImportedCanvasImage(pngData: pngData, imageSize: image.size)
         #endif
     }
+
+    #if os(iOS)
+    private static func preparedCanvasImage(from image: UIImage) -> ImportedCanvasImage? {
+        let sourcePixelSize = CGSize(
+            width: CGFloat(image.cgImage?.width ?? Int(image.size.width * image.scale)),
+            height: CGFloat(image.cgImage?.height ?? Int(image.size.height * image.scale))
+        )
+        let maxPixelSide = max(sourcePixelSize.width, sourcePixelSize.height, 1)
+        let scale = min(1, importedPhotoMaxPixelSide / maxPixelSide)
+        let outputPixelSize = CGSize(
+            width: max((sourcePixelSize.width * scale).rounded(), 1),
+            height: max((sourcePixelSize.height * scale).rounded(), 1)
+        )
+        let preservesAlpha = imageHasAlpha(image.cgImage)
+
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = !preservesAlpha
+        let preparedImage = UIGraphicsImageRenderer(size: outputPixelSize, format: format).image { context in
+            if !preservesAlpha {
+                UIColor.white.setFill()
+                context.fill(CGRect(origin: .zero, size: outputPixelSize))
+            }
+            image.draw(in: CGRect(origin: .zero, size: outputPixelSize))
+        }
+
+        if preservesAlpha {
+            guard let pngData = preparedImage.pngData() else { return nil }
+            return ImportedCanvasImage(pngData: pngData, imageFileExtension: "png", imageSize: outputPixelSize)
+        }
+
+        guard let jpegData = preparedImage.jpegData(compressionQuality: importedPhotoJPEGCompressionQuality) else {
+            return nil
+        }
+        return ImportedCanvasImage(pngData: jpegData, imageFileExtension: "jpg", imageSize: outputPixelSize)
+    }
+
+    private static func imageHasAlpha(_ image: CGImage?) -> Bool {
+        guard let image else { return false }
+        switch image.alphaInfo {
+        case .first, .last, .premultipliedFirst, .premultipliedLast:
+            return true
+        default:
+            return false
+        }
+    }
+    #endif
 
     private static func importedCanvasImages(fromPDFAt url: URL, pageIndices: [Int]) throws -> [ImportedCanvasImage] {
         guard let document = PDFDocument(url: url), document.pageCount > 0 else {
@@ -1926,6 +1999,11 @@ public struct PresentingCanvasView: View {
     private func publishLiveStroke(_ stroke: CanvasLiveStroke?) {
         Self.publishLiveStroke(stroke)
         onLiveStrokeUpdate?(stroke)
+    }
+
+    @MainActor
+    private func publishDrawingData(_ data: Data) {
+        onDrawingDataChange?(data)
     }
 
     @MainActor
@@ -2091,10 +2169,12 @@ private struct PendingPDFObjectImport: Identifiable {
 
 private struct ImportedCanvasImage {
     let pngData: Data
+    let imageFileExtension: String
     let displaySize: CGSize
 
-    init(pngData: Data, imageSize: CGSize) {
+    init(pngData: Data, imageFileExtension: String = "png", imageSize: CGSize) {
         self.pngData = pngData
+        self.imageFileExtension = imageFileExtension
 
         let maxDisplaySide: CGFloat = 480
         let width = max(imageSize.width, 1)
@@ -2103,8 +2183,9 @@ private struct ImportedCanvasImage {
         self.displaySize = CGSize(width: width * scale, height: height * scale)
     }
 
-    init(pngData: Data, displaySize: CGSize) {
+    init(pngData: Data, imageFileExtension: String = "png", displaySize: CGSize) {
         self.pngData = pngData
+        self.imageFileExtension = imageFileExtension
         self.displaySize = displaySize
     }
 }
@@ -2432,12 +2513,12 @@ private struct ImageCameraPicker: UIViewControllerRepresentable {
             didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
         ) {
             guard let image = info[.originalImage] as? UIImage,
-                  let pngData = image.pngData() else {
+                  let imageData = image.jpegData(compressionQuality: 0.9) else {
                 onCapture(.failure(ImageFileImportError(message: "MathBoard could not read the captured photo.")))
                 return
             }
 
-            onCapture(.success(pngData))
+            onCapture(.success(imageData))
         }
 
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {

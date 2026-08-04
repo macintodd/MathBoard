@@ -13,6 +13,7 @@
 
 import SwiftUI
 import CoreGraphics
+import Foundation
 import WidgetEngine
 
 public struct CanvasView: View {
@@ -29,7 +30,9 @@ public struct CanvasView: View {
     private let onFrameUpdate: (@MainActor (CGImage, CGRect, CGRect) -> Void)?
     private let onViewportSourceRectChange: (@MainActor (CGRect) -> Void)?
     private let onLiveStrokeUpdate: (@MainActor (CanvasLiveStroke?) -> Void)?
+    private let onDrawingDataChange: (@MainActor (Data) -> Void)?
     private let onWidgetObjectsChange: (@MainActor ([WidgetObject], WidgetCanvasViewport, CGSize, String) -> Void)?
+    private let onCanvasObjectStateChange: (@MainActor () -> Void)?
     private let onViewportStateChange: (@MainActor (CanvasViewportState) -> Void)?
     private let onEditStateChange: (@MainActor (CanvasEditState) -> Void)?
     private let onInteractionBegan: (@MainActor () -> Void)?
@@ -58,7 +61,9 @@ public struct CanvasView: View {
         onFrameUpdate: (@MainActor (CGImage, CGRect, CGRect) -> Void)? = nil,
         onViewportSourceRectChange: (@MainActor (CGRect) -> Void)? = nil,
         onLiveStrokeUpdate: (@MainActor (CanvasLiveStroke?) -> Void)? = nil,
+        onDrawingDataChange: (@MainActor (Data) -> Void)? = nil,
         onWidgetObjectsChange: (@MainActor ([WidgetObject], WidgetCanvasViewport, CGSize, String) -> Void)? = nil,
+        onCanvasObjectStateChange: (@MainActor () -> Void)? = nil,
         onViewportStateChange: (@MainActor (CanvasViewportState) -> Void)? = nil,
         onEditStateChange: (@MainActor (CanvasEditState) -> Void)? = nil,
         onInteractionBegan: (@MainActor () -> Void)? = nil,
@@ -86,7 +91,9 @@ public struct CanvasView: View {
         self.onFrameUpdate = onFrameUpdate
         self.onViewportSourceRectChange = onViewportSourceRectChange
         self.onLiveStrokeUpdate = onLiveStrokeUpdate
+        self.onDrawingDataChange = onDrawingDataChange
         self.onWidgetObjectsChange = onWidgetObjectsChange
+        self.onCanvasObjectStateChange = onCanvasObjectStateChange
         self.onViewportStateChange = onViewportStateChange
         self.onEditStateChange = onEditStateChange
         self.onInteractionBegan = onInteractionBegan
@@ -118,7 +125,9 @@ public struct CanvasView: View {
             onFrameUpdate: onFrameUpdate,
             onViewportSourceRectChange: onViewportSourceRectChange,
             onLiveStrokeUpdate: onLiveStrokeUpdate,
+            onDrawingDataChange: onDrawingDataChange,
             onWidgetObjectsChange: onWidgetObjectsChange,
+            onCanvasObjectStateChange: onCanvasObjectStateChange,
             onViewportStateChange: onViewportStateChange,
             onEditStateChange: onEditStateChange,
             onInteractionBegan: onInteractionBegan,

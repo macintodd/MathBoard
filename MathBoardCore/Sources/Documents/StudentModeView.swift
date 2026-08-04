@@ -1,4 +1,5 @@
 import SwiftUI
+import FirebaseFirestore
 import LiveClassroom
 import Slides
 import WidgetEngine
@@ -28,6 +29,11 @@ public struct StudentModeView: View {
     @State private var isDownloadingLesson = false
     @State private var openedAssignedLesson: StudentAssignedLessonDestination?
     @State private var isStudentProfilePresented = false
+    @State private var openedLessonCatalog: [StudentOpenedAssignedLessonRecord] = []
+    @State private var catalogFolders: [StudentOpenedAssignedLessonFolder] = StudentOpenedAssignedLessonFolder.defaultFolders
+    @State private var selectedCatalogFolderID = StudentOpenedAssignedLessonFolder.allLessonsID
+    @State private var isNewCatalogFolderPresented = false
+    @State private var newCatalogFolderName = ""
 
     public init() {}
 
@@ -36,36 +42,22 @@ public struct StudentModeView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     header
-                    accessForm
 
-                    if let assignmentPacket = resolvedAssignmentPacket {
-                        assignmentCard(assignmentPacket)
-                        submissionForm(assignmentPacket)
-                    } else if isFindingOnlineLesson {
-                        ContentUnavailableView(
-                            "Searching for Lesson",
-                            systemImage: "magnifyingglass",
-                            description: Text("Checking MathBoard online assignments.")
-                        )
-                        .frame(maxWidth: .infinity, minHeight: 220)
-                    } else if hasEnteredLessonCode && hasSearchedOnlineLesson {
-                        ContentUnavailableView(
-                            "Lesson Code Not Found",
-                            systemImage: "number",
-                            description: Text("Check the class lesson code with your teacher, or find it online.")
-                        )
-                        .frame(maxWidth: .infinity, minHeight: 220)
-                    } else if hasEnteredLessonCode {
-                        ContentUnavailableView(
-                            "Ready to Search",
-                            systemImage: "magnifyingglass",
-                            description: Text("Tap Find Online Lesson after entering the class lesson code.")
-                        )
-                        .frame(maxWidth: .infinity, minHeight: 220)
+                    HStack(alignment: .top, spacing: 24) {
+                        VStack(alignment: .leading, spacing: 18) {
+                            accessForm
+                            catalogFoldersView
+                        }
+                        .frame(width: 330)
+
+                        openedLessonsCatalogView
+                            .frame(maxWidth: .infinity, alignment: .top)
                     }
+
+                    assignmentStatusView
                 }
                 .padding(24)
-                .frame(maxWidth: 760, alignment: .leading)
+                .frame(maxWidth: 1180, alignment: .leading)
                 .frame(maxWidth: .infinity)
             }
             .background(AppColors.canvasBackground.ignoresSafeArea())
@@ -99,7 +91,8 @@ public struct StudentModeView: View {
                 submittedWidgetIDs = []
             }
             .onChange(of: studentIdentifier) { _, _ in
-                scheduleLiveProgressUpdate()
+                resetResolvedOnlineAssignmentState()
+                loadStudentCatalogState()
             }
             .onChange(of: studentPreferredFirstName) { _, _ in
                 scheduleLiveProgressUpdate()
@@ -117,7 +110,16 @@ public struct StudentModeView: View {
                 )
                 .interactiveDismissDisabled(!hasCompleteStudentProfile)
             }
+            .sheet(isPresented: $isNewCatalogFolderPresented) {
+                StudentCatalogFolderSheet(
+                    folderName: $newCatalogFolderName,
+                    onSave: { folderName in
+                        addCatalogFolder(named: folderName)
+                    }
+                )
+            }
             .onAppear {
+                loadStudentCatalogState()
                 if !hasCompleteStudentProfile {
                     isStudentProfilePresented = true
                 }
@@ -172,6 +174,17 @@ public struct StudentModeView: View {
         return resolvedAssignmentPacket?.widgetSummaries.first { $0.widgetID == selectedWidgetID }
     }
 
+    private var selectedCatalogFolder: StudentOpenedAssignedLessonFolder {
+        catalogFolders.first { $0.id == selectedCatalogFolderID } ?? StudentOpenedAssignedLessonFolder.allLessons
+    }
+
+    private var visibleOpenedLessons: [StudentOpenedAssignedLessonRecord] {
+        guard selectedCatalogFolderID != StudentOpenedAssignedLessonFolder.allLessonsID else {
+            return openedLessonCatalog
+        }
+        return openedLessonCatalog.filter { $0.folderID == selectedCatalogFolderID }
+    }
+
     private var canSubmit: Bool {
         resolvedAssignmentPacket != nil &&
         selectedWidget != nil &&
@@ -224,7 +237,7 @@ public struct StudentModeView: View {
                     ProgressView()
                         .frame(maxWidth: .infinity)
                 } else {
-                    Label("Find Online Lesson", systemImage: "icloud.and.arrow.down")
+                    Label("Download Lesson", systemImage: "icloud.and.arrow.down")
                         .frame(maxWidth: .infinity)
                 }
             }
@@ -234,6 +247,161 @@ public struct StudentModeView: View {
         }
         .padding(16)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    @ViewBuilder
+    private var openedLessonsCatalogView: some View {
+        if hasCompleteStudentProfile {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("\(normalizedPreferredFirstName)'s Catalog")
+                            .font(.title2.weight(.bold))
+                            .lineLimit(1)
+                        Text("\(selectedCatalogFolder.name) • ^[\(visibleOpenedLessons.count) lesson](inflect: true)")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer(minLength: 12)
+
+                    Text("Offline ready")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.thinMaterial, in: Capsule())
+                }
+
+                if openedLessonCatalog.isEmpty {
+                    ContentUnavailableView(
+                        "No Opened Lessons Yet",
+                        systemImage: "book.closed",
+                        description: Text("Lessons you open with this student ID will appear here.")
+                    )
+                    .frame(maxWidth: .infinity, minHeight: 260)
+                } else if visibleOpenedLessons.isEmpty {
+                    ContentUnavailableView(
+                        "No Lessons in \(selectedCatalogFolder.name)",
+                        systemImage: "folder",
+                        description: Text("Move an opened lesson into this folder, or choose All Lessons.")
+                    )
+                    .frame(maxWidth: .infinity, minHeight: 260)
+                } else {
+                    LazyVStack(spacing: 10) {
+                        ForEach(visibleOpenedLessons) { record in
+                            StudentCatalogLessonRow(
+                                record: record,
+                                folderName: folderName(for: record.folderID),
+                                folders: catalogFolders,
+                                onOpen: {
+                                    openCatalogRecord(record)
+                                },
+                                onMove: { folderID in
+                                    moveCatalogRecord(record, to: folderID)
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+            .padding(22)
+            .frame(maxWidth: .infinity, minHeight: 520, alignment: .topLeading)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+        } else {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Student Catalog")
+                    .font(.title2.weight(.bold))
+                ContentUnavailableView(
+                    "Profile Needed",
+                    systemImage: "person.crop.circle.badge.exclamationmark",
+                    description: Text("Add your first name and teacher-supplied ID to show this iPad's saved lessons for that student.")
+                )
+                .frame(maxWidth: .infinity, minHeight: 260)
+            }
+            .padding(22)
+            .frame(maxWidth: .infinity, minHeight: 520, alignment: .topLeading)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+        }
+    }
+
+    private var catalogFoldersView: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Folders")
+                    .font(.headline)
+                Spacer()
+                Button {
+                    newCatalogFolderName = ""
+                    isNewCatalogFolderPresented = true
+                } label: {
+                    Label("New", systemImage: "folder.badge.plus")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(!hasCompleteStudentProfile)
+            }
+
+            ForEach(catalogFolders) { folder in
+                Button {
+                    selectedCatalogFolderID = folder.id
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: folder.id == StudentOpenedAssignedLessonFolder.allLessonsID ? "tray.full" : "folder")
+                            .frame(width: 22)
+                        Text(folder.name)
+                            .lineLimit(1)
+                        Spacer(minLength: 8)
+                        Text("\(catalogCount(for: folder.id))")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(.thinMaterial, in: Capsule())
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(selectedCatalogFolderID == folder.id ? .primary : .secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 10)
+                    .background(folderBackground(for: folder.id), in: RoundedRectangle(cornerRadius: 10))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(16)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var assignmentStatusView: some View {
+        Group {
+            if let assignmentPacket = resolvedAssignmentPacket {
+                VStack(alignment: .leading, spacing: 16) {
+                    assignmentCard(assignmentPacket)
+                    submissionForm(assignmentPacket)
+                }
+            } else if isFindingOnlineLesson {
+                ContentUnavailableView(
+                    "Searching for Lesson",
+                    systemImage: "magnifyingglass",
+                    description: Text("Checking MathBoard online assignments.")
+                )
+                .frame(maxWidth: .infinity, minHeight: 180)
+            } else if hasEnteredLessonCode && hasSearchedOnlineLesson {
+                ContentUnavailableView(
+                    "Lesson Code Not Found",
+                    systemImage: "number",
+                    description: Text("Check the class lesson code with your teacher, or find it online.")
+                )
+                .frame(maxWidth: .infinity, minHeight: 180)
+            } else if hasEnteredLessonCode {
+                ContentUnavailableView(
+                    "Ready to Search",
+                    systemImage: "magnifyingglass",
+                    description: Text("Tap Download Lesson after entering the class lesson code.")
+                )
+                .frame(maxWidth: .infinity, minHeight: 180)
+            }
+        }
     }
 
     private var studentProfileSummary: some View {
@@ -261,6 +429,64 @@ public struct StudentModeView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(hasCompleteStudentProfile ? "Student profile, \(normalizedPreferredFirstName), ID \(normalizedStudentIdentifier)" : "Student profile needed")
+    }
+
+    private func folderBackground(for folderID: String) -> Color {
+        selectedCatalogFolderID == folderID ? AppColors.folderTint.opacity(0.22) : Color.clear
+    }
+
+    private func folderName(for folderID: String) -> String {
+        catalogFolders.first { $0.id == folderID }?.name ?? StudentOpenedAssignedLessonFolder.allLessons.name
+    }
+
+    private func catalogCount(for folderID: String) -> Int {
+        guard folderID != StudentOpenedAssignedLessonFolder.allLessonsID else {
+            return openedLessonCatalog.count
+        }
+        return openedLessonCatalog.filter { $0.folderID == folderID }.count
+    }
+
+    private func loadStudentCatalogState() {
+        openedLessonCatalog = StudentOpenedAssignedLessonCatalog.load(studentIdentifier: normalizedStudentIdentifier)
+        catalogFolders = StudentOpenedAssignedLessonCatalog.loadFolders(studentIdentifier: normalizedStudentIdentifier)
+        if !catalogFolders.contains(where: { $0.id == selectedCatalogFolderID }) {
+            selectedCatalogFolderID = StudentOpenedAssignedLessonFolder.allLessonsID
+        }
+    }
+
+    private func resetResolvedOnlineAssignmentState() {
+        liveProgressTask?.cancel()
+        liveProgressTask = nil
+        remoteAssignmentPacket = nil
+        remoteAssignmentCode = ""
+        hasSearchedOnlineLesson = false
+        selectedWidgetID = nil
+        scoreDraftsByWidgetID = [:]
+        submittedWidgetIDs = []
+        score = 0
+        attempts = 1
+        numberCorrectFirstTry = 0
+        numberCorrectAfterRetry = 0
+        longestStreak = 0
+        statusMessage = nil
+    }
+
+    private func addCatalogFolder(named name: String) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+        catalogFolders = StudentOpenedAssignedLessonCatalog.addFolder(
+            named: trimmedName,
+            studentIdentifier: normalizedStudentIdentifier
+        )
+        selectedCatalogFolderID = catalogFolders.last?.id ?? StudentOpenedAssignedLessonFolder.allLessonsID
+    }
+
+    private func moveCatalogRecord(_ record: StudentOpenedAssignedLessonRecord, to folderID: String) {
+        openedLessonCatalog = StudentOpenedAssignedLessonCatalog.move(
+            assignmentID: record.assignmentPacket.id,
+            to: folderID,
+            studentIdentifier: normalizedStudentIdentifier
+        )
     }
 
     private func assignmentCard(_ assignmentPacket: AssignmentSyncPacket) -> some View {
@@ -411,7 +637,10 @@ public struct StudentModeView: View {
 
         do {
             try await ensureOnlineStudentAccess()
-            let packet = try await FirebaseClassroomSyncService().resolveAssignment(classLessonCode: code)
+            let packet = try await FirebaseClassroomSyncService().resolveAssignment(
+                classLessonCode: code,
+                studentIdentifier: normalizedStudentIdentifier
+            )
             remoteAssignmentPacket = packet
             remoteAssignmentCode = code
             syncSelectedWidget()
@@ -423,6 +652,10 @@ public struct StudentModeView: View {
     }
 
     private func downloadAssignedLesson(_ assignmentPacket: AssignmentSyncPacket) async {
+        if openCatalogRecord(for: assignmentPacket) {
+            return
+        }
+
         isDownloadingLesson = true
         defer { isDownloadingLesson = false }
 
@@ -439,17 +672,76 @@ public struct StudentModeView: View {
                 assignmentID: assignmentPacket.id,
                 studentIdentifier: normalizedStudentIdentifier
             )
-            openedAssignedLesson = StudentAssignedLessonDestination(
+            openAssignedLesson(
                 lesson: studentLesson,
                 assignmentPacket: assignmentPacket,
-                studentIdentifier: normalizedStudentIdentifier,
-                studentPreferredFirstName: normalizedPreferredFirstName
+                recordInCatalog: true
             )
         } catch {
             statusMessage = StudentSubmissionStatusMessage(
                 message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             )
         }
+    }
+
+    private func openCatalogRecord(_ record: StudentOpenedAssignedLessonRecord) {
+        guard FileManager.default.fileExists(atPath: record.workingCopyURL.path) else {
+            openedLessonCatalog = StudentOpenedAssignedLessonCatalog.remove(
+                assignmentID: record.assignmentPacket.id,
+                studentIdentifier: normalizedStudentIdentifier
+            )
+            statusMessage = StudentSubmissionStatusMessage(message: "That saved lesson is no longer on this iPad. Enter the lesson code to download it again.")
+            return
+        }
+
+        do {
+            let lesson = try documentStore.loadManagedLesson(at: record.workingCopyURL)
+            openAssignedLesson(
+                lesson: lesson,
+                assignmentPacket: record.assignmentPacket,
+                recordInCatalog: true
+            )
+        } catch {
+            statusMessage = StudentSubmissionStatusMessage(
+                message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            )
+        }
+    }
+
+    private func openCatalogRecord(for assignmentPacket: AssignmentSyncPacket) -> Bool {
+        let normalizedCode = ClassroomAssignmentStore.normalizedClassLessonCode(assignmentPacket.classLessonCode)
+        guard let record = openedLessonCatalog.first(where: { record in
+            record.assignmentPacket.id == assignmentPacket.id ||
+            ClassroomAssignmentStore.normalizedClassLessonCode(record.classLessonCode) == normalizedCode
+        }) else {
+            return false
+        }
+        openCatalogRecord(record)
+        return true
+    }
+
+    private func openAssignedLesson(
+        lesson: Lesson,
+        assignmentPacket: AssignmentSyncPacket,
+        recordInCatalog: Bool
+    ) {
+        if recordInCatalog {
+            openedLessonCatalog = StudentOpenedAssignedLessonCatalog.upsert(
+                StudentOpenedAssignedLessonRecord(
+                    assignmentPacket: assignmentPacket,
+                    workingCopyURL: lesson.url,
+                    lastOpenedAt: Date(),
+                    folderID: selectedCatalogFolderID == StudentOpenedAssignedLessonFolder.allLessonsID ? StudentOpenedAssignedLessonFolder.allLessonsID : selectedCatalogFolderID
+                ),
+                studentIdentifier: normalizedStudentIdentifier
+            )
+        }
+        openedAssignedLesson = StudentAssignedLessonDestination(
+            lesson: lesson,
+            assignmentPacket: assignmentPacket,
+            studentIdentifier: normalizedStudentIdentifier,
+            studentPreferredFirstName: normalizedPreferredFirstName
+        )
     }
 
     private func submitLocalScore(_ submission: StudentSubmissionPacket) {
@@ -710,6 +1002,109 @@ private struct StudentProfileSettingsView: View {
     }
 }
 
+private struct StudentCatalogLessonRow: View {
+    let record: StudentOpenedAssignedLessonRecord
+    let folderName: String
+    let folders: [StudentOpenedAssignedLessonFolder]
+    let onOpen: () -> Void
+    let onMove: (String) -> Void
+
+    var body: some View {
+        Button(action: onOpen) {
+            HStack(spacing: 14) {
+                Image(systemName: "book.pages")
+                    .font(.title3)
+                    .foregroundStyle(.blue)
+                    .frame(width: 34)
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(record.lessonTitle)
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+
+                    HStack(spacing: 10) {
+                        Text("Code \(record.classLessonCode)")
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(.thinMaterial, in: Capsule())
+                        Label(record.lastOpenedAt.formatted(date: .abbreviated, time: .omitted), systemImage: "clock")
+                        Label(folderName, systemImage: "folder")
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
+
+                Menu {
+                    ForEach(folders) { folder in
+                        Button {
+                            onMove(folder.id)
+                        } label: {
+                            Label(folder.name, systemImage: folder.id == record.folderID ? "checkmark" : "folder")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "folder.badge.gearshape")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 38, height: 38)
+                        .background(.thinMaterial, in: Circle())
+                }
+                .buttonStyle(.plain)
+
+                Image(systemName: "chevron.forward")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(14)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct StudentCatalogFolderSheet: View {
+    @Binding var folderName: String
+    var onSave: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    private var trimmedFolderName: String {
+        folderName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Folder name", text: $folderName)
+                        .textInputAutocapitalization(.words)
+                } footer: {
+                    Text("Folders are saved only for this student profile on this iPad.")
+                }
+            }
+            .navigationTitle("New Folder")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Create") {
+                        onSave(trimmedFolderName)
+                        dismiss()
+                    }
+                    .disabled(trimmedFolderName.isEmpty)
+                }
+            }
+        }
+    }
+}
+
 private struct StudentSubmissionStatusMessage: Identifiable {
     var id = UUID()
     var message: String
@@ -805,6 +1200,17 @@ private struct StudentAssignedLessonView: View {
     @State private var localSubmittedWidgetIDs: Set<UUID>
     @State private var submissionMessage: String?
     @State private var hasResetBuiltInRuntimeStates = false
+    @State private var hasLoadedDurableTeacherState = false
+    @State private var durableTeacherSlideManifestSnapshot: TeacherSlideManifestSnapshot?
+    @State private var durableTeacherInkChunks: [TeacherInkStrokeChunk] = []
+    @State private var durableTeacherInkDrawingSnapshots: [TeacherInkDrawingSnapshot] = []
+    @State private var durableTeacherObjectSnapshots: [TeacherObjectSnapshot] = []
+    @State private var teacherSlideManifestListener: ListenerRegistration?
+    @State private var teacherObjectSnapshotListener: ListenerRegistration?
+    @State private var isStartingTeacherSlideManifestListener = false
+    @State private var isStartingTeacherObjectSnapshotListener = false
+
+    private static let durableTeacherSlideManifestRefreshRetryDelaysMilliseconds = [0, 750, 1_500, 3_000, 5_000, 8_000, 13_000, 21_000]
 
     init(destination: StudentAssignedLessonDestination, submittedWidgetIDs: Set<UUID>) {
         self.destination = destination
@@ -822,13 +1228,7 @@ private struct StudentAssignedLessonView: View {
     }
 
     var body: some View {
-        SlidesView(
-            lessonURL: destination.lesson.url,
-            classroomMode: .constant(.student),
-            liveClassroomConfiguration: liveClassroomConfiguration,
-            onActiveWidgetIDsChanged: handleActiveWidgetIDsChanged,
-            onActiveWidgetsChanged: handleActiveWidgetsChanged
-        )
+        assignedLessonContent
             .navigationTitle(studentDisplayName)
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarBackButtonHidden(true)
@@ -862,13 +1262,50 @@ private struct StudentAssignedLessonView: View {
             }
             .onAppear {
                 resetBuiltInRuntimeStatesForWorkingCopy()
+                publishLessonPresence()
+                startDurableTeacherSlideManifestListener()
+                startDurableTeacherObjectSnapshotListener()
             }
             .task {
                 await runLiveProgressLoop()
             }
             .onDisappear {
+                teacherSlideManifestListener?.remove()
+                teacherSlideManifestListener = nil
+                teacherObjectSnapshotListener?.remove()
+                teacherObjectSnapshotListener = nil
                 publishLiveProgress(forActiveWidgetIDs: [], activeWidgets: [])
             }
+    }
+
+    @ViewBuilder
+    private var assignedLessonContent: some View {
+        if hasLoadedDurableTeacherState {
+            SlidesView(
+                lessonURL: destination.lesson.url,
+                classroomMode: .constant(.student),
+                liveClassroomConfiguration: liveClassroomConfiguration,
+                initialTeacherInkChunks: durableTeacherInkChunks,
+                initialTeacherInkDrawingSnapshots: durableTeacherInkDrawingSnapshots,
+                initialTeacherSlideManifestSnapshot: durableTeacherSlideManifestSnapshot,
+                initialTeacherObjectSnapshots: durableTeacherObjectSnapshots,
+                onActiveWidgetIDsChanged: handleActiveWidgetIDsChanged,
+                onActiveWidgetsChanged: handleActiveWidgetsChanged,
+                onLiveTeacherSlideManifestRefreshRequested: refreshDurableTeacherSlideManifest
+            )
+        } else {
+            VStack(spacing: 12) {
+                ProgressView()
+                Text("Loading teacher notes...")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(AppColors.canvasBackground.ignoresSafeArea())
+            .task(id: destination.id) {
+                await loadDurableTeacherState()
+            }
+        }
     }
 
     private var studentLessonChrome: some View {
@@ -894,6 +1331,133 @@ private struct StudentAssignedLessonView: View {
         }
         .padding(.top, 8)
         .padding(.leading, 12)
+    }
+
+    private func refreshDurableTeacherSlideManifest(_ snapshot: TeacherSlideManifestSnapshot) async -> TeacherSlideManifestSnapshot? {
+        var lastError: Error?
+        let service = FirebaseClassroomSyncService()
+
+        for delay in Self.durableTeacherSlideManifestRefreshRetryDelaysMilliseconds {
+            if delay > 0 {
+                try? await Task.sleep(for: .milliseconds(delay))
+            }
+
+            do {
+                try await ensureOnlineStudentAccess()
+                guard let refreshedSnapshot = try await service
+                    .fetchTeacherSlideManifestSnapshot(classLessonCode: destination.assignmentPacket.classLessonCode),
+                    refreshedSnapshot.revision >= snapshot.revision else {
+                    continue
+                }
+
+                durableTeacherSlideManifestSnapshot = refreshedSnapshot
+                if Self.hasHydratedBackgroundAssets(in: refreshedSnapshot, for: snapshot) {
+                    return refreshedSnapshot
+                }
+            } catch {
+                lastError = error
+            }
+        }
+
+        if let lastError {
+            print("[StudentMode] durable teacher slide manifest refresh error: \(lastError)")
+        }
+        return nil
+    }
+
+    private static func hasHydratedBackgroundAssets(
+        in refreshedSnapshot: TeacherSlideManifestSnapshot,
+        for liveSnapshot: TeacherSlideManifestSnapshot
+    ) -> Bool {
+        let refreshedSlidesByID = Dictionary(uniqueKeysWithValues: refreshedSnapshot.slides.map { ($0.id, $0) })
+        for liveSlide in liveSnapshot.slides {
+            guard let liveBackground = liveSlide.background,
+                  liveBackground.assetBase64Data == nil else {
+                continue
+            }
+            guard let refreshedBackground = refreshedSlidesByID[liveSlide.id]?.background,
+                  refreshedBackground.assetBase64Data != nil else {
+                return false
+            }
+        }
+        return true
+    }
+
+    private func loadDurableTeacherState() async {
+        do {
+            try await ensureOnlineStudentAccess()
+            let service = FirebaseClassroomSyncService()
+            durableTeacherSlideManifestSnapshot = try await service
+                .fetchTeacherSlideManifestSnapshot(classLessonCode: destination.assignmentPacket.classLessonCode)
+            durableTeacherObjectSnapshots = try await service
+                .fetchTeacherObjectSnapshots(classLessonCode: destination.assignmentPacket.classLessonCode)
+            durableTeacherInkDrawingSnapshots = try await service
+                .fetchTeacherInkDrawingSnapshots(classLessonCode: destination.assignmentPacket.classLessonCode)
+            if durableTeacherInkDrawingSnapshots.isEmpty {
+                durableTeacherInkChunks = try await service
+                    .fetchTeacherInkChunks(classLessonCode: destination.assignmentPacket.classLessonCode)
+            } else {
+                durableTeacherInkChunks = []
+            }
+        } catch {
+            durableTeacherSlideManifestSnapshot = nil
+            durableTeacherInkChunks = []
+            durableTeacherInkDrawingSnapshots = []
+            durableTeacherObjectSnapshots = []
+            print("[StudentMode] durable teacher state fetch error: \(error)")
+        }
+        hasLoadedDurableTeacherState = true
+        startDurableTeacherSlideManifestListener()
+        startDurableTeacherObjectSnapshotListener()
+    }
+
+    private func startDurableTeacherSlideManifestListener() {
+        guard teacherSlideManifestListener == nil,
+              !isStartingTeacherSlideManifestListener else { return }
+        isStartingTeacherSlideManifestListener = true
+        Task { @MainActor in
+            defer { isStartingTeacherSlideManifestListener = false }
+            do {
+                try await ensureOnlineStudentAccess()
+                guard teacherSlideManifestListener == nil else { return }
+                let service = FirebaseClassroomSyncService()
+                teacherSlideManifestListener = service.listenToTeacherSlideManifestSnapshot(
+                    classLessonCode: destination.assignmentPacket.classLessonCode
+                ) { snapshot in
+                    guard (durableTeacherSlideManifestSnapshot?.revision ?? 0) <= snapshot.revision else { return }
+                    durableTeacherSlideManifestSnapshot = snapshot
+                }
+                if teacherSlideManifestListener == nil {
+                    print("[StudentMode] durable teacher slide manifest listener was not started")
+                }
+            } catch {
+                print("[StudentMode] durable teacher slide manifest listener start error: \(error)")
+            }
+        }
+    }
+
+    private func startDurableTeacherObjectSnapshotListener() {
+        guard teacherObjectSnapshotListener == nil,
+              !isStartingTeacherObjectSnapshotListener else { return }
+        isStartingTeacherObjectSnapshotListener = true
+        Task { @MainActor in
+            defer { isStartingTeacherObjectSnapshotListener = false }
+            do {
+                try await ensureOnlineStudentAccess()
+                guard teacherObjectSnapshotListener == nil else { return }
+                let service = FirebaseClassroomSyncService()
+                teacherObjectSnapshotListener = service.listenToTeacherObjectSnapshots(
+                    classLessonCode: destination.assignmentPacket.classLessonCode
+                ) { snapshots in
+                    durableTeacherObjectSnapshots = snapshots
+                }
+                if teacherObjectSnapshotListener == nil {
+                    print("[StudentMode] durable teacher object listener was not started")
+                }
+            } catch {
+                print("[StudentMode] durable teacher object listener start error: \(error)")
+            }
+        }
     }
 
     private var liveClassroomConfiguration: LiveClassroomSessionConfiguration? {
@@ -987,12 +1551,28 @@ private struct StudentAssignedLessonView: View {
 
     private func runLiveProgressLoop() async {
         while !Task.isCancelled {
+            publishLessonPresence()
             let refreshedActiveWidgets = refreshedWidgets(forActiveWidgetIDs: activeWidgetIDs)
             publishLiveProgress(
                 forActiveWidgetIDs: activeWidgetIDs,
                 activeWidgets: refreshedActiveWidgets.isEmpty ? activeWidgets : refreshedActiveWidgets
             )
             try? await Task.sleep(for: .seconds(2))
+        }
+    }
+
+    private func publishLessonPresence() {
+        Task { @MainActor in
+            do {
+                try await ensureOnlineStudentAccess()
+                _ = try await FirebaseClassroomSyncService().publishLessonPresence(
+                    assignmentPacket: destination.assignmentPacket,
+                    studentIdentifier: destination.studentIdentifier,
+                    studentPreferredFirstName: destination.studentPreferredFirstName
+                )
+            } catch {
+                return
+            }
         }
     }
 
@@ -1203,6 +1783,185 @@ private enum StudentAssignedLessonScoreRecordCache {
     private static func safeFileComponent(_ value: String) -> String {
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
         let scalars = value.unicodeScalars.map { scalar in
+            allowed.contains(scalar) ? Character(scalar) : "-"
+        }
+        let component = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return component.isEmpty ? "student" : component
+    }
+}
+
+private struct StudentOpenedAssignedLessonRecord: Codable, Hashable, Identifiable {
+    var assignmentPacket: AssignmentSyncPacket
+    var workingCopyURL: URL
+    var lastOpenedAt: Date
+    var folderID: String
+
+    var id: UUID { assignmentPacket.id }
+    var lessonTitle: String { assignmentPacket.lesson.title }
+    var classroomName: String { assignmentPacket.classroomName }
+    var classLessonCode: String { assignmentPacket.classLessonCode }
+
+    init(
+        assignmentPacket: AssignmentSyncPacket,
+        workingCopyURL: URL,
+        lastOpenedAt: Date,
+        folderID: String = StudentOpenedAssignedLessonFolder.allLessonsID
+    ) {
+        self.assignmentPacket = assignmentPacket
+        self.workingCopyURL = workingCopyURL
+        self.lastOpenedAt = lastOpenedAt
+        self.folderID = folderID
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case assignmentPacket
+        case workingCopyURL
+        case lastOpenedAt
+        case folderID
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        assignmentPacket = try container.decode(AssignmentSyncPacket.self, forKey: .assignmentPacket)
+        workingCopyURL = try container.decode(URL.self, forKey: .workingCopyURL)
+        lastOpenedAt = try container.decode(Date.self, forKey: .lastOpenedAt)
+        folderID = try container.decodeIfPresent(String.self, forKey: .folderID) ?? StudentOpenedAssignedLessonFolder.allLessonsID
+    }
+}
+
+private struct StudentOpenedAssignedLessonFolder: Codable, Hashable, Identifiable {
+    static let allLessonsID = "all-lessons"
+    static let allLessons = StudentOpenedAssignedLessonFolder(id: allLessonsID, name: "All Lessons", createdAt: Date(timeIntervalSince1970: 0))
+    static let defaultFolders = [allLessons]
+
+    var id: String
+    var name: String
+    var createdAt: Date
+}
+
+private enum StudentOpenedAssignedLessonCatalog {
+    static func load(studentIdentifier: String) -> [StudentOpenedAssignedLessonRecord] {
+        guard let data = try? Data(contentsOf: catalogURL(studentIdentifier: studentIdentifier)),
+              let records = try? JSONDecoder().decode([StudentOpenedAssignedLessonRecord].self, from: data) else {
+            return []
+        }
+        return records
+            .filter { FileManager.default.fileExists(atPath: $0.workingCopyURL.path) }
+            .sorted { $0.lastOpenedAt > $1.lastOpenedAt }
+    }
+
+    static func loadFolders(studentIdentifier: String) -> [StudentOpenedAssignedLessonFolder] {
+        guard let data = try? Data(contentsOf: foldersURL(studentIdentifier: studentIdentifier)),
+              let storedFolders = try? JSONDecoder().decode([StudentOpenedAssignedLessonFolder].self, from: data) else {
+            return StudentOpenedAssignedLessonFolder.defaultFolders
+        }
+        let customFolders = storedFolders
+            .filter { $0.id != StudentOpenedAssignedLessonFolder.allLessonsID }
+            .sorted { $0.createdAt < $1.createdAt }
+        return [StudentOpenedAssignedLessonFolder.allLessons] + customFolders
+    }
+
+    static func addFolder(named name: String, studentIdentifier: String) -> [StudentOpenedAssignedLessonFolder] {
+        var folders = loadFolders(studentIdentifier: studentIdentifier)
+        let trimmedName = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(32))
+        guard !trimmedName.isEmpty else { return folders }
+        guard !folders.contains(where: { $0.name.caseInsensitiveCompare(trimmedName) == .orderedSame }) else {
+            return folders
+        }
+        folders.append(
+            StudentOpenedAssignedLessonFolder(
+                id: UUID().uuidString,
+                name: trimmedName,
+                createdAt: Date()
+            )
+        )
+        saveFolders(folders, studentIdentifier: studentIdentifier)
+        return folders
+    }
+
+    static func upsert(
+        _ record: StudentOpenedAssignedLessonRecord,
+        studentIdentifier: String
+    ) -> [StudentOpenedAssignedLessonRecord] {
+        var records = load(studentIdentifier: studentIdentifier)
+        var recordToSave = record
+        if let existingRecord = records.first(where: { matches($0, assignmentPacket: record.assignmentPacket) }),
+           record.folderID == StudentOpenedAssignedLessonFolder.allLessonsID {
+            recordToSave.folderID = existingRecord.folderID
+        }
+        records.removeAll { matches($0, assignmentPacket: record.assignmentPacket) }
+        records.insert(recordToSave, at: 0)
+        save(records, studentIdentifier: studentIdentifier)
+        return records
+    }
+
+    static func move(assignmentID: UUID, to folderID: String, studentIdentifier: String) -> [StudentOpenedAssignedLessonRecord] {
+        var records = load(studentIdentifier: studentIdentifier)
+        if let index = records.firstIndex(where: { $0.assignmentPacket.id == assignmentID }) {
+            records[index].folderID = folderID
+            records[index].lastOpenedAt = Date()
+        }
+        save(records, studentIdentifier: studentIdentifier)
+        return records
+    }
+
+    static func remove(assignmentID: UUID, studentIdentifier: String) -> [StudentOpenedAssignedLessonRecord] {
+        var records = load(studentIdentifier: studentIdentifier)
+        records.removeAll { $0.assignmentPacket.id == assignmentID }
+        save(records, studentIdentifier: studentIdentifier)
+        return records
+    }
+
+    private static func save(_ records: [StudentOpenedAssignedLessonRecord], studentIdentifier: String) {
+        guard let data = try? JSONEncoder().encode(records) else { return }
+        let url = catalogURL(studentIdentifier: studentIdentifier)
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try? data.write(to: url, options: .atomic)
+    }
+
+    private static func saveFolders(_ folders: [StudentOpenedAssignedLessonFolder], studentIdentifier: String) {
+        guard let data = try? JSONEncoder().encode(folders) else { return }
+        let url = foldersURL(studentIdentifier: studentIdentifier)
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try? data.write(to: url, options: .atomic)
+    }
+
+    private static func matches(_ record: StudentOpenedAssignedLessonRecord, assignmentPacket: AssignmentSyncPacket) -> Bool {
+        record.assignmentPacket.id == assignmentPacket.id ||
+        normalizedClassLessonCode(record.classLessonCode) == normalizedClassLessonCode(assignmentPacket.classLessonCode)
+    }
+
+    private static func normalizedClassLessonCode(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+    }
+
+    private static func catalogURL(studentIdentifier: String) -> URL {
+        catalogDirectoryURL()
+            .appendingPathComponent("\(safeFileComponent(studentIdentifier)).opened-lessons.json")
+    }
+
+    private static func foldersURL(studentIdentifier: String) -> URL {
+        catalogDirectoryURL()
+            .appendingPathComponent("\(safeFileComponent(studentIdentifier)).folders.json")
+    }
+
+    private static func catalogDirectoryURL() -> URL {
+        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return documentsURL
+            .appendingPathComponent("Assigned Lessons", isDirectory: true)
+            .appendingPathComponent("Student Catalog", isDirectory: true)
+    }
+
+    private static func safeFileComponent(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        let scalars = trimmed.unicodeScalars.map { scalar in
             allowed.contains(scalar) ? Character(scalar) : "-"
         }
         let component = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: "-"))

@@ -174,6 +174,24 @@ struct MathBoardTests {
         #expect(sidecarURL.deletingLastPathComponent() == drawingURL.deletingLastPathComponent())
     }
 
+    #if os(iOS)
+    @Test func persistedLiveTeacherInkUsesCrispPenWidth() {
+        let stroke = CanvasLiveStroke(
+            samples: [
+                CanvasLiveStrokePoint(location: CGPoint(x: 0, y: 0)),
+                CanvasLiveStrokePoint(location: CGPoint(x: 20, y: 0))
+            ],
+            lineWidth: 10,
+            color: CanvasStrokeColor(red: 0.2, green: 0.3, blue: 0.4, alpha: 1)
+        )
+
+        let pointSize = CanvasLiveInkPersistence.persistedStrokePointSize(for: stroke)
+
+        #expect(pointSize.width == 8.2)
+        #expect(pointSize.height == 8.2)
+    }
+    #endif
+
     @Test func strokeColorStableKeyUsesMicrosecondPrecision() {
         let creationTime = 1_800_000_000.123456
         let record = CanvasStrokeColorRecord(
@@ -915,6 +933,63 @@ struct MathBoardTests {
         #expect(reloaded.slides.count == 1)
         #expect(reloaded.slides[0].viewport == viewport)
         #expect(!reloaded.isBlankSlide(at: 0))
+    }
+
+    @MainActor
+    @Test func slideStoreMergeTeacherSlidesReportsBackgroundChanges() throws {
+        let lessonURL = try makeTemporaryLessonPackage()
+        defer { try? FileManager.default.removeItem(at: lessonURL) }
+        let store = SlideStore(lessonURL: lessonURL)
+        let originalSlide = try #require(store.slides.first)
+
+        var teacherSlide = originalSlide
+        teacherSlide.background = SlideBackground(
+            kind: .pdfPage,
+            assetFileName: "teacher-added.pdf",
+            pageIndex: 0
+        )
+
+        #expect(store.mergeTeacherSlides([teacherSlide]))
+        #expect(store.slides.first?.background == teacherSlide.background)
+        #expect(!store.mergeTeacherSlides([teacherSlide]))
+    }
+
+    @MainActor
+    @Test func slideStoreMergeTeacherSlidesAddsTeacherSlidesBeforeRemainingLocalSlides() throws {
+        let lessonURL = try makeTemporaryLessonPackage()
+        defer { try? FileManager.default.removeItem(at: lessonURL) }
+        let store = SlideStore(lessonURL: lessonURL)
+        let localSlide = try #require(store.slides.first)
+        let teacherSlide = SlideMetadata(
+            background: SlideBackground(
+                kind: .pdfPage,
+                assetFileName: "new-page.pdf",
+                pageIndex: 0
+            )
+        )
+
+        #expect(store.mergeTeacherSlides([teacherSlide]))
+        #expect(store.slides.map(\.id) == [teacherSlide.id, localSlide.id])
+    }
+
+    @MainActor
+    @Test func slideStoreMergeTeacherSlidesRemovesDeferredTeacherPlaceholders() throws {
+        let lessonURL = try makeTemporaryLessonPackage()
+        defer { try? FileManager.default.removeItem(at: lessonURL) }
+        let store = SlideStore(lessonURL: lessonURL)
+        let localSlide = try #require(store.slides.first)
+        let deferredTeacherSlide = SlideMetadata(
+            background: SlideBackground(
+                kind: .pdfPage,
+                assetFileName: "missing-live.pdf",
+                pageIndex: 0
+            )
+        )
+
+        #expect(store.mergeTeacherSlides([deferredTeacherSlide]))
+        #expect(store.slides.map(\.id) == [deferredTeacherSlide.id, localSlide.id])
+        #expect(store.mergeTeacherSlides([], deferredTeacherSlideIDs: [deferredTeacherSlide.id]))
+        #expect(store.slides.map(\.id) == [localSlide.id])
     }
 
     @MainActor
@@ -2332,10 +2407,11 @@ struct MathBoardTests {
 
         let missingProgress: StudentWidgetLiveProgress? = nil
         #expect(missingProgress.liveProgressIndicatorState(now: now) == .notStarted)
+        #expect(missingProgress.liveProgressIndicatorState(now: now).displayName == "Not logged in")
         #expect(activeProgress.indicatorState(now: now) == .active)
-        #expect(activeProgress.indicatorState(now: now).displayName == "Working")
+        #expect(activeProgress.indicatorState(now: now).displayName == "On widget")
         #expect(inactiveProgress.indicatorState(now: now) == .inactive)
-        #expect(inactiveProgress.indicatorState(now: now).displayName == "Not on screen")
+        #expect(inactiveProgress.indicatorState(now: now).displayName == "Logged in")
         #expect(submittedProgress.indicatorState(now: now) == .submitted)
         #expect(submittedProgress.indicatorState(now: now).displayName == "Submitted")
     }
@@ -2352,6 +2428,11 @@ struct MathBoardTests {
             isActiveOnStudentScreen: true,
             updatedAt: now.addingTimeInterval(-20)
         )
+        let staleInactiveProgress = makeLiveProgress(
+            status: .inProgress,
+            isActiveOnStudentScreen: false,
+            updatedAt: now.addingTimeInterval(-21)
+        )
         let staleSubmittedProgress = makeLiveProgress(
             status: .complete,
             isActiveOnStudentScreen: true,
@@ -2360,6 +2441,7 @@ struct MathBoardTests {
 
         #expect(staleActiveProgress.indicatorState(now: now) == .offline)
         #expect(staleActiveProgress.indicatorState(now: now).displayName == "Offline")
+        #expect(staleInactiveProgress.indicatorState(now: now) == .offline)
         #expect(freshBoundaryProgress.indicatorState(now: now) == .active)
         #expect(staleSubmittedProgress.indicatorState(now: now) == .submitted)
     }
@@ -2620,6 +2702,46 @@ struct MathBoardTests {
     }
 
     @MainActor
+    @Test func liveClassroomCoordinatorReturnsOnlyFinalInkChunksForPersistence() {
+        let slideID = UUID()
+        let finalStrokeID = UUID()
+        let inProgressStrokeID = UUID()
+        let session = FakeLiveClassroomSession()
+        let coordinator = LiveTeacherInkCoordinator(sessionFactory: { _ in session })
+        coordinator.configure(liveClassroomStudentConfiguration())
+
+        session.deliver(liveClassroomChunk(slideID: slideID, strokeID: inProgressStrokeID, x: 10, isFinalChunk: false))
+        session.deliver(liveClassroomChunk(slideID: slideID, strokeID: finalStrokeID, x: 20, isFinalChunk: true))
+
+        let finalChunks = coordinator.receivedFinalInkChunks(for: slideID)
+
+        #expect(finalChunks.map(\.strokeID) == [finalStrokeID])
+        #expect(finalChunks.first?.canvasLiveStroke.samples.first?.location.x == 20)
+    }
+
+    @MainActor
+    @Test func liveClassroomCoordinatorCallsDurableCallbackOnlyForFinalChunks() {
+        let slideID = UUID()
+        let session = FakeLiveClassroomSession()
+        let coordinator = LiveTeacherInkCoordinator(
+            publishInterval: .milliseconds(1),
+            sessionFactory: { _ in session }
+        )
+        var durableChunks: [TeacherInkStrokeChunk] = []
+        coordinator.onPublishedTeacherInkChunk = { chunk in
+            durableChunks.append(chunk)
+        }
+        coordinator.configure(liveClassroomTeacherConfiguration())
+
+        coordinator.publishTeacherStroke(liveClassroomStroke(pointCount: 8), slideID: slideID)
+        coordinator.publishTeacherStroke(nil, slideID: slideID)
+
+        #expect(durableChunks.count == 1)
+        #expect(durableChunks.first?.isFinalChunk == true)
+        #expect(durableChunks.first?.slideID == slideID)
+    }
+
+    @MainActor
     @Test func liveClassroomCoordinatorPublishesFinalChunkImmediatelyOnStrokeEnd() {
         let slideID = UUID()
         let session = FakeLiveClassroomSession()
@@ -2672,13 +2794,18 @@ struct MathBoardTests {
         )
     }
 
-    private func liveClassroomChunk(slideID: UUID, strokeID: UUID, x: Double) -> TeacherInkStrokeChunk {
+    private func liveClassroomChunk(
+        slideID: UUID,
+        strokeID: UUID,
+        x: Double,
+        isFinalChunk: Bool = true
+    ) -> TeacherInkStrokeChunk {
         TeacherInkStrokeChunk(
             lessonCode: "ABC123",
             slideID: slideID,
             strokeID: strokeID,
             sequence: 0,
-            isFinalChunk: true,
+            isFinalChunk: isFinalChunk,
             colorHex: "#000000",
             alpha: 1,
             width: 4,
@@ -2693,10 +2820,16 @@ struct MathBoardTests {
 @MainActor
 private final class FakeLiveClassroomSession: LiveClassroomSessioning {
     var onTeacherInkChunk: ((TeacherInkStrokeChunk) -> Void)?
+    var onTeacherInkDrawingSnapshot: ((TeacherInkDrawingSnapshot) -> Void)?
+    var onTeacherObjectSnapshot: ((TeacherObjectSnapshot) -> Void)?
+    var onTeacherSlideManifestSnapshot: ((TeacherSlideManifestSnapshot) -> Void)?
     private(set) var lastErrorMessage: String?
     private(set) var didStart = false
     private(set) var didStop = false
     private(set) var publishedChunks: [TeacherInkStrokeChunk] = []
+    private(set) var publishedInkDrawingSnapshots: [TeacherInkDrawingSnapshot] = []
+    private(set) var publishedObjectSnapshots: [TeacherObjectSnapshot] = []
+    private(set) var publishedSlideManifestSnapshots: [TeacherSlideManifestSnapshot] = []
 
     func start() {
         didStart = true
@@ -2704,6 +2837,18 @@ private final class FakeLiveClassroomSession: LiveClassroomSessioning {
 
     func publishTeacherInkChunk(_ chunk: TeacherInkStrokeChunk) {
         publishedChunks.append(chunk)
+    }
+
+    func publishTeacherInkDrawingSnapshot(_ snapshot: TeacherInkDrawingSnapshot) {
+        publishedInkDrawingSnapshots.append(snapshot)
+    }
+
+    func publishTeacherObjectSnapshot(_ snapshot: TeacherObjectSnapshot) {
+        publishedObjectSnapshots.append(snapshot)
+    }
+
+    func publishTeacherSlideManifestSnapshot(_ snapshot: TeacherSlideManifestSnapshot) {
+        publishedSlideManifestSnapshots.append(snapshot)
     }
 
     func stop() {

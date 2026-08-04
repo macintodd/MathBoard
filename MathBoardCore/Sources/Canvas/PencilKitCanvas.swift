@@ -179,7 +179,9 @@ struct PencilKitCanvasContainer: View {
     let onFrameUpdate: (@MainActor (CGImage, CGRect, CGRect) -> Void)?
     let onViewportSourceRectChange: (@MainActor (CGRect) -> Void)?
     let onLiveStrokeUpdate: (@MainActor (CanvasLiveStroke?) -> Void)?
+    let onDrawingDataChange: (@MainActor (Data) -> Void)?
     let onWidgetObjectsChange: (@MainActor ([WidgetObject], WidgetCanvasViewport, CGSize, String) -> Void)?
+    let onCanvasObjectStateChange: (@MainActor () -> Void)?
     let onViewportStateChange: (@MainActor (CanvasViewportState) -> Void)?
     let onEditStateChange: (@MainActor (CanvasEditState) -> Void)?
     let onInteractionBegan: (@MainActor () -> Void)?
@@ -300,7 +302,9 @@ struct PencilKitCanvasContainer: View {
             onFrameUpdate: onFrameUpdate,
             onViewportSourceRectChange: onViewportSourceRectChange,
             onLiveStrokeUpdate: onLiveStrokeUpdate,
+            onDrawingDataChange: onDrawingDataChange,
             onWidgetObjectsChange: onWidgetObjectsChange,
+            onCanvasObjectStateChange: onCanvasObjectStateChange,
             onViewportStateChange: onViewportStateChange,
             onInteractionBegan: onInteractionBegan,
             onTextEditingBegan: onTextEditingBegan,
@@ -380,6 +384,7 @@ struct PencilKitCanvasContainer: View {
         }
         publishEditState()
         scheduleSave(of: newDrawing)
+        onDrawingDataChange?(newDrawing.dataRepresentation())
     }
 
     private func handleTextObjectsChange(_ newTextObjects: [CanvasTextObject]) {
@@ -693,6 +698,7 @@ struct PencilKitCanvasContainer: View {
     private func saveTextObjects(_ textObjects: [CanvasTextObject], to url: URL) {
         do {
             try CanvasTextObject.save(textObjects, to: url)
+            onCanvasObjectStateChange?()
         } catch {
             print("[Canvas] text object save error: \(error)")
         }
@@ -701,6 +707,7 @@ struct PencilKitCanvasContainer: View {
     private func saveImageObjects(_ imageObjects: [CanvasImageObject], to url: URL) {
         do {
             try CanvasImageObject.save(imageObjects, to: url)
+            onCanvasObjectStateChange?()
         } catch {
             print("[Canvas] image object save error: \(error)")
         }
@@ -709,6 +716,7 @@ struct PencilKitCanvasContainer: View {
     private func saveLaTeXObjects(_ latexObjects: [CanvasLaTeXObject], to url: URL) {
         do {
             try CanvasLaTeXObject.save(latexObjects, to: url)
+            onCanvasObjectStateChange?()
         } catch {
             print("[Canvas] LaTeX object save error: \(error)")
         }
@@ -717,6 +725,7 @@ struct PencilKitCanvasContainer: View {
     private func saveGeometryObjects(_ geometryObjects: [CanvasGeometryObject], to url: URL) {
         do {
             try CanvasGeometryObject.save(geometryObjects, to: url)
+            onCanvasObjectStateChange?()
         } catch {
             print("[Canvas] geometry object save error: \(error)")
         }
@@ -725,6 +734,7 @@ struct PencilKitCanvasContainer: View {
     private func saveCoverObjects(_ coverObjects: [CanvasCoverObject], to url: URL) {
         do {
             try CanvasCoverObject.save(coverObjects, to: url)
+            onCanvasObjectStateChange?()
         } catch {
             print("[Canvas] cover object save error: \(error)")
         }
@@ -733,6 +743,7 @@ struct PencilKitCanvasContainer: View {
     private func saveWidgetObjects(_ widgetObjects: [WidgetObject], to url: URL) {
         do {
             try WidgetObject.save(widgetObjects, to: url)
+            onCanvasObjectStateChange?()
         } catch {
             print("[Canvas] widget object save error: \(error)")
         }
@@ -741,6 +752,7 @@ struct PencilKitCanvasContainer: View {
     private func saveObjectLayerState(_ state: CanvasObjectLayerState, to url: URL) {
         do {
             try CanvasObjectLayerState.save(state, to: url)
+            onCanvasObjectStateChange?()
         } catch {
             print("[Canvas] object layer save error: \(error)")
         }
@@ -1747,11 +1759,14 @@ private final class PDFCanvasBackgroundView: UIView {
     }
 
     func configure(_ background: CanvasBackground?) {
-        guard self.background != background else { return }
+        if self.background == background, page != nil {
+            return
+        }
         self.background = background
 
         guard let background,
-              let document = PDFDocument(url: background.pdfURL),
+              let pdfData = try? Data(contentsOf: background.pdfURL),
+              let document = PDFDocument(data: pdfData),
               let page = document.page(at: background.pageIndex) else {
             self.page = nil
             pageBounds = nil
@@ -2591,7 +2606,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
     let onFrameUpdate: (@MainActor (CGImage, CGRect, CGRect) -> Void)?
     let onViewportSourceRectChange: (@MainActor (CGRect) -> Void)?
     let onLiveStrokeUpdate: (@MainActor (CanvasLiveStroke?) -> Void)?
+    let onDrawingDataChange: (@MainActor (Data) -> Void)?
     let onWidgetObjectsChange: (@MainActor ([WidgetObject], WidgetCanvasViewport, CGSize, String) -> Void)?
+    let onCanvasObjectStateChange: (@MainActor () -> Void)?
     let onViewportStateChange: (@MainActor (CanvasViewportState) -> Void)?
     let onInteractionBegan: (@MainActor () -> Void)?
     let onTextEditingBegan: (@MainActor () -> Void)?
@@ -3356,6 +3373,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     guard let self, let canvas else { return }
                     _ = self.saveImageObject(
                         pngData: insertion.pngData,
+                        imageFileExtension: insertion.imageFileExtension,
                         frame: insertion.frame,
                         selectAfterInsert: insertion.selectAfterInsert,
                         isLocked: insertion.isLocked,
@@ -3368,6 +3386,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     let frame = self.sourceFrame(forDroppedImageInsertion: insertion, on: canvas)
                     _ = self.saveImageObject(
                         pngData: insertion.pngData,
+                        imageFileExtension: insertion.imageFileExtension,
                         frame: frame,
                         selectAfterInsert: insertion.selectAfterInsert,
                         isLocked: insertion.isLocked,
@@ -3380,6 +3399,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     let frame = self.sourceFrame(forViewportImageInsertion: insertion, on: canvas)
                     _ = self.saveImageObject(
                         pngData: insertion.pngData,
+                        imageFileExtension: insertion.imageFileExtension,
                         frame: frame,
                         selectAfterInsert: insertion.selectAfterInsert,
                         isLocked: insertion.isLocked,
@@ -3397,6 +3417,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                         frame.origin.y += offset
                         _ = self.saveImageObject(
                             pngData: insertion.pngData,
+                            imageFileExtension: insertion.imageFileExtension,
                             frame: frame,
                             selectAfterInsert: insertion.selectAfterInsert && index == insertions.index(before: insertions.endIndex),
                             isLocked: insertion.isLocked,
@@ -3478,6 +3499,11 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 Task { @MainActor [weak self, weak canvas] in
                     guard let self, let canvas else { return }
                     self.setImageObjectLocked(id, isLocked: isLocked, using: canvas)
+                }
+            case .reloadObjectState:
+                Task { @MainActor [weak self, weak canvas] in
+                    guard let self, let canvas else { return }
+                    self.reloadObjectState(using: canvas)
                 }
             case .duplicate(.geometry(let id)):
                 Task { @MainActor [weak self, weak canvas] in
@@ -6885,13 +6911,14 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
 
         private func saveImageObject(
             pngData: Data,
+            imageFileExtension: String = "png",
             frame: CGRect,
             selectAfterInsert: Bool,
             isLocked: Bool = false,
             notifyExtractedPlacement: Bool = false,
             using canvas: PKCanvasView
         ) -> Bool {
-            let fileName = "\(UUID().uuidString).png"
+            let fileName = "\(UUID().uuidString).\(Self.imageFileExtension(for: pngData, preferredExtension: imageFileExtension))"
             let assetDirectoryURL = CanvasImageObject.assetDirectoryURL(forDrawingURL: parent.drawingURL)
             let assetURL = assetDirectoryURL.appendingPathComponent(fileName)
             do {
@@ -6926,6 +6953,23 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 ))
             }
             return true
+        }
+
+        private static func normalizedImageFileExtension(_ fileExtension: String) -> String {
+            let normalized = fileExtension
+                .trimmingCharacters(in: CharacterSet(charactersIn: ".").union(.whitespacesAndNewlines))
+                .lowercased()
+            return normalized.isEmpty ? "png" : normalized
+        }
+
+        private static func imageFileExtension(for data: Data, preferredExtension: String) -> String {
+            if data.starts(with: [0xFF, 0xD8, 0xFF]) {
+                return "jpg"
+            }
+            if data.starts(with: [0x89, 0x50, 0x4E, 0x47]) {
+                return "png"
+            }
+            return normalizedImageFileExtension(preferredExtension)
         }
 
         private func insertLaTeXObject(_ insertion: CanvasLaTeXInsertion, using canvas: PKCanvasView) {
@@ -7931,6 +7975,28 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 updateSharedSelectionState()
             }
             return updatedObject
+        }
+
+        private func reloadObjectState(using canvas: PKCanvasView) {
+            parent.textObjects = CanvasTextObject.load(from: CanvasTextObject.sidecarURL(forDrawingURL: parent.drawingURL))
+            parent.imageObjects = CanvasImageObject.load(from: CanvasImageObject.sidecarURL(forDrawingURL: parent.drawingURL))
+            parent.latexObjects = CanvasLaTeXObject.load(from: CanvasLaTeXObject.sidecarURL(forDrawingURL: parent.drawingURL))
+            parent.geometryObjects = CanvasGeometryObject.load(from: CanvasGeometryObject.sidecarURL(forDrawingURL: parent.drawingURL))
+            parent.coverObjects = CanvasCoverObject.load(from: CanvasCoverObject.sidecarURL(forDrawingURL: parent.drawingURL))
+            parent.widgetObjects = WidgetObject.load(from: WidgetObject.sidecarURL(forDrawingURL: parent.drawingURL))
+            parent.objectLayerState = CanvasObjectLayerState.load(from: CanvasObjectLayerState.sidecarURL(forDrawingURL: parent.drawingURL))
+            parent.selectionState = CanvasSelectionState()
+            activeTextObjectID = nil
+            activeTextEditor?.removeFromSuperview()
+            activeTextEditor = nil
+            updateSharedSelectionState()
+            hostView?.updateObjectLayerState(parent.objectLayerState)
+            updateHostTextObjects(using: canvas)
+            updateHostImageObjects(using: canvas)
+            updateHostGeometryObjects(using: canvas)
+            updateHostCoverObjects(using: canvas)
+            updateHostWidgetObjects(using: canvas)
+            publishImageFromModel()
         }
 
         private func updateHostTextObjects(using canvas: PKCanvasView) {

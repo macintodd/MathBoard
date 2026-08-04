@@ -48,11 +48,26 @@ public enum MathBoardClassroomMode: String, CaseIterable, Identifiable {
     }
 }
 
+private struct StudentLiveTeacherInkSaveRequest {
+    var drawingURL: URL
+    var strokes: [CanvasLiveStroke]
+    var strokeIDs: [UUID]
+}
+
 public struct SlidesView: View {
     private let lessonURL: URL
+    private let classroomSessionCode: String?
     private let liveClassroomConfiguration: LiveClassroomSessionConfiguration?
+    private let initialTeacherInkDrawingSnapshots: [TeacherInkDrawingSnapshot]
+    private let initialTeacherSlideManifestSnapshot: TeacherSlideManifestSnapshot?
+    private let initialTeacherObjectSnapshots: [TeacherObjectSnapshot]
     private let onActiveWidgetIDsChanged: ((Set<UUID>) -> Void)?
     private let onActiveWidgetsChanged: (([WidgetObject]) -> Void)?
+    private let onTeacherInkChunkPublished: ((TeacherInkStrokeChunk) -> Void)?
+    private let onTeacherInkDrawingSnapshotPublished: ((TeacherInkDrawingSnapshot) -> Void)?
+    private let onTeacherObjectSnapshotPublished: ((TeacherObjectSnapshot) -> Void)?
+    private let onTeacherSlideManifestSnapshotPublished: ((TeacherSlideManifestSnapshot) async throws -> Void)?
+    private let onLiveTeacherSlideManifestRefreshRequested: ((TeacherSlideManifestSnapshot) async -> TeacherSlideManifestSnapshot?)?
 
     @State private var store: SlideStore
     @Binding private var classroomMode: MathBoardClassroomMode
@@ -69,29 +84,82 @@ public struct SlidesView: View {
     @State private var pendingViewportSave: PendingViewportSave?
     @State private var liveTeacherInkCoordinator = LiveTeacherInkCoordinator()
     @State private var currentViewportSourceRect: CGRect?
+    @State private var objectStateReloadCommand: CanvasObjectCommand?
+    @State private var canvasRefreshToken = UUID()
+    @State private var inkDrawingSnapshotSaveTask: Task<Void, Never>?
+    @State private var objectSnapshotSaveTasksBySlideID: [UUID: Task<Void, Never>] = [:]
+    @State private var inkDrawingSnapshotRevisionsBySlideID: [UUID: Int] = [:]
+    @State private var objectSnapshotRevisionsBySlideID: [UUID: Int] = [:]
+    @State private var slideManifestRevision = 0
+    @State private var appliedTeacherSlideManifestUpdateID: String?
+    @State private var appliedTeacherObjectSnapshotsUpdateID: String?
 
     private static let viewportSaveDebounce: Duration = .milliseconds(300)
+    private static let inkDrawingSnapshotDebounce: Duration = .milliseconds(700)
+    private static let objectSnapshotDebounce: Duration = .milliseconds(700)
 
     public init(
         lessonURL: URL,
         classroomMode: Binding<MathBoardClassroomMode> = .constant(.teacher),
+        classroomSessionCode: String? = nil,
         liveClassroomConfiguration: LiveClassroomSessionConfiguration? = nil,
+        initialTeacherInkChunks: [TeacherInkStrokeChunk] = [],
+        initialTeacherInkDrawingSnapshots: [TeacherInkDrawingSnapshot] = [],
+        initialTeacherSlideManifestSnapshot: TeacherSlideManifestSnapshot? = nil,
+        initialTeacherObjectSnapshots: [TeacherObjectSnapshot] = [],
         onActiveWidgetIDsChanged: ((Set<UUID>) -> Void)? = nil,
-        onActiveWidgetsChanged: (([WidgetObject]) -> Void)? = nil
+        onActiveWidgetsChanged: (([WidgetObject]) -> Void)? = nil,
+        onTeacherInkChunkPublished: ((TeacherInkStrokeChunk) -> Void)? = nil,
+        onTeacherInkDrawingSnapshotPublished: ((TeacherInkDrawingSnapshot) -> Void)? = nil,
+        onTeacherObjectSnapshotPublished: ((TeacherObjectSnapshot) -> Void)? = nil,
+        onTeacherSlideManifestSnapshotPublished: ((TeacherSlideManifestSnapshot) async throws -> Void)? = nil,
+        onLiveTeacherSlideManifestRefreshRequested: ((TeacherSlideManifestSnapshot) async -> TeacherSlideManifestSnapshot?)? = nil
     ) {
         self.lessonURL = lessonURL
+        self.classroomSessionCode = classroomSessionCode
         self.liveClassroomConfiguration = liveClassroomConfiguration
+        self.initialTeacherInkDrawingSnapshots = initialTeacherInkDrawingSnapshots
+        self.initialTeacherSlideManifestSnapshot = initialTeacherSlideManifestSnapshot
+        self.initialTeacherObjectSnapshots = initialTeacherObjectSnapshots
         self.onActiveWidgetIDsChanged = onActiveWidgetIDsChanged
         self.onActiveWidgetsChanged = onActiveWidgetsChanged
-        _store = State(initialValue: SlideStore(lessonURL: lessonURL))
+        self.onTeacherInkChunkPublished = onTeacherInkChunkPublished
+        self.onTeacherInkDrawingSnapshotPublished = onTeacherInkDrawingSnapshotPublished
+        self.onTeacherObjectSnapshotPublished = onTeacherObjectSnapshotPublished
+        self.onTeacherSlideManifestSnapshotPublished = onTeacherSlideManifestSnapshotPublished
+        self.onLiveTeacherSlideManifestRefreshRequested = onLiveTeacherSlideManifestRefreshRequested
+        let initialStore = SlideStore(
+            lessonURL: lessonURL,
+            classroomSessionCode: classroomMode.wrappedValue == .teacher ? classroomSessionCode : nil
+        )
+        var appliedInitialTeacherSlideManifestUpdateID: String?
+        var appliedInitialTeacherObjectSnapshotsUpdateID: String?
+        if classroomMode.wrappedValue == .student {
+            if let initialTeacherSlideManifestSnapshot {
+                Self.mergeInitialTeacherSlideManifestSnapshot(initialTeacherSlideManifestSnapshot, into: initialStore)
+                appliedInitialTeacherSlideManifestUpdateID = Self.teacherSlideManifestUpdateID(
+                    for: initialTeacherSlideManifestSnapshot
+                )
+            }
+            Self.mergeInitialTeacherObjectSnapshots(initialTeacherObjectSnapshots, into: initialStore)
+            appliedInitialTeacherObjectSnapshotsUpdateID = Self.teacherObjectSnapshotsUpdateID(
+                for: initialTeacherObjectSnapshots
+            )
+            // Teacher ink is rendered as a separate live overlay. Do not write it
+            // into the student's own PencilKit drawing file, or student notes are
+            // replaced the next time the lesson is opened.
+        }
+        _store = State(initialValue: initialStore)
         _classroomMode = classroomMode
+        _appliedTeacherSlideManifestUpdateID = State(initialValue: appliedInitialTeacherSlideManifestUpdateID)
+        _appliedTeacherObjectSnapshotsUpdateID = State(initialValue: appliedInitialTeacherObjectSnapshotsUpdateID)
     }
 
     public var body: some View {
         ZStack(alignment: .bottomTrailing) {
             if let slide = activeSlide {
                 PresentingCanvasView(
-                    drawingURL: store.drawingURL(for: slide),
+                    drawingURL: canvasDrawingURL(for: slide),
                     background: canvasBackground(for: slide.background),
                     initialViewportState: presentationViewportState(for: slide),
                     onViewportStateChange: { state in
@@ -113,9 +181,16 @@ public struct SlidesView: View {
                     onLiveStrokeUpdate: { stroke in
                         liveTeacherInkCoordinator.publishTeacherStroke(stroke, slideID: slide.id)
                     },
+                    onDrawingDataChange: { drawingData in
+                        scheduleTeacherInkDrawingSnapshotPublish(drawingData, for: slide)
+                    },
+                    onCanvasObjectStateChange: {
+                        scheduleTeacherObjectSnapshotPublish(for: slide)
+                    },
+                    objectStateReloadCommand: objectStateReloadCommand,
                     allowsWidgetAuthoring: classroomMode.allowsWidgetAuthoring
                 )
-                    .id(slide.id)
+                    .id(canvasViewIdentity(for: slide))
             }
 
             liveTeacherInkOverlay
@@ -189,15 +264,55 @@ public struct SlidesView: View {
         .onDisappear {
             onActiveWidgetIDsChanged?([])
             onActiveWidgetsChanged?([])
+            scheduleReceivedTeacherInkPersistenceForStudentCopy()
+            inkDrawingSnapshotSaveTask?.cancel()
+            inkDrawingSnapshotSaveTask = nil
+            objectSnapshotSaveTasksBySlideID.values.forEach { $0.cancel() }
+            objectSnapshotSaveTasksBySlideID = [:]
+            liveTeacherInkCoordinator.onPublishedTeacherInkChunk = nil
+            liveTeacherInkCoordinator.onPublishedTeacherInkDrawingSnapshot = nil
+            liveTeacherInkCoordinator.onPublishedTeacherObjectSnapshot = nil
+            liveTeacherInkCoordinator.onPublishedTeacherSlideManifestSnapshot = nil
+            liveTeacherInkCoordinator.onReceivedTeacherInkDrawingSnapshot = nil
+            liveTeacherInkCoordinator.onReceivedTeacherObjectSnapshot = nil
+            liveTeacherInkCoordinator.onReceivedTeacherSlideManifestSnapshot = nil
             liveTeacherInkCoordinator.stop()
             flushPendingViewportSave()
         }
         .onAppear {
             publishActiveWidgetIDs()
+            liveTeacherInkCoordinator.onPublishedTeacherInkChunk = onTeacherInkChunkPublished
+            liveTeacherInkCoordinator.onPublishedTeacherInkDrawingSnapshot = onTeacherInkDrawingSnapshotPublished
+            liveTeacherInkCoordinator.onPublishedTeacherObjectSnapshot = onTeacherObjectSnapshotPublished
+            liveTeacherInkCoordinator.onPublishedTeacherSlideManifestSnapshot = onTeacherSlideManifestSnapshotPublished
+            liveTeacherInkCoordinator.onReceivedTeacherInkDrawingSnapshot = applyTeacherInkDrawingSnapshot
+            liveTeacherInkCoordinator.onReceivedTeacherObjectSnapshot = applyTeacherObjectSnapshot
+            liveTeacherInkCoordinator.onReceivedTeacherSlideManifestSnapshot = applyTeacherSlideManifestSnapshot
             liveTeacherInkCoordinator.configure(liveClassroomConfiguration)
+            liveTeacherInkCoordinator.seedInitialInkDrawingSnapshots(initialTeacherInkDrawingSnapshots)
+            publishTeacherSlideManifestSnapshot()
         }
         .onChange(of: liveClassroomConfiguration) { _, newConfiguration in
+            liveTeacherInkCoordinator.onPublishedTeacherInkChunk = onTeacherInkChunkPublished
+            liveTeacherInkCoordinator.onPublishedTeacherInkDrawingSnapshot = onTeacherInkDrawingSnapshotPublished
+            liveTeacherInkCoordinator.onPublishedTeacherObjectSnapshot = onTeacherObjectSnapshotPublished
+            liveTeacherInkCoordinator.onPublishedTeacherSlideManifestSnapshot = onTeacherSlideManifestSnapshotPublished
+            liveTeacherInkCoordinator.onReceivedTeacherObjectSnapshot = applyTeacherObjectSnapshot
+            liveTeacherInkCoordinator.onReceivedTeacherSlideManifestSnapshot = applyTeacherSlideManifestSnapshot
             liveTeacherInkCoordinator.configure(newConfiguration)
+            liveTeacherInkCoordinator.seedInitialInkDrawingSnapshots(initialTeacherInkDrawingSnapshots)
+            publishTeacherSlideManifestSnapshot()
+        }
+        .onChange(of: classroomSessionCode) { _, newSessionCode in
+            reloadClassroomSessionStore(for: newSessionCode)
+            publishActiveWidgetIDs()
+            publishTeacherSlideManifestSnapshot()
+        }
+        .task(id: teacherSlideManifestUpdateID) {
+            applyInitialTeacherSlideManifestSnapshotIfNeeded()
+        }
+        .task(id: teacherObjectSnapshotsUpdateID) {
+            applyInitialTeacherObjectSnapshotsIfNeeded()
         }
         .onChange(of: activeSlide?.id) { _, _ in
             publishActiveWidgetIDs()
@@ -236,21 +351,145 @@ public struct SlidesView: View {
         return store.slides[activeIndex]
     }
 
+    private var teacherSlideManifestUpdateID: String {
+        guard let initialTeacherSlideManifestSnapshot else { return "none" }
+        return Self.teacherSlideManifestUpdateID(for: initialTeacherSlideManifestSnapshot)
+    }
+
+    private var teacherObjectSnapshotsUpdateID: String {
+        Self.teacherObjectSnapshotsUpdateID(for: initialTeacherObjectSnapshots)
+    }
+
+    private static func teacherSlideManifestUpdateID(for snapshot: TeacherSlideManifestSnapshot) -> String {
+        var parts = [
+            snapshot.id.uuidString,
+            snapshot.lessonCode,
+            "\(snapshot.revision)",
+            snapshot.activeSlideID?.uuidString ?? "no-active",
+            "\(snapshot.slides.count)"
+        ]
+        for slide in snapshot.slides {
+            parts.append(slide.id.uuidString)
+            parts.append(slide.background?.kind ?? "no-background")
+            parts.append(slide.background?.assetFileName ?? "")
+            parts.append("\(slide.background?.pageIndex ?? -1)")
+            parts.append(slide.background?.assetStoragePath ?? "")
+            parts.append("\(slide.background?.assetBase64Data?.count ?? 0)")
+        }
+        return parts.joined(separator: "|")
+    }
+
+    private static func teacherObjectSnapshotsUpdateID(
+        for snapshots: [TeacherObjectSnapshot],
+        availableSlideIDs: Set<UUID>? = nil
+    ) -> String {
+        let applicableSnapshots = snapshots
+            .filter { snapshot in
+                availableSlideIDs?.contains(snapshot.slideID) ?? true
+            }
+            .sorted(by: teacherObjectSnapshotSort)
+        var parts = ["\(applicableSnapshots.count)"]
+        for snapshot in applicableSnapshots {
+            parts.append(snapshot.slideID.uuidString)
+            parts.append("\(snapshot.revision)")
+            parts.append("\(snapshot.snapshot.sidecarFiles.count)")
+            parts.append("\(snapshot.snapshot.imageAssetFiles.count)")
+            parts.append("\(snapshot.snapshot.sidecarFiles.reduce(0) { $0 + $1.base64Data.count })")
+            parts.append("\(snapshot.snapshot.imageAssetFiles.reduce(0) { $0 + $1.base64Data.count })")
+        }
+        return parts.joined(separator: "|")
+    }
+
+    private static func teacherObjectSnapshotSort(_ first: TeacherObjectSnapshot, _ second: TeacherObjectSnapshot) -> Bool {
+        if first.slideID == second.slideID {
+            return first.revision < second.revision
+        }
+        return first.sentAt < second.sentAt
+    }
+
+    private func applyInitialTeacherSlideManifestSnapshotIfNeeded() {
+        guard classroomMode == .student,
+              let initialTeacherSlideManifestSnapshot else { return }
+        let updateID = Self.teacherSlideManifestUpdateID(for: initialTeacherSlideManifestSnapshot)
+        guard appliedTeacherSlideManifestUpdateID != updateID else { return }
+        appliedTeacherSlideManifestUpdateID = updateID
+        mergeTeacherSlideManifestSnapshot(initialTeacherSlideManifestSnapshot)
+    }
+
+    private func applyInitialTeacherObjectSnapshotsIfNeeded() {
+        guard classroomMode == .student else { return }
+        let availableSlideIDs = Set(store.slides.map(\.id))
+        let applicableSnapshots = initialTeacherObjectSnapshots
+            .filter { availableSlideIDs.contains($0.slideID) }
+            .sorted(by: Self.teacherObjectSnapshotSort)
+        let updateID = Self.teacherObjectSnapshotsUpdateID(
+            for: applicableSnapshots,
+            availableSlideIDs: availableSlideIDs
+        )
+        guard appliedTeacherObjectSnapshotsUpdateID != updateID else { return }
+        appliedTeacherObjectSnapshotsUpdateID = updateID
+        for snapshot in applicableSnapshots {
+            applyTeacherObjectSnapshot(snapshot)
+        }
+    }
+
+    private func canvasDrawingURL(for slide: SlideMetadata) -> URL {
+        store.drawingURL(
+            for: slide,
+            classroomSessionCode: classroomMode == .teacher ? classroomSessionCode : nil
+        )
+    }
+
+    private func canvasViewIdentity(for slide: SlideMetadata) -> String {
+        let backgroundIdentity = slide.background.map { background in
+            "\(background.kind.rawValue)|\(background.assetFileName)|\(background.pageIndex)"
+        } ?? "no-background"
+        return "\(slide.id.uuidString)|\(canvasDrawingURL(for: slide).path)|\(backgroundIdentity)|\(canvasRefreshToken.uuidString)"
+    }
+
+    private func reloadClassroomSessionStore(for sessionCode: String?) {
+        guard classroomMode == .teacher else { return }
+        flushPendingViewportSave()
+        store = SlideStore(lessonURL: lessonURL, classroomSessionCode: sessionCode)
+        activeIndex = min(activeIndex, max(store.slides.count - 1, 0))
+        thumbnailCache.thumbnails = [:]
+        objectStateReloadCommand = CanvasObjectCommand(.reloadObjectState)
+        inkDrawingSnapshotRevisionsBySlideID = [:]
+        objectSnapshotRevisionsBySlideID = [:]
+    }
+
     @ViewBuilder
     private var liveTeacherInkOverlay: some View {
         if liveClassroomConfiguration?.role == .student,
            let activeSlide {
+            let snapshot = liveTeacherInkCoordinator.latestInkDrawingSnapshotsBySlideID[activeSlide.id]
             let strokes = liveTeacherInkCoordinator.receivedStrokes(for: activeSlide.id)
-            if !strokes.isEmpty {
+            if snapshot != nil || !strokes.isEmpty {
                 GeometryReader { proxy in
-                    LiveTeacherInkOverlay(
-                        strokes: strokes,
-                        viewportSourceRect: currentViewportSourceRect,
-                        fallbackSourceSize: CanvasBoardMetrics.defaultUsableSize,
-                        fittedSize: proxy.size
-                    )
+                    ZStack {
+                        #if os(iOS)
+                        if let snapshot {
+                            LiveTeacherInkDrawingSnapshotOverlay(
+                                snapshot: snapshot,
+                                viewportSourceRect: currentViewportSourceRect,
+                                fallbackSourceSize: CanvasBoardMetrics.defaultUsableSize,
+                                fittedSize: proxy.size
+                            )
+                        }
+                        #endif
+
+                        if !strokes.isEmpty {
+                            LiveTeacherInkOverlay(
+                                strokes: strokes,
+                                viewportSourceRect: currentViewportSourceRect,
+                                fallbackSourceSize: CanvasBoardMetrics.defaultUsableSize,
+                                fittedSize: proxy.size
+                            )
+                        }
+                    }
                     .frame(width: proxy.size.width, height: proxy.size.height)
                 }
+                .ignoresSafeArea()
                 .allowsHitTesting(false)
                 .zIndex(0.5)
             }
@@ -263,10 +502,379 @@ public struct SlidesView: View {
             onActiveWidgetsChanged?([])
             return
         }
-        let widgetSidecarURL = WidgetObject.sidecarURL(forDrawingURL: store.drawingURL(for: activeSlide))
+        let widgetSidecarURL = WidgetObject.sidecarURL(forDrawingURL: canvasDrawingURL(for: activeSlide))
         let activeWidgets = WidgetObject.load(from: widgetSidecarURL)
         onActiveWidgetIDsChanged?(Set(activeWidgets.map(\.id)))
         onActiveWidgetsChanged?(activeWidgets)
+    }
+
+    private static func mergeInitialTeacherSlideManifestSnapshot(
+        _ snapshot: TeacherSlideManifestSnapshot,
+        into store: SlideStore
+    ) {
+        let wroteBackgroundAssets = writeTeacherSlideBackgroundAssets(snapshot.slides, into: store)
+        guard !hasUnhydratedBackgroundAssets(in: snapshot) else {
+            print("[Slides] skipped initial teacher slide manifest revision=\(snapshot.revision) because background assets are not hydrated")
+            return
+        }
+        guard !hasMissingLocalBackgroundAssets(for: snapshot, in: store) else {
+            print("[Slides] skipped initial teacher slide manifest revision=\(snapshot.revision) because local background files are missing")
+            return
+        }
+        let teacherSlides = snapshot.slides.map(SlideMetadata.init(teacherSlide:))
+        let changed = store.mergeTeacherSlides(teacherSlides)
+        if changed || wroteBackgroundAssets {
+            print("[Slides] merged initial teacher slide manifest revision=\(snapshot.revision) slides=\(snapshot.slides.count)")
+        }
+    }
+
+    @discardableResult
+    private static func writeTeacherSlideBackgroundAssets(_ slides: [TeacherSlideMetadata], into store: SlideStore) -> Bool {
+        let fileManager = FileManager.default
+        var didWriteAsset = false
+        for teacherSlide in slides {
+            guard let teacherBackground = teacherSlide.background,
+                  let slideBackground = SlideBackground(teacherBackground: teacherBackground),
+                  let assetBase64Data = teacherBackground.assetBase64Data,
+                  let assetData = Data(base64Encoded: assetBase64Data) else {
+                continue
+            }
+
+            let assetURL = store.backgroundURL(for: slideBackground)
+            do {
+                try fileManager.createDirectory(at: assetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try assetData.write(to: assetURL, options: .atomic)
+                print("[Slides] wrote teacher background asset slide=\(teacherSlide.id) file=\(slideBackground.assetFileName) bytes=\(assetData.count)")
+                didWriteAsset = true
+            } catch {
+                print("[Slides] teacher slide background asset merge error: \(error)")
+            }
+        }
+        return didWriteAsset
+    }
+
+    private static func writeTeacherInkDrawingSnapshots(_ snapshots: [TeacherInkDrawingSnapshot], into store: SlideStore) {
+        let latestSnapshots = Dictionary(grouping: snapshots, by: \.slideID).compactMapValues { slideSnapshots in
+            slideSnapshots.max { first, second in
+                if first.revision == second.revision {
+                    return first.sentAt < second.sentAt
+                }
+                return first.revision < second.revision
+            }
+        }
+        guard !latestSnapshots.isEmpty else { return }
+
+        for slide in store.slides {
+            guard let snapshot = latestSnapshots[slide.id],
+                  let drawingData = Data(base64Encoded: snapshot.drawingDataBase64) else {
+                continue
+            }
+            let drawingURL = store.drawingURL(for: slide)
+            do {
+                try FileManager.default.createDirectory(at: drawingURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try drawingData.write(to: drawingURL, options: .atomic)
+            } catch {
+                print("[Slides] teacher ink snapshot write error: \(error)")
+            }
+        }
+    }
+
+    private static func mergeInitialTeacherObjectSnapshots(_ snapshots: [TeacherObjectSnapshot], into store: SlideStore) {
+        let latestSnapshots = Dictionary(grouping: snapshots, by: \.slideID).compactMapValues { slideSnapshots in
+            slideSnapshots.max { first, second in
+                if first.revision == second.revision {
+                    return first.sentAt < second.sentAt
+                }
+                return first.revision < second.revision
+            }
+        }
+        guard !latestSnapshots.isEmpty else { return }
+
+        for slide in store.slides {
+            guard let snapshot = latestSnapshots[slide.id] else { continue }
+            do {
+                try snapshot.snapshot.write(to: store.drawingURL(for: slide))
+            } catch {
+                print("[Slides] initial teacher object merge error: \(error)")
+            }
+        }
+    }
+
+    private static func mergeInitialTeacherInkChunks(_ chunks: [TeacherInkStrokeChunk], into store: SlideStore) {
+        #if os(iOS)
+        let chunksBySlideID = Dictionary(grouping: chunks.filter(\.isFinalChunk), by: \.slideID)
+        guard !chunksBySlideID.isEmpty else { return }
+
+        for slide in store.slides {
+            guard let slideChunks = chunksBySlideID[slide.id], !slideChunks.isEmpty else { continue }
+            do {
+                _ = try CanvasLiveInkPersistence.mergeLiveInkStrokes(
+                    slideChunks.map(\.canvasLiveStroke),
+                    strokeIDs: slideChunks.map(\.strokeID),
+                    into: store.drawingURL(for: slide)
+                )
+            } catch {
+                print("[Slides] initial teacher ink merge error: \(error)")
+            }
+        }
+        #endif
+    }
+
+    private func scheduleTeacherInkDrawingSnapshotPublish(_ drawingData: Data, for slide: SlideMetadata) {
+        guard liveClassroomConfiguration?.role == .teacher else { return }
+        inkDrawingSnapshotSaveTask?.cancel()
+        inkDrawingSnapshotSaveTask = Task { @MainActor in
+            try? await Task.sleep(for: Self.inkDrawingSnapshotDebounce)
+            guard !Task.isCancelled else { return }
+            publishTeacherInkDrawingSnapshot(drawingData, for: slide)
+        }
+    }
+
+    private func publishTeacherInkDrawingSnapshot(_ drawingData: Data, for slide: SlideMetadata) {
+        let revision = nextLiveRevision(after: inkDrawingSnapshotRevisionsBySlideID[slide.id] ?? 0)
+        inkDrawingSnapshotRevisionsBySlideID[slide.id] = revision
+        liveTeacherInkCoordinator.publishTeacherInkDrawingSnapshot(
+            drawingData: drawingData,
+            slideID: slide.id,
+            revision: revision
+        )
+    }
+
+    private func scheduleTeacherObjectSnapshotPublish(for slide: SlideMetadata) {
+        guard liveClassroomConfiguration?.role == .teacher else { return }
+        objectSnapshotSaveTasksBySlideID[slide.id]?.cancel()
+        objectSnapshotSaveTasksBySlideID[slide.id] = Task { @MainActor in
+            try? await Task.sleep(for: Self.objectSnapshotDebounce)
+            guard !Task.isCancelled else { return }
+            objectSnapshotSaveTasksBySlideID[slide.id] = nil
+            publishTeacherObjectSnapshot(for: slide)
+        }
+    }
+
+    private func publishTeacherObjectSnapshot(for slide: SlideMetadata) {
+        let revision = nextLiveRevision(after: objectSnapshotRevisionsBySlideID[slide.id] ?? 0)
+        objectSnapshotRevisionsBySlideID[slide.id] = revision
+        let snapshot = CanvasObjectSnapshot.capture(
+            slideID: slide.id,
+            drawingURL: canvasDrawingURL(for: slide),
+            revision: revision
+        )
+        liveTeacherInkCoordinator.publishTeacherObjectSnapshot(snapshot, slideID: slide.id, revision: revision)
+    }
+
+    private func publishTeacherSlideManifestSnapshot() {
+        guard liveClassroomConfiguration?.role == .teacher else { return }
+        slideManifestRevision = nextLiveRevision(after: slideManifestRevision)
+        liveTeacherInkCoordinator.publishTeacherSlideManifestSnapshot(
+            revision: slideManifestRevision,
+            slides: store.slides.map(teacherSlideMetadata(for:)),
+            activeSlideID: activeSlide?.id
+        )
+    }
+
+    private func teacherSlideMetadata(for slide: SlideMetadata) -> TeacherSlideMetadata {
+        let background = slide.background.map { slideBackground in
+            TeacherSlideBackground(
+                background: slideBackground,
+                assetData: try? Data(contentsOf: store.backgroundURL(for: slideBackground))
+            )
+        }
+        return TeacherSlideMetadata(
+            id: slide.id,
+            createdAt: slide.createdAt,
+            viewport: slide.viewport.map(TeacherSlideViewport.init(viewport:)),
+            background: background
+        )
+    }
+
+    private func nextLiveRevision(after currentRevision: Int) -> Int {
+        let timestampRevision = Int((Date().timeIntervalSince1970 * 1000).rounded())
+        return max(currentRevision + 1, timestampRevision)
+    }
+
+    private func applyTeacherSlideManifestSnapshot(_ snapshot: TeacherSlideManifestSnapshot) {
+        guard liveClassroomConfiguration?.role == .student else { return }
+        print("[Slides] received live teacher slide manifest revision=\(snapshot.revision) slides=\(snapshot.slides.count) unhydrated=\(hasUnhydratedBackgroundAssets(in: snapshot)) missingLocal=\(hasMissingLocalBackgroundAssets(for: snapshot))")
+        let needsDurableRefresh = scheduleDurableTeacherSlideManifestRefreshIfNeeded(for: snapshot)
+        mergeTeacherSlideManifestSnapshot(snapshot, allowsPartialBackgroundMerge: needsDurableRefresh)
+    }
+
+    private func mergeTeacherSlideManifestSnapshot(
+        _ snapshot: TeacherSlideManifestSnapshot,
+        allowsPartialBackgroundMerge: Bool = false
+    ) {
+        let wroteBackgroundAssets = Self.writeTeacherSlideBackgroundAssets(snapshot.slides, into: store)
+        let readySlides = allowsPartialBackgroundMerge
+            ? Self.teacherSlidesWithAvailableBackgrounds(snapshot.slides, in: store)
+            : snapshot.slides
+        let readySlideIDs = Set(readySlides.map(\.id))
+        let deferredSlideIDs = Set(snapshot.slides.map(\.id)).subtracting(readySlideIDs)
+        let deferredPlaceholderSlideIDs = Self.deferredTeacherSlidePlaceholderIDs(
+            in: store,
+            deferredTeacherSlides: snapshot.slides.filter { deferredSlideIDs.contains($0.id) }
+        )
+
+        if !deferredSlideIDs.isEmpty {
+            print("[Slides] partially merging teacher slide manifest revision=\(snapshot.revision) deferredBackgroundSlides=\(deferredSlideIDs.count)")
+        }
+        if readySlides.isEmpty && deferredPlaceholderSlideIDs.isEmpty {
+            print("[Slides] teacher slide manifest revision=\(snapshot.revision) had no ready slides to merge")
+            return
+        }
+
+        let previousActiveSlideID = activeSlide?.id
+        let changed = store.mergeTeacherSlides(
+            readySlides.map(SlideMetadata.init(teacherSlide:)),
+            deferredTeacherSlideIDs: deferredPlaceholderSlideIDs
+        )
+
+        if let teacherActiveSlideID = snapshot.activeSlideID,
+           readySlideIDs.contains(teacherActiveSlideID),
+           let newActiveIndex = store.slides.firstIndex(where: { $0.id == teacherActiveSlideID }) {
+            activeIndex = newActiveIndex
+        } else if let previousActiveSlideID,
+                  let newActiveIndex = store.slides.firstIndex(where: { $0.id == previousActiveSlideID }) {
+            activeIndex = newActiveIndex
+        } else {
+            activeIndex = min(activeIndex, max(store.slides.count - 1, 0))
+        }
+
+        let activeSlideChanged = previousActiveSlideID != activeSlide?.id
+        guard changed || wroteBackgroundAssets || activeSlideChanged else {
+            print("[Slides] teacher slide manifest revision=\(snapshot.revision) received with no metadata/background/active-slide change")
+            return
+        }
+
+        thumbnailCache.thumbnails = [:]
+        canvasRefreshToken = UUID()
+        for objectSnapshot in liveTeacherInkCoordinator.latestObjectSnapshotsBySlideID.values {
+            applyTeacherObjectSnapshot(objectSnapshot)
+        }
+        applyInitialTeacherObjectSnapshotsIfNeeded()
+        publishActiveWidgetIDs()
+    }
+
+    private static func hasUnhydratedBackgroundAssets(in snapshot: TeacherSlideManifestSnapshot) -> Bool {
+        snapshot.slides.contains { teacherSlide in
+            guard let teacherBackground = teacherSlide.background else { return false }
+            return teacherBackground.assetBase64Data == nil
+        }
+    }
+
+    private func hasUnhydratedBackgroundAssets(in snapshot: TeacherSlideManifestSnapshot) -> Bool {
+        Self.hasUnhydratedBackgroundAssets(in: snapshot)
+    }
+
+    private static func hasMissingLocalBackgroundAssets(for snapshot: TeacherSlideManifestSnapshot, in store: SlideStore) -> Bool {
+        snapshot.slides.contains { teacherSlide in
+            guard let teacherBackground = teacherSlide.background,
+                  let slideBackground = SlideBackground(teacherBackground: teacherBackground) else {
+                return false
+            }
+            return !FileManager.default.fileExists(atPath: store.backgroundURL(for: slideBackground).path)
+        }
+    }
+
+    private func hasMissingLocalBackgroundAssets(for snapshot: TeacherSlideManifestSnapshot) -> Bool {
+        Self.hasMissingLocalBackgroundAssets(for: snapshot, in: store)
+    }
+
+    private static func teacherSlidesWithAvailableBackgrounds(
+        _ teacherSlides: [TeacherSlideMetadata],
+        in store: SlideStore
+    ) -> [TeacherSlideMetadata] {
+        teacherSlides.filter { teacherSlide in
+            guard let teacherBackground = teacherSlide.background,
+                  let slideBackground = SlideBackground(teacherBackground: teacherBackground) else {
+                return true
+            }
+            if teacherBackground.assetBase64Data != nil {
+                return true
+            }
+            return FileManager.default.fileExists(atPath: store.backgroundURL(for: slideBackground).path)
+        }
+    }
+
+    private static func deferredTeacherSlidePlaceholderIDs(
+        in store: SlideStore,
+        deferredTeacherSlides: [TeacherSlideMetadata]
+    ) -> Set<UUID> {
+        let deferredBackgroundsByID = Dictionary(
+            uniqueKeysWithValues: deferredTeacherSlides.compactMap { teacherSlide -> (UUID, SlideBackground)? in
+                guard let teacherBackground = teacherSlide.background,
+                      let slideBackground = SlideBackground(teacherBackground: teacherBackground) else {
+                    return nil
+                }
+                return (teacherSlide.id, slideBackground)
+            }
+        )
+
+        return Set(store.slides.compactMap { localSlide in
+            guard let deferredBackground = deferredBackgroundsByID[localSlide.id],
+                  localSlide.background == deferredBackground else {
+                return nil
+            }
+            return localSlide.id
+        })
+    }
+
+    @discardableResult
+    private func scheduleDurableTeacherSlideManifestRefreshIfNeeded(for snapshot: TeacherSlideManifestSnapshot) -> Bool {
+        guard hasMissingLocalBackgroundAssets(for: snapshot),
+              let onLiveTeacherSlideManifestRefreshRequested else {
+            return false
+        }
+
+        Task { @MainActor in
+            print("[Slides] waiting for durable teacher slide manifest revision=\(snapshot.revision)")
+            for delay in [500, 1_500, 3_000, 6_000, 10_000, 15_000] {
+                try? await Task.sleep(for: .milliseconds(delay))
+                guard let durableSnapshot = await onLiveTeacherSlideManifestRefreshRequested(snapshot),
+                      durableSnapshot.revision >= snapshot.revision else {
+                    print("[Slides] durable teacher slide manifest unavailable revision=\(snapshot.revision) delay=\(delay)ms")
+                    continue
+                }
+                mergeTeacherSlideManifestSnapshot(durableSnapshot)
+                if !hasUnhydratedBackgroundAssets(in: durableSnapshot),
+                   !hasMissingLocalBackgroundAssets(for: durableSnapshot) {
+                    break
+                }
+            }
+        }
+        return true
+    }
+
+    private func applyTeacherInkDrawingSnapshot(_ snapshot: TeacherInkDrawingSnapshot) {
+        guard liveClassroomConfiguration?.role == .student else { return }
+        _ = snapshot
+        // The coordinator already keeps the latest teacher snapshot for the
+        // overlay. Persisting it into the local slide drawing would overwrite
+        // student-owned annotations on reopen.
+    }
+
+    private func applyTeacherObjectSnapshot(_ snapshot: TeacherObjectSnapshot) {
+        guard liveClassroomConfiguration?.role == .student,
+              let slide = store.slides.first(where: { $0.id == snapshot.slideID }) else {
+            return
+        }
+
+        do {
+            try snapshot.snapshot.write(to: canvasDrawingURL(for: slide))
+            print("[Slides] applied teacher object snapshot slide=\(slide.id) revision=\(snapshot.revision) sidecars=\(snapshot.snapshot.sidecarFiles.count) imageAssets=\(snapshot.snapshot.imageAssetFiles.count)")
+            if activeSlide?.id == slide.id {
+                objectStateReloadCommand = CanvasObjectCommand(.reloadObjectState)
+                publishActiveWidgetIDs()
+            }
+        } catch {
+            print("[Slides] live teacher object apply error: \(error)")
+        }
+    }
+
+    private func scheduleReceivedTeacherInkPersistenceForStudentCopy() {
+        guard liveClassroomConfiguration?.role == .student else { return }
+        // Teacher ink persistence is handled by the class-level durable
+        // snapshot in Firebase. The student's local drawing file must remain
+        // reserved for that student's own PencilKit annotations.
     }
 
     private func goToPrevious() {
@@ -324,6 +932,7 @@ public struct SlidesView: View {
         do {
             try store.insertSlides(count: 1, afterSlideAt: activeIndex)
             activeIndex += 1
+            publishTeacherSlideManifestSnapshot()
         } catch {
             slideErrorMessage = error.localizedDescription
         }
@@ -339,6 +948,7 @@ public struct SlidesView: View {
                 targetSlide = store.slides[emptyIndex]
             } else {
                 targetSlide = store.addSlide()
+                publishTeacherSlideManifestSnapshot()
             }
             try placeExtractedRegion(region, on: targetSlide)
         } catch {
@@ -348,7 +958,7 @@ public struct SlidesView: View {
 
     private func isEmptyForExtractSend(_ slide: SlideMetadata) -> Bool {
         guard slide.background == nil else { return false }
-        let drawingURL = store.drawingURL(for: slide)
+        let drawingURL = canvasDrawingURL(for: slide)
         if FileManager.default.fileExists(atPath: drawingURL.path) {
             return false
         }
@@ -359,7 +969,7 @@ public struct SlidesView: View {
     }
 
     private func placeExtractedRegion(_ region: PresentationExtractedRegion, on slide: SlideMetadata) throws {
-        let drawingURL = store.drawingURL(for: slide)
+        let drawingURL = canvasDrawingURL(for: slide)
         let assetDirectoryURL = PresentationCanvasImageObject.assetDirectoryURL(forDrawingURL: drawingURL)
         try FileManager.default.createDirectory(at: assetDirectoryURL, withIntermediateDirectories: true)
 
@@ -379,12 +989,13 @@ public struct SlidesView: View {
             imageObjects,
             to: PresentationCanvasImageObject.sidecarURL(forDrawingURL: drawingURL)
         )
-        try? LibraryRecentStore.record(
+        _ = try? LibraryRecentStore.record(
             title: Self.libraryRecentTitle("Extracted sticker"),
             kind: .extractedInk,
             thumbnailPNGData: region.pngData,
             forDrawingURL: drawingURL
         )
+        scheduleTeacherObjectSnapshotPublish(for: slide)
     }
 
     private static func libraryRecentTitle(_ baseTitle: String, date: Date = Date()) -> String {
@@ -406,6 +1017,7 @@ public struct SlidesView: View {
             for (page, slide) in zip(importedPages, targetSlides) {
                 try placePDFPageImage(page, on: slide)
             }
+            publishTeacherSlideManifestSnapshot()
             if let firstTargetIndex = store.slides.firstIndex(where: { $0.id == targetSlides[0].id }) {
                 activeIndex = firstTargetIndex
             }
@@ -428,7 +1040,7 @@ public struct SlidesView: View {
     }
 
     private func placePDFPageImage(_ page: ImportedPDFPageImage, on slide: SlideMetadata) throws {
-        let drawingURL = store.drawingURL(for: slide)
+        let drawingURL = canvasDrawingURL(for: slide)
         let assetDirectoryURL = PresentationCanvasImageObject.assetDirectoryURL(forDrawingURL: drawingURL)
         try FileManager.default.createDirectory(at: assetDirectoryURL, withIntermediateDirectories: true)
 
@@ -448,12 +1060,13 @@ public struct SlidesView: View {
             [imageObject],
             to: PresentationCanvasImageObject.sidecarURL(forDrawingURL: drawingURL)
         )
-        try? LibraryRecentStore.record(
+        _ = try? LibraryRecentStore.record(
             title: Self.libraryRecentTitle("PDF page object"),
             kind: .image,
             thumbnailPNGData: page.pngData,
             forDrawingURL: drawingURL
         )
+        scheduleTeacherObjectSnapshotPublish(for: slide)
     }
 
     private static func centeredPDFPageFrame(for displaySize: CGSize) -> CGRect {
@@ -531,6 +1144,9 @@ public struct SlidesView: View {
                 reuseCurrentSlideIfBlank: true
             )
             activeIndex = result.startIndex
+            thumbnailCache.thumbnails = [:]
+            canvasRefreshToken = UUID()
+            publishTeacherSlideManifestSnapshot()
             clearPendingPDFImport()
         } catch {
             slideErrorMessage = error.localizedDescription
@@ -554,7 +1170,7 @@ public struct SlidesView: View {
 
         return try await SlidePDFExporter.export(
             slides: selectedSlides,
-            drawingURL: store.drawingURL(for:),
+            drawingURL: canvasDrawingURL(for:),
             backgroundURL: store.backgroundURL(for:),
             lessonName: lessonURL.deletingPathExtension().lastPathComponent
         )
@@ -596,6 +1212,7 @@ public struct SlidesView: View {
             for index in indices.sorted(by: >) {
                 try store.deleteSlide(at: index)
             }
+            publishTeacherSlideManifestSnapshot()
         } catch {
             slideErrorMessage = error.localizedDescription
         }
@@ -644,12 +1261,13 @@ public struct SlidesView: View {
         if let currentID, let newIndex = store.slides.firstIndex(where: { $0.id == currentID }) {
             activeIndex = newIndex
         }
+        publishTeacherSlideManifestSnapshot()
     }
 
     /// Static slide preview for the navigator filmstrip, cached by persisted
     /// slide-file fingerprints so scrolling doesn't re-render every tile.
     private func thumbnail(for slide: SlideMetadata) -> SlideNavigatorThumbnail {
-        let drawingURL = store.drawingURL(for: slide)
+        let drawingURL = canvasDrawingURL(for: slide)
         let key = SlideThumbnailRenderer.cacheKey(
             for: slide,
             drawingURL: drawingURL,
@@ -882,5 +1500,75 @@ private extension SlideViewportState {
             && abs(zoomScale - other.zoomScale) < 0.0001
             && abs(contentOffsetX - other.contentOffsetX) < 0.5
             && abs(contentOffsetY - other.contentOffsetY) < 0.5
+    }
+}
+
+private extension TeacherSlideMetadata {
+    init(slide: SlideMetadata) {
+        self.init(
+            id: slide.id,
+            createdAt: slide.createdAt,
+            viewport: slide.viewport.map(TeacherSlideViewport.init(viewport:)),
+            background: slide.background.map(TeacherSlideBackground.init(background:))
+        )
+    }
+}
+
+private extension TeacherSlideViewport {
+    init(viewport: SlideViewportState) {
+        self.init(
+            zoomScale: viewport.zoomScale,
+            contentOffsetX: viewport.contentOffsetX,
+            contentOffsetY: viewport.contentOffsetY,
+            platform: viewport.platform
+        )
+    }
+}
+
+private extension TeacherSlideBackground {
+    init(background: SlideBackground) {
+        self.init(background: background, assetData: nil)
+    }
+
+    init(background: SlideBackground, assetData: Data?) {
+        self.init(
+            kind: background.kind.rawValue,
+            assetFileName: background.assetFileName,
+            pageIndex: background.pageIndex,
+            assetBase64Data: assetData?.base64EncodedString()
+        )
+    }
+}
+
+private extension SlideMetadata {
+    init(teacherSlide: TeacherSlideMetadata) {
+        self.init(
+            id: teacherSlide.id,
+            createdAt: teacherSlide.createdAt,
+            viewport: teacherSlide.viewport.map(SlideViewportState.init(teacherViewport:)),
+            background: teacherSlide.background.flatMap(SlideBackground.init(teacherBackground:))
+        )
+    }
+}
+
+private extension SlideViewportState {
+    init(teacherViewport: TeacherSlideViewport) {
+        self.init(
+            zoomScale: teacherViewport.zoomScale,
+            contentOffsetX: teacherViewport.contentOffsetX,
+            contentOffsetY: teacherViewport.contentOffsetY,
+            platform: teacherViewport.platform
+        )
+    }
+}
+
+private extension SlideBackground {
+    init?(teacherBackground: TeacherSlideBackground) {
+        guard let kind = Kind(rawValue: teacherBackground.kind) else { return nil }
+        self.init(
+            kind: kind,
+            assetFileName: teacherBackground.assetFileName,
+            pageIndex: teacherBackground.pageIndex
+        )
     }
 }

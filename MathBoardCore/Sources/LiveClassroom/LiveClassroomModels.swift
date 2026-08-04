@@ -39,6 +39,14 @@ public struct LiveClassroomSessionConfiguration: Sendable, Equatable {
         "classroom:\(lessonCode):ink"
     }
 
+    public var objectChannelName: String {
+        "classroom:\(lessonCode):objects"
+    }
+
+    public var slideChannelName: String {
+        "classroom:\(lessonCode):slides"
+    }
+
     public var isUsable: Bool {
         !lessonCode.isEmpty && !apiKey.isEmpty && !clientID.isEmpty
     }
@@ -208,6 +216,141 @@ public extension TeacherInkStrokeChunk {
             color: CanvasStrokeColor(hexRGBString: colorHex, alpha: CGFloat(alpha)),
             kind: .ink
         )
+    }
+}
+
+public struct TeacherInkDrawingSnapshot: Codable, Sendable, Identifiable, Equatable {
+    public var id: UUID
+    public var lessonCode: String
+    public var slideID: UUID
+    public var revision: Int
+    public var drawingDataBase64: String
+    public var sentAt: Date
+
+    public init(
+        id: UUID = UUID(),
+        lessonCode: String,
+        slideID: UUID,
+        revision: Int,
+        drawingDataBase64: String,
+        sentAt: Date = Date()
+    ) {
+        self.id = id
+        self.lessonCode = LiveClassroomSessionConfiguration.normalizedLessonCode(lessonCode)
+        self.slideID = slideID
+        self.revision = revision
+        self.drawingDataBase64 = drawingDataBase64
+        self.sentAt = sentAt
+    }
+}
+
+public struct TeacherObjectSnapshot: Codable, Sendable, Identifiable, Equatable {
+    public var id: UUID
+    public var lessonCode: String
+    public var slideID: UUID
+    public var revision: Int
+    public var snapshot: CanvasObjectSnapshot
+    public var sentAt: Date
+
+    public init(
+        id: UUID = UUID(),
+        lessonCode: String,
+        slideID: UUID,
+        revision: Int,
+        snapshot: CanvasObjectSnapshot,
+        sentAt: Date = Date()
+    ) {
+        self.id = id
+        self.lessonCode = LiveClassroomSessionConfiguration.normalizedLessonCode(lessonCode)
+        self.slideID = slideID
+        self.revision = revision
+        self.snapshot = snapshot
+        self.sentAt = sentAt
+    }
+}
+
+public struct TeacherSlideBackground: Codable, Sendable, Equatable {
+    public var kind: String
+    public var assetFileName: String
+    public var pageIndex: Int
+    public var assetBase64Data: String?
+    public var assetStoragePath: String?
+
+    public init(
+        kind: String,
+        assetFileName: String,
+        pageIndex: Int,
+        assetBase64Data: String? = nil,
+        assetStoragePath: String? = nil
+    ) {
+        self.kind = kind
+        self.assetFileName = assetFileName
+        self.pageIndex = pageIndex
+        self.assetBase64Data = assetBase64Data
+        self.assetStoragePath = assetStoragePath
+    }
+}
+
+public struct TeacherSlideViewport: Codable, Sendable, Equatable {
+    public var zoomScale: Double
+    public var contentOffsetX: Double
+    public var contentOffsetY: Double
+    public var platform: String?
+
+    public init(
+        zoomScale: Double,
+        contentOffsetX: Double,
+        contentOffsetY: Double,
+        platform: String? = nil
+    ) {
+        self.zoomScale = zoomScale
+        self.contentOffsetX = contentOffsetX
+        self.contentOffsetY = contentOffsetY
+        self.platform = platform
+    }
+}
+
+public struct TeacherSlideMetadata: Codable, Sendable, Identifiable, Equatable {
+    public var id: UUID
+    public var createdAt: Date
+    public var viewport: TeacherSlideViewport?
+    public var background: TeacherSlideBackground?
+
+    public init(
+        id: UUID,
+        createdAt: Date,
+        viewport: TeacherSlideViewport? = nil,
+        background: TeacherSlideBackground? = nil
+    ) {
+        self.id = id
+        self.createdAt = createdAt
+        self.viewport = viewport
+        self.background = background
+    }
+}
+
+public struct TeacherSlideManifestSnapshot: Codable, Sendable, Identifiable, Equatable {
+    public var id: UUID
+    public var lessonCode: String
+    public var revision: Int
+    public var slides: [TeacherSlideMetadata]
+    public var activeSlideID: UUID?
+    public var sentAt: Date
+
+    public init(
+        id: UUID = UUID(),
+        lessonCode: String,
+        revision: Int,
+        slides: [TeacherSlideMetadata],
+        activeSlideID: UUID? = nil,
+        sentAt: Date = Date()
+    ) {
+        self.id = id
+        self.lessonCode = LiveClassroomSessionConfiguration.normalizedLessonCode(lessonCode)
+        self.revision = revision
+        self.slides = slides
+        self.activeSlideID = activeSlideID
+        self.sentAt = sentAt
     }
 }
 

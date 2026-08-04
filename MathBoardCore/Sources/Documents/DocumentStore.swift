@@ -157,6 +157,10 @@ public final class DocumentStore {
         return result.sorted(by: { $0.name < $1.name })
     }
 
+    func loadManagedLesson(at url: URL) throws -> Lesson {
+        try loadLesson(at: url)
+    }
+
     private func loadLesson(at url: URL) throws -> Lesson {
         let metadata = try loadDocumentMetadata(at: url)
         let attrs = try fileManager.attributesOfItem(atPath: url.path)

@@ -1,4 +1,5 @@
 import Foundation
+import LiveClassroom
 import WidgetEngine
 
 public struct TeacherSyncIdentity: Codable, Hashable, Identifiable {
@@ -66,6 +67,20 @@ public struct AssignmentSyncPacket: Codable, Hashable, Identifiable {
     public var shareURL: URL?
     public var widgetSummaries: [AssignedWidgetSummary]
     public var assignedAt: Date
+    public var allowedStudentIdentifierHashes: [String]
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case teacherID
+        case classroomID
+        case classroomName
+        case lesson
+        case classLessonCode
+        case shareURL
+        case widgetSummaries
+        case assignedAt
+        case allowedStudentIdentifierHashes
+    }
 
     public init(
         id: UUID,
@@ -76,7 +91,8 @@ public struct AssignmentSyncPacket: Codable, Hashable, Identifiable {
         classLessonCode: String,
         shareURL: URL? = nil,
         widgetSummaries: [AssignedWidgetSummary],
-        assignedAt: Date
+        assignedAt: Date,
+        allowedStudentIdentifierHashes: [String] = []
     ) {
         self.id = id
         self.teacherID = teacherID
@@ -87,6 +103,21 @@ public struct AssignmentSyncPacket: Codable, Hashable, Identifiable {
         self.shareURL = shareURL
         self.widgetSummaries = widgetSummaries
         self.assignedAt = assignedAt
+        self.allowedStudentIdentifierHashes = allowedStudentIdentifierHashes
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        teacherID = try container.decode(UUID.self, forKey: .teacherID)
+        classroomID = try container.decode(UUID.self, forKey: .classroomID)
+        classroomName = try container.decode(String.self, forKey: .classroomName)
+        lesson = try container.decode(LessonPackageManifest.self, forKey: .lesson)
+        classLessonCode = try container.decode(String.self, forKey: .classLessonCode)
+        shareURL = try container.decodeIfPresent(URL.self, forKey: .shareURL)
+        widgetSummaries = try container.decode([AssignedWidgetSummary].self, forKey: .widgetSummaries)
+        assignedAt = try container.decode(Date.self, forKey: .assignedAt)
+        allowedStudentIdentifierHashes = try container.decodeIfPresent([String].self, forKey: .allowedStudentIdentifierHashes) ?? []
     }
 }
 
@@ -126,6 +157,7 @@ public struct StudentSubmissionPacket: Codable, Identifiable {
 
 public struct StudentWidgetLiveProgress: Codable, Hashable, Identifiable {
     static let defaultActiveStaleInterval: TimeInterval = 20
+    static let lessonPresenceWidgetID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
 
     public var id: String { "\(studentID.uuidString)_\(widgetID.uuidString)" }
     public var assignmentID: UUID
@@ -181,13 +213,10 @@ public struct StudentWidgetLiveProgress: Codable, Hashable, Identifiable {
         if status == .complete {
             return .submitted
         }
-        guard isActiveOnStudentScreen else {
-            return .inactive
-        }
         if now.timeIntervalSince(updatedAt) > staleInterval {
             return .offline
         }
-        return .active
+        return isActiveOnStudentScreen ? .active : .inactive
     }
 }
 
@@ -201,11 +230,11 @@ enum LiveProgressIndicatorState: Equatable {
     var displayName: String {
         switch self {
         case .notStarted:
-            "Not started"
+            "Not logged in"
         case .inactive:
-            "Not on screen"
+            "Logged in"
         case .active:
-            "Working"
+            "On widget"
         case .submitted:
             "Submitted"
         case .offline:
@@ -234,6 +263,10 @@ protocol ClassroomSyncService {
     func submitWidgetScore(_ submission: StudentSubmissionPacket) throws -> StudentWidgetResult
 
     func fetchSubmissions(assignmentID: UUID) throws -> [StudentWidgetResult]
+    func publishTeacherInkChunk(_ chunk: TeacherInkStrokeChunk) throws
+    func fetchTeacherInkChunks(classLessonCode: String) throws -> [TeacherInkStrokeChunk]
+    func publishTeacherInkDrawingSnapshot(_ snapshot: TeacherInkDrawingSnapshot) throws
+    func fetchTeacherInkDrawingSnapshots(classLessonCode: String) throws -> [TeacherInkDrawingSnapshot]
 }
 
 @MainActor
@@ -310,6 +343,32 @@ struct LocalClassroomSyncService: ClassroomSyncService {
         return assignmentStore.widgetResults
             .filter { $0.assignmentID == assignmentID }
             .sorted { $0.submittedAt < $1.submittedAt }
+    }
+
+    func publishTeacherInkChunk(_ chunk: TeacherInkStrokeChunk) throws {
+        guard assignmentStore.assignment(matchingClassLessonCode: chunk.lessonCode) != nil else {
+            throw ClassroomAssignmentStoreError.classLessonCodeNotFound
+        }
+    }
+
+    func fetchTeacherInkChunks(classLessonCode: String) throws -> [TeacherInkStrokeChunk] {
+        guard assignmentStore.assignment(matchingClassLessonCode: classLessonCode) != nil else {
+            throw ClassroomAssignmentStoreError.classLessonCodeNotFound
+        }
+        return []
+    }
+
+    func publishTeacherInkDrawingSnapshot(_ snapshot: TeacherInkDrawingSnapshot) throws {
+        guard assignmentStore.assignment(matchingClassLessonCode: snapshot.lessonCode) != nil else {
+            throw ClassroomAssignmentStoreError.classLessonCodeNotFound
+        }
+    }
+
+    func fetchTeacherInkDrawingSnapshots(classLessonCode: String) throws -> [TeacherInkDrawingSnapshot] {
+        guard assignmentStore.assignment(matchingClassLessonCode: classLessonCode) != nil else {
+            throw ClassroomAssignmentStoreError.classLessonCodeNotFound
+        }
+        return []
     }
 
     private func assignmentPacket(

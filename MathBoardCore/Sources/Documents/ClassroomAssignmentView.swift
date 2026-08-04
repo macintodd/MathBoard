@@ -127,22 +127,37 @@ struct LessonAssignmentSheet: View {
                 }
             }
             .navigationTitle("Assign Lesson")
+            .disabled(isAssigning)
+            .overlay {
+                if isAssigning {
+                    assignmentProgressOverlay
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         dismiss()
                     }
+                    .disabled(isAssigning)
                 }
 
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Assign") {
+                    Button {
                         Task {
                             await assignLesson()
+                        }
+                    } label: {
+                        if isAssigning {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Text("Assign")
                         }
                     }
                     .disabled(selectedActionableClassroomIDs.isEmpty || isAssigning || isCheckingAssignmentActivity)
                 }
             }
+            .interactiveDismissDisabled(isAssigning)
             .alert("Assignment Failed", isPresented: errorAlertBinding) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -202,6 +217,29 @@ struct LessonAssignmentSheet: View {
             "Selected classes will point to a newly frozen Published Version. Existing class assignments stay on their original versions."
         case .useCurrentPublishedVersion:
             "Selected classes will point to the last Published Version. New edits in the Source MathBoard will not be included."
+        }
+    }
+
+    private var assignmentProgressOverlay: some View {
+        ZStack {
+            Rectangle()
+                .fill(.black.opacity(0.12))
+                .ignoresSafeArea()
+
+            VStack(spacing: 14) {
+                ProgressView()
+                    .controlSize(.large)
+                Text("Assigning lesson...")
+                    .font(.headline)
+                Text("Uploading the lesson package and creating class access codes.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(24)
+            .frame(maxWidth: 320)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .shadow(radius: 18, y: 8)
         }
     }
 

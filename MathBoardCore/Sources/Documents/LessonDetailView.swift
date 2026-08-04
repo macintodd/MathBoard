@@ -22,6 +22,7 @@ struct LessonDetailView: View {
     @AppStorage(LiveClassroomSettings.enabledKey) private var isLiveTeacherInkEnabled = false
     @AppStorage(LiveClassroomSettings.ablyAPIKeyKey) private var liveTeacherInkAblyAPIKey = ""
     @State private var classroomMode: MathBoardClassroomMode = .teacher
+    @State private var selectedTeachingAssignmentID: UUID?
     @State private var isLiveProgressDrawerOpen = false
     @State private var selectedLiveProgressAssignmentID: UUID?
     @State private var selectedLiveProgressWidgetID: UUID?
@@ -38,14 +39,25 @@ struct LessonDetailView: View {
         SlidesView(
             lessonURL: lesson.url,
             classroomMode: $classroomMode,
-            liveClassroomConfiguration: liveClassroomConfiguration
+            classroomSessionCode: selectedTeachingAssignment?.classLessonCode,
+            liveClassroomConfiguration: liveClassroomConfiguration,
+            onTeacherInkChunkPublished: persistTeacherInkChunk,
+            onTeacherInkDrawingSnapshotPublished: persistTeacherInkDrawingSnapshot,
+            onTeacherObjectSnapshotPublished: persistTeacherObjectSnapshot,
+            onTeacherSlideManifestSnapshotPublished: persistTeacherSlideManifestSnapshot
         )
             .onAppear { DisplayBroker.shared.lessonURL = lesson.url }
             .overlay(alignment: .trailing) {
                 liveProgressOverlay
             }
+            .overlay(alignment: .topTrailing) {
+                teachingSessionMenu
+            }
             .task(id: liveProgressTaskKey) {
                 await pollLiveProgressIfNeeded()
+            }
+            .onChange(of: selectedTeachingAssignmentID) { _, newAssignmentID in
+                selectedLiveProgressAssignmentID = newAssignmentID
             }
             .onChange(of: selectedLiveProgressAssignmentID) { _, _ in
                 selectedLiveProgressWidgetID = nil
@@ -74,6 +86,16 @@ struct LessonDetailView: View {
 
     private var lessonAssignments: [ClassroomAssignment] {
         assignmentStore.assignments(for: lesson.id)
+    }
+
+    private var selectedTeachingAssignment: ClassroomAssignment? {
+        guard let selectedTeachingAssignmentID else { return nil }
+        return lessonAssignments.first { $0.id == selectedTeachingAssignmentID }
+    }
+
+    private var selectedTeachingClassroom: Classroom? {
+        guard let selectedTeachingAssignment else { return nil }
+        return rosterStore.classrooms.first { $0.id == selectedTeachingAssignment.classroomID }
     }
 
     private var selectedLiveProgressAssignment: ClassroomAssignment? {
@@ -118,10 +140,11 @@ struct LessonDetailView: View {
     }
 
     private var liveClassroomConfiguration: LiveClassroomSessionConfiguration? {
-        guard isLiveTeacherInkEnabled else { return nil }
+        guard isLiveTeacherInkEnabled,
+              let selectedTeachingAssignment else { return nil }
         let clientID = "teacher-\(teacherAuthStore.state.userID ?? "local")"
         let configuration = LiveClassroomSessionConfiguration(
-            lessonCode: selectedLiveProgressAssignment?.classLessonCode ?? lessonAssignments.first?.classLessonCode ?? "",
+            lessonCode: selectedTeachingAssignment.classLessonCode,
             role: .teacher,
             clientID: clientID,
             apiKey: liveTeacherInkAblyAPIKey
@@ -133,7 +156,7 @@ struct LessonDetailView: View {
         if !isLiveTeacherInkEnabled {
             return .off
         }
-        if lessonAssignments.isEmpty {
+        if lessonAssignments.isEmpty || selectedTeachingAssignment == nil {
             return .missingLessonCode
         }
         if liveTeacherInkAblyAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -143,27 +166,83 @@ struct LessonDetailView: View {
     }
 
     @ViewBuilder
+    private var teachingSessionMenu: some View {
+        if classroomMode == .teacher && !lessonAssignments.isEmpty {
+            Menu {
+                Button {
+                    selectedTeachingAssignmentID = nil
+                } label: {
+                    Label("Master copy", systemImage: selectedTeachingAssignmentID == nil ? "checkmark" : "doc")
+                }
+
+                Section("Class Sessions") {
+                    ForEach(lessonAssignments) { assignment in
+                        Button {
+                            selectedTeachingAssignmentID = assignment.id
+                        } label: {
+                            Label(
+                                "\(classroomName(for: assignment)) - \(assignment.classLessonCode)",
+                                systemImage: selectedTeachingAssignmentID == assignment.id ? "checkmark" : "person.3"
+                            )
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: selectedTeachingAssignment == nil ? "doc" : "person.3")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(selectedTeachingClassroom?.name ?? "Master copy")
+                            .font(.caption.weight(.semibold))
+                            .lineLimit(1)
+                        Text(selectedTeachingAssignment?.classLessonCode ?? "No class code")
+                            .font(.caption2.monospaced().weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 12)
+                .frame(height: 44)
+                .frame(maxWidth: 240, alignment: .leading)
+                .background(.ultraThinMaterial, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 8)
+            .padding(.trailing, 74)
+            .accessibilityLabel("Teaching class session")
+        }
+    }
+
+    private func classroomName(for assignment: ClassroomAssignment) -> String {
+        rosterStore.classrooms.first { $0.id == assignment.classroomID }?.name ?? "Class"
+    }
+
+    @ViewBuilder
     private var liveProgressOverlay: some View {
         if !lessonAssignments.isEmpty {
-            ZStack(alignment: .topTrailing) {
-                ZStack(alignment: .topTrailing) {
-                    if let assignment = selectedLiveProgressAssignment {
-                        liveProgressPanel(assignment)
-                    }
-                    liveProgressTab
-                        .padding(.top, LiveProgressDrawerTheme.tabTopInset)
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
-                        .zIndex(1)
+            HStack(alignment: .top, spacing: 0) {
+                liveProgressTab
+                    .padding(.top, LiveProgressDrawerTheme.tabTopInset)
+                    .zIndex(1)
+
+                if isLiveProgressDrawerOpen,
+                   let assignment = selectedLiveProgressAssignment {
+                    liveProgressPanel(assignment)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
-                .frame(
-                    width: LiveProgressDrawerTheme.openWidth + LiveProgressDrawerTheme.tabWidth,
-                    alignment: .topTrailing
-                )
-                .frame(maxHeight: .infinity, alignment: .top)
-                .offset(x: isLiveProgressDrawerOpen ? 0 : LiveProgressDrawerTheme.openWidth)
-                .compositingGroup()
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            .frame(
+                width: isLiveProgressDrawerOpen
+                    ? LiveProgressDrawerTheme.openWidth + LiveProgressDrawerTheme.tabWidth
+                    : LiveProgressDrawerTheme.tabWidth,
+                alignment: .topTrailing
+            )
+            .frame(maxHeight: .infinity, alignment: .topTrailing)
+            .clipped()
         }
     }
 
@@ -177,6 +256,7 @@ struct LessonDetailView: View {
             selectedWidget: selectedLiveProgressWidget,
             progressRows: liveProgressRows,
             isRefreshing: isRefreshingLiveProgress,
+            classroomName: classroomName(for:),
             onRefresh: {
                 Task {
                     await refreshLiveProgress()
@@ -277,6 +357,73 @@ struct LessonDetailView: View {
         }
     }
 
+    private func persistTeacherInkChunk(_ chunk: TeacherInkStrokeChunk) {
+        guard chunk.isFinalChunk,
+              let selectedTeachingAssignment,
+              ClassroomAssignmentStore.normalizedClassLessonCode(selectedTeachingAssignment.classLessonCode) == chunk.lessonCode else {
+            return
+        }
+
+        Task { @MainActor in
+            do {
+                try await FirebaseClassroomSyncService(
+                    teacherUserID: teacherAuthStore.state.userID,
+                    teacherEmail: teacherAuthStore.state.email
+                ).publishTeacherInkChunk(chunk)
+            } catch {
+                print("[LessonDetail] teacher ink durable save error: \(error)")
+            }
+        }
+    }
+
+    private func persistTeacherInkDrawingSnapshot(_ snapshot: TeacherInkDrawingSnapshot) {
+        guard let selectedTeachingAssignment,
+              ClassroomAssignmentStore.normalizedClassLessonCode(selectedTeachingAssignment.classLessonCode) == snapshot.lessonCode else {
+            return
+        }
+
+        Task { @MainActor in
+            do {
+                try await FirebaseClassroomSyncService(
+                    teacherUserID: teacherAuthStore.state.userID,
+                    teacherEmail: teacherAuthStore.state.email
+                ).publishTeacherInkDrawingSnapshot(snapshot)
+            } catch {
+                print("[LessonDetail] teacher ink snapshot durable save error: \(error)")
+            }
+        }
+    }
+
+    private func persistTeacherObjectSnapshot(_ snapshot: TeacherObjectSnapshot) {
+        guard let selectedTeachingAssignment,
+              ClassroomAssignmentStore.normalizedClassLessonCode(selectedTeachingAssignment.classLessonCode) == snapshot.lessonCode else {
+            return
+        }
+
+        Task { @MainActor in
+            do {
+                try await FirebaseClassroomSyncService(
+                    teacherUserID: teacherAuthStore.state.userID,
+                    teacherEmail: teacherAuthStore.state.email
+                ).publishTeacherObjectSnapshot(snapshot)
+            } catch {
+                print("[LessonDetail] teacher object durable save error: \(error)")
+            }
+        }
+    }
+
+    private func persistTeacherSlideManifestSnapshot(_ snapshot: TeacherSlideManifestSnapshot) async throws {
+        guard let selectedTeachingAssignment,
+              ClassroomAssignmentStore.normalizedClassLessonCode(selectedTeachingAssignment.classLessonCode) == snapshot.lessonCode else {
+            return
+        }
+
+        try await FirebaseClassroomSyncService(
+            teacherUserID: teacherAuthStore.state.userID,
+            teacherEmail: teacherAuthStore.state.email
+        ).publishTeacherSlideManifestSnapshot(snapshot)
+    }
+
     #if canImport(UIKit)
     // Floating back button + lesson title rendered over the whiteboard so the
     // canvas can extend to the very top of the screen. Tapping the title opens
@@ -347,7 +494,7 @@ private enum LiveTeacherInkStatus {
         case .off:
             return "Live ink off"
         case .missingLessonCode:
-            return "Assign lesson first"
+            return "Choose class session"
         case .missingAPIKey:
             return "Missing Ably key"
         case .ready:
@@ -417,11 +564,20 @@ private struct LiveProgressDrawerView: View {
     let selectedWidget: AssignedWidgetSummary?
     let progressRows: [StudentWidgetLiveProgress]
     let isRefreshing: Bool
+    let classroomName: (ClassroomAssignment) -> String
     let onRefresh: () -> Void
 
-    private var filteredProgressRows: [StudentWidgetLiveProgress] {
-        guard let selectedWidget else { return progressRows }
+    private var widgetProgressRows: [StudentWidgetLiveProgress] {
+        guard let selectedWidget else { return [] }
         return progressRows.filter { $0.widgetID == selectedWidget.widgetID }
+    }
+
+    private var lessonPresenceRows: [StudentWidgetLiveProgress] {
+        progressRows.filter { $0.widgetID == StudentWidgetLiveProgress.lessonPresenceWidgetID }
+    }
+
+    private var fallbackProgressRows: [StudentWidgetLiveProgress] {
+        selectedWidget == nil ? progressRows : widgetProgressRows + lessonPresenceRows
     }
 
     var body: some View {
@@ -473,20 +629,26 @@ private struct LiveProgressDrawerView: View {
             if assignments.count > 1 {
                 Picker("Class", selection: $selectedAssignmentID) {
                     ForEach(assignments) { assignment in
-                        Text(assignment.classLessonCode)
+                        Text("\(classroomName(assignment))\n\(assignment.classLessonCode)")
                             .tag(Optional(assignment.id))
                     }
                 }
                 .pickerStyle(.menu)
             }
 
-            Picker("Widget", selection: $selectedWidgetID) {
-                ForEach(assignment.widgetSummaries) { widget in
-                    Text(widget.title)
-                        .tag(Optional(widget.widgetID))
+            if assignment.widgetSummaries.isEmpty {
+                Text("No widgets in this lesson")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Picker("Widget", selection: $selectedWidgetID) {
+                    ForEach(assignment.widgetSummaries) { widget in
+                        Text(widget.title)
+                            .tag(Optional(widget.widgetID))
+                    }
                 }
+                .pickerStyle(.menu)
             }
-            .pickerStyle(.menu)
         }
     }
 
@@ -503,7 +665,7 @@ private struct LiveProgressDrawerView: View {
                         )
                     }
                 } else {
-                    ForEach(filteredProgressRows) { progress in
+                    ForEach(fallbackProgressRows) { progress in
                         LiveProgressStudentRow(
                             studentName: progress.studentName,
                             preferredFirstName: progress.studentPreferredFirstName,
@@ -517,11 +679,21 @@ private struct LiveProgressDrawerView: View {
     }
 
     private func progress(for student: RosterStudent) -> StudentWidgetLiveProgress? {
-        filteredProgressRows.first { progress in
-            progress.studentID == student.id ||
-            normalizedStudentIdentifier(progress.studentIdentifier) == normalizedStudentIdentifier(student.officialStudentID) ||
-            normalizedStudentIdentifier(progress.studentIdentifier) == normalizedStudentIdentifier(student.alternateStudentID)
-        }
+        widgetProgress(for: student) ?? lessonPresence(for: student)
+    }
+
+    private func widgetProgress(for student: RosterStudent) -> StudentWidgetLiveProgress? {
+        widgetProgressRows.first { matches($0, student: student) }
+    }
+
+    private func lessonPresence(for student: RosterStudent) -> StudentWidgetLiveProgress? {
+        lessonPresenceRows.first { matches($0, student: student) }
+    }
+
+    private func matches(_ progress: StudentWidgetLiveProgress, student: RosterStudent) -> Bool {
+        progress.studentID == student.id ||
+        normalizedStudentIdentifier(progress.studentIdentifier) == normalizedStudentIdentifier(student.officialStudentID) ||
+        normalizedStudentIdentifier(progress.studentIdentifier) == normalizedStudentIdentifier(student.alternateStudentID)
     }
 
     private func normalizedStudentIdentifier(_ identifier: String) -> String {
@@ -588,7 +760,8 @@ private struct LiveProgressStudentRow: View {
     }
 
     private var scoreText: String {
-        guard let progress else { return "--" }
+        guard let progress,
+              progress.widgetID != StudentWidgetLiveProgress.lessonPresenceWidgetID else { return "--" }
         return "\(progress.correctCount)/\(progress.attemptedCount)"
     }
 
@@ -610,8 +783,10 @@ private struct LiveProgressStudentRow: View {
 
     private var statusColor: Color {
         switch progress.liveProgressIndicatorState() {
-        case .notStarted, .inactive, .offline:
-            return .secondary
+        case .notStarted, .offline:
+            return .red
+        case .inactive:
+            return .blue
         case .active:
             return .yellow
         case .submitted:

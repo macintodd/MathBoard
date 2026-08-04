@@ -133,6 +133,7 @@ public struct CanvasObjectCommand: Sendable, Equatable, Identifiable {
         case delete(CanvasSelectionState.Object)
         case reorderImage(UUID, ImageLayerAction)
         case setImageLocked(UUID, Bool)
+        case reloadObjectState
         case groupSelection
         case ungroupSelection
     }
@@ -214,17 +215,20 @@ public struct CanvasWidgetUpdate: Sendable, Equatable {
 
 public struct CanvasImageInsertion: Sendable, Equatable {
     public var pngData: Data
+    public var imageFileExtension: String
     public var frame: CGRect
     public var selectAfterInsert: Bool
     public var isLocked: Bool
 
     public init(
         pngData: Data,
+        imageFileExtension: String = "png",
         frame: CGRect,
         selectAfterInsert: Bool = true,
         isLocked: Bool = false
     ) {
         self.pngData = pngData
+        self.imageFileExtension = imageFileExtension
         self.frame = frame
         self.selectAfterInsert = selectAfterInsert
         self.isLocked = isLocked
@@ -233,6 +237,7 @@ public struct CanvasImageInsertion: Sendable, Equatable {
 
 public struct CanvasDroppedImageInsertion: Sendable, Equatable {
     public var pngData: Data
+    public var imageFileExtension: String
     public var displaySize: CGSize
     public var canvasPoint: CGPoint
     public var selectAfterInsert: Bool
@@ -240,12 +245,14 @@ public struct CanvasDroppedImageInsertion: Sendable, Equatable {
 
     public init(
         pngData: Data,
+        imageFileExtension: String = "png",
         displaySize: CGSize,
         canvasPoint: CGPoint,
         selectAfterInsert: Bool = true,
         isLocked: Bool = false
     ) {
         self.pngData = pngData
+        self.imageFileExtension = imageFileExtension
         self.displaySize = displaySize
         self.canvasPoint = canvasPoint
         self.selectAfterInsert = selectAfterInsert
@@ -255,6 +262,7 @@ public struct CanvasDroppedImageInsertion: Sendable, Equatable {
 
 public struct CanvasViewportImageInsertion: Sendable, Equatable {
     public var pngData: Data
+    public var imageFileExtension: String
     public var displaySize: CGSize
     public var referenceRect: CGRect?
     public var containerSize: CGSize?
@@ -264,6 +272,7 @@ public struct CanvasViewportImageInsertion: Sendable, Equatable {
 
     public init(
         pngData: Data,
+        imageFileExtension: String = "png",
         displaySize: CGSize,
         referenceRect: CGRect? = nil,
         containerSize: CGSize? = nil,
@@ -272,6 +281,7 @@ public struct CanvasViewportImageInsertion: Sendable, Equatable {
         isLocked: Bool = false
     ) {
         self.pngData = pngData
+        self.imageFileExtension = imageFileExtension
         self.displaySize = displaySize
         self.referenceRect = referenceRect
         self.containerSize = containerSize
