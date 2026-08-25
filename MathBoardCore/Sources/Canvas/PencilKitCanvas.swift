@@ -163,6 +163,7 @@ private extension PKStroke {
             randomSeed: randomSeed
         )
     }
+
 }
 
 struct PencilKitCanvasContainer: View {
@@ -2837,6 +2838,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private var usableCanvasSize = CanvasBoardMetrics.defaultUsableSize
         private var didSetInitialContentOffset = false
         private var viewportFramePublishTask: Task<Void, Never>?
+        private var objectDragDisplayLink: CADisplayLink?
+        private var hasPendingObjectDragPublish = false
+        private var dragCachedDrawingImage: UIImage?
         private var isUsingPencilKitTool = false
         private var needsCommittedInkFrameRefresh = false
         private var committedFrameBackgroundCache: CommittedFrameBackgroundCache?
@@ -3189,11 +3193,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 clearRegionSelection()
                 updateHostTextObjects(using: canvas)
                 clearLaserOverlay()
-                canvas.tool = PKInkingTool(
-                    .pen,
-                    color: color.uiColor,
-                    width: clampedWidth
-                )
+                canvas.tool = PKInkingTool(.pen, color: color.uiColor, width: clampedWidth)
             case .marker(let color, let width):
                 finishTextEditing()
                 let clampedWidth = clampedWidth(width, for: .marker)
@@ -3499,6 +3499,11 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 Task { @MainActor [weak self, weak canvas] in
                     guard let self, let canvas else { return }
                     self.setImageObjectLocked(id, isLocked: isLocked, using: canvas)
+                }
+            case .setGeometryLocked(let id, let isLocked):
+                Task { @MainActor [weak self, weak canvas] in
+                    guard let self, let canvas else { return }
+                    self.setGeometryObjectLocked(id, isLocked: isLocked, using: canvas)
                 }
             case .reloadObjectState:
                 Task { @MainActor [weak self, weak canvas] in
@@ -4281,7 +4286,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                groupTransformHit(at: canvasPoint, on: canvas) != nil {
                 return
             }
-            guard let object = topObjectHit(at: canvasPoint, on: canvas, includeLockedImages: false) else {
+            guard let object = topObjectHit(at: canvasPoint, on: canvas, includeLockedImages: true) else {
                 clearSingleObjectSelection()
                 clearLastSingleObjectSelection()
                 clearRegionSelection()
@@ -4612,7 +4617,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                         object.height = anchoredSize.height
                     }
                     updateHostTextObjects(using: canvas)
-                    publishImageFromModel()
+                    flagObjectDragPublish()
                     return
                 }
 
@@ -4625,7 +4630,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                         object.rotation = rotatingTextStartRotation + (currentAngle - rotatingTextStartAngle)
                     }
                     updateHostTextObjects(using: canvas)
-                    publishImageFromModel()
+                    flagObjectDragPublish()
                     return
                 }
 
@@ -4641,7 +4646,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                         updateSharedSelectionState()
                     }
                     updateHostImageObjects(using: canvas)
-                    publishImageFromModel()
+                    flagObjectDragPublish()
                     return
                 }
 
@@ -4682,7 +4687,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                         updateSharedSelectionState()
                     }
                     updateHostImageObjects(using: canvas)
-                    publishImageFromModel()
+                    flagObjectDragPublish()
                     return
                 }
 
@@ -4698,7 +4703,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                         updateSharedSelectionState()
                     }
                     updateHostGeometryObjects(using: canvas)
-                    publishImageFromModel()
+                    flagObjectDragPublish()
                     return
                 }
 
@@ -4723,7 +4728,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                         updateSharedSelectionState()
                     }
                     updateHostGeometryObjects(using: canvas)
-                    publishImageFromModel()
+                    flagObjectDragPublish()
                     return
                 }
 
@@ -4742,7 +4747,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                         updateSharedSelectionState()
                     }
                     updateHostGeometryObjects(using: canvas)
-                    publishImageFromModel()
+                    flagObjectDragPublish()
                     return
                 }
 
@@ -4805,7 +4810,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                         updateSharedSelectionState()
                     }
                     updateHostGeometryObjects(using: canvas)
-                    publishImageFromModel()
+                    flagObjectDragPublish()
                     return
                 }
 
@@ -4821,7 +4826,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                         object.y = movingTextObjectStartOrigin.y + delta.y
                     }
                     updateHostTextObjects(using: canvas)
-                    publishImageFromModel()
+                    flagObjectDragPublish()
                 }
                 if let movingImageObjectID,
                    let index = parent.imageObjects.firstIndex(where: { $0.id == movingImageObjectID }) {
@@ -4838,7 +4843,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                         updateSharedSelectionState()
                     }
                     updateHostImageObjects(using: canvas)
-                    publishImageFromModel()
+                    flagObjectDragPublish()
                 }
                 if let movingGeometryObjectID,
                    let index = parent.geometryObjects.firstIndex(where: { $0.id == movingGeometryObjectID }) {
@@ -4859,10 +4864,11 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                         updateSharedSelectionState()
                     }
                     updateHostGeometryObjects(using: canvas)
-                    publishImageFromModel()
+                    flagObjectDragPublish()
                 }
             case .ended, .cancelled, .failed:
                 clearObjectDragState()
+                stopObjectDragPublishLink()
                 // Refresh geometry overlay so the transient resize guide (the
                 // equal-sided diagonal) clears now that no resize is in progress.
                 updateHostGeometryObjects(using: canvas)
@@ -4978,7 +4984,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             updateHostTextObjects(using: canvas)
             updateHostImageObjects(using: canvas)
             updateHostGeometryObjects(using: canvas)
-            publishImageFromModel()
+            flagObjectDragPublish()
         }
 
         private func applyGroupMove(delta: CGPoint) {
@@ -5668,7 +5674,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             let imageID = includeLockedImages
                 ? hitAnyImageObjectID(at: canvasPoint, on: canvas)
                 : hitImageObjectID(at: canvasPoint, on: canvas)
-            let geometryID = hitGeometryObjectID(at: canvasPoint, on: canvas)
+            let geometryID = hitGeometryObjectID(at: canvasPoint, on: canvas, includeLocked: includeLockedImages)
             let textID = hitTextObjectID(at: canvasPoint, on: canvas)
 
             switch parent.objectLayerState.imageLayerPosition {
@@ -5996,11 +6002,15 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             return geometryHitFrame(object).insetBy(dx: -hitMargin, dy: -hitMargin).contains(local) ? object.id : nil
         }
 
-        private func hitGeometryObjectID(at canvasPoint: CGPoint, on canvas: PKCanvasView) -> UUID? {
+        private func hitGeometryObjectID(
+            at canvasPoint: CGPoint,
+            on canvas: PKCanvasView,
+            includeLocked: Bool = false
+        ) -> UUID? {
             let source = sourcePoint(forCanvasPoint: canvasPoint, on: canvas)
             let hitMargin = max(16 / max(canvas.zoomScale, 0.001), 8)
             return parent.geometryObjects.reversed().first { object in
-                guard object.isLocked != true else { return false }
+                guard includeLocked || object.isLocked != true else { return false }
                 let local = geometryLocalPoint(source, object: object)
                 return geometryHitFrame(object).insetBy(dx: -hitMargin, dy: -hitMargin).contains(local)
             }?.id
@@ -6502,6 +6512,19 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             if selectedGeometryObjectID == update.id {
                 updateSharedSelectionState()
             }
+            updateHostGeometryObjects(using: canvas)
+            publishImageFromModel()
+        }
+
+        private func setGeometryObjectLocked(_ id: UUID, isLocked: Bool, using canvas: PKCanvasView) {
+            guard let index = parent.geometryObjects.firstIndex(where: { $0.id == id }) else { return }
+            parent.onInteractionBegan?()
+            var geometryObjects = parent.geometryObjects
+            geometryObjects[index].isLocked = isLocked ? true : nil
+            parent.geometryObjects = geometryObjects
+            setSelectedGeometryObjectID(id)
+            clearObjectDragState()
+            updateSharedSelectionState()
             updateHostGeometryObjects(using: canvas)
             publishImageFromModel()
         }
@@ -8605,6 +8628,56 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             publishImageFromModel()
         }
 
+        // Marks that the external display needs a new frame. A CADisplayLink
+        // fires at most once per display refresh, keeping the gesture recognizer
+        // free to process input between frames instead of blocking on rendering.
+        private func flagObjectDragPublish() {
+            hasPendingObjectDragPublish = true
+            if objectDragDisplayLink == nil {
+                // Rasterize the PencilKit drawing once at drag start.
+                // Ink never changes during a geometry/image/text drag, so every
+                // drag frame can reuse this image instead of calling the expensive
+                // PKDrawing.image(from:scale:) on every display-link tick.
+                preCacheDragDrawingImage()
+                let link = CADisplayLink(target: self, selector: #selector(objectDragDisplayLinkFired))
+                link.add(to: .main, forMode: .common)
+                objectDragDisplayLink = link
+            }
+        }
+
+        private func preCacheDragDrawingImage() {
+            guard let canvas else { return }
+            let viewportSize = canvas.bounds.size
+            guard viewportSize.width > 0, viewportSize.height > 0 else { return }
+            let outRect = outputRect(in: viewportSize)
+            let src = sourceRect(for: outRect, on: canvas)
+            let destRect = CGRect(origin: .zero, size: CGSize(width: outRect.width, height: outRect.height))
+            let scale = min(
+                Self.publishScale,
+                Self.maximumCommittedFramePixelDimension / max(max(destRect.width, destRect.height), 1)
+            )
+            guard scale > 0 else { return }
+            let drawingScale = committedDrawingImageScale(
+                sourceRect: src,
+                destinationRect: destRect,
+                rendererScale: scale
+            )
+            dragCachedDrawingImage = parent.drawing.image(from: src, scale: drawingScale)
+        }
+
+        private func stopObjectDragPublishLink() {
+            objectDragDisplayLink?.invalidate()
+            objectDragDisplayLink = nil
+            hasPendingObjectDragPublish = false
+            dragCachedDrawingImage = nil
+        }
+
+        @objc private func objectDragDisplayLinkFired() {
+            guard hasPendingObjectDragPublish else { return }
+            hasPendingObjectDragPublish = false
+            publishImageFromModel()
+        }
+
         func publishImageFromModel() {
             guard let canvas, let onFrameUpdate = parent.onFrameUpdate else { return }
             // PKCanvasView is a UIScrollView. `bounds.origin` may be
@@ -8619,9 +8692,12 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             let outputRect = outputRect(in: viewportSize)
             let visibleSourceRect = sourceRect(for: outputRect, on: canvas)
             let sourceRect = overscannedSourceRect(around: visibleSourceRect)
+            // Use 1× overscan during a drag so the renderer works on 4× fewer
+            // pixels, keeping each frame well within the 16 ms display budget.
+            let activeOverscan: CGFloat = objectDragDisplayLink != nil ? 1.0 : Self.committedFrameOverscan
             let destinationSize = CGSize(
-                width: outputRect.width * Self.committedFrameOverscan,
-                height: outputRect.height * Self.committedFrameOverscan
+                width: outputRect.width * activeOverscan,
+                height: outputRect.height * activeOverscan
             )
             let destinationRect = CGRect(origin: .zero, size: destinationSize)
 
@@ -8666,7 +8742,12 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     sourceRect: sourceRect,
                     destinationRect: destinationRect
                 )
-                parent.drawing.image(from: sourceRect, scale: drawingImageScale).draw(in: destinationRect)
+                // Reuse the pre-cached drawing image during drag (ink is static
+                // while an object is being moved/resized/rotated). Fall back to
+                // a live rasterize for non-drag publishes (pan/zoom, commit).
+                let drawingImage = dragCachedDrawingImage
+                    ?? parent.drawing.image(from: sourceRect, scale: drawingImageScale)
+                drawingImage.draw(in: destinationRect)
                 // Tape covers paint last (above everything) so they hide content
                 // on the mirrored display too.
                 drawCoverObjects(
@@ -9060,8 +9141,11 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
 
         private func overscannedSourceRect(around sourceRect: CGRect) -> CGRect {
             guard sourceRect.width > 0, sourceRect.height > 0 else { return sourceRect }
-            let width = sourceRect.width * Self.committedFrameOverscan
-            let height = sourceRect.height * Self.committedFrameOverscan
+            // Use 1× during a drag — the 2× overscan is for pan/zoom slack
+            // on the external display, which doesn't apply while dragging.
+            let overscan = objectDragDisplayLink != nil ? 1.0 : Self.committedFrameOverscan
+            let width = sourceRect.width * overscan
+            let height = sourceRect.height * overscan
             return CGRect(
                 x: sourceRect.midX - width / 2,
                 y: sourceRect.midY - height / 2,

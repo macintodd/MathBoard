@@ -26,6 +26,7 @@ struct ClassroomRosterView: View {
     @State private var alternateIDPrefixDraft = ""
     @FocusState private var isClassNameFocused: Bool
     @FocusState private var isAlternateIDPrefixFocused: Bool
+    @State private var keyboardHeight: CGFloat = 0
 
     var body: some View {
         NavigationStack {
@@ -44,7 +45,16 @@ struct ClassroomRosterView: View {
                 }
             }
             .background(AppColors.canvasBackground.ignoresSafeArea())
+            .ignoresSafeArea(.keyboard)
+            // minHeight on iOS causes content to overflow when the keyboard reduces
+            // available height, which creates an implicit UIScrollView that
+            // scroll-to-first-responder then scrolls — flying the toolbar off screen.
+            // On iOS the fullScreenCover fills the screen naturally; no minHeight needed.
+            #if os(macOS)
             .frame(minWidth: 1100, minHeight: 760)
+            #else
+            .frame(minWidth: 1100)
+            #endif
             .navigationTitle("Classroom Rosters")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -92,6 +102,16 @@ struct ClassroomRosterView: View {
                 commitAlternateIDPrefix()
             }
         }
+        #if os(iOS)
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
+            if let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+                withAnimation(.easeOut(duration: 0.25)) { keyboardHeight = frame.height }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            withAnimation(.easeOut(duration: 0.25)) { keyboardHeight = 0 }
+        }
+        #endif
         .sheet(isPresented: $showNewClassSheet) {
             NameEntrySheet(
                 title: "New Class",
@@ -181,13 +201,21 @@ struct ClassroomRosterView: View {
         } message: {
             Text(actionErrorMessage ?? "Something went wrong.")
         }
+        // Must be the outermost modifier so the UIHostingController sees it and
+        // does not apply keyboard safe-area insets to the view at all.
+        .ignoresSafeArea(.keyboard)
+        #if os(iOS)
+        // Probe view sits at UIHostingController's root UIView level. Its keyboard
+        // observer fires last (registered after UIHostingController's own observer)
+        // and resets additionalSafeAreaInsets.bottom = 0 before any layout pass.
+        .background(KeyboardInsetNullifier())
+        #endif
     }
 
     private static let csvTypes: [UTType] = {
         var types: [UTType] = [.plainText]
-        if let csv = UTType(filenameExtension: "csv") {
-            types.insert(csv, at: 0)
-        }
+        if let xlsx = UTType(filenameExtension: "xlsx") { types.insert(xlsx, at: 0) }
+        if let csv  = UTType(filenameExtension: "csv")  { types.insert(csv,  at: 0) }
         return types
     }()
 
@@ -306,6 +334,9 @@ struct ClassroomRosterView: View {
         let duplicateReport = (try? rosterStore.duplicateIDReport(for: classroom.id))
             ?? DuplicateRosterIDReport(officialStudentIDs: [], alternateStudentIDs: [])
 
+        // The toolbar and scroll view are true VStack siblings so the PREFIX
+        // TextField is never inside a UIScrollView subview hierarchy. UIKit's
+        // scroll-to-first-responder can't move the toolbar when PREFIX is focused.
         VStack(spacing: 0) {
             rosterToolbar(for: classroom)
                 .padding(.horizontal, 20)
@@ -353,7 +384,13 @@ struct ClassroomRosterView: View {
                 .padding(.horizontal, 20)
                 .padding(.vertical, 14)
             }
+            // contentMargins adds bottom scroll-content space equal to the keyboard
+            // height so the last student row can scroll fully into view. Unlike
+            // safeAreaInset, this modifier does not insert a view inside the
+            // UIScrollView subview tree.
+            .contentMargins(.bottom, keyboardHeight, for: .scrollContent)
         }
+        .ignoresSafeArea(.keyboard)
     }
 
     private func duplicateIDWarning(report: DuplicateRosterIDReport) -> some View {
@@ -402,30 +439,23 @@ struct ClassroomRosterView: View {
             Button {
                 importCSV(into: classroom.id)
             } label: {
-                Label("Import CSV", systemImage: "square.and.arrow.down")
+                Label("Import CSV/XLSX", systemImage: "square.and.arrow.down")
             }
             .buttonStyle(.bordered)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Button {
-                    prepareToGenerateAlternateIDs(for: classroom.id)
-                } label: {
-                    Label("Generate IDs", systemImage: "number")
-                }
-                .buttonStyle(.bordered)
-                .disabled(classroom.students.isEmpty)
-
-                HStack(spacing: 6) {
-                    Text("Number prefix")
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.secondary)
-                    TextField("Prefix", text: $alternateIDPrefixDraft)
-                        .textFieldStyle(.roundedBorder)
-                        .focused($isAlternateIDPrefixFocused)
-                        .onSubmit(commitAlternateIDPrefix)
-                        .frame(width: 120)
-                }
+            Button {
+                prepareToGenerateAlternateIDs(for: classroom.id)
+            } label: {
+                Label("Generate IDs", systemImage: "number")
             }
+            .buttonStyle(.bordered)
+            .disabled(classroom.students.isEmpty)
+
+            TextField("PREFIX", text: $alternateIDPrefixDraft)
+                .textFieldStyle(.roundedBorder)
+                .focused($isAlternateIDPrefixFocused)
+                .onSubmit(commitAlternateIDPrefix)
+                .frame(width: 110)
         }
     }
 
@@ -494,7 +524,7 @@ struct ClassroomRosterView: View {
                 }
             }
 
-            let preview = try rosterStore.previewCSV(at: sourceURL)
+            let preview = try rosterStore.previewFile(at: sourceURL)
             let fileName = csvImportTargetClassroomID.flatMap { targetID in
                 rosterStore.classrooms.first { $0.id == targetID }?.name
             } ?? sourceURL.deletingPathExtension().lastPathComponent
@@ -980,6 +1010,58 @@ private struct CSVImportMappingView: View {
         }
     }
 }
+
+// MARK: - UIKit keyboard-inset nullifier
+
+// SwiftUI's UIHostingController adds `additionalSafeAreaInsets.bottom = keyboardHeight`
+// when the keyboard appears, which pushes the entire view up even when the SwiftUI tree
+// has `.ignoresSafeArea(.keyboard)` applied throughout. This probe view sits as a direct
+// sibling of the NavigationStack in the UIHostingController's root UIView, so its
+// responder-chain next-hop is UIHostingController itself. Its keyboard notification observer
+// is registered *after* UIHostingController registers its own (UIHostingController registers
+// during viewDidLoad; our observer registers in didMoveToWindow, which fires later). Because
+// NotificationCenter delivers observers in registration order, our handler runs last — it
+// resets `additionalSafeAreaInsets.bottom = 0` synchronously, winning the race before any
+// layout pass executes.
+#if os(iOS)
+private struct KeyboardInsetNullifier: UIViewRepresentable {
+    func makeUIView(context: Context) -> _KINProbeView { _KINProbeView() }
+    func updateUIView(_ uiView: _KINProbeView, context: Context) {}
+}
+
+final class _KINProbeView: UIView {
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        NotificationCenter.default.removeObserver(self)
+        guard window != nil else { return }
+        for name in [UIResponder.keyboardWillShowNotification,
+                     UIResponder.keyboardWillHideNotification] {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(nullifyKeyboardInset),
+                name: name,
+                object: nil
+            )
+        }
+    }
+
+    @objc private func nullifyKeyboardInset() {
+        // Reset additionalSafeAreaInsets.bottom on EVERY UIViewController in the chain.
+        // This covers both the outermost UIHostingController (from fullScreenCover) and
+        // any nested controllers SwiftUI creates for NavigationStack internally.
+        var responder: UIResponder? = next
+        while let r = responder {
+            if let vc = r as? UIViewController,
+               vc.additionalSafeAreaInsets.bottom != 0 {
+                vc.additionalSafeAreaInsets.bottom = 0
+            }
+            responder = r.next
+        }
+    }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
+}
+#endif
 
 #Preview {
     ClassroomRosterView()

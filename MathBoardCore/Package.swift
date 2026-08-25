@@ -85,6 +85,7 @@ let package = Package(
         .target(
             name: "Documents",
             dependencies: [
+                "GraphCalculator",
                 "LiveClassroom",
                 "Slides",
                 "WidgetEngine",
