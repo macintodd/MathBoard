@@ -1175,9 +1175,7 @@ public struct LibraryDrawerPrototypeView: View {
             return LibraryCanvasDragPayload(
                 title: item.title,
                 kind: recentKind,
-                displaySize: widgetCodeString == "__mathboard_builtin_interactive__:inequalitiesExplorer"
-                    ? CGSize(width: 900, height: 640)
-                    : CGSize(width: 820, height: 420),
+                displaySize: CGSize(width: 820, height: 420),
                 widgetCodeString: widgetCodeString
             )
         }

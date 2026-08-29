@@ -156,7 +156,11 @@ struct SlideNavigatorView: View {
         HStack(spacing: 8) {
             navArrowButton(systemName: "chevron.left", enabled: canGoPrevious, label: "Previous slide", action: onPrevious)
             counterButton
-            navArrowButton(systemName: "chevron.right", enabled: canGoNext, label: "Next slide", action: onNext)
+            if canGoNext {
+                navArrowButton(systemName: "chevron.right", enabled: true, label: "Next slide", action: onNext)
+            } else {
+                navArrowButton(systemName: "plus", enabled: true, label: "Add slide", action: onAdd)
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)

@@ -9,6 +9,9 @@
 //
 
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 public struct TextEditorModalView: View {
 
@@ -24,6 +27,7 @@ public struct TextEditorModalView: View {
     /// Live selection from the `TextEditor`, translated into a `String.Index`
     /// range for the view model's editing helpers.
     @State private var selection: TextSelection?
+    @State private var keyboardHeight: CGFloat = 0
 
     @FocusState private var editorFocused: Bool
 
@@ -42,38 +46,85 @@ public struct TextEditorModalView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
-            topBar
-            Divider()
-            formattingToolbar
-            Divider()
-            editorPane
+        ZStack(alignment: .bottom) {
+            VStack(spacing: 0) {
+                topBar
+                Divider()
+                formattingToolbar
+                Divider()
+                editorPane
+                    .padding(.bottom, bottomActionBarReservedHeight)
+            }
+
+            bottomActionBar
+                .padding(.bottom, keyboardHeight)
         }
         .frame(minWidth: 560, minHeight: 640)
         .background(.background)
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        #if os(iOS)
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
+            updateKeyboardHeight(from: notification)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            withAnimation(.easeOut(duration: 0.22)) {
+                keyboardHeight = 0
+            }
+        }
+        #endif
     }
 
-    // MARK: Top bar (Cancel / title / Save)
+    // MARK: Top bar
 
     private var topBar: some View {
         HStack {
-            Button("Cancel", role: .cancel) { onCancel() }
-                .keyboardShortcut(.cancelAction)
-
             Spacer()
 
             Text("Text Editor")
                 .font(.headline)
 
             Spacer()
-
-            Button("Save") { onSave(viewModel.result) }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
     }
+
+    private var bottomActionBar: some View {
+        HStack(spacing: 10) {
+            Spacer()
+
+            Button("Save") { onSave(viewModel.result) }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+
+            Button("Cancel", role: .cancel) { onCancel() }
+                .buttonStyle(.bordered)
+                .keyboardShortcut(.cancelAction)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.bar)
+        .overlay(alignment: .top) {
+            Divider()
+        }
+    }
+
+    private var bottomActionBarReservedHeight: CGFloat {
+        58
+    }
+
+    #if os(iOS)
+    private func updateKeyboardHeight(from notification: Notification) {
+        guard let endFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
+            return
+        }
+        let height = max(0, endFrame.height)
+        let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.22
+        withAnimation(.easeOut(duration: duration)) {
+            keyboardHeight = height
+        }
+    }
+    #endif
 
     // MARK: Editor
 

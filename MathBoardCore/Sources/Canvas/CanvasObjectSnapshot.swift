@@ -93,11 +93,15 @@ public struct CanvasObjectSnapshot: Codable, Hashable, Sendable {
         sidecarFiles.isEmpty && imageAssetFiles.isEmpty
     }
 
-    public func write(to drawingURL: URL, fileManager: FileManager = .default) throws {
+    /// Writes the snapshot to disk.
+    /// - Parameter preserving: Sidecar file names to leave untouched — they
+    ///   will neither be deleted nor overwritten even if present in the snapshot.
+    public func write(to drawingURL: URL, preserving: Set<String> = [], fileManager: FileManager = .default) throws {
         let baseURL = drawingURL.deletingPathExtension()
         try fileManager.createDirectory(at: baseURL.deletingLastPathComponent(), withIntermediateDirectories: true)
 
         for fileName in Self.sidecarFileNames {
+            guard !preserving.contains(fileName) else { continue }
             let url = Self.sidecarURL(named: fileName, baseURL: baseURL)
             if fileManager.fileExists(atPath: url.path), !sidecarFiles.contains(where: { $0.name == fileName }) {
                 try fileManager.removeItem(at: url)
@@ -105,7 +109,7 @@ public struct CanvasObjectSnapshot: Codable, Hashable, Sendable {
         }
 
         for file in sidecarFiles {
-            guard let data = file.data else { continue }
+            guard !preserving.contains(file.name), let data = file.data else { continue }
             let url = Self.sidecarURL(named: file.name, baseURL: baseURL)
             try data.write(to: url, options: .atomic)
         }

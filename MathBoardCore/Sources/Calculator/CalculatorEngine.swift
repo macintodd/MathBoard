@@ -29,9 +29,10 @@ public struct CalculatorEngine: Sendable {
     public func evaluate(
         compiled expression: CalculatorExpression,
         angleMode: CalculatorAngleMode = .degrees,
-        variables: [String: Double] = [:]
+        variables: [String: Double] = [:],
+        yFunctions: [String: @Sendable (Double) throws -> Double] = [:]
     ) throws -> Double {
-        try evaluator.evaluate(expression, angleMode: angleMode, variables: variables)
+        try evaluator.evaluate(expression, angleMode: angleMode, variables: variables, yFunctions: yFunctions)
     }
 
     /// Compile + evaluate in one call. Convenient for the compute-mode
@@ -39,9 +40,10 @@ public struct CalculatorEngine: Sendable {
     public func evaluate(
         _ source: String,
         angleMode: CalculatorAngleMode = .degrees,
-        variables: [String: Double] = [:]
+        variables: [String: Double] = [:],
+        yFunctions: [String: @Sendable (Double) throws -> Double] = [:]
     ) throws -> Double {
         let expression = try compile(source)
-        return try evaluator.evaluate(expression, angleMode: angleMode, variables: variables)
+        return try evaluator.evaluate(expression, angleMode: angleMode, variables: variables, yFunctions: yFunctions)
     }
 }

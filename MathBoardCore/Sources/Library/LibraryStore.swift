@@ -41,7 +41,7 @@ public struct LibraryStoredFolder: Codable, Identifiable, Sendable, Equatable {
     }
 }
 
-public struct LibraryStoredItem: Codable, Identifiable, Sendable, Equatable {
+public struct LibraryStoredItem: Identifiable, Sendable, Equatable {
     public var id: UUID
     public var recentID: String
     public var title: String
@@ -51,6 +51,8 @@ public struct LibraryStoredItem: Codable, Identifiable, Sendable, Equatable {
     public var widgetCodeString: String?
     public var textPayload: LibraryTextPayload?
     public var latexPayload: LibraryLaTeXPayload?
+    public var tags: [String]
+    public var requiresStudentWork: Bool
 
     public init(
         id: UUID = UUID(),
@@ -61,7 +63,9 @@ public struct LibraryStoredItem: Codable, Identifiable, Sendable, Equatable {
         thumbnailPNGFileName: String? = nil,
         widgetCodeString: String? = nil,
         textPayload: LibraryTextPayload? = nil,
-        latexPayload: LibraryLaTeXPayload? = nil
+        latexPayload: LibraryLaTeXPayload? = nil,
+        tags: [String] = [],
+        requiresStudentWork: Bool = false
     ) {
         self.id = id
         self.recentID = recentID
@@ -72,6 +76,30 @@ public struct LibraryStoredItem: Codable, Identifiable, Sendable, Equatable {
         self.widgetCodeString = widgetCodeString
         self.textPayload = textPayload
         self.latexPayload = latexPayload
+        self.tags = tags
+        self.requiresStudentWork = requiresStudentWork
+    }
+}
+
+extension LibraryStoredItem: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case id, recentID, title, kind, createdAt, thumbnailPNGFileName
+        case widgetCodeString, textPayload, latexPayload, tags, requiresStudentWork
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        recentID = try container.decode(String.self, forKey: .recentID)
+        title = try container.decode(String.self, forKey: .title)
+        kind = try container.decode(LibraryRecentKind.self, forKey: .kind)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        thumbnailPNGFileName = try container.decodeIfPresent(String.self, forKey: .thumbnailPNGFileName)
+        widgetCodeString = try container.decodeIfPresent(String.self, forKey: .widgetCodeString)
+        textPayload = try container.decodeIfPresent(LibraryTextPayload.self, forKey: .textPayload)
+        latexPayload = try container.decodeIfPresent(LibraryLaTeXPayload.self, forKey: .latexPayload)
+        tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
+        requiresStudentWork = try container.decodeIfPresent(Bool.self, forKey: .requiresStudentWork) ?? false
     }
 }
 
@@ -85,9 +113,6 @@ public enum LibraryStore {
     private static let itemsFileName = "items.json"
     private static let assetsDirectoryName = "assets"
     private static let maximumItemsPerLibrary = 240
-    private static let builtInInteractivesFolderName = "Built-In Interactives"
-    private static let inequalitiesExplorerRecentID = "builtin.inequalities.explorer"
-    private static let inequalitiesExplorerWidgetCodeString = "__mathboard_builtin_interactive__:inequalitiesExplorer"
 
     public static func loadFolders() -> [LibraryStoredFolder] {
         ensureBootstrapIfNeeded()
@@ -173,6 +198,8 @@ public enum LibraryStore {
         widgetCodeString: String? = nil,
         textPayload: LibraryTextPayload? = nil,
         latexPayload: LibraryLaTeXPayload? = nil,
+        tags: [String] = [],
+        requiresStudentWork: Bool = false,
         to folderID: UUID
     ) throws {
         try FileManager.default.createDirectory(
@@ -206,7 +233,9 @@ public enum LibraryStore {
             thumbnailPNGFileName: thumbnailFileName,
             widgetCodeString: kind == .widget ? widgetCodeString : nil,
             textPayload: kind == .text ? textPayload : nil,
-            latexPayload: kind == .latex ? latexPayload : nil
+            latexPayload: kind == .latex ? latexPayload : nil,
+            tags: tags,
+            requiresStudentWork: requiresStudentWork
         )
         var items = loadItems(in: folderID)
         items.removeAll { $0.recentID == recentID }
@@ -319,42 +348,6 @@ public enum LibraryStore {
             try? FileManager.default.createDirectory(at: rootDirectoryURL(), withIntermediateDirectories: true)
             try? saveFolders(Array(folders))
         }
-
-        ensureBuiltInInteractivesLibraryIfNeeded()
-    }
-
-    private static func ensureBuiltInInteractivesLibraryIfNeeded() {
-        let data = try? Data(contentsOf: manifestURL())
-        var manifest = data.flatMap { try? JSONDecoder.libraryStore.decode(Manifest.self, from: $0) }
-            ?? Manifest(folders: [])
-
-        let folder: LibraryStoredFolder
-        if let existing = manifest.folders.first(where: { $0.name == builtInInteractivesFolderName }) {
-            folder = existing
-        } else {
-            folder = LibraryStoredFolder(
-                name: builtInInteractivesFolderName,
-                symbol: "rectangle.stack.badge.play",
-                tintIndex: manifest.folders.count,
-                keywords: ["interactive", "inequality", "number line", "practice", "widget", "mathtivity"],
-                isPinned: true
-            )
-            manifest.folders.append(folder)
-            try? saveFolders(manifest.folders)
-        }
-
-        var items = loadItems(in: folder.id)
-        guard !items.contains(where: { $0.recentID == inequalitiesExplorerRecentID }) else { return }
-        items.insert(
-            LibraryStoredItem(
-                recentID: inequalitiesExplorerRecentID,
-                title: "Inequality Explorer",
-                kind: .widget,
-                widgetCodeString: inequalitiesExplorerWidgetCodeString
-            ),
-            at: 0
-        )
-        try? saveItems(items, in: folder.id)
     }
 
     private static func uniqueFolderName(for requestedName: String, excluding excludedID: UUID? = nil) -> String {

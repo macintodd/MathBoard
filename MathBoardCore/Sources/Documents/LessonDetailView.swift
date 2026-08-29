@@ -8,6 +8,7 @@
 //
 
 import SwiftUI
+import GraphCalculator
 import LiveClassroom
 import Presentation
 import Slides
@@ -52,6 +53,16 @@ struct LessonDetailView: View {
             }
             .overlay(alignment: .topTrailing) {
                 teachingSessionMenu
+            }
+            .overlay {
+                let broker = DisplayBroker.shared
+                if broker.isGraphCalculatorVisible && broker.graphCalculator.hasVisibleSection {
+                    GraphCalculatorView(
+                        state: broker.graphCalculator,
+                        onGraphSnapshot: broker.graphSnapshotHandler
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
             .task(id: liveProgressTaskKey) {
                 await pollLiveProgressIfNeeded()
@@ -567,6 +578,11 @@ private struct LiveProgressDrawerView: View {
     let classroomName: (ClassroomAssignment) -> String
     let onRefresh: () -> Void
 
+    // Ticked every 2 seconds so indicatorState(now:) re-evaluates without waiting for
+    // a data change. This makes stale records (student left the lesson) turn red/gray
+    // automatically rather than only when the teacher interacts with the widget picker.
+    @State private var now = Date()
+
     private var widgetProgressRows: [StudentWidgetLiveProgress] {
         guard let selectedWidget else { return [] }
         return progressRows.filter { $0.widgetID == selectedWidget.widgetID }
@@ -589,6 +605,12 @@ private struct LiveProgressDrawerView: View {
         .padding(16)
         .frame(width: LiveProgressDrawerTheme.openWidth)
         .frame(maxHeight: .infinity)
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2))
+                now = Date()
+            }
+        }
         .background(
             UnevenRoundedRectangle(
                 topLeadingRadius: LiveProgressDrawerTheme.panelCornerRadius,
@@ -661,15 +683,23 @@ private struct LiveProgressDrawerView: View {
                         LiveProgressStudentRow(
                             studentName: student.displayName,
                             preferredFirstName: studentProgress?.studentPreferredFirstName,
-                            progress: studentProgress
+                            progress: studentProgress,
+                            lessonPresence: lessonPresence(for: student),
+                            now: now
                         )
                     }
                 } else {
                     ForEach(fallbackProgressRows) { progress in
+                        let presence = lessonPresenceRows.first {
+                            $0.studentID == progress.studentID ||
+                            $0.studentIdentifier == progress.studentIdentifier
+                        }
                         LiveProgressStudentRow(
                             studentName: progress.studentName,
                             preferredFirstName: progress.studentPreferredFirstName,
-                            progress: progress
+                            progress: progress,
+                            lessonPresence: presence,
+                            now: now
                         )
                     }
                 }
@@ -719,11 +749,13 @@ private struct LiveProgressStudentRow: View {
     let studentName: String
     let preferredFirstName: String?
     let progress: StudentWidgetLiveProgress?
+    var lessonPresence: StudentWidgetLiveProgress? = nil
+    var now: Date = Date()
 
     var body: some View {
         HStack(spacing: 10) {
             Circle()
-                .fill(statusColor)
+                .fill(dotColor)
                 .frame(width: 10, height: 10)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -732,16 +764,17 @@ private struct LiveProgressStudentRow: View {
                     .lineLimit(1)
                 HStack(spacing: 6) {
                     Text(statusText)
+                        .foregroundStyle(statusTextColor)
                     if let displayedPreferredFirstName {
                         Text(displayedPreferredFirstName)
                             .font(.caption2.weight(.semibold))
                             .padding(.horizontal, 5)
                             .padding(.vertical, 2)
                             .background(.yellow.opacity(0.18), in: Capsule())
+                            .foregroundStyle(.secondary)
                     }
                 }
                 .font(.caption)
-                .foregroundStyle(.secondary)
             }
 
             Spacer(minLength: 8)
@@ -759,6 +792,10 @@ private struct LiveProgressStudentRow: View {
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
     }
 
+    private var currentIndicatorState: LiveProgressIndicatorState {
+        progress.indicatorState(now: now, lessonPresence: lessonPresence)
+    }
+
     private var scoreText: String {
         guard let progress,
               progress.widgetID != StudentWidgetLiveProgress.lessonPresenceWidgetID else { return "--" }
@@ -773,7 +810,18 @@ private struct LiveProgressStudentRow: View {
     }
 
     private var statusText: String {
-        progress.liveProgressIndicatorState().displayName
+        // Show "Submitted" even after reset so the teacher can see the student's prior submission.
+        if progress?.hasEverBeenSubmitted == true { return "Submitted" }
+        return currentIndicatorState.displayName
+    }
+
+    // "Submitted" is green whether the student is in-lesson (green dot) or gone (gray dot).
+    private var statusTextColor: Color {
+        if progress?.hasEverBeenSubmitted == true { return .green }
+        switch currentIndicatorState {
+        case .submitted, .submittedOffline: return .green
+        default: return .secondary
+        }
     }
 
     private var updatedText: String {
@@ -781,8 +829,8 @@ private struct LiveProgressStudentRow: View {
         return progress.updatedAt.formatted(date: .omitted, time: .shortened)
     }
 
-    private var statusColor: Color {
-        switch progress.liveProgressIndicatorState() {
+    private var dotColor: Color {
+        switch currentIndicatorState {
         case .notStarted, .offline:
             return .red
         case .inactive:
@@ -791,6 +839,8 @@ private struct LiveProgressStudentRow: View {
             return .yellow
         case .submitted:
             return .green
+        case .submittedOffline:
+            return .gray
         }
     }
 }

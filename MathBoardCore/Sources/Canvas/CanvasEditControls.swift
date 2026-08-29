@@ -133,6 +133,7 @@ public struct CanvasObjectCommand: Sendable, Equatable, Identifiable {
         case delete(CanvasSelectionState.Object)
         case reorderImage(UUID, ImageLayerAction)
         case setImageLocked(UUID, Bool)
+        case setGeometryLocked(UUID, Bool)
         case reloadObjectState
         case groupSelection
         case ungroupSelection

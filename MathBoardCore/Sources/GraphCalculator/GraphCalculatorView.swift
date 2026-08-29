@@ -50,6 +50,7 @@ public struct GraphCalculatorView: View {
     @State private var detachedKeyboardDragStartCenter: CGPoint?
     @State private var detachedKeyboardLiveOffset: CGSize = .zero
     @State private var dockedLiveOffset: CGSize = .zero
+    @State private var safeAreaTop: CGFloat = 0
     @State private var detachedGraphLiveOffset: CGSize = .zero
     @State private var detachedControlLiveOffset: CGSize = .zero
     @State private var detachedResizeLive: (size: CGSize, center: CGPoint)?
@@ -177,7 +178,9 @@ public struct GraphCalculatorView: View {
             }
             .onAppear {
                 applyInitialGraphWindowIfNeeded()
+                safeAreaTop = proxy.safeAreaInsets.top
             }
+            .onChange(of: proxy.safeAreaInsets.top) { _, v in safeAreaTop = v }
         }
     }
 
@@ -238,6 +241,13 @@ public struct GraphCalculatorView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
 
+                    Button {
+                        dismissCalculator()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.red)
+                    }
+
                     Spacer()
 
                     if let containerSize {
@@ -279,7 +289,7 @@ public struct GraphCalculatorView: View {
             graphSettingSlider(
                 title: "Grid darkness",
                 value: $state.gridlineOpacity,
-                range: 0.08...0.75,
+                range: 0.08...0.8,
                 display: String(format: "%.2f", state.gridlineOpacity)
             )
 
@@ -498,6 +508,12 @@ public struct GraphCalculatorView: View {
                         value: $state.gridlineThickness,
                         range: 0.25...3,
                         display: String(format: "%.2f", state.gridlineThickness)
+                    )
+                    graphSettingSlider(
+                        title: "Gridline contrast",
+                        value: $state.gridlineOpacity,
+                        range: 0.08...0.8,
+                        display: String(format: "%.0f%%", state.gridlineOpacity * 100)
                     )
 
                     Toggle(isOn: $state.isGridVisible) {
@@ -3060,7 +3076,7 @@ public struct GraphCalculatorView: View {
         containerSize: CGSize
     ) -> some View {
         VStack(spacing: 0) {
-            calculatorTopBar(.detachedControl)
+            calculatorTopBar(.detachedControl, containerSize: containerSize)
                 .gesture(detachedControlDragGesture(currentCenter: center, size: size, expandedHeight: detachedControlHeight, in: containerSize))
             if !state.isDetachedControlHeaderCollapsed {
                 graphToolbar(placementRect: placementRect, containerSize: containerSize)
@@ -4626,8 +4642,49 @@ public struct GraphCalculatorView: View {
             fractionCursorExitedAt = nil
             insertDivision()
         } else {
-            fractionCursorExitedAt = nil
-            state.insert(text)
+            let expression = state.selectedExpression
+            let currentOffset = min(max(state.cursorOffset, 0), expression.count)
+            let characters = Array(expression)
+
+            if let exitedAt = fractionCursorExitedAt, exitedAt == currentOffset {
+                // Cursor explicitly exited denominator via arrow-right.
+                // Boundary operators (+ - * = etc.) terminate the denominator naturally;
+                // non-boundary characters need an implicit * to seal the denominator first.
+                fractionCursorExitedAt = nil
+                if let firstChar = text.first, isFractionBoundaryOperator(firstChar) {
+                    state.insert(text)
+                } else {
+                    state.insert("*\(text)")
+                }
+            } else if let firstChar = text.first, firstChar == "+" || firstChar == "-" {
+                // When + or - is typed while the cursor is inside an un-parenthesized
+                // denominator, auto-wrap the denominator in () so the operator stays inside
+                // and the expression evaluates correctly (e.g. 1/(x+3) not 1/x + 3).
+                let fractions = editableExpressionTokens(for: expression)?.compactMap { token -> EditableFractionToken? in
+                    if case .fraction(let f) = token { return f }
+                    return nil
+                } ?? []
+                if let fraction = fractions.first(where: { f in
+                    !f.denominatorRange.isEmpty
+                        && currentOffset >= f.denominatorRange.lowerBound
+                        && currentOffset <= f.denominatorRange.upperBound
+                        && f.denominatorRange.lowerBound < characters.count
+                        && characters[f.denominatorRange.lowerBound] != "("
+                }) {
+                    fractionCursorExitedAt = nil
+                    let denomStart = fraction.denominatorRange.lowerBound
+                    let newExpr = String(expression.prefix(denomStart)) + "(" + String(expression.dropFirst(denomStart))
+                    state.selectedExpression = newExpr
+                    state.cursorOffset = currentOffset + 1
+                    state.insert(text)
+                } else {
+                    fractionCursorExitedAt = nil
+                    state.insert(text)
+                }
+            } else {
+                fractionCursorExitedAt = nil
+                state.insert(text)
+            }
         }
     }
 
@@ -4651,7 +4708,25 @@ public struct GraphCalculatorView: View {
         if let fraction = fractions.first(where: { fraction in
             !fraction.denominatorRange.isEmpty && currentOffset == fraction.denominatorRange.upperBound
         }) {
-            fractionCursorExitedAt = fraction.denominatorRange.upperBound
+            if fractionCursorExitedAt == currentOffset {
+                // Second arrow-right while already in exited state: advance cursor normally.
+                fractionCursorExitedAt = nil
+                state.moveCursorRight()
+            } else {
+                let characters = Array(expression)
+                let denomStart = fraction.denominatorRange.lowerBound
+                let denomEnd = fraction.denominatorRange.upperBound
+                let startsWithParen = denomStart < characters.count && characters[denomStart] == "("
+                let alreadyClosed = denomEnd > denomStart && denomEnd <= characters.count && characters[denomEnd - 1] == ")"
+                if startsWithParen && !alreadyClosed {
+                    // Open-ended paren-wrapped denominator (from auto-wrap): insert ) to close it.
+                    state.insert(")")
+                    fractionCursorExitedAt = state.cursorOffset
+                } else {
+                    // Simple denominator or already-closed: mark as exited without moving cursor.
+                    fractionCursorExitedAt = fraction.denominatorRange.upperBound
+                }
+            }
             return
         }
         if let fraction = editableExpressionTokens(for: expression)?.compactMap({ token -> EditableFractionToken? in
@@ -4791,6 +4866,12 @@ public struct GraphCalculatorView: View {
         state.isKeypadCollapsed = true
         state.detachedKeyboardPosition = nil
         state.sectionHasLeftHomeBase[.keyboard] = false
+    }
+
+    private func dismissCalculator() {
+        closeSection(.graph)
+        closeSection(.equations)
+        closeSection(.keyboard)
     }
 
     private func closeSection(_ section: GraphCalculatorSection) {
@@ -5845,7 +5926,9 @@ public struct GraphCalculatorView: View {
             .onChanged { value in
                 let base = dragStartCenter ?? currentCenter
                 if dragStartCenter == nil { dragStartCenter = base }
-                let proposed = CGPoint(x: base.x + value.translation.width, y: base.y + value.translation.height)
+                // Keep x locked to the home edge; only slide vertically.
+                let homeX = homeBaseCenter(size: size, in: containerSize).x
+                let proposed = CGPoint(x: homeX, y: base.y + value.translation.height)
                 let clamped = clamp(center: proposed, size: size, in: containerSize)
                 let snapshotImage = dragProxy?.snapshotImage ?? dockedCalculatorDragSnapshot(size: size, in: containerSize)
                 let presentation = GraphCalculatorDragPresentation(
@@ -5865,12 +5948,14 @@ public struct GraphCalculatorView: View {
                     )
                 }
             }
-            .onEnded { _ in
-                let offset = detachedGraphLiveOffset
-                let finalCenter = CGPoint(x: currentCenter.x + offset.width, y: currentCenter.y + offset.height)
+            .onEnded { value in
+                let base = dragStartCenter ?? currentCenter
+                let homeX = homeBaseCenter(size: size, in: containerSize).x
+                let proposed = CGPoint(x: homeX, y: base.y + value.translation.height)
+                let clamped = clamp(center: proposed, size: size, in: containerSize)
                 state.calculatorPosition = state.isDockedHeaderCollapsed
-                    ? expandedCenterPreservingTop(collapsedCenter: finalCenter, expandedSize: expandedSize, collapsedSize: size, in: containerSize)
-                    : finalCenter
+                    ? expandedCenterPreservingTop(collapsedCenter: clamped, expandedSize: expandedSize, collapsedSize: size, in: containerSize)
+                    : clamped
                 dockedLiveOffset = .zero
                 dragProxy = nil
                 state.activeDragPresentation = nil
@@ -6354,7 +6439,7 @@ public struct GraphCalculatorView: View {
         }
         return CGPoint(
             x: min(max(center.x, halfW), containerSize.width - halfW),
-            y: min(max(center.y, halfH), containerSize.height - halfH)
+            y: min(max(center.y, halfH + safeAreaTop), containerSize.height - halfH)
         )
     }
 

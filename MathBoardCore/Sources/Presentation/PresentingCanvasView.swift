@@ -179,18 +179,14 @@ public struct PresentingCanvasView: View {
                 .opacity(broker.mode == .present ? 1 : 0)
 
             if calculator.isVisible {
-                CalculatorView(state: calculator)
+                CalculatorView(state: calculator, onSnapshot: { data, size in
+                    objectCommand = CanvasObjectCommand(.insertImageNearViewport(
+                        CanvasViewportImageInsertion(pngData: data, displaySize: size)
+                    ))
+                })
             }
 
             floatingLaTeXEditor
-
-            if isGraphCalculatorVisibleToUser {
-                GraphCalculatorView(
-                    state: broker.graphCalculator,
-                    onGraphSnapshot: insertGraphSnapshot
-                )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
 
             widgetMathInputKeypadOverlay
 
@@ -296,13 +292,17 @@ public struct PresentingCanvasView: View {
                 onInsertItem: placeLibraryItemAtViewportCenter,
                 onPreviewCatalogMathtivity: presentCatalogWidgetPreview
             )
-            floatingToolMenu
+            floatingToolBar
                 .padding(.top, 8)
-                .padding(.trailing, 12)
+                .frame(maxWidth: .infinity, alignment: .top)
         }
         .onAppear {
             applyObjectStateReloadCommandIfNeeded()
             applyCurrentToolPaletteStateIfNeeded(triggering: .selectTool(broker.toolPaletteState.activeTool))
+            broker.graphSnapshotHandler = insertGraphSnapshot
+        }
+        .onDisappear {
+            broker.graphSnapshotHandler = nil
         }
         .onChange(of: objectStateReloadCommand) { _, _ in
             applyObjectStateReloadCommandIfNeeded()
@@ -461,65 +461,108 @@ public struct PresentingCanvasView: View {
         }
     }
 
-    // Floating overflow menu that replaces the former navigation-bar toolbar.
-    // Layered over the full-screen canvas (top-trailing) so the whiteboard can
-    // use the entire display while every tool stays reachable.
-    private var floatingToolMenu: some View {
-        Menu {
-            Section {
-                Button {
-                    editCommand = CanvasEditCommand(.undo)
-                } label: {
-                    Label("Undo", systemImage: "arrow.uturn.backward")
-                }
-                .disabled(!editState.canUndo)
-
-                Button {
-                    editCommand = CanvasEditCommand(.redo)
-                } label: {
-                    Label("Redo", systemImage: "arrow.uturn.forward")
-                }
-                .disabled(!editState.canRedo)
+    // Icon-only toolbar at top-center — promoted actions as icon buttons,
+    // with remaining items in the ... overflow menu.
+    private var floatingToolBar: some View {
+        HStack(spacing: 0) {
+            toolbarIconButton("arrow.uturn.backward", label: "Undo", disabled: !editState.canUndo) {
+                editCommand = CanvasEditCommand(.undo)
             }
+            toolbarIconButton("arrow.uturn.forward", label: "Redo", disabled: !editState.canRedo) {
+                editCommand = CanvasEditCommand(.redo)
+            }
+            toolbarSeparator
+            toolbarIconButton("plus.magnifyingglass", label: "Zoom In", disabled: !canZoomIn) {
+                viewportCommand = CanvasViewportCommand(.zoomIn)
+            }
+            toolbarIconButton("minus.magnifyingglass", label: "Zoom Out", disabled: !canZoomOut) {
+                viewportCommand = CanvasViewportCommand(.zoomOut)
+            }
+            toolbarIconButton("arrow.counterclockwise", label: "Reset Zoom") {
+                viewportCommand = CanvasViewportCommand(.reset)
+            }
+            toolbarSeparator
+            toolbarIconButton(
+                broker.mode == .present ? "rectangle.dashed" : "rectangle.inset.filled",
+                label: broker.mode == .present ? "Mirror Mode" : "Present Mode"
+            ) {
+                togglePresentationMode()
+            }
+            #if os(iOS)
+            toolbarIconButton(
+                "chart.xyaxis.line",
+                label: isGraphCalculatorVisibleToUser ? "Hide Graph Calc" : "Show Graph Calc"
+            ) {
+                if isGraphCalculatorVisibleToUser {
+                    broker.isGraphCalculatorVisible = false
+                } else {
+                    broker.graphCalculator.restoreCompositeHomeBase()
+                    broker.isGraphCalculatorVisible = true
+                }
+            }
+            #endif
+            toolbarSeparator
+            floatingOverflowMenu
+        }
+        .padding(.horizontal, 6)
+        .frame(height: 50)
+        .background(
+            Capsule(style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.18, green: 0.26, blue: 0.40),
+                            Color(red: 0.10, green: 0.16, blue: 0.27)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .strokeBorder(Color.white.opacity(0.16), lineWidth: 1.2)
+        )
+        .shadow(color: .white.opacity(0.10), radius: 1, x: 0, y: -1)
+        .shadow(color: .black.opacity(0.40), radius: 12, x: 0, y: 5)
+    }
 
+    private var toolbarSeparator: some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.18))
+            .frame(width: 1, height: 24)
+            .padding(.horizontal, 4)
+    }
+
+    private func toolbarIconButton(
+        _ systemImage: String,
+        label: String,
+        disabled: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(Color.white.opacity(0.92))
+                .frame(width: 46, height: 44)
+        }
+        .buttonStyle(.plain)
+        .opacity(disabled ? 0.28 : 1.0)
+        .disabled(disabled)
+        .accessibilityLabel(label)
+    }
+
+    private var floatingOverflowMenu: some View {
+        Menu {
             Section("Zoom \(zoomLabel)") {
-                Button {
-                    viewportCommand = CanvasViewportCommand(.zoomIn)
-                } label: {
-                    Label("Zoom In", systemImage: "plus.magnifyingglass")
-                }
-                .disabled(!canZoomIn)
-
-                Button {
-                    viewportCommand = CanvasViewportCommand(.zoomOut)
-                } label: {
-                    Label("Zoom Out", systemImage: "minus.magnifyingglass")
-                }
-                .disabled(!canZoomOut)
-
                 Button {
                     viewportCommand = CanvasViewportCommand(.fitToViewfinder)
                 } label: {
                     Label("Fit to Viewfinder", systemImage: "aspectratio")
                 }
-
-                Button {
-                    viewportCommand = CanvasViewportCommand(.reset)
-                } label: {
-                    Label("Reset View", systemImage: "arrow.counterclockwise")
-                }
             }
 
             Section {
-                Button {
-                    togglePresentationMode()
-                } label: {
-                    Label(
-                        broker.mode == .present ? "Mirror Mode" : "Present Mode",
-                        systemImage: broker.mode == .present ? "rectangle.dashed" : "rectangle.inset.filled"
-                    )
-                }
-
                 Label(externalDisplayStatusTitle, systemImage: externalDisplayStatusIcon)
                     .foregroundStyle(.secondary)
 
@@ -531,22 +574,6 @@ public struct PresentingCanvasView: View {
                         systemImage: "function"
                     )
                 }
-
-                #if os(iOS)
-                Button {
-                    if isGraphCalculatorVisibleToUser {
-                        broker.isGraphCalculatorVisible = false
-                    } else {
-                        broker.graphCalculator.restoreCompositeHomeBase()
-                        broker.isGraphCalculatorVisible = true
-                    }
-                } label: {
-                    Label(
-                        isGraphCalculatorVisibleToUser ? "Hide graphCalc" : "Show graphCalc",
-                        systemImage: "chart.xyaxis.line"
-                    )
-                }
-                #endif
             }
 
             #if os(iOS)
@@ -594,20 +621,20 @@ public struct PresentingCanvasView: View {
                 }
             }
         } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: 5) {
                 if broker.isExternalDisplayConnected {
                     Image(systemName: "tv.fill")
                         .foregroundStyle(.green)
+                        .font(.system(size: 14, weight: .semibold))
                 }
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(0.92))
             }
-            .padding(.horizontal, 12)
-            .frame(height: 40)
-            .background(.ultraThinMaterial, in: Capsule())
+            .frame(width: 50, height: 44)
         }
         .menuOrder(.fixed)
-        .accessibilityLabel("Tools")
+        .accessibilityLabel("More")
     }
 
     private var selectedTextActionHUD: some View {
@@ -653,10 +680,15 @@ public struct PresentingCanvasView: View {
                       pendingTextPlacement == nil,
                       pendingLaTeXPlacement == nil,
                       pendingLaTeXEdit == nil {
+                let isLocked = object.isLocked == true
                 FloatingActionHUD(
+                    onEdit: { loadGeometryObjectIntoPalette(object) },
                     onCopy: { objectCommand = CanvasObjectCommand(.copy(.geometry(object.id))) },
-                    onPaste: { objectCommand = CanvasObjectCommand(.pasteClipboard) },
                     onClone: { objectCommand = CanvasObjectCommand(.duplicate(.geometry(object.id))) },
+                    onLockToggle: { objectCommand = CanvasObjectCommand(.setGeometryLocked(object.id, !isLocked)) },
+                    lockToggleTitle: isLocked ? "Locked" : "Unlocked",
+                    lockToggleSystemImage: isLocked ? "lock.fill" : "lock.open",
+                    lockToggleTint: isLocked ? .red : .green,
                     onDelete: { objectCommand = CanvasObjectCommand(.delete(.geometry(object.id))) }
                 )
                 .position(hudPosition(for: viewportFrame, in: proxy.size))
@@ -674,17 +706,12 @@ public struct PresentingCanvasView: View {
                         { pendingLaTeXEdit = PendingLaTeXEdit(imageObject: object, latexObject: latexObject) }
                     },
                     onCopy: { objectCommand = CanvasObjectCommand(.copy(.image(object.id))) },
-                    onPaste: { objectCommand = CanvasObjectCommand(.pasteClipboard) },
-                    onClone: { objectCommand = CanvasObjectCommand(.duplicate(.image(object.id))) },
                     onBringForward: { objectCommand = CanvasObjectCommand(.reorderImage(object.id, .bringForward)) },
                     onSendBackward: { objectCommand = CanvasObjectCommand(.reorderImage(object.id, .sendBackward)) },
                     onBringToFront: { objectCommand = CanvasObjectCommand(.reorderImage(object.id, .bringToFront)) },
                     onSendToBack: { objectCommand = CanvasObjectCommand(.reorderImage(object.id, .sendToBack)) },
                     canBringForward: !isLocked && selectionState.selectedImageCanMoveForward,
                     canSendBackward: !isLocked && selectionState.selectedImageCanMoveBackward,
-                    onLockToggle: { objectCommand = CanvasObjectCommand(.setImageLocked(object.id, !isLocked)) },
-                    lockToggleTitle: isLocked ? "Unlock" : "Lock",
-                    lockToggleSystemImage: isLocked ? "lock.open" : "lock",
                     canDelete: !isLocked,
                     onDelete: { objectCommand = CanvasObjectCommand(.delete(.image(object.id))) }
                 )
@@ -895,32 +922,32 @@ public struct PresentingCanvasView: View {
 
     private func handleToolPaletteCommand(_ command: ToolPaletteCommand, state: ToolPaletteState) {
         if command == .addItem(.file) {
-            broker.toolPaletteState = state
+            broker.toolPaletteState = collapsedAddItemState(from: state)
             presentImageFileImporter()
             return
         }
 
         if command == .addItem(.photo) {
-            broker.toolPaletteState = state
+            broker.toolPaletteState = collapsedAddItemState(from: state)
             presentPhotoImporter()
             return
         }
 
         if command == .addItem(.camera) {
-            broker.toolPaletteState = state
+            broker.toolPaletteState = collapsedAddItemState(from: state)
             presentCameraImporter()
             return
         }
 
         if command == .addItem(.text) {
-            broker.toolPaletteState = state
+            broker.toolPaletteState = collapsedAddItemState(from: state)
             requestTextPlacementAtViewportCenter()
             activateSelectTool()
             return
         }
 
         if command == .addItem(.latex) {
-            broker.toolPaletteState = state
+            broker.toolPaletteState = collapsedAddItemState(from: state)
             requestLaTeXPlacementAtViewportCenter()
             activateSelectTool()
             return
@@ -928,8 +955,13 @@ public struct PresentingCanvasView: View {
 
         if command == .addItem(.widget) {
             guard allowsWidgetAuthoring else { return }
-            broker.toolPaletteState = state
+            broker.toolPaletteState = collapsedAddItemState(from: state)
             presentWidgetEditor()
+            return
+        }
+
+        if case .addItem = command {
+            broker.toolPaletteState = collapsedAddItemState(from: state)
             return
         }
 
@@ -959,6 +991,13 @@ public struct PresentingCanvasView: View {
         applyToolPaletteState(state, triggering: command)
     }
 
+    private func collapsedAddItemState(from state: ToolPaletteState) -> ToolPaletteState {
+        var collapsedState = state
+        collapsedState.isCompactDrawerOpen = false
+        collapsedState.isCompactQuickStripOpen = false
+        return collapsedState
+    }
+
     private func handleCanvasInteractionBegan() {
         collapseCompactDrawerForCanvasInteraction()
         onInteractionBegan?()
@@ -967,7 +1006,7 @@ public struct PresentingCanvasView: View {
     private func collapseCompactDrawerForCanvasInteraction() {
         guard paletteSettings.isCustomPaletteEnabled,
               paletteSettings.paletteStyle == .compact,
-              broker.toolPaletteState.isCompactDrawerOpen else {
+              (broker.toolPaletteState.isCompactDrawerOpen || broker.toolPaletteState.isCompactQuickStripOpen) else {
             return
         }
 
@@ -1053,6 +1092,7 @@ public struct PresentingCanvasView: View {
         var state = broker.toolPaletteState
         state.activeTool = .geometry
         state.isCompactDrawerOpen = true
+        state.isCompactQuickStripOpen = false
         state.geometryType = GeometryType(canvasShape: object.shape)
         state.strokeColor = PaletteColor(name: "custom", red: Double(object.strokeRed), green: Double(object.strokeGreen), blue: Double(object.strokeBlue))
         state.strokeWidth = Double(object.strokeWidth)
@@ -1070,6 +1110,7 @@ public struct PresentingCanvasView: View {
         var state = broker.toolPaletteState
         state.activeTool = .equation
         state.isCompactDrawerOpen = true
+        state.isCompactQuickStripOpen = false
         state.strokeColor = PaletteColor(
             name: "customText",
             red: Double(object.red),
@@ -1092,6 +1133,7 @@ public struct PresentingCanvasView: View {
             if state.activeTool != .selection {
                 state.activeTool = .selection
                 state.isCompactDrawerOpen = false
+                state.isCompactQuickStripOpen = false
                 shouldApplySelectionTool = true
             }
             if state.selectionMode != .tap {
@@ -1104,13 +1146,8 @@ public struct PresentingCanvasView: View {
             }
             return
         }
-        if case .geometry = newValue, let object = selectionState.selectedGeometryObject {
-            if broker.toolPaletteState.activeTool == .selection,
-               broker.toolPaletteState.selectionMode == .tap {
-                return
-            }
-            loadGeometryObjectIntoPalette(object)
-        } else if case .geometry = oldValue {
+        if case .geometry = oldValue,
+           !Self.isGeometrySelection(newValue) {
             if isClearingGeometrySelectionForCreation {
                 isClearingGeometrySelectionForCreation = false
                 return
@@ -1120,9 +1157,17 @@ public struct PresentingCanvasView: View {
             var state = broker.toolPaletteState
             if state.activeTool == .geometry {
                 state.activeTool = .selection
+                state.isCompactQuickStripOpen = false
                 broker.toolPaletteState = state
             }
         }
+    }
+
+    private static func isGeometrySelection(_ object: CanvasSelectionState.Object?) -> Bool {
+        if case .geometry = object {
+            return true
+        }
+        return false
     }
 
     private func applyCurrentToolPaletteStateIfNeeded(triggering command: ToolPaletteCommand) {
@@ -1322,7 +1367,7 @@ public struct PresentingCanvasView: View {
     private func recordExtractedRegionPlacement(_ region: PresentationExtractedRegion) {
         recordLibraryRecent(
             title: Self.libraryRecentTitle("Extracted sticker"),
-            kind: .extractedInk,
+            kind: .sticker,
             thumbnailPNGData: region.pngData
         )
     }
@@ -1620,21 +1665,31 @@ public struct PresentingCanvasView: View {
         guard state.activeTool == .extract else { return }
         ToolPaletteReducer.reduce(&state, command: .selectTool(.selection))
         state.isCompactDrawerOpen = false
+        state.isCompactQuickStripOpen = false
         broker.toolPaletteState = state
         applyToolPaletteState(state, triggering: .selectTool(.selection))
     }
 
     private func hudPosition(for frame: CGRect, in size: CGSize) -> CGPoint {
-        let hudWidth: CGFloat = 220
-        let hudHeight: CGFloat = 44
+        let hudWidth: CGFloat = 300
+        let hudHeight: CGFloat = 50
         let margin: CGFloat = 14
-        let requestedDownwardOffset: CGFloat = 90
-        let aboveY = frame.minY - hudHeight / 2 - 4
-        let belowY = frame.maxY + hudHeight / 2 + 12
-        let proposedY = (aboveY >= margin + hudHeight / 2 ? aboveY : belowY) + requestedDownwardOffset
+        let gap: CGFloat = 46
+        let aboveY = frame.minY - hudHeight / 2 - gap
+        let belowY = frame.maxY + hudHeight / 2 + gap
+        let minimumY = margin + hudHeight / 2
+        let maximumY = size.height - margin - hudHeight / 2
+        let proposedY: CGFloat
+        if aboveY >= minimumY {
+            proposedY = aboveY
+        } else if belowY <= maximumY {
+            proposedY = belowY
+        } else {
+            proposedY = frame.midY < size.height / 2 ? belowY : aboveY
+        }
         return CGPoint(
             x: min(max(frame.midX, margin + hudWidth / 2), size.width - margin - hudWidth / 2),
-            y: min(max(proposedY, margin + hudHeight / 2), size.height - margin - hudHeight / 2)
+            y: min(max(proposedY, minimumY), maximumY)
         )
     }
 
@@ -2539,8 +2594,8 @@ private struct PendingTextEdit: Identifiable {
 private struct FloatingActionHUD: View {
     var onEdit: (() -> Void)?
     var onCopy: (() -> Void)?
-    let onPaste: () -> Void
-    let onClone: () -> Void
+    var onPaste: (() -> Void)? = nil
+    var onClone: (() -> Void)?
     var onBringForward: (() -> Void)?
     var onSendBackward: (() -> Void)?
     var onBringToFront: (() -> Void)?
@@ -2550,6 +2605,7 @@ private struct FloatingActionHUD: View {
     var onLockToggle: (() -> Void)?
     var lockToggleTitle = "Lock"
     var lockToggleSystemImage = "lock"
+    var lockToggleTint = Color.primary
     var onGroupToggle: (() -> Void)?
     var groupToggleTitle = "Group"
     var groupToggleSystemImage = "rectangle.3.group"
@@ -2564,8 +2620,12 @@ private struct FloatingActionHUD: View {
             if let onCopy {
                 hudButton("Copy", systemImage: "doc.on.doc", action: onCopy)
             }
-            hudButton("Paste", systemImage: "doc.on.clipboard", action: onPaste)
-            hudButton("Clone", systemImage: "plus.square.on.square", action: onClone)
+            if let onPaste {
+                hudButton("Paste", systemImage: "doc.on.clipboard", action: onPaste)
+            }
+            if let onClone {
+                hudButton("Clone", systemImage: "plus.square.on.square", action: onClone)
+            }
             if let onSendToBack {
                 hudButton("Send to Back", systemImage: "square.3.layers.3d.down.backward", isEnabled: canSendBackward, action: onSendToBack)
             }
@@ -2579,20 +2639,38 @@ private struct FloatingActionHUD: View {
                 hudButton("Bring to Front", systemImage: "square.3.layers.3d.up.forward", isEnabled: canBringForward, action: onBringToFront)
             }
             if let onLockToggle {
-                hudButton(lockToggleTitle, systemImage: lockToggleSystemImage, action: onLockToggle)
+                hudButton(
+                    lockToggleTitle,
+                    systemImage: lockToggleSystemImage,
+                    foregroundColor: lockToggleTint,
+                    action: onLockToggle
+                )
             }
             if let onGroupToggle {
                 hudButton(groupToggleTitle, systemImage: groupToggleSystemImage, action: onGroupToggle)
             }
             hudButton("Delete", systemImage: "trash", role: .destructive, isEnabled: canDelete, action: onDelete)
         }
-        .padding(6)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(
-            Capsule()
-                .stroke(Color.primary.opacity(0.18), lineWidth: 1)
+        .padding(7)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.93, green: 0.97, blue: 1.0).opacity(0.98),
+                            Color(red: 0.72, green: 0.82, blue: 0.92).opacity(0.94)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
         )
-        .shadow(color: Color.black.opacity(0.22), radius: 10, x: 0, y: 4)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(0.72), lineWidth: 1)
+        )
+        .shadow(color: .white.opacity(0.34), radius: 4, x: -2, y: -2)
+        .shadow(color: Color.black.opacity(0.24), radius: 12, x: 0, y: 6)
     }
 
     private func hudButton(
@@ -2600,6 +2678,7 @@ private struct FloatingActionHUD: View {
         systemImage: String,
         role: ButtonRole? = nil,
         isEnabled: Bool = true,
+        foregroundColor: Color? = nil,
         action: @escaping () -> Void
     ) -> some View {
         Button(role: role, action: action) {
@@ -2610,12 +2689,23 @@ private struct FloatingActionHUD: View {
         }
         .disabled(!isEnabled)
         .buttonStyle(.plain)
-        .foregroundStyle(role == .destructive ? .red : .primary)
-        .background(Color.white.opacity(0.86), in: Circle())
+        .foregroundStyle(foregroundColor ?? (role == .destructive ? .red : .primary))
+        .background(
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.96), Color(red: 0.84, green: 0.90, blue: 0.96)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        )
         .overlay(
             Circle()
-                .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+                .stroke(Color.white.opacity(0.72), lineWidth: 1)
         )
+        .shadow(color: .white.opacity(0.32), radius: 2, x: -1, y: -1)
+        .shadow(color: .black.opacity(0.12), radius: 3, x: 1, y: 2)
         .help(title)
     }
 }

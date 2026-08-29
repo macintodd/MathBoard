@@ -383,7 +383,7 @@ enum GraphCalculatorRenderer {
         if axisStyle.showGrid {
             let minorWidth = max(0.25, axisStyle.gridlineThickness * 0.6)
             let majorWidth = max(0.25, axisStyle.gridlineThickness)
-            let majorOpacity = min(max(axisStyle.gridlineOpacity, 0.02), 0.85)
+            let majorOpacity = min(max(axisStyle.gridlineOpacity, 0.02), 0.8)
             let minorOpacity = min(max(majorOpacity * 0.42, 0.02), 0.60)
             drawTicks(context: context, size: size, window: window, step: minorX, axis: .x, color: .black.opacity(minorOpacity), lineWidth: minorWidth)
             drawTicks(context: context, size: size, window: window, step: minorY, axis: .y, color: .black.opacity(minorOpacity), lineWidth: minorWidth)

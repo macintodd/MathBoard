@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		E44A3B282FECD14C00B53DB9 /* Project_status.md in Resources */ = {isa = PBXBuildFile; fileRef = E44A3B272FECD14C00B53DB9 /* Project_status.md */; };
 		E48FA98D2FE4AA3900CA2F40 /* Documents in Frameworks */ = {isa = PBXBuildFile; productRef = E48FA98C2FE4AA3900CA2F40 /* Documents */; };
 		E4F836E8301DA28900F9167E /* TeacherLiveInkSync_POC.md in Resources */ = {isa = PBXBuildFile; fileRef = E4F836E7301DA28900F9167E /* TeacherLiveInkSync_POC.md */; };
 /* End PBXBuildFile section */
@@ -245,7 +244,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				E4F836E8301DA28900F9167E /* TeacherLiveInkSync_POC.md in Resources */,
-				E44A3B282FECD14C00B53DB9 /* Project_status.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

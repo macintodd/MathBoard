@@ -92,6 +92,9 @@ struct WidgetActivityRules: Codable, Equatable, Sendable {
     var scoreMode: WidgetActivityScoreMode?
     var advanceMode: WidgetActivityAdvanceMode?
     var allowRetry: Bool?
+    /// Number of retries allowed per question after the first incorrect attempt.
+    /// `maxRetries: 1` means one retry (2 total checks). Takes precedence over `maxAttemptsPerQuestion`.
+    var maxRetries: Int?
     var shuffleQuestions: Bool?
     var shuffleChoices: Bool?
     var maxAttemptsPerQuestion: Int?
@@ -101,6 +104,7 @@ struct WidgetActivityRules: Codable, Equatable, Sendable {
         scoreMode: WidgetActivityScoreMode? = nil,
         advanceMode: WidgetActivityAdvanceMode? = nil,
         allowRetry: Bool? = nil,
+        maxRetries: Int? = nil,
         shuffleQuestions: Bool? = nil,
         shuffleChoices: Bool? = nil,
         maxAttemptsPerQuestion: Int? = nil,
@@ -109,6 +113,7 @@ struct WidgetActivityRules: Codable, Equatable, Sendable {
         self.scoreMode = scoreMode
         self.advanceMode = advanceMode
         self.allowRetry = allowRetry
+        self.maxRetries = maxRetries
         self.shuffleQuestions = shuffleQuestions
         self.shuffleChoices = shuffleChoices
         self.maxAttemptsPerQuestion = maxAttemptsPerQuestion
@@ -151,6 +156,7 @@ struct WidgetActivityQuestion: Codable, Equatable, Identifiable, Sendable {
     var choices: [WidgetActivityChoice]
     var blanks: [WidgetActivityBlank]
     var responseLayout: WidgetActivityResponseLayout?
+    var interactiveParts: [WidgetActivityInteractivePart]
     var hints: [String]
     var correctFeedback: String?
     var incorrectFeedback: String?
@@ -165,6 +171,7 @@ struct WidgetActivityQuestion: Codable, Equatable, Identifiable, Sendable {
         choices: [WidgetActivityChoice],
         blanks: [WidgetActivityBlank] = [],
         responseLayout: WidgetActivityResponseLayout? = nil,
+        interactiveParts: [WidgetActivityInteractivePart] = [],
         hints: [String] = [],
         correctFeedback: String? = nil,
         incorrectFeedback: String? = nil,
@@ -178,6 +185,7 @@ struct WidgetActivityQuestion: Codable, Equatable, Identifiable, Sendable {
         self.choices = choices
         self.blanks = blanks
         self.responseLayout = responseLayout
+        self.interactiveParts = interactiveParts
         self.hints = hints
         self.correctFeedback = correctFeedback
         self.incorrectFeedback = incorrectFeedback
@@ -193,6 +201,7 @@ struct WidgetActivityQuestion: Codable, Equatable, Identifiable, Sendable {
         case choices
         case blanks
         case responseLayout
+        case interactiveParts
         case hints
         case correctFeedback
         case incorrectFeedback
@@ -209,12 +218,585 @@ struct WidgetActivityQuestion: Codable, Equatable, Identifiable, Sendable {
         choices = try container.decodeIfPresent([WidgetActivityChoice].self, forKey: .choices) ?? []
         blanks = try container.decodeIfPresent([WidgetActivityBlank].self, forKey: .blanks) ?? []
         responseLayout = try container.decodeIfPresent(WidgetActivityResponseLayout.self, forKey: .responseLayout)
+        interactiveParts = try container.decodeIfPresent([WidgetActivityInteractivePart].self, forKey: .interactiveParts) ?? []
         hints = try container.decodeIfPresent([String].self, forKey: .hints) ?? []
         correctFeedback = try container.decodeIfPresent(String.self, forKey: .correctFeedback)
         incorrectFeedback = try container.decodeIfPresent(String.self, forKey: .incorrectFeedback)
         explanation = try container.decodeIfPresent(String.self, forKey: .explanation)
         difficulty = try container.decodeIfPresent(WidgetActivityDifficulty.self, forKey: .difficulty)
         skillTag = try container.decodeIfPresent(String.self, forKey: .skillTag)
+    }
+}
+
+enum WidgetActivityInteractivePart: Codable, Equatable, Identifiable, Sendable {
+    case numberLine(WidgetActivityNumberLinePart)
+    case coordinatePlane(WidgetActivityCoordinatePlanePart)
+
+    var id: String {
+        switch self {
+        case .numberLine(let part):
+            return part.id
+        case .coordinatePlane(let part):
+            return part.id
+        }
+    }
+
+    private enum PartType: String, Codable {
+        case numberLine
+        case coordinatePlane
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let type = try container.decode(PartType.self, forKey: .type)
+        switch type {
+        case .numberLine:
+            self = .numberLine(try WidgetActivityNumberLinePart(from: decoder))
+        case .coordinatePlane:
+            self = .coordinatePlane(try WidgetActivityCoordinatePlanePart(from: decoder))
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        switch self {
+        case .numberLine(let part):
+            try part.encode(to: encoder)
+        case .coordinatePlane(let part):
+            try part.encode(to: encoder)
+        }
+    }
+}
+
+struct WidgetActivityNumberLinePart: Codable, Equatable, Identifiable, Sendable {
+    var id: String
+    var domain: WidgetActivityNumberLineDomain
+    var features: WidgetActivityNumberLineFeatures
+    var initialResponse: WidgetActivityNumberLineAnswer?
+    var answer: WidgetActivityNumberLineAnswer?
+
+    init(
+        id: String,
+        domain: WidgetActivityNumberLineDomain,
+        features: WidgetActivityNumberLineFeatures = WidgetActivityNumberLineFeatures(),
+        initialResponse: WidgetActivityNumberLineAnswer? = nil,
+        answer: WidgetActivityNumberLineAnswer? = nil
+    ) {
+        self.id = id
+        self.domain = domain
+        self.features = features
+        self.initialResponse = initialResponse
+        self.answer = answer
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case id
+        case domain
+        case features
+        case initialResponse
+        case answer
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        domain = try container.decode(WidgetActivityNumberLineDomain.self, forKey: .domain)
+        features = try container.decodeIfPresent(WidgetActivityNumberLineFeatures.self, forKey: .features)
+            ?? WidgetActivityNumberLineFeatures()
+        initialResponse = try container.decodeIfPresent(WidgetActivityNumberLineAnswer.self, forKey: .initialResponse)
+        answer = try container.decodeIfPresent(WidgetActivityNumberLineAnswer.self, forKey: .answer)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode("numberLine", forKey: .type)
+        try container.encode(id, forKey: .id)
+        try container.encode(domain, forKey: .domain)
+        try container.encode(features, forKey: .features)
+        try container.encodeIfPresent(initialResponse, forKey: .initialResponse)
+        try container.encodeIfPresent(answer, forKey: .answer)
+    }
+}
+
+struct WidgetActivityNumberLineDomain: Codable, Equatable, Sendable {
+    var min: Double
+    var max: Double
+    var step: Double
+
+    init(min: Double, max: Double, step: Double = 1) {
+        self.min = min
+        self.max = max
+        self.step = step
+    }
+}
+
+struct WidgetActivityNumberLineFeatures: Codable, Equatable, Sendable {
+    var pointsTappable: Bool
+    var pointsDraggable: Bool
+    var raysEnabled: Bool
+    var segmentsEnabled: Bool
+    var openClosedEndpoints: Bool
+    var pointHasRay: Bool
+    var maxPoints: Int?
+    var labelsVisible: Bool
+    var snapToTicks: Bool
+
+    init(
+        pointsTappable: Bool = false,
+        pointsDraggable: Bool = false,
+        raysEnabled: Bool = false,
+        segmentsEnabled: Bool = false,
+        openClosedEndpoints: Bool = false,
+        pointHasRay: Bool = false,
+        maxPoints: Int? = nil,
+        labelsVisible: Bool = true,
+        snapToTicks: Bool = true
+    ) {
+        self.pointsTappable = pointsTappable
+        self.pointsDraggable = pointsDraggable
+        self.raysEnabled = raysEnabled
+        self.segmentsEnabled = segmentsEnabled
+        self.openClosedEndpoints = openClosedEndpoints
+        self.pointHasRay = pointHasRay
+        self.maxPoints = maxPoints
+        self.labelsVisible = labelsVisible
+        self.snapToTicks = snapToTicks
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case pointsTappable
+        case pointsDraggable
+        case raysEnabled
+        case segmentsEnabled
+        case openClosedEndpoints
+        case pointHasRay
+        case maxPoints
+        case labelsVisible
+        case snapToTicks
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = WidgetActivityNumberLineFeatures()
+        pointsTappable = try container.decodeIfPresent(Bool.self, forKey: .pointsTappable) ?? defaults.pointsTappable
+        pointsDraggable = try container.decodeIfPresent(Bool.self, forKey: .pointsDraggable) ?? defaults.pointsDraggable
+        raysEnabled = try container.decodeIfPresent(Bool.self, forKey: .raysEnabled) ?? defaults.raysEnabled
+        segmentsEnabled = try container.decodeIfPresent(Bool.self, forKey: .segmentsEnabled) ?? defaults.segmentsEnabled
+        openClosedEndpoints = try container.decodeIfPresent(Bool.self, forKey: .openClosedEndpoints) ?? defaults.openClosedEndpoints
+        pointHasRay = try container.decodeIfPresent(Bool.self, forKey: .pointHasRay) ?? defaults.pointHasRay
+        maxPoints = try container.decodeIfPresent(Int.self, forKey: .maxPoints)
+        labelsVisible = try container.decodeIfPresent(Bool.self, forKey: .labelsVisible) ?? defaults.labelsVisible
+        snapToTicks = try container.decodeIfPresent(Bool.self, forKey: .snapToTicks) ?? defaults.snapToTicks
+    }
+}
+
+struct WidgetActivityNumberLineAnswer: Codable, Equatable, Sendable {
+    var selectedPoints: [Double]
+    var points: [WidgetActivityNumberLinePoint]
+    var rays: [WidgetActivityNumberLineRay]
+    var segments: [WidgetActivityNumberLineSegment]
+
+    init(
+        selectedPoints: [Double] = [],
+        points: [WidgetActivityNumberLinePoint] = [],
+        rays: [WidgetActivityNumberLineRay] = [],
+        segments: [WidgetActivityNumberLineSegment] = []
+    ) {
+        self.selectedPoints = selectedPoints
+        self.points = points
+        self.rays = rays
+        self.segments = segments
+    }
+
+    var isEmpty: Bool {
+        selectedPoints.isEmpty && points.isEmpty && rays.isEmpty && segments.isEmpty
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case selectedPoints
+        case points
+        case rays
+        case segments
+    }
+
+    init(from decoder: Decoder) throws {
+        if let source = try? decoder.singleValueContainer().decode(String.self) {
+            self = try WidgetActivityNumberLineGraphUtility.compile(source)
+            return
+        }
+
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        selectedPoints = try container.decodeIfPresent([Double].self, forKey: .selectedPoints) ?? []
+        points = try container.decodeIfPresent([WidgetActivityNumberLinePoint].self, forKey: .points) ?? []
+        rays = try container.decodeIfPresent([WidgetActivityNumberLineRay].self, forKey: .rays) ?? []
+        segments = try container.decodeIfPresent([WidgetActivityNumberLineSegment].self, forKey: .segments) ?? []
+    }
+}
+
+private enum WidgetActivityNumberLineGraphUtility {
+    private struct Relation {
+        var left: String
+        var operation: String
+        var right: String
+    }
+
+    static func compile(_ source: String) throws -> WidgetActivityNumberLineAnswer {
+        let expression = try expressionBody(from: source)
+        let normalized = expression
+            .replacingOccurrences(of: "≤", with: "<=")
+            .replacingOccurrences(of: "≥", with: ">=")
+            .replacingOccurrences(of: "−", with: "-")
+            .replacingOccurrences(of: " ", with: "")
+            .lowercased()
+
+        if let compound = try compileCompound(normalized) {
+            return compound
+        }
+        if let simple = try compileSimple(normalized) {
+            return simple
+        }
+
+        throw DecodingError.dataCorrupted(DecodingError.Context(
+            codingPath: [],
+            debugDescription: "linearGraphUtility supports x comparisons such as x>1, x<=5, -2<x<=5, or x=3."
+        ))
+    }
+
+    private static func expressionBody(from source: String) throws -> String {
+        let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = "linearGraphUtility{"
+        guard trimmed.lowercased().hasPrefix(prefix.lowercased()), trimmed.hasSuffix("}") else {
+            throw DecodingError.dataCorrupted(DecodingError.Context(
+                codingPath: [],
+                debugDescription: "Number-line graph utility strings must use linearGraphUtility{...}."
+            ))
+        }
+        let start = trimmed.index(trimmed.startIndex, offsetBy: prefix.count)
+        let end = trimmed.index(before: trimmed.endIndex)
+        return String(trimmed[start..<end])
+    }
+
+    private static func compileCompound(_ expression: String) throws -> WidgetActivityNumberLineAnswer? {
+        let relations = parseRelations(expression)
+        guard relations.count == 2 else { return nil }
+        guard relations[0].right == "x", relations[1].left == "x" else { return nil }
+        guard relations[0].operation == "<" || relations[0].operation == "<=" else { return nil }
+        guard relations[1].operation == "<" || relations[1].operation == "<=" else { return nil }
+        let start = try parseNumber(relations[0].left)
+        let end = try parseNumber(relations[1].right)
+        return WidgetActivityNumberLineAnswer(segments: [
+            WidgetActivityNumberLineSegment(
+                start: start,
+                end: end,
+                startClosed: relations[0].operation == "<=",
+                endClosed: relations[1].operation == "<="
+            )
+        ])
+    }
+
+    private static func compileSimple(_ expression: String) throws -> WidgetActivityNumberLineAnswer? {
+        let relations = parseRelations(expression)
+        guard relations.count == 1 else { return nil }
+        let relation = relations[0]
+
+        if relation.left == "x" {
+            let value = try parseNumber(relation.right)
+            switch relation.operation {
+            case "<":
+                return WidgetActivityNumberLineAnswer(rays: [WidgetActivityNumberLineRay(endpoint: value, direction: .left, isClosed: false)])
+            case "<=":
+                return WidgetActivityNumberLineAnswer(rays: [WidgetActivityNumberLineRay(endpoint: value, direction: .left, isClosed: true)])
+            case ">":
+                return WidgetActivityNumberLineAnswer(rays: [WidgetActivityNumberLineRay(endpoint: value, direction: .right, isClosed: false)])
+            case ">=":
+                return WidgetActivityNumberLineAnswer(rays: [WidgetActivityNumberLineRay(endpoint: value, direction: .right, isClosed: true)])
+            case "=":
+                return WidgetActivityNumberLineAnswer(points: [WidgetActivityNumberLinePoint(value: value, isClosed: true)])
+            default:
+                return nil
+            }
+        }
+
+        if relation.right == "x" {
+            let value = try parseNumber(relation.left)
+            switch relation.operation {
+            case "<":
+                return WidgetActivityNumberLineAnswer(rays: [WidgetActivityNumberLineRay(endpoint: value, direction: .right, isClosed: false)])
+            case "<=":
+                return WidgetActivityNumberLineAnswer(rays: [WidgetActivityNumberLineRay(endpoint: value, direction: .right, isClosed: true)])
+            case ">":
+                return WidgetActivityNumberLineAnswer(rays: [WidgetActivityNumberLineRay(endpoint: value, direction: .left, isClosed: false)])
+            case ">=":
+                return WidgetActivityNumberLineAnswer(rays: [WidgetActivityNumberLineRay(endpoint: value, direction: .left, isClosed: true)])
+            case "=":
+                return WidgetActivityNumberLineAnswer(points: [WidgetActivityNumberLinePoint(value: value, isClosed: true)])
+            default:
+                return nil
+            }
+        }
+
+        return nil
+    }
+
+    private static func parseRelations(_ expression: String) -> [Relation] {
+        var tokens: [(range: Range<String.Index>, operation: String)] = []
+        var index = expression.startIndex
+        while index < expression.endIndex {
+            let nextIndex = expression.index(after: index)
+            if nextIndex < expression.endIndex {
+                let twoCharacterOperation = String(expression[index...nextIndex])
+                if twoCharacterOperation == "<=" || twoCharacterOperation == ">=" {
+                    tokens.append((index..<expression.index(after: nextIndex), twoCharacterOperation))
+                    index = expression.index(after: nextIndex)
+                    continue
+                }
+            }
+            let character = expression[index]
+            if character == "<" || character == ">" || character == "=" {
+                tokens.append((index..<nextIndex, String(character)))
+            }
+            index = nextIndex
+        }
+
+        guard !tokens.isEmpty else { return [] }
+        var relations: [Relation] = []
+
+        for tokenIndex in tokens.indices {
+            let leftStartIndex = tokenIndex == 0 ? expression.startIndex : tokens[tokenIndex - 1].range.upperBound
+            let rightEndIndex = tokenIndex == tokens.indices.last ? expression.endIndex : tokens[tokenIndex + 1].range.lowerBound
+            let left = String(expression[leftStartIndex..<tokens[tokenIndex].range.lowerBound])
+            let right = String(expression[tokens[tokenIndex].range.upperBound..<rightEndIndex])
+            guard !left.isEmpty, !right.isEmpty else { return [] }
+            relations.append(Relation(left: left, operation: tokens[tokenIndex].operation, right: right))
+        }
+        return relations
+    }
+
+    private static func parseNumber(_ source: String) throws -> Double {
+        guard let value = Double(source), value.isFinite else {
+            throw DecodingError.dataCorrupted(DecodingError.Context(
+                codingPath: [],
+                debugDescription: "linearGraphUtility value '\(source)' must be a finite number."
+            ))
+        }
+        return value
+    }
+}
+
+public struct WidgetActivityNumberLinePoint: Codable, Equatable, Sendable {
+    public var value: Double
+    public var isClosed: Bool
+
+    public init(value: Double, isClosed: Bool = true) {
+        self.value = value
+        self.isClosed = isClosed
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case value
+        case isClosed
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        value = try container.decode(Double.self, forKey: .value)
+        isClosed = try container.decodeIfPresent(Bool.self, forKey: .isClosed) ?? true
+    }
+}
+
+public struct WidgetActivityNumberLineRay: Codable, Equatable, Sendable {
+    public var endpoint: Double
+    public var direction: WidgetActivityNumberLineRayDirection
+    public var isClosed: Bool
+    public var visualEndValue: Double?
+
+    public init(
+        endpoint: Double,
+        direction: WidgetActivityNumberLineRayDirection,
+        isClosed: Bool = true,
+        visualEndValue: Double? = nil
+    ) {
+        self.endpoint = endpoint
+        self.direction = direction
+        self.isClosed = isClosed
+        self.visualEndValue = visualEndValue
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case endpoint
+        case direction
+        case isClosed
+        case visualEndValue
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        endpoint = try container.decode(Double.self, forKey: .endpoint)
+        direction = try container.decode(WidgetActivityNumberLineRayDirection.self, forKey: .direction)
+        isClosed = try container.decodeIfPresent(Bool.self, forKey: .isClosed) ?? true
+        visualEndValue = try container.decodeIfPresent(Double.self, forKey: .visualEndValue)
+    }
+}
+
+public enum WidgetActivityNumberLineRayDirection: String, Codable, Sendable {
+    case left
+    case right
+}
+
+public struct WidgetActivityNumberLineSegment: Codable, Equatable, Sendable {
+    public var start: Double
+    public var end: Double
+    public var startClosed: Bool
+    public var endClosed: Bool
+
+    public init(
+        start: Double,
+        end: Double,
+        startClosed: Bool = true,
+        endClosed: Bool = true
+    ) {
+        self.start = start
+        self.end = end
+        self.startClosed = startClosed
+        self.endClosed = endClosed
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case start
+        case end
+        case startClosed
+        case endClosed
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        start = try container.decode(Double.self, forKey: .start)
+        end = try container.decode(Double.self, forKey: .end)
+        startClosed = try container.decodeIfPresent(Bool.self, forKey: .startClosed) ?? true
+        endClosed = try container.decodeIfPresent(Bool.self, forKey: .endClosed) ?? true
+    }
+}
+
+struct WidgetActivityCoordinatePlanePart: Codable, Equatable, Identifiable, Sendable {
+    var id: String
+    var domain: WidgetActivityCoordinatePlaneDomain
+    var features: WidgetActivityCoordinatePlaneFeatures
+
+    init(
+        id: String,
+        domain: WidgetActivityCoordinatePlaneDomain,
+        features: WidgetActivityCoordinatePlaneFeatures = WidgetActivityCoordinatePlaneFeatures()
+    ) {
+        self.id = id
+        self.domain = domain
+        self.features = features
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case id
+        case domain
+        case features
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        domain = try container.decode(WidgetActivityCoordinatePlaneDomain.self, forKey: .domain)
+        features = try container.decodeIfPresent(WidgetActivityCoordinatePlaneFeatures.self, forKey: .features)
+            ?? WidgetActivityCoordinatePlaneFeatures()
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode("coordinatePlane", forKey: .type)
+        try container.encode(id, forKey: .id)
+        try container.encode(domain, forKey: .domain)
+        try container.encode(features, forKey: .features)
+    }
+}
+
+struct WidgetActivityCoordinatePlaneDomain: Codable, Equatable, Sendable {
+    var xMin: Double
+    var xMax: Double
+    var yMin: Double
+    var yMax: Double
+    var xStep: Double
+    var yStep: Double
+
+    init(
+        xMin: Double,
+        xMax: Double,
+        yMin: Double,
+        yMax: Double,
+        xStep: Double = 1,
+        yStep: Double = 1
+    ) {
+        self.xMin = xMin
+        self.xMax = xMax
+        self.yMin = yMin
+        self.yMax = yMax
+        self.xStep = xStep
+        self.yStep = yStep
+    }
+}
+
+struct WidgetActivityCoordinatePlaneFeatures: Codable, Equatable, Sendable {
+    var pointsTappable: Bool
+    var pointsDraggable: Bool
+    var linesEnabled: Bool
+    var segmentsEnabled: Bool
+    var raysEnabled: Bool
+    var parabolasEnabled: Bool
+    var labelsVisible: Bool
+    var snapToGrid: Bool
+
+    init(
+        pointsTappable: Bool = false,
+        pointsDraggable: Bool = false,
+        linesEnabled: Bool = false,
+        segmentsEnabled: Bool = false,
+        raysEnabled: Bool = false,
+        parabolasEnabled: Bool = false,
+        labelsVisible: Bool = true,
+        snapToGrid: Bool = true
+    ) {
+        self.pointsTappable = pointsTappable
+        self.pointsDraggable = pointsDraggable
+        self.linesEnabled = linesEnabled
+        self.segmentsEnabled = segmentsEnabled
+        self.raysEnabled = raysEnabled
+        self.parabolasEnabled = parabolasEnabled
+        self.labelsVisible = labelsVisible
+        self.snapToGrid = snapToGrid
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case pointsTappable
+        case pointsDraggable
+        case linesEnabled
+        case segmentsEnabled
+        case raysEnabled
+        case parabolasEnabled
+        case labelsVisible
+        case snapToGrid
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = WidgetActivityCoordinatePlaneFeatures()
+        pointsTappable = try container.decodeIfPresent(Bool.self, forKey: .pointsTappable) ?? defaults.pointsTappable
+        pointsDraggable = try container.decodeIfPresent(Bool.self, forKey: .pointsDraggable) ?? defaults.pointsDraggable
+        linesEnabled = try container.decodeIfPresent(Bool.self, forKey: .linesEnabled) ?? defaults.linesEnabled
+        segmentsEnabled = try container.decodeIfPresent(Bool.self, forKey: .segmentsEnabled) ?? defaults.segmentsEnabled
+        raysEnabled = try container.decodeIfPresent(Bool.self, forKey: .raysEnabled) ?? defaults.raysEnabled
+        parabolasEnabled = try container.decodeIfPresent(Bool.self, forKey: .parabolasEnabled) ?? defaults.parabolasEnabled
+        labelsVisible = try container.decodeIfPresent(Bool.self, forKey: .labelsVisible) ?? defaults.labelsVisible
+        snapToGrid = try container.decodeIfPresent(Bool.self, forKey: .snapToGrid) ?? defaults.snapToGrid
     }
 }
 
@@ -423,6 +1005,8 @@ enum WidgetActivityValidator {
                     questionLabel: questionLabel
                 ))
             }
+
+            errors.append(contentsOf: validateInteractiveParts(question.interactiveParts, questionLabel: questionLabel))
         }
 
         return errors
@@ -503,8 +1087,185 @@ enum WidgetActivityValidator {
             if correctCount == 1 {
                 errors.append(contentsOf: validateNumericAnswer(for: question, questionLabel: questionLabel))
             }
+
+            errors.append(contentsOf: validateInteractiveParts(question.interactiveParts, questionLabel: questionLabel))
         }
 
+        return errors
+    }
+
+    private static func validateInteractiveParts(
+        _ parts: [WidgetActivityInteractivePart],
+        questionLabel: String
+    ) -> [String] {
+        var errors: [String] = []
+        var partIDs = Set<String>()
+
+        for (partIndex, part) in parts.enumerated() {
+            let trimmedID = part.id.trimmingCharacters(in: .whitespacesAndNewlines)
+            let partLabel = trimmedID.isEmpty ? "interactive part \(partIndex + 1)" : "interactive part '\(trimmedID)'"
+            if trimmedID.isEmpty {
+                errors.append("\(questionLabel) interactive part \(partIndex + 1) needs an id.")
+            } else if !partIDs.insert(trimmedID).inserted {
+                errors.append("\(questionLabel) has duplicate interactive part id '\(trimmedID)'.")
+            }
+
+            switch part {
+            case .numberLine(let numberLine):
+                errors.append(contentsOf: validateNumberLine(numberLine, questionLabel: questionLabel, partLabel: partLabel))
+            case .coordinatePlane(let coordinatePlane):
+                errors.append(contentsOf: validateCoordinatePlane(coordinatePlane, questionLabel: questionLabel, partLabel: partLabel))
+            }
+        }
+
+        return errors
+    }
+
+    private static func validateNumberLine(
+        _ part: WidgetActivityNumberLinePart,
+        questionLabel: String,
+        partLabel: String
+    ) -> [String] {
+        var errors: [String] = []
+        let domain = part.domain
+        if !domain.min.isFinite || !domain.max.isFinite || !domain.step.isFinite {
+            errors.append("\(questionLabel) \(partLabel) numberLine domain values must be finite.")
+        }
+        if domain.min >= domain.max {
+            errors.append("\(questionLabel) \(partLabel) numberLine domain min must be less than max.")
+        }
+        if domain.step <= 0 {
+            errors.append("\(questionLabel) \(partLabel) numberLine step must be greater than 0.")
+        }
+        if domain.max > domain.min, domain.step > 0, ((domain.max - domain.min) / domain.step) > 200 {
+            errors.append("\(questionLabel) \(partLabel) numberLine domain is too dense; use 200 ticks or fewer.")
+        }
+        if part.features.pointHasRay, part.features.raysEnabled == false {
+            errors.append("\(questionLabel) \(partLabel) numberLine pointHasRay requires raysEnabled.")
+        }
+        if let maxPoints = part.features.maxPoints, maxPoints <= 0 {
+            errors.append("\(questionLabel) \(partLabel) numberLine maxPoints must be greater than 0.")
+        }
+        if let initialResponse = part.initialResponse {
+            errors.append(contentsOf: validateNumberLineGraph(
+                initialResponse,
+                domain: domain,
+                features: part.features,
+                questionLabel: questionLabel,
+                partLabel: partLabel,
+                graphLabel: "initialResponse",
+                requiresNonEmpty: false
+            ))
+        }
+        if let answer = part.answer {
+            errors.append(contentsOf: validateNumberLineGraph(
+                answer,
+                domain: domain,
+                features: part.features,
+                questionLabel: questionLabel,
+                partLabel: partLabel,
+                graphLabel: "answer",
+                requiresNonEmpty: true
+            ))
+        }
+        return errors
+    }
+
+    private static func validateNumberLineGraph(
+        _ graph: WidgetActivityNumberLineAnswer,
+        domain: WidgetActivityNumberLineDomain,
+        features: WidgetActivityNumberLineFeatures,
+        questionLabel: String,
+        partLabel: String,
+        graphLabel: String,
+        requiresNonEmpty: Bool
+    ) -> [String] {
+        var errors: [String] = []
+        if requiresNonEmpty && graph.isEmpty {
+            errors.append("\(questionLabel) \(partLabel) numberLine \(graphLabel) must include at least one point, ray, or segment.")
+        }
+        for point in graph.selectedPoints {
+            if !isNumberLineValueInDomain(point, domain: domain) {
+                errors.append("\(questionLabel) \(partLabel) numberLine \(graphLabel) point \(formattedAuditValue(point)) must be inside the domain.")
+            }
+        }
+        for point in graph.points {
+            if !isNumberLineValueInDomain(point.value, domain: domain) {
+                errors.append("\(questionLabel) \(partLabel) numberLine \(graphLabel) point \(formattedAuditValue(point.value)) must be inside the domain.")
+            }
+            if point.isClosed == false && features.openClosedEndpoints == false {
+                errors.append("\(questionLabel) \(partLabel) numberLine \(graphLabel) includes an open point, but openClosedEndpoints is false.")
+            }
+        }
+        for ray in graph.rays {
+            if !isNumberLineValueInDomain(ray.endpoint, domain: domain) {
+                errors.append("\(questionLabel) \(partLabel) numberLine \(graphLabel) ray endpoint \(formattedAuditValue(ray.endpoint)) must be inside the domain.")
+            }
+            if let visualEndValue = ray.visualEndValue {
+                if !isNumberLineValueInDomain(visualEndValue, domain: domain) {
+                    errors.append("\(questionLabel) \(partLabel) numberLine \(graphLabel) ray visualEndValue \(formattedAuditValue(visualEndValue)) must be inside the domain.")
+                }
+                if ray.direction == .left, visualEndValue > ray.endpoint {
+                    errors.append("\(questionLabel) \(partLabel) numberLine \(graphLabel) left ray visualEndValue must be less than or equal to its endpoint.")
+                }
+                if ray.direction == .right, visualEndValue < ray.endpoint {
+                    errors.append("\(questionLabel) \(partLabel) numberLine \(graphLabel) right ray visualEndValue must be greater than or equal to its endpoint.")
+                }
+            }
+            if features.raysEnabled == false {
+                errors.append("\(questionLabel) \(partLabel) numberLine \(graphLabel) includes a ray, but raysEnabled is false.")
+            }
+            if ray.isClosed == false && features.openClosedEndpoints == false {
+                errors.append("\(questionLabel) \(partLabel) numberLine \(graphLabel) includes an open ray endpoint, but openClosedEndpoints is false.")
+            }
+        }
+        for segment in graph.segments {
+            if !isNumberLineValueInDomain(segment.start, domain: domain) || !isNumberLineValueInDomain(segment.end, domain: domain) {
+                errors.append("\(questionLabel) \(partLabel) numberLine \(graphLabel) segment endpoints must be inside the domain.")
+            }
+            if segment.start == segment.end {
+                errors.append("\(questionLabel) \(partLabel) numberLine \(graphLabel) segment endpoints must be different.")
+            }
+            if features.segmentsEnabled == false {
+                errors.append("\(questionLabel) \(partLabel) numberLine \(graphLabel) includes a segment, but segmentsEnabled is false.")
+            }
+            if (segment.startClosed == false || segment.endClosed == false) && features.openClosedEndpoints == false {
+                errors.append("\(questionLabel) \(partLabel) numberLine \(graphLabel) includes an open segment endpoint, but openClosedEndpoints is false.")
+            }
+        }
+        return errors
+    }
+
+    private static func isNumberLineValueInDomain(_ value: Double, domain: WidgetActivityNumberLineDomain) -> Bool {
+        value.isFinite && value >= domain.min && value <= domain.max
+    }
+
+    private static func validateCoordinatePlane(
+        _ part: WidgetActivityCoordinatePlanePart,
+        questionLabel: String,
+        partLabel: String
+    ) -> [String] {
+        var errors: [String] = []
+        let domain = part.domain
+        let values = [domain.xMin, domain.xMax, domain.yMin, domain.yMax, domain.xStep, domain.yStep]
+        if values.contains(where: { !$0.isFinite }) {
+            errors.append("\(questionLabel) \(partLabel) coordinatePlane domain values must be finite.")
+        }
+        if domain.xMin >= domain.xMax {
+            errors.append("\(questionLabel) \(partLabel) coordinatePlane xMin must be less than xMax.")
+        }
+        if domain.yMin >= domain.yMax {
+            errors.append("\(questionLabel) \(partLabel) coordinatePlane yMin must be less than yMax.")
+        }
+        if domain.xStep <= 0 || domain.yStep <= 0 {
+            errors.append("\(questionLabel) \(partLabel) coordinatePlane steps must be greater than 0.")
+        }
+        if domain.xMax > domain.xMin, domain.xStep > 0, ((domain.xMax - domain.xMin) / domain.xStep) > 200 {
+            errors.append("\(questionLabel) \(partLabel) coordinatePlane x-axis is too dense; use 200 ticks or fewer.")
+        }
+        if domain.yMax > domain.yMin, domain.yStep > 0, ((domain.yMax - domain.yMin) / domain.yStep) > 200 {
+            errors.append("\(questionLabel) \(partLabel) coordinatePlane y-axis is too dense; use 200 ticks or fewer.")
+        }
         return errors
     }
 

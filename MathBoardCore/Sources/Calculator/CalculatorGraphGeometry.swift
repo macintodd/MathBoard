@@ -63,8 +63,10 @@ public enum CalculatorGraphGeometry {
         return GraphWindow(
             xMin: window.xMin - dx,
             xMax: window.xMax - dx,
+            xScl: window.xScl,
             yMin: window.yMin + dy,
-            yMax: window.yMax + dy
+            yMax: window.yMax + dy,
+            yScl: window.yScl
         )
     }
 
@@ -93,7 +95,7 @@ public enum CalculatorGraphGeometry {
         (newXMin, newXMax) = clampSpan(min: newXMin, max: newXMax, focal: Double(focal.x))
         (newYMin, newYMax) = clampSpan(min: newYMin, max: newYMax, focal: Double(focal.y))
 
-        return GraphWindow(xMin: newXMin, xMax: newXMax, yMin: newYMin, yMax: newYMax)
+        return GraphWindow(xMin: newXMin, xMax: newXMax, xScl: window.xScl, yMin: newYMin, yMax: newYMax, yScl: window.yScl)
     }
 
     private static func clampSpan(min lo: Double, max hi: Double, focal: Double) -> (Double, Double) {

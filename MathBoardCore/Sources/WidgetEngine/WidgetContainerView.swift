@@ -83,6 +83,9 @@ public struct WidgetContainerView: View {
     private let onInteractionChanged: ((Bool) -> Void)?
     private let onDisplayFrameChanged: ((CGRect?) -> Void)?
     private let onMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)?
+    private let gearConfiguration: WidgetGearConfiguration?
+
+    @Environment(\.widgetSubmit) private var widgetSubmit
 
     /// Live frame, seeded from `widget.frame`. This is the single source of
     /// truth for position and size while the object floats on the board.
@@ -111,7 +114,8 @@ public struct WidgetContainerView: View {
         onDeleteWidget: (() -> Void)? = nil,
         onInteractionChanged: ((Bool) -> Void)? = nil,
         onDisplayFrameChanged: ((CGRect?) -> Void)? = nil,
-        onMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)? = nil
+        onMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)? = nil,
+        gearConfiguration: WidgetGearConfiguration? = nil
     ) {
         _widget = widget
         self.scoreSheet = scoreSheet
@@ -121,6 +125,7 @@ public struct WidgetContainerView: View {
         self.onInteractionChanged = onInteractionChanged
         self.onDisplayFrameChanged = onDisplayFrameChanged
         self.onMathInputRequested = onMathInputRequested
+        self.gearConfiguration = gearConfiguration
         _frame = State(initialValue: widget.wrappedValue.frame)
         _committedOrigin = State(initialValue: widget.wrappedValue.frame.origin)
         _committedSize = State(initialValue: widget.wrappedValue.frame.size)
@@ -135,6 +140,7 @@ public struct WidgetContainerView: View {
         self.onInteractionChanged = nil
         self.onDisplayFrameChanged = nil
         self.onMathInputRequested = nil
+        self.gearConfiguration = nil
         _frame = State(initialValue: widget.frame)
         _committedOrigin = State(initialValue: widget.frame.origin)
         _committedSize = State(initialValue: widget.frame.size)
@@ -192,11 +198,38 @@ public struct WidgetContainerView: View {
                 scoreSheet: scoreSheet,
                 onEditWidget: onEditWidget,
                 onMathInputRequested: onMathInputRequested,
+                gearConfiguration: effectiveGearConfiguration(for: document),
                 runtimeState: activityRuntimeStateBinding(for: document)
             )
         } else {
             WidgetWebView(htmlString: widget.codeString)
         }
+    }
+
+    private func effectiveGearConfiguration(for document: ActivityWidgetDocument) -> WidgetGearConfiguration {
+        let widgetBinding = $widget
+        let widgetID = widget.id
+        var config = gearConfiguration ?? WidgetGearConfiguration(questionCount: document.questions.count)
+        config.questionCount = document.questions.count
+        config.tags = widget.tags
+        config.requiresStudentWork = widget.requiresStudentWork
+        if config.onTagsChanged == nil {
+            config.onTagsChanged = { newTags in
+                widgetBinding.wrappedValue.tags = newTags
+            }
+        }
+        if config.onRequiresStudentWorkChanged == nil {
+            config.onRequiresStudentWorkChanged = { value in
+                widgetBinding.wrappedValue.requiresStudentWork = value
+            }
+        }
+        if let widgetSubmit {
+            config.isWidgetSubmitted = widgetSubmit.isWidgetSubmitted(widgetID)
+            config.isWidgetReset = widgetSubmit.isWidgetReset(widgetID)
+            config.onSubmitWidget = { widgetSubmit.onSubmitWidget(widgetID) }
+            config.onResetAfterSubmit = { widgetSubmit.onResetAfterSubmit(widgetID) }
+        }
+        return config
     }
 
     @ViewBuilder

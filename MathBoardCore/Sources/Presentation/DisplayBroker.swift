@@ -86,6 +86,10 @@ public final class DisplayBroker {
     /// interaction; the external display renders this same state read-only.
     public var graphCalculator = GraphCalculatorState()
     public var isGraphCalculatorVisible = false
+    /// Callback registered by PresentingCanvasView so that a GraphCalculatorView
+    /// rendered at a higher z-level (e.g. LessonDetailView) can still insert
+    /// graph snapshots onto the canvas.
+    public var graphSnapshotHandler: (@MainActor (GraphCalculatorSnapshot) -> Void)?
 
     /// Visual state for the custom radial palette while Phase 1 integration is
     /// still display-only. The iPad owns interaction; the external display reads

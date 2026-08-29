@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 2,
+  "widgetId": "inequality-match-number-line-level-1",
+  "activity": "multipleChoice",
+  "title": "Inequality Match",
+  "description": "Match a number-line graph to its algebraic inequality.",
+  "learningObjective": "Students identify the algebraic inequality represented by a number-line ray.",
+  "difficulty": "easy",
+  "presentation": {
+    "preferredTheme": "cleanClassroom",
+    "preferredExperience": "paperQuiz"
+  },
+  "rules": {
+    "scoreMode": "correctOutOfAttempted",
+    "advanceMode": "manual",
+    "allowRetry": true,
+    "shuffleQuestions": false,
+    "shuffleChoices": false,
+    "maxAttemptsPerQuestion": 2,
+    "calculatorAllowed": false
+  },
+  "feedback": {
+    "defaultCorrect": "Correct. The graph shows the endpoint and direction of the solution set.",
+    "defaultIncorrect": "Not yet. Check whether the endpoint is open or closed and which direction is shaded.",
+    "defaultEncouragement": "Open endpoints use < or >. Closed endpoints use \\le or \\ge."
+  },
+  "questions": [
+    {
+      "id": "q1",
+      "prompt": "Which inequality matches the graph?",
+      "expression": "x > 2",
+      "interactiveParts": [
+        {
+          "type": "numberLine",
+          "id": "graph-q1",
+          "domain": { "min": -6, "max": 6, "step": 1 },
+          "features": {
+            "raysEnabled": true,
+            "openClosedEndpoints": true,
+            "labelsVisible": true,
+            "snapToTicks": true
+          },
+          "initialResponse": "linearGraphUtility{x>2}"
+        }
+      ],
+      "choices": [
+        { "id": "a", "label": "x > 2", "isCorrect": true },
+        { "id": "b", "label": "x \\ge 2", "isCorrect": false },
+        { "id": "c", "label": "x < 2", "isCorrect": false },
+        { "id": "d", "label": "x \\le 2", "isCorrect": false }
+      ],
+      "hints": [
+        "The circle at 2 is open.",
+        "The arrow points to values greater than 2."
+      ],
+      "correctFeedback": "Yes. Open circle and shading right means x > 2.",
+      "incorrectFeedback": "Check the endpoint and the direction of the ray."
+    },
+    {
+      "id": "q2",
+      "prompt": "Which inequality matches the graph?",
+      "expression": "x \\le -3",
+      "interactiveParts": [
+        {
+          "type": "numberLine",
+          "id": "graph-q2",
+          "domain": { "min": -8, "max": 4, "step": 1 },
+          "features": {
+            "raysEnabled": true,
+            "openClosedEndpoints": true,
+            "labelsVisible": true,
+            "snapToTicks": true
+          },
+          "initialResponse": "linearGraphUtility{x<=-3}"
+        }
+      ],
+      "choices": [
+        { "id": "a", "label": "x < -3", "isCorrect": false },
+        { "id": "b", "label": "x \\le -3", "isCorrect": true },
+        { "id": "c", "label": "x > -3", "isCorrect": false },
+        { "id": "d", "label": "x \\ge -3", "isCorrect": false }
+      ],
+      "hints": [
+        "The endpoint at -3 is closed.",
+        "The ray points left, so the solutions are less than or equal to -3."
+      ],
+      "correctFeedback": "Correct. Closed endpoint and shading left means x \\le -3.",
+      "incorrectFeedback": "Use the closed endpoint to decide whether equality is included."
+    }
+  ]
+}

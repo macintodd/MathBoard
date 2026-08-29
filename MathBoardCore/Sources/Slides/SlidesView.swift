@@ -593,7 +593,11 @@ public struct SlidesView: View {
         for slide in store.slides {
             guard let snapshot = latestSnapshots[slide.id] else { continue }
             do {
-                try snapshot.snapshot.write(to: store.drawingURL(for: slide))
+                // Preserve widgets.json during initial merge: student owns their own widget
+                // runtime states and the teacher's snapshot never includes widgets.json
+                // (stripped at publish time), but write(to:) would delete it because it's
+                // in sidecarFileNames and absent from the snapshot's sidecarFiles list.
+                try snapshot.snapshot.write(to: store.drawingURL(for: slide), preserving: ["widgets.json"])
             } catch {
                 print("[Slides] initial teacher object merge error: \(error)")
             }
@@ -654,11 +658,15 @@ public struct SlidesView: View {
     private func publishTeacherObjectSnapshot(for slide: SlideMetadata) {
         let revision = nextLiveRevision(after: objectSnapshotRevisionsBySlideID[slide.id] ?? 0)
         objectSnapshotRevisionsBySlideID[slide.id] = revision
-        let snapshot = CanvasObjectSnapshot.capture(
+        var snapshot = CanvasObjectSnapshot.capture(
             slideID: slide.id,
             drawingURL: canvasDrawingURL(for: slide),
             revision: revision
         )
+        // Widget runtime states (student answers) are owned per-device.
+        // Strip widgets.json so the teacher's in-progress answers never
+        // overwrite a student's widget state via the object snapshot channel.
+        snapshot.sidecarFiles.removeAll { $0.name == "widgets.json" }
         liveTeacherInkCoordinator.publishTeacherObjectSnapshot(snapshot, slideID: slide.id, revision: revision)
     }
 
@@ -859,7 +867,12 @@ public struct SlidesView: View {
         }
 
         do {
-            try snapshot.snapshot.write(to: canvasDrawingURL(for: slide))
+            // Preserve widgets.json: students own their widget runtime states.
+            // write(to:preserving:) skips both deletion and overwrite of the listed
+            // files, so the student's in-progress widget answers are never touched
+            // by the teacher's snapshot — even if an old snapshot still contains
+            // a widgets.json from before this fix was deployed.
+            try snapshot.snapshot.write(to: canvasDrawingURL(for: slide), preserving: ["widgets.json"])
             print("[Slides] applied teacher object snapshot slide=\(slide.id) revision=\(snapshot.revision) sidecars=\(snapshot.snapshot.sidecarFiles.count) imageAssets=\(snapshot.snapshot.imageAssetFiles.count)")
             if activeSlide?.id == slide.id {
                 objectStateReloadCommand = CanvasObjectCommand(.reloadObjectState)

@@ -20,6 +20,7 @@ struct CalculatorFullKeypadView: View {
     @Bindable var state: CalculatorState
 
     var showsHeader = false
+    var showsKeyHighlight = false
     var keyAction: (CalculatorKeyAction) -> Void = { _ in }
     var graphAction: () -> Void = {}
     var equationAction: () -> Void = {}
@@ -27,6 +28,13 @@ struct CalculatorFullKeypadView: View {
     var mathAction: () -> Void = {}
     var statAction: () -> Void = {}
     var navigationAction: (CalculatorKeypadDirection) -> Void = { _ in }
+    var windowAction: () -> Void = {}
+    var traceAction: () -> Void = {}
+    var tableAction: () -> Void = {}
+    var storeVarAction: () -> Void = {}
+    var quitAction: () -> Void = {}
+    var tblSetAction: () -> Void = {}
+    var calcAction: () -> Void = {}
 
     static let keyW: CGFloat = 46
     static let keyH: CGFloat = 40
@@ -129,6 +137,9 @@ struct CalculatorFullKeypadView: View {
     }
 
     private func keyFill(for key: FullKey) -> Color {
+        if showsKeyHighlight, state.lastPressedKeyLabel == key.label {
+            return .pink
+        }
         if state.isSecondActive, key.secondCommand != nil {
             return CalculatorTheme.keypadBlue.opacity(0.85)
         }
@@ -139,6 +150,8 @@ struct CalculatorFullKeypadView: View {
     }
 
     private func handle(_ key: FullKey) {
+        state.lastPressedKeyLabel = key.label
+
         if state.isAlphaActive, let alpha = key.alpha {
             keyAction(.insert(alpha))
             state.isAlphaActive = false
@@ -171,6 +184,20 @@ struct CalculatorFullKeypadView: View {
         case .alpha:
             state.isAlphaActive.toggle()
             state.isSecondActive = false
+        case .window:
+            windowAction()
+        case .trace:
+            traceAction()
+        case .table:
+            tableAction()
+        case .storeVar:
+            storeVarAction()
+        case .quit:
+            quitAction()
+        case .tblSet:
+            tblSetAction()
+        case .calc:
+            calcAction()
         case .noop:
             break
         }
@@ -200,12 +227,29 @@ struct CalculatorFullKeypadView: View {
         .frame(width: blockW, height: blockH)
     }
 
+    private func dirLabel(_ direction: CalculatorKeypadDirection) -> String {
+        switch direction {
+        case .up:    return "dir.up"
+        case .down:  return "dir.down"
+        case .left:  return "dir.left"
+        case .right: return "dir.right"
+        }
+    }
+
     private func directionKey(_ systemName: String, _ direction: CalculatorKeypadDirection) -> some View {
-        Button { navigationAction(direction) } label: {
+        let label = dirLabel(direction)
+        let isHighlighted = showsKeyHighlight && state.lastPressedKeyLabel == label
+        return Button {
+            state.lastPressedKeyLabel = label
+            navigationAction(direction)
+        } label: {
             Image(systemName: systemName)
                 .font(.system(size: 13, weight: .bold))
         }
-        .buttonStyle(CalculatorKeyButtonStyle(fill: CalculatorTheme.keyFill(for: .modifier), minHeight: 30))
+        .buttonStyle(CalculatorKeyButtonStyle(
+            fill: isHighlighted ? .pink : CalculatorTheme.keyFill(for: .modifier),
+            minHeight: 30
+        ))
         .frame(width: 32, height: 30)
     }
 
@@ -229,6 +273,13 @@ struct CalculatorFullKeypadView: View {
         case navigate(CalculatorKeypadDirection)
         case angle
         case alpha
+        case window
+        case trace
+        case table
+        case storeVar
+        case quit
+        case tblSet
+        case calc
         case noop
     }
 
@@ -274,15 +325,15 @@ struct CalculatorFullKeypadView: View {
 
     private static let topFunctionRow: [FullKey] = [
         cmd("y=", .equation, .function, second: "statplot"),
-        dec("window", second: "tblset"),
+        cmd("window", .window, .function, second: "tblset", secondCommand: .tblSet),
         cmd("zoom", .zoom, .function, second: "format"),
-        dec("trace", second: "calc", alpha: "F4"),
-        cmd("graph", .graph, .action, second: "table")
+        cmd("trace", .trace, .function, second: "calc", secondCommand: .calc, alpha: "F4"),
+        cmd("graph", .graph, .action, second: "table", secondCommand: .table)
     ]
 
     private static let leftClusterRow1: [FullKey] = [
         act("2nd", .toggleSecond, .modifier, fill: CalculatorTheme.keypadBlue),
-        cmd("mode", .angle, .modifier, second: "quit"),
+        cmd("mode", .angle, .modifier, second: "quit", secondCommand: .quit),
         act("del", .deleteBackward, .action, second: "ins")
     ]
 
@@ -298,8 +349,8 @@ struct CalculatorFullKeypadView: View {
         [act("x²", .insert("^2"), .function, second: "√", secondAction: .insert("sqrt(")), act(",", .insert(","), .function, second: "EE", secondAction: .insert("e")), act("(", .insert("("), .function, second: "{"), act(")", .insert(")"), .function, second: "}"), act("÷", .insert("/"), .operator, second: "e", secondAction: .insert("e"))],
         [act("log", .insert("log("), .function, second: "10ˣ", secondAction: .insert("10^(")), digit("7", second: "u"), digit("8", second: "v"), digit("9", second: "w"), act("×", .insert("*"), .operator, second: "[")],
         [act("ln", .insert("ln("), .function, second: "eˣ", secondAction: .insert("e^(")), digit("4", second: "L4"), digit("5", second: "L5"), digit("6", second: "L6"), act("−", .insert("-"), .operator, second: "]")],
-        [dec("sto→", second: "rcl"), digit("1", second: "L1"), digit("2", second: "L2"), digit("3", second: "L3"), act("+", .insert("+"), .operator, second: "mem")],
-        [dec("on", second: "off"), digit("0", second: "catalog"), act(".", .insert("."), .digit, second: "i"), act("(−)", .insert("-"), .operator, second: "ans", secondAction: .insert("ans")), act("enter", .evaluate, .action, second: "entry")]
+        [cmd("sto→", .storeVar, .function, second: "rcl"), digit("1", second: "L1"), digit("2", second: "L2"), digit("3", second: "L3"), act("+", .insert("+"), .operator, second: "mem")],
+        [dec("on", second: "off"), digit("0", second: "catalog"), act(".", .insert("."), .digit, second: "i", secondAction: .insert("i")), act("(−)", .insert("-"), .operator, second: "ans", secondAction: .insert("ans")), act("enter", .evaluate, .action, second: "entry")]
     ]
 }
 

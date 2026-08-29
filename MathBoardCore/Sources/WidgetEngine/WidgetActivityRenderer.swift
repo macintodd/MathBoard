@@ -14,6 +14,7 @@ struct WidgetActivityRenderer: View {
     var scoreSheet: WidgetActivityScoreSheet?
     var onEditWidget: (() -> Void)?
     var onMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)?
+    var gearConfiguration: WidgetGearConfiguration?
     private var runtimeStateBinding: Binding<WidgetActivityRuntimeState>?
     @State private var localRuntimeState: WidgetActivityRuntimeState
 
@@ -24,6 +25,7 @@ struct WidgetActivityRenderer: View {
         scoreSheet: WidgetActivityScoreSheet? = nil,
         onEditWidget: (() -> Void)? = nil,
         onMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)? = nil,
+        gearConfiguration: WidgetGearConfiguration? = nil,
         runtimeState: Binding<WidgetActivityRuntimeState>? = nil
     ) {
         self.document = document
@@ -32,11 +34,13 @@ struct WidgetActivityRenderer: View {
         self.scoreSheet = scoreSheet
         self.onEditWidget = onEditWidget
         self.onMathInputRequested = onMathInputRequested
+        self.gearConfiguration = gearConfiguration
         self.runtimeStateBinding = runtimeState
         _localRuntimeState = State(
             initialValue: WidgetActivityRuntimeState(
                 multipleChoice: WidgetMultipleChoiceRuntimeState.initial(for: document),
-                fillInTheBlank: WidgetFillInTheBlankRuntimeState.initial(for: document)
+                fillInTheBlank: WidgetFillInTheBlankRuntimeState.initial(for: document),
+                interactiveParts: WidgetInteractivePartsRuntimeState()
             )
         )
     }
@@ -55,19 +59,23 @@ struct WidgetActivityRenderer: View {
             MultipleChoiceActivityView(
                 document: document,
                 runtimeState: activityRuntimeState.multipleChoice,
+                interactivePartsRuntimeState: activityRuntimeState.interactiveParts,
                 scoreSheet: scoreSheet,
                 onEditWidget: onEditWidget,
                 theme: resolvedTheme,
-                experience: experienceOverride ?? document.presentation?.preferredExperience
+                experience: experienceOverride ?? document.presentation?.preferredExperience,
+                gearConfiguration: gearConfiguration
             )
         case .fillInTheBlank:
             FillInTheBlankActivityView(
                 document: document,
                 runtimeState: activityRuntimeState.fillInTheBlank,
+                interactivePartsRuntimeState: activityRuntimeState.interactiveParts,
                 scoreSheet: scoreSheet,
                 onEditWidget: onEditWidget,
                 theme: resolvedTheme,
-                onMathInputRequested: onMathInputRequested
+                onMathInputRequested: onMathInputRequested,
+                gearConfiguration: gearConfiguration
             )
         }
     }
@@ -106,10 +114,12 @@ struct WidgetActivityValidationView: View {
 private struct MultipleChoiceActivityView: View {
     let document: ActivityWidgetDocument
     @Binding var runtimeState: WidgetMultipleChoiceRuntimeState
+    @Binding var interactivePartsRuntimeState: WidgetInteractivePartsRuntimeState
     let scoreSheet: WidgetActivityScoreSheet?
     let onEditWidget: (() -> Void)?
     let theme: WidgetActivityVisualTheme
     let experience: WidgetActivityExperience?
+    let gearConfiguration: WidgetGearConfiguration?
 
     @State private var celebrate = false
     @State private var shake = false
@@ -123,21 +133,26 @@ private struct MultipleChoiceActivityView: View {
     @State private var questionRevealToken = UUID()
     @State private var revealedQuestionID: String?
     @State private var isNextButtonHighlighted = false
+    @State private var retryStartedQuestionIDs: Set<String> = []
 
     init(
         document: ActivityWidgetDocument,
         runtimeState: Binding<WidgetMultipleChoiceRuntimeState>,
+        interactivePartsRuntimeState: Binding<WidgetInteractivePartsRuntimeState>,
         scoreSheet: WidgetActivityScoreSheet? = nil,
         onEditWidget: (() -> Void)? = nil,
         theme: WidgetActivityVisualTheme,
-        experience: WidgetActivityExperience? = nil
+        experience: WidgetActivityExperience? = nil,
+        gearConfiguration: WidgetGearConfiguration? = nil
     ) {
         self.document = document
         _runtimeState = runtimeState
+        _interactivePartsRuntimeState = interactivePartsRuntimeState
         self.scoreSheet = scoreSheet
         self.onEditWidget = onEditWidget
         self.theme = theme
         self.experience = experience
+        self.gearConfiguration = gearConfiguration
     }
 
     private var currentQuestionIndex: Int {
@@ -263,6 +278,26 @@ private struct MultipleChoiceActivityView: View {
         }
     }
 
+    private var usesCheckOnlyInteractiveAnswer: Bool {
+        guard let currentQuestion else { return false }
+        return currentQuestionHasScorableInteractiveAnswer(currentQuestion)
+            && currentQuestion.choices.contains { $0.isCorrect }
+    }
+
+    private var checkOnlyChoiceID: String? {
+        guard usesCheckOnlyInteractiveAnswer else { return nil }
+        return currentQuestion?.choices.first(where: { $0.isCorrect })?.id
+    }
+
+    private func currentQuestionHasScorableInteractiveAnswer(_ question: WidgetActivityQuestion) -> Bool {
+        question.interactiveParts.contains { part in
+            if case .numberLine(let numberLine) = part {
+                return numberLine.answer != nil
+            }
+            return false
+        }
+    }
+
     private var progressValue: Double {
         guard !document.questions.isEmpty else { return 0 }
         return Double(answeredQuestionIDs.count) / Double(document.questions.count)
@@ -319,7 +354,10 @@ private struct MultipleChoiceActivityView: View {
     }
 
     private var currentScoreRecord: WidgetActivityScoreRecord {
-        runtimeState.scoreRecord(for: document)
+        interactivePartsRuntimeState.combinedScoreRecord(
+            base: runtimeState.scoreRecord(for: document),
+            document: document
+        )
     }
 
     private var fileScoreSheet: WidgetActivityScoreSheet {
@@ -334,6 +372,7 @@ private struct MultipleChoiceActivityView: View {
         guard let currentQuestion else { return false }
         guard !flow.isShowingFinalScore else { return false }
         guard !isReviewingAnswers else { return false }
+        guard !flow.isRetryingMissed else { return false }
         return hintLevel < currentQuestion.hints.count
     }
 
@@ -341,12 +380,14 @@ private struct MultipleChoiceActivityView: View {
         guard let currentQuestion else { return true }
         guard !flow.isShowingFinalScore else { return true }
         guard !isReviewingAnswers else { return true }
+
         if submittedChoiceID != nil {
             return true
         }
 
         if flow.isRetryingMissed {
-            return false
+            // Locked until the student explicitly presses Retry on this question.
+            return !retryStartedQuestionIDs.contains(currentQuestion.id)
         }
 
         if correctlyAnsweredQuestionIDs.contains(currentQuestion.id) {
@@ -357,7 +398,8 @@ private struct MultipleChoiceActivityView: View {
             return true
         }
 
-        if let maxAttempts = document.rules?.maxAttemptsPerQuestion,
+        let effectiveMaxAttempts = document.rules?.maxRetries.map { max(1, $0 + 1) } ?? document.rules?.maxAttemptsPerQuestion
+        if let maxAttempts = effectiveMaxAttempts,
            maxAttempts > 0,
            (questionAttempts[currentQuestion.id] ?? 0) >= maxAttempts {
             return true
@@ -532,8 +574,9 @@ private struct MultipleChoiceActivityView: View {
             equivalentFraction: equivalentAccuracyLabel,
             decimal: decimalAccuracyLabel,
             percent: percentAccuracyLabel,
-            bonus: bonusLabel,
-            points: pointsLabel,
+            numberCorrectFirstTry: runtimeState.numberCorrectFirstTry,
+            hasSubmittedScore: gearConfiguration?.isWidgetSubmitted ?? flow.hasSubmittedScore,
+            gearConfiguration: gearConfiguration,
             questionStarItems: questionStarItems,
             onSelectQuestion: navigateToQuestion,
             onShowFinalScore: showFinalScore,
@@ -552,7 +595,9 @@ private struct MultipleChoiceActivityView: View {
                 finalScorePanel
             } else {
                 questionCard
-                choiceGrid
+                if !usesCheckOnlyInteractiveAnswer {
+                    choiceGrid
+                }
                 controls
                 hintPanel
             }
@@ -620,25 +665,6 @@ private struct MultipleChoiceActivityView: View {
                 .buttonStyle(.bordered)
                 .tint(theme.accent)
                 .disabled(missedQuestionCount == 0)
-
-                Button {
-                    resetWidget()
-                } label: {
-                    Label("Reset", systemImage: "restart.circle")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .tint(theme.warning)
-
-                Button {
-                    submitCurrentScore()
-                } label: {
-                    Label(flow.hasSubmittedScore ? "Resubmit" : "Submit", systemImage: "paperplane.circle.fill")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(theme.accent)
-                .disabled(!isMathtivityComplete)
             }
         }
         .padding(18)
@@ -656,15 +682,15 @@ private struct MultipleChoiceActivityView: View {
 
     private var finalScoreMessage: String {
         if !isMathtivityComplete {
-            return "You have answered \(answeredQuestionIDs.count) of \(document.questions.count) questions. Finish the mathtivity before submitting."
+            return "You have answered \(answeredQuestionIDs.count) of \(document.questions.count) questions."
         }
         if flow.isRetryingMissed {
             return "Review missed questions, then come back to this screen."
         }
         if missedQuestionCount == 0 {
-            return flow.hasSubmittedScore ? "All questions are correct. Your score has been submitted." : "All questions are correct. Submit when ready."
+            return "All questions are correct."
         }
-        return "You missed \(missedQuestionCount) \(missedQuestionCount == 1 ? "question" : "questions"). Retry them or submit this score."
+        return "You missed \(missedQuestionCount) \(missedQuestionCount == 1 ? "question" : "questions")."
     }
 
     private func finalScoreMetric(title: String, value: String, tint: Color) -> some View {
@@ -721,6 +747,15 @@ private struct MultipleChoiceActivityView: View {
                     .offset(x: shake ? -8 : 0)
                     .animation(.spring(response: 0.25, dampingFraction: 0.45), value: celebrate)
                     .animation(.default.repeatCount(3, autoreverses: true), value: shake)
+            }
+
+            if let parts = currentQuestion?.interactiveParts, !parts.isEmpty {
+                WidgetActivityInteractivePartsView(
+                    parts: parts,
+                    runtimeState: $interactivePartsRuntimeState,
+                    theme: theme,
+                    isLocked: isCurrentQuestionLocked
+                )
             }
         }
     }
@@ -787,7 +822,15 @@ private struct MultipleChoiceActivityView: View {
     }
 
     private var canCheckAnswer: Bool {
-        guard !flow.isShowingFinalScore, !isReviewingAnswers, !isQuestionTyping, isExpressionRevealed, !isCurrentQuestionLocked, let selectedChoiceID else { return false }
+        guard !flow.isShowingFinalScore, !isReviewingAnswers, !isQuestionTyping, isExpressionRevealed, !isCurrentQuestionLocked else { return false }
+        if usesCheckOnlyInteractiveAnswer {
+            guard let currentQuestion else { return false }
+            return currentQuestion.interactiveParts.contains { part in
+                guard case .numberLine(let nl) = part, nl.answer != nil else { return false }
+                return !interactivePartsRuntimeState.response(for: nl.id).isEmpty || nl.initialResponse != nil
+            }
+        }
+        guard let selectedChoiceID else { return false }
         return selectedChoiceID != submittedChoiceID
     }
 
@@ -803,7 +846,56 @@ private struct MultipleChoiceActivityView: View {
 
     private var controls: some View {
         HStack(spacing: 10) {
-            if !isReviewingAnswers {
+            if flow.isRetryingMissed {
+                if retryStartedQuestionIDs.contains(currentQuestionID) {
+                    // Retry is underway: Check + Next (Next advances to next missed problem)
+                    Button {
+                        checkAnswer()
+                    } label: {
+                        Label("Check", systemImage: "checkmark.circle.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(theme.accent)
+                    .controlSize(.regular)
+                    .disabled(!canCheckAnswer)
+
+                    Button {
+                        nextQuestion()
+                    } label: {
+                        Label("Next", systemImage: "arrow.right.circle")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(WidgetNextButtonStyle(
+                        theme: theme,
+                        isEnabled: canAdvanceToNextQuestion,
+                        isHighlighted: isNextButtonHighlighted
+                    ))
+                    .controlSize(.regular)
+                    .disabled(!canAdvanceToNextQuestion)
+                } else {
+                    // Gate: Retry + Skip. Retry resets the graph and begins the attempt.
+                    Button {
+                        startRetryQuestion()
+                    } label: {
+                        Label("Retry", systemImage: "arrow.counterclockwise.circle.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(theme.accent)
+                    .controlSize(.regular)
+
+                    Button {
+                        skipRetryQuestion()
+                    } label: {
+                        Label("Skip", systemImage: "forward.circle")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(theme.warning)
+                    .controlSize(.regular)
+                }
+            } else if !isReviewingAnswers {
                 Button {
                     revealHint()
                 } label: {
@@ -826,33 +918,35 @@ private struct MultipleChoiceActivityView: View {
                 .tint(theme.accent)
                 .controlSize(.regular)
                 .disabled(!canCheckAnswer)
-            }
 
-            if flow.isRetryingMissed {
                 Button {
-                    skipRetryQuestion()
+                    nextQuestion()
                 } label: {
-                    Label("Skip", systemImage: "forward.circle")
+                    Label("Next", systemImage: "arrow.right.circle")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.bordered)
-                .tint(theme.warning)
+                .buttonStyle(WidgetNextButtonStyle(
+                    theme: theme,
+                    isEnabled: canAdvanceToNextQuestion,
+                    isHighlighted: isNextButtonHighlighted
+                ))
                 .controlSize(.regular)
+                .disabled(!canAdvanceToNextQuestion)
+            } else {
+                Button {
+                    nextQuestion()
+                } label: {
+                    Label("Next", systemImage: "arrow.right.circle")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(WidgetNextButtonStyle(
+                    theme: theme,
+                    isEnabled: canAdvanceToNextQuestion,
+                    isHighlighted: isNextButtonHighlighted
+                ))
+                .controlSize(.regular)
+                .disabled(!canAdvanceToNextQuestion)
             }
-
-            Button {
-                nextQuestion()
-            } label: {
-                Label("Next", systemImage: "arrow.right.circle")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(WidgetNextButtonStyle(
-                theme: theme,
-                isEnabled: canAdvanceToNextQuestion,
-                isHighlighted: isNextButtonHighlighted
-            ))
-            .controlSize(.regular)
-            .disabled(!canAdvanceToNextQuestion)
         }
         .onChange(of: nextButtonPressToken) { _, _ in
             pulseNextButton()
@@ -965,7 +1059,69 @@ private struct MultipleChoiceActivityView: View {
             return
         }
 
-        guard let selectedChoiceID else {
+        // Number-line interactive scoring: score the actual graph, not the auto-selected choice.
+        if usesCheckOnlyInteractiveAnswer {
+            let scorableParts = currentQuestion.interactiveParts.compactMap { part -> WidgetActivityNumberLinePart? in
+                guard case .numberLine(let nl) = part, nl.answer != nil else { return nil }
+                return nl
+            }
+            let effectiveResponse: (WidgetActivityNumberLinePart) -> WidgetNumberLineRuntimeResponse = { part in
+                let r = interactivePartsRuntimeState.response(for: part.id)
+                if r.isEmpty, let initial = part.initialResponse {
+                    return WidgetNumberLineRuntimeResponse(answer: initial)
+                }
+                return r
+            }
+            guard scorableParts.contains(where: { !effectiveResponse($0).isEmpty }) else {
+                feedbackKind = .warning
+                feedbackMessage = "Complete the graph first, then check it."
+                triggerShake()
+                return
+            }
+            let isCorrect = scorableParts.allSatisfy { part in
+                guard let answer = part.answer else { return false }
+                return effectiveResponse(part).matches(answer, step: part.domain.step)
+            }
+            attempts += 1
+            questionAttempts[currentQuestion.id, default: 0] += 1
+            if isCorrect {
+                if !correctlyAnsweredQuestionIDs.contains(currentQuestion.id) {
+                    score += 1
+                }
+                correctlyAnsweredQuestionIDs.insert(currentQuestion.id)
+                answeredQuestionIDs.insert(currentQuestion.id)
+                if let choiceID = checkOnlyChoiceID {
+                    selectedChoiceID = choiceID
+                    submittedChoiceID = choiceID
+                    var sc = submittedChoiceIDsByQuestionID
+                    sc[currentQuestion.id] = choiceID
+                    submittedChoiceIDsByQuestionID = sc
+                }
+                streak += 1
+                longestStreak = max(longestStreak, streak)
+                feedbackKind = .correct
+                feedbackMessage = currentQuestion.correctFeedback
+                    ?? document.feedback?.defaultCorrect
+                    ?? "Correct. Great work!"
+                triggerCelebration()
+                triggerMeterFlashSequence()
+                scheduleAdvanceIfNeeded(correct: true)
+            } else {
+                streak = 0
+                feedbackKind = .incorrect
+                feedbackMessage = currentQuestion.incorrectFeedback
+                    ?? document.feedback?.defaultIncorrect
+                    ?? document.feedback?.defaultEncouragement
+                    ?? "Not quite. Revise your graph and try again."
+                triggerShake()
+                // Lock the question so the student must press Next; it will appear in Retry Missed.
+                answeredQuestionIDs.insert(currentQuestion.id)
+                scheduleAdvanceIfNeeded(correct: false)
+            }
+            return
+        }
+
+        guard let selectedChoiceID = selectedChoiceID else {
             feedbackKind = .warning
             feedbackMessage = "Pick one answer first, then check it."
             triggerShake()
@@ -978,6 +1134,8 @@ private struct MultipleChoiceActivityView: View {
             triggerShake()
             return
         }
+
+        self.selectedChoiceID = choice.id
 
         let alreadyAnswered = answeredQuestionIDs.contains(currentQuestion.id)
         if alreadyAnswered && !allowRetry {
@@ -1069,6 +1227,7 @@ private struct MultipleChoiceActivityView: View {
             hasSubmittedScore: submittedState.hasSubmittedScore,
             submittedRecord: submittedState.submittedRecord
         )
+        interactivePartsRuntimeState = WidgetInteractivePartsRuntimeState()
         feedbackKind = .neutral
         feedbackMessage = nil
         celebrate = false
@@ -1077,6 +1236,7 @@ private struct MultipleChoiceActivityView: View {
         answeredQuestionIDs = []
         correctlyAnsweredQuestionIDs = []
         questionAttempts = [:]
+        retryStartedQuestionIDs = []
         showsScoreSheet = false
         startQuestionReveal(force: true)
     }
@@ -1112,6 +1272,7 @@ private struct MultipleChoiceActivityView: View {
         hintLevel = 0
         feedbackKind = .neutral
         feedbackMessage = nil
+        retryStartedQuestionIDs = []
         startQuestionReveal(force: true)
     }
 
@@ -1153,6 +1314,19 @@ private struct MultipleChoiceActivityView: View {
         nextFlow.skippedRetryQuestionIDs.insert(currentQuestion.id)
         flow = nextFlow
         advanceRetryQuestionOrFinish()
+    }
+
+    private func startRetryQuestion() {
+        guard flow.isRetryingMissed, let currentQuestion else { return }
+        // Reset number-line responses so the student starts from initial state on retry.
+        for part in currentQuestion.interactiveParts {
+            if case .numberLine(let nl) = part {
+                interactivePartsRuntimeState.setResponse(WidgetNumberLineRuntimeResponse(), for: nl.id)
+            }
+        }
+        feedbackKind = .neutral
+        feedbackMessage = nil
+        retryStartedQuestionIDs.insert(currentQuestion.id)
     }
 
     private func advanceRetryQuestionOrFinish() {
@@ -1364,10 +1538,12 @@ private struct MultipleChoiceActivityView: View {
 private struct FillInTheBlankActivityView: View {
     let document: ActivityWidgetDocument
     @Binding var runtimeState: WidgetFillInTheBlankRuntimeState
+    @Binding var interactivePartsRuntimeState: WidgetInteractivePartsRuntimeState
     let scoreSheet: WidgetActivityScoreSheet?
     let onEditWidget: (() -> Void)?
     let theme: WidgetActivityVisualTheme
     let onMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)?
+    var gearConfiguration: WidgetGearConfiguration? = nil
 
     @State private var showsLearningObjective = false
     @State private var showsScoreSheet = false
@@ -1505,7 +1681,10 @@ private struct FillInTheBlankActivityView: View {
     }
 
     private var currentScoreRecord: WidgetActivityScoreRecord {
-        runtimeState.scoreRecord(for: document)
+        interactivePartsRuntimeState.combinedScoreRecord(
+            base: runtimeState.scoreRecord(for: document),
+            document: document
+        )
     }
 
     private var fileScoreSheet: WidgetActivityScoreSheet {
@@ -1578,7 +1757,8 @@ private struct FillInTheBlankActivityView: View {
         if answeredQuestionIDs.contains(currentQuestion.id), document.rules?.allowRetry == false {
             return true
         }
-        if let maxAttempts = document.rules?.maxAttemptsPerQuestion,
+        let effectiveMaxAttempts = document.rules?.maxRetries.map { max(1, $0 + 1) } ?? document.rules?.maxAttemptsPerQuestion
+        if let maxAttempts = effectiveMaxAttempts,
            maxAttempts > 0,
            (questionAttempts[currentQuestion.id] ?? 0) >= maxAttempts {
             return true
@@ -1722,8 +1902,9 @@ private struct FillInTheBlankActivityView: View {
             equivalentFraction: equivalentAccuracyLabel,
             decimal: String(format: "%.2f", accuracyValue),
             percent: "\(Int((accuracyValue * 100).rounded()))%",
-            bonus: String(format: "%.1f", runtimeState.bonus),
-            points: String(format: "%.1f", runtimeState.points),
+            numberCorrectFirstTry: runtimeState.numberCorrectFirstTry,
+            hasSubmittedScore: gearConfiguration?.isWidgetSubmitted ?? flow.hasSubmittedScore,
+            gearConfiguration: gearConfiguration,
             questionStarItems: questionStarItems,
             onSelectQuestion: navigateToQuestion,
             onShowFinalScore: showFinalScore,
@@ -1809,25 +1990,6 @@ private struct FillInTheBlankActivityView: View {
                 .buttonStyle(.bordered)
                 .tint(theme.accent)
                 .disabled(missedQuestionCount == 0)
-
-                Button {
-                    resetWidget()
-                } label: {
-                    Label("Reset", systemImage: "restart.circle")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .tint(theme.warning)
-
-                Button {
-                    submitCurrentScore()
-                } label: {
-                    Label(flow.hasSubmittedScore ? "Resubmit" : "Submit", systemImage: "paperplane.circle.fill")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(theme.accent)
-                .disabled(!isMathtivityComplete)
             }
         }
         .padding(18)
@@ -1845,12 +2007,12 @@ private struct FillInTheBlankActivityView: View {
 
     private var finalScoreMessage: String {
         if !isMathtivityComplete {
-            return "You have answered \(answeredQuestionIDs.count) of \(document.questions.count) questions. Finish the mathtivity before submitting."
+            return "You have answered \(answeredQuestionIDs.count) of \(document.questions.count) questions."
         }
         if missedQuestionCount == 0 {
-            return flow.hasSubmittedScore ? "All questions are correct. Your score has been submitted." : "All questions are correct. Submit when ready."
+            return "All questions are correct."
         }
-        return "You missed \(missedQuestionCount) \(missedQuestionCount == 1 ? "question" : "questions"). Retry them or submit this score."
+        return "You missed \(missedQuestionCount) \(missedQuestionCount == 1 ? "question" : "questions")."
     }
 
     private func finalScoreMetric(title: String, value: String, tint: Color) -> some View {
@@ -1900,6 +2062,15 @@ private struct FillInTheBlankActivityView: View {
                         .strokeBorder(theme.accent.opacity(0.35), lineWidth: 2)
                 )
                 .scaleEffect(celebrate ? 1.035 : 1)
+            }
+
+            if let parts = currentQuestion?.interactiveParts, !parts.isEmpty {
+                WidgetActivityInteractivePartsView(
+                    parts: parts,
+                    runtimeState: $interactivePartsRuntimeState,
+                    theme: theme,
+                    isLocked: isCurrentQuestionLocked
+                )
             }
         }
     }
@@ -2430,6 +2601,7 @@ private struct FillInTheBlankActivityView: View {
             hasSubmittedScore: submittedState.hasSubmittedScore,
             submittedRecord: submittedState.submittedRecord
         )
+        interactivePartsRuntimeState = WidgetInteractivePartsRuntimeState()
         feedbackKind = .neutral
         feedbackMessage = nil
         celebrate = false
@@ -2671,8 +2843,9 @@ private struct ActivityScoreGaugePanel: View {
     let equivalentFraction: String
     let decimal: String
     let percent: String
-    let bonus: String
-    let points: String
+    let numberCorrectFirstTry: Int
+    let hasSubmittedScore: Bool
+    let gearConfiguration: WidgetGearConfiguration?
     let questionStarItems: [ActivityQuestionStarItem]
     let onSelectQuestion: (Int) -> Void
     let onShowFinalScore: () -> Void
@@ -2732,17 +2905,18 @@ private struct ActivityScoreGaugePanel: View {
         ScoreSummaryTable(
             streak: streak,
             longestStreak: longestStreak,
+            answeredCount: answeredCount,
             totalCount: totalCount,
-            score: "\(score)/\(attempts)",
-            bonus: bonus,
-            points: points,
+            numberCorrectFirstTry: numberCorrectFirstTry,
+            scoreCount: score,
+            hasSubmittedScore: hasSubmittedScore,
             questionStarItems: questionStarItems,
             onSelectQuestion: onSelectQuestion,
             onShowFinalScore: onShowFinalScore,
-            scoreSheet: scoreSheet,
             showsScoreSheet: $showsScoreSheet,
             onResetWidget: onResetWidget,
             onEditWidget: onEditWidget,
+            gearConfiguration: gearConfiguration,
             theme: theme
         )
     }
@@ -3211,18 +3385,25 @@ private struct FractionValueView: View {
 private struct ScoreSummaryTable: View {
     let streak: Int
     let longestStreak: Int
+    let answeredCount: Int
     let totalCount: Int
-    let score: String
-    let bonus: String
-    let points: String
+    let numberCorrectFirstTry: Int
+    let scoreCount: Int
+    let hasSubmittedScore: Bool
     let questionStarItems: [ActivityQuestionStarItem]
     let onSelectQuestion: (Int) -> Void
     let onShowFinalScore: () -> Void
-    let scoreSheet: WidgetActivityScoreSheet
     @Binding var showsScoreSheet: Bool
     let onResetWidget: () -> Void
     let onEditWidget: (() -> Void)?
+    let gearConfiguration: WidgetGearConfiguration?
     let theme: WidgetActivityVisualTheme
+
+    @State private var starsFlashed = false
+
+    private var egoScore: Double {
+        Double(scoreCount) + 0.1 * Double(longestStreak)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -3245,12 +3426,23 @@ private struct ScoreSummaryTable: View {
                 theme: theme,
                 onSelectQuestion: onSelectQuestion
             )
+            .scaleEffect(starsFlashed ? 1.12 : 1.0)
+            .animation(.spring(response: 0.3, dampingFraction: 0.45), value: starsFlashed)
 
             VStack(alignment: .leading, spacing: 8) {
                 scoreNavigationRow
-                ScoreSummaryRow(label: "Longest Streak", value: "\(longestStreak)", theme: theme)
-                ScoreSummaryRow(label: "Bonus", value: bonus, theme: theme)
-                ScoreSummaryRow(label: "Points", value: points, theme: theme)
+                ScoreSummaryRow(label: "1st Attempt", value: "\(numberCorrectFirstTry)/\(totalCount)", theme: theme)
+                ScoreSummaryRow(label: "After Corrections", value: "\(scoreCount)/\(totalCount)", theme: theme)
+
+                if hasSubmittedScore {
+                    ScoreSummaryRow(
+                        label: "Ego Score",
+                        value: String(format: "%.1f", egoScore),
+                        theme: theme
+                    )
+                    .transition(.scale(scale: 0.85).combined(with: .opacity))
+                }
+
                 scoreSheetButton
             }
             .padding(12)
@@ -3259,6 +3451,7 @@ private struct ScoreSummaryTable: View {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .strokeBorder(theme.border, lineWidth: 1)
             )
+            .animation(.spring(response: 0.4, dampingFraction: 0.7), value: hasSubmittedScore)
 
             Spacer(minLength: 0)
         }
@@ -3279,6 +3472,13 @@ private struct ScoreSummaryTable: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(theme.border, lineWidth: 1)
         )
+        .onChange(of: hasSubmittedScore) { _, submitted in
+            guard submitted else { return }
+            starsFlashed = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                starsFlashed = false
+            }
+        }
     }
 
     private var scoreNavigationRow: some View {
@@ -3289,7 +3489,7 @@ private struct ScoreSummaryTable: View {
                     .textCase(.uppercase)
                     .foregroundStyle(theme.accent)
                 Spacer(minLength: 8)
-                Text(score)
+                Text("\(scoreCount)/\(totalCount)")
                     .font(.system(size: 17, weight: .black, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(theme.primaryText)
@@ -3302,117 +3502,296 @@ private struct ScoreSummaryTable: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Show final score")
-        .accessibilityValue(score)
+        .accessibilityValue("\(scoreCount)/\(totalCount)")
     }
 
     private var scoreSheetButton: some View {
-        Button {
-            showsScoreSheet.toggle()
-        } label: {
-            Image(systemName: "gearshape.fill")
-                .font(.system(size: 14, weight: .bold))
-                .frame(width: 30, height: 30)
+        HStack(spacing: 8) {
+            submitButton
+            Button {
+                showsScoreSheet.toggle()
+            } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 14, weight: .bold))
+                    .frame(width: 30, height: 30)
+            }
+            .buttonStyle(.bordered)
+            .tint(theme.accent)
+            .accessibilityLabel("Widget settings")
+            .popover(isPresented: $showsScoreSheet, arrowEdge: .trailing) {
+                WidgetScoreSheetPopover(
+                    gearConfiguration: gearConfiguration,
+                    onResetWidget: onResetWidget,
+                    onEditWidget: onEditWidget,
+                    theme: theme
+                )
+            }
         }
-        .buttonStyle(.bordered)
-        .tint(theme.accent)
         .frame(maxWidth: .infinity, alignment: .trailing)
-        .accessibilityLabel("Score sheet and widget settings")
-        .popover(isPresented: $showsScoreSheet, arrowEdge: .trailing) {
-            WidgetScoreSheetPopover(
-                scoreSheet: scoreSheet,
-                onResetWidget: onResetWidget,
-                onEditWidget: onEditWidget,
-                theme: theme
-            )
+    }
+
+    @ViewBuilder
+    private var submitButton: some View {
+        if gearConfiguration?.onSubmitWidget != nil {
+            let isSubmitted = gearConfiguration?.isWidgetSubmitted == true
+            let isReset = gearConfiguration?.isWidgetReset == true
+            if isSubmitted && !isReset {
+                Button {
+                    gearConfiguration?.onResetAfterSubmit?()
+                    onResetWidget()
+                } label: {
+                    Label("Reset", systemImage: "arrow.counterclockwise")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                .buttonStyle(.bordered)
+                .tint(.orange)
+            } else {
+                let canSubmit = answeredCount >= totalCount
+                Button {
+                    gearConfiguration?.onSubmitWidget?()
+                } label: {
+                    Label(isReset ? "Resubmit" : "Submit", systemImage: "paperplane.circle.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
+                .disabled(!canSubmit)
+            }
         }
     }
 }
 
 private struct WidgetScoreSheetPopover: View {
-    let scoreSheet: WidgetActivityScoreSheet
+    let gearConfiguration: WidgetGearConfiguration?
     let onResetWidget: () -> Void
     let onEditWidget: (() -> Void)?
     let theme: WidgetActivityVisualTheme
 
+    @State private var selectedFolderID: UUID? = nil
+    @State private var newTagText: String = ""
+    @State private var localTags: [String] = []
+    @State private var localRequiresStudentWork: Bool = false
+    @State private var hasInitialized = false
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("File Score")
-                    .font(.title3.weight(.black))
-                    .foregroundStyle(theme.primaryText)
-
-                Spacer(minLength: 12)
-
-                Button(role: .destructive) {
-                    onResetWidget()
-                } label: {
-                    Label("Reset Widget", systemImage: "arrow.counterclockwise")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
-                if let onEditWidget {
-                    Button {
-                        onEditWidget()
-                    } label: {
-                        Label("Edit Widget", systemImage: "slider.horizontal.3")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                actionRow
+                Divider()
+                infoSection
+                Divider()
+                tagsSection
             }
-
-            VStack(spacing: 0) {
-                scoreSheetHeader
-
-                ForEach(scoreSheet.records) { record in
-                    WidgetScoreSheetRow(record: record, theme: theme)
-                }
-            }
-            .background(theme.card.opacity(0.74), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(theme.border, lineWidth: 1)
-            )
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 8) {
-                ScoreSheetTotalRow(label: "Average", value: averageLabel, theme: theme)
-                ScoreSheetTotalRow(label: "Points", value: pointsLabel, theme: theme)
-                ScoreSheetTotalRow(label: "Points Possible", value: "\(scoreSheet.pointsPossible)", theme: theme)
-            }
+            .padding(20)
         }
-        .padding(16)
-        .frame(width: 430, alignment: .leading)
+        .frame(width: 380)
         .background(Color.white)
-    }
-
-    private var scoreSheetHeader: some View {
-        HStack(spacing: 10) {
-            Text("Widget")
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Text("Status")
-                .frame(width: 84, alignment: .leading)
-            Text("Score")
-                .frame(width: 56, alignment: .trailing)
-            Text("Pts")
-                .frame(width: 52, alignment: .trailing)
+        .onAppear {
+            guard !hasInitialized else { return }
+            hasInitialized = true
+            localTags = gearConfiguration?.tags ?? []
+            localRequiresStudentWork = gearConfiguration?.requiresStudentWork ?? false
         }
-        .font(.caption.weight(.black))
-        .foregroundStyle(theme.secondaryText)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background(theme.panel.opacity(0.75))
     }
 
-    private var averageLabel: String {
-        guard let averagePercent = scoreSheet.averagePercent else { return "N/A" }
-        return "\(averagePercent)%"
+    // MARK: Action Row
+
+    private var actionRow: some View {
+        HStack(spacing: 10) {
+            Button(role: .destructive, action: onResetWidget) {
+                Label("Reset Widget", systemImage: "arrow.counterclockwise")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+
+            if let onEditWidget {
+                Button(action: onEditWidget) {
+                    Label("Edit Widget", systemImage: "slider.horizontal.3")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+            }
+
+            Spacer(minLength: 0)
+
+            libraryStarButton
+        }
     }
 
-    private var pointsLabel: String {
-        String(format: "%.1f", scoreSheet.totalPoints)
+    // MARK: Library Star
+
+    private var libraryStarButton: some View {
+        Menu {
+            if let folders = gearConfiguration?.libraryFolders, !folders.isEmpty {
+                ForEach(folders) { folder in
+                    Button {
+                        saveToLibrary(folderID: folder.id)
+                    } label: {
+                        Label(folder.name, systemImage: "folder")
+                    }
+                }
+                Divider()
+            }
+            Button {
+                saveToLibrary(folderID: nil)
+            } label: {
+                Label("Save without folder", systemImage: "star")
+            }
+        } label: {
+            let isInLibrary = gearConfiguration?.isInLibrary ?? false
+            Image(systemName: isInLibrary ? "star.fill" : "star")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(isInLibrary ? Color.yellow : theme.accent)
+                .frame(width: 36, height: 36)
+        }
+        .menuStyle(.borderlessButton)
+        .accessibilityLabel("Save to library")
+    }
+
+    private func saveToLibrary(folderID: UUID?) {
+        gearConfiguration?.onSaveToLibrary?(localTags, localRequiresStudentWork, folderID)
+    }
+
+    // MARK: Info Section
+
+    private var infoSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let questionCount = gearConfiguration?.questionCount {
+                HStack {
+                    Text("Questions")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(theme.primaryText)
+                    Spacer()
+                    Text("\(questionCount)")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(theme.secondaryText)
+                }
+            }
+
+            HStack {
+                Text("Requires Student Work")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(theme.primaryText)
+                Spacer()
+                Toggle("", isOn: $localRequiresStudentWork)
+                    .labelsHidden()
+                    .onChange(of: localRequiresStudentWork) { _, value in
+                        gearConfiguration?.onRequiresStudentWorkChanged?(value)
+                    }
+            }
+        }
+    }
+
+    // MARK: Tags Section
+
+    private var tagsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Tags")
+                .font(.subheadline.weight(.black))
+                .foregroundStyle(theme.primaryText)
+
+            if !localTags.isEmpty {
+                FlowLayout(spacing: 6) {
+                    ForEach(localTags, id: \.self) { tag in
+                        tagChip(tag)
+                    }
+                }
+            }
+
+            HStack(spacing: 8) {
+                TextField("Add tag…", text: $newTagText)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.subheadline)
+                    .onSubmit { commitNewTag() }
+
+                Button(action: commitNewTag) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(theme.accent)
+                }
+                .buttonStyle(.plain)
+                .disabled(newTagText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+    }
+
+    private func tagChip(_ tag: String) -> some View {
+        HStack(spacing: 4) {
+            Text("#\(tag)")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(theme.primaryText)
+            Button {
+                removeTag(tag)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(theme.secondaryText)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
+        .background(theme.card, in: Capsule())
+        .overlay(Capsule().strokeBorder(theme.border, lineWidth: 1))
+    }
+
+    private func commitNewTag() {
+        let trimmed = newTagText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !localTags.contains(trimmed) else {
+            newTagText = ""
+            return
+        }
+        localTags.append(trimmed)
+        newTagText = ""
+        gearConfiguration?.onTagsChanged?(localTags)
+    }
+
+    private func removeTag(_ tag: String) {
+        localTags.removeAll { $0 == tag }
+        gearConfiguration?.onTagsChanged?(localTags)
+    }
+}
+
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > maxWidth, x > 0 {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        return CGSize(width: maxWidth, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX
+        var y = bounds.minY
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > bounds.maxX, x > bounds.minX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: .unspecified)
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
     }
 }
 
@@ -3601,6 +3980,818 @@ private struct ActivityQuestionStarItem: Identifiable, Equatable {
     let isCurrent: Bool
 
     var id: Int { index }
+}
+
+private struct WidgetActivityInteractivePartsView: View {
+    let parts: [WidgetActivityInteractivePart]
+    @Binding var runtimeState: WidgetInteractivePartsRuntimeState
+    let theme: WidgetActivityVisualTheme
+    let isLocked: Bool
+
+    var body: some View {
+        VStack(spacing: 12) {
+            ForEach(parts) { part in
+                switch part {
+                case .numberLine(let numberLine):
+                    WidgetActivityNumberLineInput(
+                        part: numberLine,
+                        response: numberLineResponseBinding(for: numberLine.id),
+                        theme: theme,
+                        isLocked: isLocked
+                    )
+                case .coordinatePlane(let coordinatePlane):
+                    WidgetActivityCoordinatePlanePreview(part: coordinatePlane, theme: theme)
+                }
+            }
+        }
+    }
+
+    private func numberLineResponseBinding(for partID: String) -> Binding<WidgetNumberLineRuntimeResponse> {
+        Binding {
+            runtimeState.response(for: partID)
+        } set: { newValue in
+            runtimeState.setResponse(newValue, for: partID)
+        }
+    }
+}
+
+private struct WidgetActivityNumberLineInput: View {
+    let part: WidgetActivityNumberLinePart
+    @Binding var response: WidgetNumberLineRuntimeResponse
+    let theme: WidgetActivityVisualTheme
+    let isLocked: Bool
+    @State private var selectedPointValue: Double?
+    @State private var dragStartValue: Double?
+    @State private var activeDragSourceValue: Double?
+    @State private var rayDragPreview: NumberLineRayDragPreview?
+    @State private var activeRayDragContext: NumberLineRayDragContext?
+
+    var body: some View {
+        VStack(spacing: 8) {
+            if isEditable {
+                controlBar
+            }
+
+            GeometryReader { proxy in
+                let metrics = NumberLineMetrics(size: proxy.size, domain: part.domain)
+                let renderedResponse = response.isEmpty ? WidgetNumberLineRuntimeResponse(answer: part.initialResponse) : response
+                let displayResponse = responseWithRayDragPreview(renderedResponse)
+                ZStack {
+                    NumberLineCanvas(
+                        part: part,
+                        response: displayResponse,
+                        metrics: metrics,
+                        theme: theme
+                    )
+
+                    if isEditable {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .gesture(
+                                DragGesture(minimumDistance: 0)
+                                    .onChanged { value in
+                                        if dragStartValue == nil {
+                                            dragStartValue = metrics.snappedValue(forX: value.startLocation.x)
+                                            activeRayDragContext = rayDragContext(startLocation: value.startLocation, metrics: metrics)
+                                            activeDragSourceValue = existingAnchorValue(near: dragStartValue ?? metrics.snappedValue(forX: value.startLocation.x))
+                                        }
+                                        handleCanvasDragChanged(value, metrics: metrics)
+                                    }
+                                    .onEnded { value in
+                                        handleCanvasGesture(value, metrics: metrics)
+                                    }
+                            )
+
+                        NumberLineSelectionOverlay(
+                            selectedValue: selectedPointValue,
+                            selectedRay: selectedRay(in: displayResponse),
+                            metrics: metrics,
+                            theme: theme,
+                            showsRayHandles: part.features.pointHasRay && part.features.raysEnabled,
+                            previewRay: previewRay(fromSelectedPoint:direction:visualEndValue:),
+                            commitRay: commitRay(fromSelectedPoint:direction:visualEndValue:),
+                            endRayPreview: endRayPreview
+                        )
+                    }
+                }
+            }
+            .frame(minHeight: 116)
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 10)
+        .background(theme.panel.opacity(0.72), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(theme.border.opacity(0.55), lineWidth: 1)
+        )
+        .accessibilityLabel("Number line")
+    }
+
+    private var isEditable: Bool {
+        !isLocked && part.answer != nil
+    }
+
+    private var controlBar: some View {
+        HStack(spacing: 8) {
+            if let selectedPointValue {
+                Text(formattedAxisValue(selectedPointValue))
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundStyle(theme.secondaryText)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(theme.choice.opacity(0.65), in: Capsule())
+
+            }
+
+            Spacer(minLength: 4)
+
+            Button {
+                response = WidgetNumberLineRuntimeResponse()
+                selectedPointValue = nil
+            } label: {
+                Label("Clear", systemImage: "xmark.circle")
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .labelStyle(.titleAndIcon)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 6)
+                    .foregroundStyle(theme.primaryText)
+                    .background(theme.choice.opacity(0.7), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(response.isEmpty)
+            .opacity(response.isEmpty ? 0.45 : 1)
+        }
+    }
+
+    private func handleCanvasGesture(_ value: DragGesture.Value, metrics: NumberLineMetrics) {
+        defer {
+            dragStartValue = nil
+            activeDragSourceValue = nil
+            activeRayDragContext = nil
+        }
+        if let activeRayDragContext {
+            commitRay(
+                fromSelectedPoint: activeRayDragContext.endpoint,
+                direction: rayDirection(endpoint: activeRayDragContext.endpoint, value: metrics.value(forX: value.location.x)),
+                visualEndValue: metrics.value(forX: value.location.x)
+            )
+            return
+        }
+        let dragDistance = hypot(value.translation.width, value.translation.height)
+        if dragDistance > 12, let activeDragSourceValue, part.features.pointsDraggable {
+            moveSelectedAnchor(from: activeDragSourceValue, to: metrics.snappedValue(forX: value.location.x))
+        } else {
+            placeOrSelectAnchor(at: metrics.snappedValue(forX: value.location.x))
+        }
+    }
+
+    private func handleCanvasDragChanged(_ value: DragGesture.Value, metrics: NumberLineMetrics) {
+        if let activeRayDragContext {
+            previewRay(
+                fromSelectedPoint: activeRayDragContext.endpoint,
+                direction: rayDirection(endpoint: activeRayDragContext.endpoint, value: metrics.value(forX: value.location.x)),
+                visualEndValue: metrics.value(forX: value.location.x)
+            )
+            return
+        }
+        let dragDistance = hypot(value.translation.width, value.translation.height)
+        guard dragDistance > 4, let activeDragSourceValue, part.features.pointsDraggable else { return }
+        moveSelectedAnchor(from: activeDragSourceValue, to: metrics.snappedValue(forX: value.location.x))
+    }
+
+    private func placeOrSelectAnchor(at value: Double) {
+        guard part.features.pointsTappable || part.features.pointsDraggable else { return }
+        prepareResponseForEditing()
+
+        if let existingValue = existingAnchorValue(near: value) {
+            if part.features.openClosedEndpoints, let current = selectedPointValue, valuesMatch(existingValue, current) {
+                toggleSelectedEndpointClosed()
+            } else {
+                selectedPointValue = existingValue
+            }
+            return
+        }
+
+        if convertSelectedRayToSegment(endingAt: value) {
+            selectedPointValue = value
+            return
+        }
+
+        if let maxPoints = part.features.maxPoints {
+            if maxPoints == 1 {
+                response = WidgetNumberLineRuntimeResponse()
+            } else if anchorValues.count >= maxPoints {
+                return
+            }
+        }
+
+        response.selectedPoints.removeAll { valuesMatch($0, value) }
+        response.points.append(WidgetActivityNumberLinePoint(value: value, isClosed: true))
+        response.points.sort { $0.value < $1.value }
+        selectedPointValue = value
+    }
+
+    private func moveSelectedAnchor(from startValue: Double, to endValue: Double) {
+        guard !valuesMatch(startValue, endValue), part.features.pointsDraggable else { return }
+        prepareResponseForEditing()
+        let sourceValue = selectedPointValue.flatMap { existingAnchorValue(near: $0) } ?? existingAnchorValue(near: startValue)
+        guard let sourceValue else { return }
+
+        for index in response.points.indices where valuesMatch(response.points[index].value, sourceValue) {
+            response.points[index].value = endValue
+            selectedPointValue = endValue
+            sortResponse()
+            return
+        }
+        for index in response.rays.indices where valuesMatch(response.rays[index].endpoint, sourceValue) {
+            let delta = endValue - sourceValue
+            response.rays[index].endpoint = endValue
+            if let visualEndValue = response.rays[index].visualEndValue {
+                response.rays[index].visualEndValue = normalizedRayVisualEnd(
+                    endpoint: endValue,
+                    direction: response.rays[index].direction,
+                    visualEndValue: visualEndValue + delta
+                )
+            }
+            selectedPointValue = endValue
+            sortResponse()
+            return
+        }
+        for index in response.segments.indices {
+            if valuesMatch(response.segments[index].start, sourceValue) {
+                response.segments[index].start = endValue
+                selectedPointValue = endValue
+                sortResponse()
+                return
+            }
+            if valuesMatch(response.segments[index].end, sourceValue) {
+                response.segments[index].end = endValue
+                selectedPointValue = endValue
+                sortResponse()
+                return
+            }
+        }
+    }
+
+    private func previewRay(fromSelectedPoint endpoint: Double, direction: WidgetActivityNumberLineRayDirection, visualEndValue: Double?) {
+        guard part.features.pointHasRay, part.features.raysEnabled else { return }
+        rayDragPreview = NumberLineRayDragPreview(
+            endpoint: endpoint,
+            direction: direction,
+            isClosed: endpointIsClosed(at: endpoint),
+            visualEndValue: normalizedRayVisualEnd(endpoint: endpoint, direction: direction, visualEndValue: visualEndValue)
+        )
+    }
+
+    private func endRayPreview() {
+        rayDragPreview = nil
+    }
+
+    private func commitRay(fromSelectedPoint endpoint: Double, direction: WidgetActivityNumberLineRayDirection, visualEndValue: Double?) {
+        guard part.features.pointHasRay, part.features.raysEnabled else { return }
+        prepareResponseForEditing()
+        let wasClosed = endpointIsClosed(at: endpoint)
+        response.points.removeAll { valuesMatch($0.value, endpoint) }
+        response.selectedPoints.removeAll { valuesMatch($0, endpoint) }
+        response.rays.removeAll { valuesMatch($0.endpoint, endpoint) }
+        response.rays.append(WidgetActivityNumberLineRay(
+            endpoint: endpoint,
+            direction: direction,
+            isClosed: wasClosed,
+            visualEndValue: normalizedRayVisualEnd(endpoint: endpoint, direction: direction, visualEndValue: visualEndValue)
+        ))
+        selectedPointValue = endpoint
+        rayDragPreview = nil
+        sortResponse()
+    }
+
+    private func responseWithRayDragPreview(_ baseResponse: WidgetNumberLineRuntimeResponse) -> WidgetNumberLineRuntimeResponse {
+        guard let rayDragPreview else { return baseResponse }
+        var previewResponse = baseResponse
+        previewResponse.points.removeAll { valuesMatch($0.value, rayDragPreview.endpoint) }
+        previewResponse.selectedPoints.removeAll { valuesMatch($0, rayDragPreview.endpoint) }
+        previewResponse.rays.removeAll { valuesMatch($0.endpoint, rayDragPreview.endpoint) }
+        previewResponse.rays.append(WidgetActivityNumberLineRay(
+            endpoint: rayDragPreview.endpoint,
+            direction: rayDragPreview.direction,
+            isClosed: rayDragPreview.isClosed,
+            visualEndValue: rayDragPreview.visualEndValue
+        ))
+        return previewResponse
+    }
+
+    private func normalizedRayVisualEnd(
+        endpoint: Double,
+        direction: WidgetActivityNumberLineRayDirection,
+        visualEndValue: Double?
+    ) -> Double? {
+        guard let visualEndValue, !valuesMatch(endpoint, visualEndValue) else { return nil }
+        switch direction {
+        case .left:
+            return min(max(visualEndValue, part.domain.min), endpoint)
+        case .right:
+            return max(min(visualEndValue, part.domain.max), endpoint)
+        }
+    }
+
+    private func convertSelectedRayToSegment(endingAt endValue: Double) -> Bool {
+        guard part.features.segmentsEnabled,
+              part.features.maxPoints != 1,
+              let selectedPointValue,
+              let rayIndex = response.rays.firstIndex(where: { valuesMatch($0.endpoint, selectedPointValue) })
+        else { return false }
+
+        let ray = response.rays[rayIndex]
+        let isOnRaySide = (ray.direction == .right && endValue > ray.endpoint) || (ray.direction == .left && endValue < ray.endpoint)
+        guard isOnRaySide, !valuesMatch(ray.endpoint, endValue) else { return false }
+
+        response.rays.remove(at: rayIndex)
+        response.points.removeAll { valuesMatch($0.value, ray.endpoint) || valuesMatch($0.value, endValue) }
+        response.selectedPoints.removeAll { valuesMatch($0, ray.endpoint) || valuesMatch($0, endValue) }
+
+        if ray.direction == .right {
+            response.segments.append(WidgetActivityNumberLineSegment(
+                start: ray.endpoint,
+                end: endValue,
+                startClosed: ray.isClosed,
+                endClosed: true
+            ))
+        } else {
+            response.segments.append(WidgetActivityNumberLineSegment(
+                start: endValue,
+                end: ray.endpoint,
+                startClosed: true,
+                endClosed: ray.isClosed
+            ))
+        }
+        sortResponse()
+        return true
+    }
+
+    private func toggleSelectedEndpointClosed() {
+        guard part.features.openClosedEndpoints, let selectedPointValue else { return }
+        prepareResponseForEditing()
+
+        for index in response.points.indices where valuesMatch(response.points[index].value, selectedPointValue) {
+            response.points[index].isClosed.toggle()
+            return
+        }
+        for index in response.rays.indices where valuesMatch(response.rays[index].endpoint, selectedPointValue) {
+            response.rays[index].isClosed.toggle()
+            return
+        }
+        for index in response.segments.indices {
+            if valuesMatch(response.segments[index].start, selectedPointValue) {
+                response.segments[index].startClosed.toggle()
+                return
+            }
+            if valuesMatch(response.segments[index].end, selectedPointValue) {
+                response.segments[index].endClosed.toggle()
+                return
+            }
+        }
+    }
+
+    private func endpointIsClosed(at value: Double) -> Bool {
+        if let point = response.points.first(where: { valuesMatch($0.value, value) }) {
+            return point.isClosed
+        }
+        if let ray = response.rays.first(where: { valuesMatch($0.endpoint, value) }) {
+            return ray.isClosed
+        }
+        if let segment = response.segments.first(where: { valuesMatch($0.start, value) }) {
+            return segment.startClosed
+        }
+        if let segment = response.segments.first(where: { valuesMatch($0.end, value) }) {
+            return segment.endClosed
+        }
+        return true
+    }
+
+    private func selectedRay(in graph: WidgetNumberLineRuntimeResponse) -> WidgetActivityNumberLineRay? {
+        guard let selectedPointValue else { return nil }
+        return graph.rays.first { valuesMatch($0.endpoint, selectedPointValue) }
+    }
+
+    private func rayDragContext(startLocation: CGPoint, metrics: NumberLineMetrics) -> NumberLineRayDragContext? {
+        guard part.features.pointHasRay, part.features.raysEnabled, let selectedPointValue else { return nil }
+        let endpointX = metrics.x(for: selectedPointValue)
+        let existingRay = response.rays.first { valuesMatch($0.endpoint, selectedPointValue) } ?? rayDragPreview.map {
+            WidgetActivityNumberLineRay(
+                endpoint: $0.endpoint,
+                direction: $0.direction,
+                isClosed: $0.isClosed,
+                visualEndValue: $0.visualEndValue
+            )
+        }
+
+        let candidateHandleXs: [CGFloat]
+        if let existingRay {
+            candidateHandleXs = [handleX(for: existingRay, endpointX: endpointX, metrics: metrics)]
+        } else {
+            candidateHandleXs = [
+                max(metrics.left + 22, endpointX - 36),
+                min(metrics.right - 22, endpointX + 36)
+            ]
+        }
+
+        guard candidateHandleXs.contains(where: { abs(startLocation.x - $0) <= 34 && abs(startLocation.y - metrics.axisY) <= 34 }) else {
+            return nil
+        }
+        return NumberLineRayDragContext(endpoint: selectedPointValue)
+    }
+
+    private func handleX(for ray: WidgetActivityNumberLineRay, endpointX: CGFloat, metrics: NumberLineMetrics) -> CGFloat {
+        if let visualEndValue = ray.visualEndValue {
+            return metrics.x(for: visualEndValue)
+        }
+        switch ray.direction {
+        case .left:
+            return metrics.left
+        case .right:
+            return metrics.right
+        }
+    }
+
+    private func rayDirection(endpoint: Double, value: Double) -> WidgetActivityNumberLineRayDirection {
+        value < endpoint ? .left : .right
+    }
+
+    private func existingAnchorValue(near value: Double) -> Double? {
+        let candidates = anchorValues
+        return candidates.min { abs($0 - value) < abs($1 - value) }
+            .flatMap { abs($0 - value) <= part.domain.step * 0.5 ? $0 : nil }
+    }
+
+    private var anchorValues: [Double] {
+        var values: [Double] = response.selectedPoints
+            + response.points.map { $0.value }
+            + response.rays.map { $0.endpoint }
+        for segment in response.segments {
+            values.append(segment.start)
+            values.append(segment.end)
+        }
+        return values.reduce(into: [Double]()) { result, value in
+            if result.contains(where: { valuesMatch($0, value) }) == false {
+                result.append(value)
+            }
+        }
+    }
+
+    private func sortResponse() {
+        response.points.sort { $0.value < $1.value }
+        response.rays.sort {
+            if $0.endpoint != $1.endpoint { return $0.endpoint < $1.endpoint }
+            return $0.direction.rawValue < $1.direction.rawValue
+        }
+        response.segments.sort {
+            if min($0.start, $0.end) != min($1.start, $1.end) { return min($0.start, $0.end) < min($1.start, $1.end) }
+            return max($0.start, $0.end) < max($1.start, $1.end)
+        }
+    }
+
+    private func prepareResponseForEditing() {
+        if response.isEmpty, let initialResponse = part.initialResponse {
+            response = WidgetNumberLineRuntimeResponse(answer: initialResponse)
+        }
+    }
+
+    private func valuesMatch(_ lhs: Double, _ rhs: Double) -> Bool {
+        abs(lhs - rhs) <= max(part.domain.step * 0.0001, 0.000001)
+    }
+}
+
+private struct NumberLineRayDragPreview {
+    var endpoint: Double
+    var direction: WidgetActivityNumberLineRayDirection
+    var isClosed: Bool
+    var visualEndValue: Double?
+}
+
+private struct NumberLineRayDragContext {
+    var endpoint: Double
+}
+
+private struct NumberLineSelectionOverlay: View {
+    let selectedValue: Double?
+    let selectedRay: WidgetActivityNumberLineRay?
+    let metrics: NumberLineMetrics
+    let theme: WidgetActivityVisualTheme
+    let showsRayHandles: Bool
+    let previewRay: (Double, WidgetActivityNumberLineRayDirection, Double?) -> Void
+    let commitRay: (Double, WidgetActivityNumberLineRayDirection, Double?) -> Void
+    let endRayPreview: () -> Void
+    @State private var rayDragOriginX: CGFloat?
+
+    var body: some View {
+        if let selectedValue {
+            let x = metrics.x(for: selectedValue)
+            let y = metrics.axisY
+            ZStack {
+                if showsRayHandles {
+                    if let selectedRay {
+                        rayHandle(
+                            direction: selectedRay.direction,
+                            endpoint: selectedValue,
+                            startX: handleX(for: selectedRay, endpointX: x),
+                            allowsDirectionFlip: true
+                        )
+                            .position(x: handleX(for: selectedRay, endpointX: x), y: y)
+                    } else {
+                        rayHandle(
+                            direction: .left,
+                            endpoint: selectedValue,
+                            startX: max(metrics.left + 22, x - 36),
+                            allowsDirectionFlip: false
+                        )
+                            .position(x: max(metrics.left + 22, x - 36), y: y)
+                        rayHandle(
+                            direction: .right,
+                            endpoint: selectedValue,
+                            startX: min(metrics.right - 22, x + 36),
+                            allowsDirectionFlip: false
+                        )
+                            .position(x: min(metrics.right - 22, x + 36), y: y)
+                    }
+                }
+            }
+        }
+    }
+
+    private func rayHandle(
+        direction: WidgetActivityNumberLineRayDirection,
+        endpoint: Double,
+        startX: CGFloat,
+        allowsDirectionFlip: Bool
+    ) -> some View {
+        Image(systemName: direction == .left ? "arrowtriangle.left.fill" : "arrowtriangle.right.fill")
+            .font(.system(size: 22, weight: .bold))
+            .foregroundStyle(theme.accent)
+            .frame(width: 44, height: 44)
+            .allowsHitTesting(false)
+            .contentShape(Circle())
+            .accessibilityLabel(direction == .left ? "Add left ray" : "Add right ray")
+    }
+
+    private func handleX(for ray: WidgetActivityNumberLineRay, endpointX: CGFloat) -> CGFloat {
+        if let visualEndValue = ray.visualEndValue {
+            return metrics.x(for: visualEndValue)
+        }
+        switch ray.direction {
+        case .left:
+            return metrics.left
+        case .right:
+            return metrics.right
+        }
+    }
+
+    private func rayDragUpdate(
+        direction: WidgetActivityNumberLineRayDirection,
+        endpoint: Double,
+        startX: CGFloat,
+        translation: CGFloat,
+        allowsDirectionFlip: Bool
+    ) -> (direction: WidgetActivityNumberLineRayDirection, visualEndValue: Double)? {
+        let proposedValue = metrics.value(forX: startX + translation)
+        if allowsDirectionFlip {
+            if proposedValue < endpoint {
+                return (.left, proposedValue)
+            }
+            if proposedValue > endpoint {
+                return (.right, proposedValue)
+            }
+            return nil
+        }
+
+        switch direction {
+        case .left:
+            return proposedValue < endpoint ? (.left, proposedValue) : nil
+        case .right:
+            return proposedValue > endpoint ? (.right, proposedValue) : nil
+        }
+    }
+}
+
+private struct NumberLineCanvas: View {
+    let part: WidgetActivityNumberLinePart
+    let response: WidgetNumberLineRuntimeResponse
+    let metrics: NumberLineMetrics
+    let theme: WidgetActivityVisualTheme
+
+    var body: some View {
+        Canvas { context, size in
+            let domain = part.domain
+            let tickCount = min(Int((domain.max - domain.min) / domain.step), 200)
+            var axis = Path()
+            axis.move(to: CGPoint(x: metrics.left, y: metrics.axisY))
+            axis.addLine(to: CGPoint(x: metrics.right, y: metrics.axisY))
+            context.stroke(axis, with: .color(theme.primaryText.opacity(0.78)), lineWidth: 3)
+
+            for tickIndex in 0...tickCount {
+                let value = domain.min + Double(tickIndex) * domain.step
+                let x = metrics.x(for: value)
+                var tick = Path()
+                tick.move(to: CGPoint(x: x, y: metrics.axisY - 8))
+                tick.addLine(to: CGPoint(x: x, y: metrics.axisY + 8))
+                context.stroke(tick, with: .color(theme.secondaryText.opacity(0.72)), lineWidth: 1.5)
+
+                if part.features.labelsVisible && shouldLabelTick(tickIndex: tickIndex, tickCount: tickCount) {
+                    let text = Text(formattedAxisValue(value))
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(theme.secondaryText)
+                    context.draw(text, at: CGPoint(x: x, y: metrics.axisY + 26), anchor: .center)
+                }
+            }
+
+            for segment in response.segments {
+                drawSegment(segment, context: context)
+            }
+            for ray in response.rays {
+                drawRay(ray, context: context)
+            }
+            for point in response.selectedPoints {
+                drawPoint(point, context: context)
+            }
+            for point in response.points {
+                drawPoint(point.value, isClosed: point.isClosed, context: context)
+            }
+        }
+    }
+
+    private func drawSegment(_ segment: WidgetActivityNumberLineSegment, context: GraphicsContext) {
+        let startX = metrics.x(for: segment.start)
+        let endX = metrics.x(for: segment.end)
+        var path = Path()
+        path.move(to: CGPoint(x: startX, y: metrics.axisY))
+        path.addLine(to: CGPoint(x: endX, y: metrics.axisY))
+        context.stroke(path, with: .color(theme.accent), lineWidth: 6)
+        drawEndpoint(at: segment.start, isClosed: segment.startClosed, context: context)
+        drawEndpoint(at: segment.end, isClosed: segment.endClosed, context: context)
+    }
+
+    private func drawRay(_ ray: WidgetActivityNumberLineRay, context: GraphicsContext) {
+        let startX = metrics.x(for: ray.endpoint)
+        let endX = ray.visualEndValue.map { metrics.x(for: $0) } ?? (ray.direction == .left ? metrics.left : metrics.right)
+        var path = Path()
+        path.move(to: CGPoint(x: startX, y: metrics.axisY))
+        path.addLine(to: CGPoint(x: endX, y: metrics.axisY))
+        context.stroke(path, with: .color(theme.accent), lineWidth: 6)
+
+        let arrowSize: CGFloat = 9
+        var arrow = Path()
+        if ray.direction == .left {
+            arrow.move(to: CGPoint(x: endX, y: metrics.axisY))
+            arrow.addLine(to: CGPoint(x: endX + arrowSize, y: metrics.axisY - arrowSize))
+            arrow.move(to: CGPoint(x: endX, y: metrics.axisY))
+            arrow.addLine(to: CGPoint(x: endX + arrowSize, y: metrics.axisY + arrowSize))
+        } else {
+            arrow.move(to: CGPoint(x: endX, y: metrics.axisY))
+            arrow.addLine(to: CGPoint(x: endX - arrowSize, y: metrics.axisY - arrowSize))
+            arrow.move(to: CGPoint(x: endX, y: metrics.axisY))
+            arrow.addLine(to: CGPoint(x: endX - arrowSize, y: metrics.axisY + arrowSize))
+        }
+        context.stroke(arrow, with: .color(theme.accent), lineWidth: 3)
+        drawEndpoint(at: ray.endpoint, isClosed: ray.isClosed, context: context)
+    }
+
+    private func drawPoint(_ value: Double, context: GraphicsContext) {
+        drawPoint(value, isClosed: true, context: context)
+    }
+
+    private func drawPoint(_ value: Double, isClosed: Bool, context: GraphicsContext) {
+        drawEndpoint(at: value, isClosed: isClosed, context: context)
+    }
+
+    private func drawEndpoint(at value: Double, isClosed: Bool, context: GraphicsContext) {
+        let center = CGPoint(x: metrics.x(for: value), y: metrics.axisY)
+        let r: CGFloat = 10
+        let rect = CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2)
+        let path = Path(ellipseIn: rect)
+        if isClosed {
+            context.fill(path, with: .color(theme.accent))
+        } else {
+            context.stroke(path, with: .color(theme.accent), lineWidth: 2.5)
+        }
+    }
+
+    private func shouldLabelTick(tickIndex: Int, tickCount: Int) -> Bool {
+        if tickCount <= 12 { return true }
+        let stride = max(Int(ceil(Double(tickCount) / 10.0)), 1)
+        return tickIndex == 0 || tickIndex == tickCount || tickIndex.isMultiple(of: stride)
+    }
+}
+
+private struct NumberLineMetrics {
+    let size: CGSize
+    let domain: WidgetActivityNumberLineDomain
+    let left: CGFloat
+    let right: CGFloat
+    let axisY: CGFloat
+
+    init(size: CGSize, domain: WidgetActivityNumberLineDomain) {
+        self.size = size
+        self.domain = domain
+        left = 22
+        right = max(left, size.width - 22)
+        axisY = size.height * 0.48
+    }
+
+    func x(for value: Double) -> CGFloat {
+        let span = max(domain.max - domain.min, domain.step)
+        return left + CGFloat((value - domain.min) / span) * (right - left)
+    }
+
+    func value(forX x: CGFloat) -> Double {
+        let percent = min(max((x - left) / max(right - left, 1), 0), 1)
+        return domain.min + Double(percent) * (domain.max - domain.min)
+    }
+
+    func snappedValue(forX x: CGFloat) -> Double {
+        let rawValue = value(forX: x)
+        guard domain.step > 0 else { return rawValue }
+        let snapped = (rawValue / domain.step).rounded() * domain.step
+        return min(max(snapped, domain.min), domain.max)
+    }
+}
+
+private struct WidgetActivityCoordinatePlanePreview: View {
+    let part: WidgetActivityCoordinatePlanePart
+    let theme: WidgetActivityVisualTheme
+
+    var body: some View {
+        Canvas { context, size in
+            let inset: CGFloat = 24
+            let plotRect = CGRect(
+                x: inset,
+                y: inset,
+                width: max(size.width - inset * 2, 1),
+                height: max(size.height - inset * 2, 1)
+            )
+            let domain = part.domain
+            let xSpan = max(domain.xMax - domain.xMin, domain.xStep)
+            let ySpan = max(domain.yMax - domain.yMin, domain.yStep)
+
+            let xTickCount = min(Int((domain.xMax - domain.xMin) / domain.xStep), 200)
+            let yTickCount = min(Int((domain.yMax - domain.yMin) / domain.yStep), 200)
+
+            for tickIndex in 0...xTickCount {
+                let value = domain.xMin + Double(tickIndex) * domain.xStep
+                let x = plotRect.minX + CGFloat((value - domain.xMin) / xSpan) * plotRect.width
+                var line = Path()
+                line.move(to: CGPoint(x: x, y: plotRect.minY))
+                line.addLine(to: CGPoint(x: x, y: plotRect.maxY))
+                context.stroke(line, with: .color(theme.border.opacity(0.5)), lineWidth: 1)
+            }
+
+            for tickIndex in 0...yTickCount {
+                let value = domain.yMin + Double(tickIndex) * domain.yStep
+                let y = plotRect.maxY - CGFloat((value - domain.yMin) / ySpan) * plotRect.height
+                var line = Path()
+                line.move(to: CGPoint(x: plotRect.minX, y: y))
+                line.addLine(to: CGPoint(x: plotRect.maxX, y: y))
+                context.stroke(line, with: .color(theme.border.opacity(0.5)), lineWidth: 1)
+            }
+
+            let axisColor = theme.primaryText.opacity(0.78)
+            if domain.yMin <= 0, domain.yMax >= 0 {
+                let zeroY = plotRect.maxY - CGFloat((0 - domain.yMin) / ySpan) * plotRect.height
+                var xAxis = Path()
+                xAxis.move(to: CGPoint(x: plotRect.minX, y: zeroY))
+                xAxis.addLine(to: CGPoint(x: plotRect.maxX, y: zeroY))
+                context.stroke(xAxis, with: .color(axisColor), lineWidth: 2)
+            }
+            if domain.xMin <= 0, domain.xMax >= 0 {
+                let zeroX = plotRect.minX + CGFloat((0 - domain.xMin) / xSpan) * plotRect.width
+                var yAxis = Path()
+                yAxis.move(to: CGPoint(x: zeroX, y: plotRect.minY))
+                yAxis.addLine(to: CGPoint(x: zeroX, y: plotRect.maxY))
+                context.stroke(yAxis, with: .color(axisColor), lineWidth: 2)
+            }
+
+            if part.features.labelsVisible {
+                let xMinText = Text(formattedAxisValue(domain.xMin)).font(.caption2.weight(.bold)).foregroundStyle(theme.secondaryText)
+                let xMaxText = Text(formattedAxisValue(domain.xMax)).font(.caption2.weight(.bold)).foregroundStyle(theme.secondaryText)
+                let yMaxText = Text(formattedAxisValue(domain.yMax)).font(.caption2.weight(.bold)).foregroundStyle(theme.secondaryText)
+                context.draw(xMinText, at: CGPoint(x: plotRect.minX, y: plotRect.maxY + 13), anchor: .center)
+                context.draw(xMaxText, at: CGPoint(x: plotRect.maxX, y: plotRect.maxY + 13), anchor: .center)
+                context.draw(yMaxText, at: CGPoint(x: plotRect.minX - 12, y: plotRect.minY), anchor: .trailing)
+            }
+        }
+        .frame(minHeight: 180)
+        .background(theme.panel.opacity(0.72), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(theme.border.opacity(0.55), lineWidth: 1)
+        )
+        .accessibilityLabel("Coordinate plane")
+    }
+}
+
+private func formattedAxisValue(_ value: Double) -> String {
+    if value.rounded() == value {
+        return String(Int(value))
+    }
+    return String(format: "%.1f", value)
 }
 
 private enum FeedbackKind {

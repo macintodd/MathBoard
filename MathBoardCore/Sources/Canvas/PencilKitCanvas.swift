@@ -823,7 +823,7 @@ private final class PencilKitCanvasHostView: UIView {
         geometryObjectsView.isUserInteractionEnabled = false
         textObjectsView.isUserInteractionEnabled = false
         widgetObjectsView.backgroundColor = .clear
-        coverObjectsView.isUserInteractionEnabled = false
+        coverObjectsView.isUserInteractionEnabled = true
         regionSelectionOverlayView.acceptsRegionSelectionInput = false
         laserOverlayView.acceptsLaserInput = false
         textPlacementOverlayView.acceptsTextPlacement = false
@@ -1009,6 +1009,18 @@ private final class PencilKitCanvasHostView: UIView {
         )
     }
 
+    func configureCoverObjectActions(
+        onToggleReveal: @escaping (CanvasCoverObject.ID) -> Void,
+        onDelete: @escaping (CanvasCoverObject.ID) -> Void,
+        onMove: @escaping (CanvasCoverObject.ID, CGPoint) -> Void,
+        onResize: @escaping (CanvasCoverObject.ID, CGPoint) -> Void
+    ) {
+        coverObjectsView.onToggleReveal = onToggleReveal
+        coverObjectsView.onDelete = onDelete
+        coverObjectsView.onMove = onMove
+        coverObjectsView.onResize = onResize
+    }
+
     func updateCoverObjects(_ coverObjects: [CanvasCoverObject], using canvas: PKCanvasView) {
         coverObjectsView.configure(coverObjects)
         updateCoverObjectFrame(using: canvas)
@@ -1168,10 +1180,18 @@ private extension CGRect {
 }
 
 private final class CanvasCoverObjectsView: UIView {
+    var onToggleReveal: ((CanvasCoverObject.ID) -> Void)?
+    var onDelete: ((CanvasCoverObject.ID) -> Void)?
+    var onMove: ((CanvasCoverObject.ID, CGPoint) -> Void)?
+    var onResize: ((CanvasCoverObject.ID, CGPoint) -> Void)?
+
+    private static let teacherHiddenAlpha: CGFloat = 0.42
     private var coverObjects: [CanvasCoverObject] = []
     private var zoomScale: CGFloat = 1
     private var contentOffset: CGPoint = .zero
     private var canvasOrigin: CGPoint = .zero
+    private var selectedCoverID: CanvasCoverObject.ID?
+    private var controlViews: [CanvasCoverObject.ID: CanvasCoverControlView] = [:]
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1187,6 +1207,7 @@ private final class CanvasCoverObjectsView: UIView {
     func configure(_ coverObjects: [CanvasCoverObject]) {
         guard self.coverObjects != coverObjects else { return }
         self.coverObjects = coverObjects
+        syncControlViews()
         setNeedsDisplay()
     }
 
@@ -1194,7 +1215,13 @@ private final class CanvasCoverObjectsView: UIView {
         self.zoomScale = zoomScale
         self.contentOffset = contentOffset
         self.canvasOrigin = canvasOrigin
+        syncControlViews()
         setNeedsDisplay()
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let hitView = super.hitTest(point, with: event)
+        return hitView === self ? nil : hitView
     }
 
     override func draw(_ rect: CGRect) {
@@ -1213,10 +1240,63 @@ private final class CanvasCoverObjectsView: UIView {
                 red: object.red,
                 green: object.green,
                 blue: object.blue,
-                alpha: object.alpha
+                alpha: Self.teacherHiddenAlpha
             ).setFill()
             path.fill()
         }
+    }
+
+    private func syncControlViews() {
+        let activeIDs = Set(coverObjects.map(\.id))
+        for (id, view) in controlViews where !activeIDs.contains(id) {
+            view.removeFromSuperview()
+            controlViews[id] = nil
+        }
+
+        for object in coverObjects {
+            let controlView = controlViews[object.id] ?? CanvasCoverControlView()
+            if controlViews[object.id] == nil {
+                controlView.onSelect = { [weak self] id in
+                    self?.selectedCoverID = id
+                    self?.syncControlViews()
+                }
+                controlView.onToggleReveal = { [weak self] id in self?.onToggleReveal?(id) }
+                controlView.onDelete = { [weak self] id in self?.onDelete?(id) }
+                controlView.onMove = { [weak self] id, displayDelta in
+                    guard let self else { return }
+                    self.selectedCoverID = id
+                    self.onMove?(id, self.sourceDelta(fromDisplayDelta: displayDelta))
+                }
+                controlView.onResize = { [weak self] id, displayDelta in
+                    guard let self else { return }
+                    self.selectedCoverID = id
+                    self.onResize?(id, self.sourceDelta(fromDisplayDelta: displayDelta))
+                }
+                addSubview(controlView)
+                controlViews[object.id] = controlView
+            }
+            controlView.configure(id: object.id, isRevealed: object.isRevealed, isSelected: object.id == selectedCoverID)
+            controlView.frame = displayFrame(for: object.boundingBox)
+        }
+    }
+
+    private func displayFrame(for sourceRect: CGRect) -> CGRect {
+        guard !sourceRect.isNull else { return .zero }
+        let minPoint = screenPoint(CGPoint(x: sourceRect.minX, y: sourceRect.minY))
+        let maxPoint = screenPoint(CGPoint(x: sourceRect.maxX, y: sourceRect.maxY))
+        return CGRect(
+            x: min(minPoint.x, maxPoint.x),
+            y: min(minPoint.y, maxPoint.y),
+            width: max(abs(maxPoint.x - minPoint.x), CanvasCoverControlView.minimumWidth),
+            height: max(abs(maxPoint.y - minPoint.y), CanvasCoverControlView.headerHeight + 12)
+        )
+    }
+
+    private func sourceDelta(fromDisplayDelta delta: CGPoint) -> CGPoint {
+        CGPoint(
+            x: delta.x / max(zoomScale, 0.001),
+            y: delta.y / max(zoomScale, 0.001)
+        )
     }
 
     private func screenPoint(_ point: CGPoint) -> CGPoint {
@@ -1224,6 +1304,143 @@ private final class CanvasCoverObjectsView: UIView {
             x: (canvasOrigin.x + point.x) * zoomScale - contentOffset.x,
             y: (canvasOrigin.y + point.y) * zoomScale - contentOffset.y
         )
+    }
+}
+
+private final class CanvasCoverControlView: UIView {
+    static let headerHeight: CGFloat = 30
+    static let minimumWidth: CGFloat = 116
+
+    var onSelect: ((CanvasCoverObject.ID) -> Void)?
+    var onToggleReveal: ((CanvasCoverObject.ID) -> Void)?
+    var onDelete: ((CanvasCoverObject.ID) -> Void)?
+    var onMove: ((CanvasCoverObject.ID, CGPoint) -> Void)?
+    var onResize: ((CanvasCoverObject.ID, CGPoint) -> Void)?
+
+    private let headerView = UIView()
+    private let visibilityButton = UIButton(type: .system)
+    private let deleteButton = UIButton(type: .system)
+    private let resizeHandleView = UIView()
+    private var coverID: CanvasCoverObject.ID?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        isOpaque = false
+        layer.borderColor = UIColor(red: 0.05, green: 0.26, blue: 0.62, alpha: 0.95).cgColor
+        layer.borderWidth = 1.5
+        layer.cornerRadius = 6
+        layer.masksToBounds = true
+
+        headerView.backgroundColor = UIColor(red: 0.05, green: 0.20, blue: 0.48, alpha: 0.78)
+        addSubview(headerView)
+
+        configureButton(visibilityButton)
+        configureButton(deleteButton)
+        visibilityButton.addTarget(self, action: #selector(toggleReveal), for: .touchUpInside)
+        deleteButton.addTarget(self, action: #selector(deleteCover), for: .touchUpInside)
+        headerView.addSubview(visibilityButton)
+        headerView.addSubview(deleteButton)
+
+        resizeHandleView.backgroundColor = UIColor(red: 0.05, green: 0.26, blue: 0.62, alpha: 0.95)
+        resizeHandleView.layer.cornerRadius = 5
+        resizeHandleView.layer.borderColor = UIColor.white.withAlphaComponent(0.9).cgColor
+        resizeHandleView.layer.borderWidth = 1.5
+        addSubview(resizeHandleView)
+
+        let headerPan = UIPanGestureRecognizer(target: self, action: #selector(handleHeaderPan(_:)))
+        headerPan.cancelsTouchesInView = false
+        headerView.addGestureRecognizer(headerPan)
+
+        let headerTap = UITapGestureRecognizer(target: self, action: #selector(selectCover))
+        headerTap.cancelsTouchesInView = false
+        headerView.addGestureRecognizer(headerTap)
+
+        let resizePan = UIPanGestureRecognizer(target: self, action: #selector(handleResizePan(_:)))
+        resizePan.cancelsTouchesInView = true
+        resizeHandleView.addGestureRecognizer(resizePan)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(id: CanvasCoverObject.ID, isRevealed: Bool, isSelected: Bool) {
+        coverID = id
+        layer.borderWidth = isSelected ? 2.5 : 1.5
+        resizeHandleView.isHidden = !isSelected
+        let visibilityImage = UIImage(systemName: isRevealed ? "eye" : "eye.slash")
+        visibilityButton.setTitle(nil, for: .normal)
+        visibilityButton.setImage(visibilityImage, for: .normal)
+        visibilityButton.accessibilityLabel = isRevealed ? "Tape shown" : "Tape hidden"
+        deleteButton.setImage(UIImage(systemName: "trash"), for: .normal)
+        deleteButton.accessibilityLabel = "Delete tape"
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        headerView.frame = CGRect(x: 0, y: 0, width: bounds.width, height: Self.headerHeight)
+        visibilityButton.frame = CGRect(x: 4, y: 2, width: 30, height: 26)
+        deleteButton.frame = CGRect(x: bounds.width - 32, y: 2, width: 28, height: 26)
+        resizeHandleView.frame = CGRect(x: bounds.width - 18, y: bounds.height - 18, width: 16, height: 16)
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        if !resizeHandleView.isHidden {
+            let handlePoint = convert(point, to: resizeHandleView)
+            if resizeHandleView.bounds.insetBy(dx: -10, dy: -10).contains(handlePoint) {
+                return resizeHandleView
+            }
+        }
+        let headerPoint = convert(point, to: headerView)
+        guard headerView.bounds.contains(headerPoint) else { return nil }
+        return super.hitTest(point, with: event)
+    }
+
+    private func configureButton(_ button: UIButton) {
+        button.tintColor = .white
+        button.setTitleColor(.white, for: .normal)
+        button.titleLabel?.font = .systemFont(ofSize: 11, weight: .semibold)
+        button.semanticContentAttribute = .forceLeftToRight
+        button.contentHorizontalAlignment = .center
+    }
+
+    @objc private func selectCover() {
+        guard let coverID else { return }
+        onSelect?(coverID)
+    }
+
+    @objc private func toggleReveal() {
+        guard let coverID else { return }
+        onSelect?(coverID)
+        onToggleReveal?(coverID)
+    }
+
+    @objc private func deleteCover() {
+        guard let coverID else { return }
+        onDelete?(coverID)
+    }
+
+    @objc private func handleHeaderPan(_ recognizer: UIPanGestureRecognizer) {
+        guard let coverID else { return }
+        if recognizer.state == .began {
+            onSelect?(coverID)
+        }
+        let translation = recognizer.translation(in: self)
+        guard translation != .zero else { return }
+        onMove?(coverID, translation)
+        recognizer.setTranslation(.zero, in: self)
+    }
+
+    @objc private func handleResizePan(_ recognizer: UIPanGestureRecognizer) {
+        guard let coverID else { return }
+        if recognizer.state == .began {
+            onSelect?(coverID)
+        }
+        let translation = recognizer.translation(in: self)
+        guard translation != .zero else { return }
+        onResize?(coverID, translation)
+        recognizer.setTranslation(.zero, in: self)
     }
 }
 
@@ -2626,6 +2843,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
     func makeUIView(context: Context) -> PencilKitCanvasHostView {
         let hostView = PencilKitCanvasHostView()
         let canvas = hostView.canvas
+        let coordinator = context.coordinator
         canvas.drawing = drawing
         canvas.delegate = context.coordinator
         canvas.drawingPolicy = .anyInput
@@ -2633,8 +2851,14 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         canvas.backgroundColor = .clear
         canvas.isOpaque = false
 
-        context.coordinator.hostView = hostView
-        context.coordinator.configureViewport(for: canvas)
+        coordinator.hostView = hostView
+        hostView.configureCoverObjectActions(
+            onToggleReveal: { [weak coordinator] id in coordinator?.toggleCoverReveal(id: id) },
+            onDelete: { [weak coordinator] id in coordinator?.deleteCover(id: id) },
+            onMove: { [weak coordinator] id, delta in coordinator?.moveCover(id: id, by: delta) },
+            onResize: { [weak coordinator] id, delta in coordinator?.resizeCover(id: id, by: delta) }
+        )
+        coordinator.configureViewport(for: canvas)
         context.coordinator.canvas = canvas
         context.coordinator.installLiveStrokeRecognizer(on: canvas)
         context.coordinator.installLaserStrokeRecognizer(on: hostView.laserOverlayView, canvas: canvas)
@@ -2718,9 +2942,16 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         let canvas = hostView.canvas
         hostView.overrideUserInterfaceStyle = .light
         canvas.overrideUserInterfaceStyle = .light
-        context.coordinator.parent = self
-        context.coordinator.hostView = hostView
-        context.coordinator.canvas = canvas
+        let coordinator = context.coordinator
+        coordinator.parent = self
+        coordinator.hostView = hostView
+        hostView.configureCoverObjectActions(
+            onToggleReveal: { [weak coordinator] id in coordinator?.toggleCoverReveal(id: id) },
+            onDelete: { [weak coordinator] id in coordinator?.deleteCover(id: id) },
+            onMove: { [weak coordinator] id, delta in coordinator?.moveCover(id: id, by: delta) },
+            onResize: { [weak coordinator] id, delta in coordinator?.resizeCover(id: id, by: delta) }
+        )
+        coordinator.canvas = canvas
         context.coordinator.configureViewport(for: canvas)
         hostView.updateBackground(background, using: canvas)
         hostView.updateImageObjects(
@@ -2841,6 +3072,13 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private var objectDragDisplayLink: CADisplayLink?
         private var hasPendingObjectDragPublish = false
         private var dragCachedDrawingImage: UIImage?
+        private let objectDragRenderQueue = DispatchQueue(label: "com.mathboard.canvas.drag-render", qos: .userInteractive)
+        private var objectDragRenderGeneration: Int = 0
+        private var objectDragRenderInProgress = false
+        // Text layer pre-rendered on the main thread once per drag (source rect
+        // doesn't change while an object is being dragged, so this never needs
+        // re-rendering mid-drag). Cleared on drag end.
+        private var dragTextLayerCache: (sourceRect: CGRect, destinationSize: CGSize, image: UIImage)?
         private var isUsingPencilKitTool = false
         private var needsCommittedInkFrameRefresh = false
         private var committedFrameBackgroundCache: CommittedFrameBackgroundCache?
@@ -2943,6 +3181,28 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             let pageIndex: Int
             let page: PDFPage
             let pageBounds: CGRect
+        }
+
+        // @unchecked Sendable: UIImage and PDFPage are not formally Sendable but
+        // are safe to read from a background UIGraphicsImageRenderer closure —
+        // all access is read-only and within a single renderer context.
+        private struct DragRenderSnapshot: @unchecked Sendable {
+            let sourceRect: CGRect
+            let visibleSourceRect: CGRect
+            let destinationSize: CGSize
+            let rendererScale: CGFloat
+            let drawingImage: UIImage
+            let usableCanvasSize: CGSize
+            let backgroundCache: CommittedFrameBackgroundCache?
+            let imageLayerPosition: CanvasObjectLayerState.ImageLayerPosition
+            // Text objects are pre-rendered to a transparent UIImage on the main
+            // thread (see renderTextLayerImage) so the background render queue
+            // never calls CanvasMathTextRenderer, which asserts MainActor isolation.
+            let textLayerImage: UIImage?
+            let imageObjects: [CanvasImageObject]
+            let loadedImages: [String: UIImage]
+            let geometryObjects: [CanvasGeometryObject]
+            let coverObjects: [CanvasCoverObject]
         }
 
         private enum ActiveLiveStrokeTool {
@@ -4081,13 +4341,10 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             let wasDrag = max(bounds.width, bounds.height) >= 12
 
             if cancelled || !wasDrag {
-                // A tap (or cancel): drop any provisional cover, and on a tap
-                // toggle the reveal state of the topmost cover under the point.
+                // A tap (or cancel) is not a cover placement. Reveal/hide now
+                // lives on each tape header's eye button instead of body taps.
                 if let id = creatingCoverObjectID {
                     parent.coverObjects.removeAll { $0.id == id }
-                }
-                if !cancelled, let point = creatingCoverSourcePoints.first {
-                    toggleCoverReveal(at: point)
                 }
             }
             // A real drag leaves the provisional cover in place as the final cover.
@@ -4097,11 +4354,63 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             publishImageFromModel()
         }
 
-        private func toggleCoverReveal(at sourcePoint: CGPoint) {
-            guard let index = parent.coverObjects.lastIndex(where: { $0.contains(sourcePoint) }) else { return }
+        func toggleCoverReveal(id: CanvasCoverObject.ID) {
+            guard let index = parent.coverObjects.firstIndex(where: { $0.id == id }) else { return }
             var coverObjects = parent.coverObjects
             coverObjects[index].isRevealed.toggle()
             parent.coverObjects = coverObjects
+            if let canvas {
+                updateHostCoverObjects(using: canvas)
+                publishImageFromModel()
+            }
+        }
+
+        func deleteCover(id: CanvasCoverObject.ID) {
+            let originalCount = parent.coverObjects.count
+            parent.coverObjects.removeAll { $0.id == id }
+            guard parent.coverObjects.count != originalCount else { return }
+            if let canvas {
+                updateHostCoverObjects(using: canvas)
+                publishImageFromModel()
+            }
+        }
+
+        func moveCover(id: CanvasCoverObject.ID, by sourceDelta: CGPoint) {
+            guard sourceDelta != .zero,
+                  let index = parent.coverObjects.firstIndex(where: { $0.id == id }) else { return }
+            var coverObjects = parent.coverObjects
+            coverObjects[index].points = coverObjects[index].points.map { point in
+                CGPoint(x: point.x + sourceDelta.x, y: point.y + sourceDelta.y)
+            }
+            parent.coverObjects = coverObjects
+            if let canvas {
+                updateHostCoverObjects(using: canvas)
+                publishImageFromModel()
+            }
+        }
+
+        func resizeCover(id: CanvasCoverObject.ID, by sourceDelta: CGPoint) {
+            guard sourceDelta != .zero,
+                  let index = parent.coverObjects.firstIndex(where: { $0.id == id }) else { return }
+            let object = parent.coverObjects[index]
+            let bounds = object.boundingBox
+            guard !bounds.isNull, bounds.width > 0, bounds.height > 0 else { return }
+            let newWidth = max(bounds.width + sourceDelta.x, 24)
+            let newHeight = max(bounds.height + sourceDelta.y, 24)
+            let scaleX = newWidth / bounds.width
+            let scaleY = newHeight / bounds.height
+            var coverObjects = parent.coverObjects
+            coverObjects[index].points = object.points.map { point in
+                CGPoint(
+                    x: bounds.minX + (point.x - bounds.minX) * scaleX,
+                    y: bounds.minY + (point.y - bounds.minY) * scaleY
+                )
+            }
+            parent.coverObjects = coverObjects
+            if let canvas {
+                updateHostCoverObjects(using: canvas)
+                publishImageFromModel()
+            }
         }
 
         private func updateHostCoverObjects(using canvas: PKCanvasView) {
@@ -6794,7 +7103,17 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         }
 
         private func extractSelectedRegionAsImageSticker(using canvas: PKCanvasView) {
-            _ = duplicateSelectedRegionAsImageObject(using: canvas)
+            _ = recordSelectedRegionAsLibrarySticker()
+        }
+
+        private func recordSelectedRegionAsLibrarySticker() -> Bool {
+            guard let snapshot = makeRegionSnapshot() else { return false }
+            parent.onExtractedRegionPlaced?(CanvasExtractedRegion(
+                pngData: snapshot.pngData,
+                sourceBounds: snapshot.sourceBounds
+            ))
+            clearRegionSelection()
+            return true
         }
 
         private func sendSelectedRegionToNextSlide(using canvas: PKCanvasView) {
@@ -6824,15 +7143,24 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 sendSelectedRegionToNextSlide(using: canvas)
                 didComplete = true
             case .sticker:
-                didComplete = duplicateSelectedRegionAsImageObject(using: canvas)
+                didComplete = recordSelectedRegionAsLibrarySticker()
             case .delete:
                 didComplete = fillSelectedRegionWithBackground(using: canvas)
             }
 
-            if didComplete {
+            if didComplete && shouldFinishActiveExtractAction {
                 parent.onExtractActionCompleted?()
             }
             return didComplete
+        }
+
+        private var shouldFinishActiveExtractAction: Bool {
+            switch activeExtractAction {
+            case .copy, .sticker, .send:
+                return false
+            case .clone, .delete:
+                return true
+            }
         }
 
         private func fillSelectedRegionWithBackground(using canvas: PKCanvasView) -> Bool {
@@ -8442,6 +8770,15 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             return true
         }
 
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            if let coverObjectsView = hostView?.coverObjectsView,
+               let touchedView = touch.view,
+               touchedView.isDescendant(of: coverObjectsView) {
+                return false
+            }
+            return true
+        }
+
         func gestureRecognizer(
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
@@ -8670,12 +9007,176 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             objectDragDisplayLink = nil
             hasPendingObjectDragPublish = false
             dragCachedDrawingImage = nil
+            objectDragRenderInProgress = false
+            dragTextLayerCache = nil
         }
 
         @objc private func objectDragDisplayLinkFired() {
-            guard hasPendingObjectDragPublish else { return }
+            // If a render is already in-flight, leave hasPendingObjectDragPublish
+            // set so the next tick retries. This caps the queue at exactly one
+            // pending render and prevents CPU-saturating backlog.
+            guard hasPendingObjectDragPublish, !objectDragRenderInProgress else { return }
             hasPendingObjectDragPublish = false
-            publishImageFromModel()
+            guard let canvas, let onFrameUpdate = parent.onFrameUpdate else { return }
+            guard let snapshot = makeDragRenderSnapshot(canvas: canvas) else { return }
+            objectDragRenderInProgress = true
+            objectDragRenderGeneration &+= 1
+            let generation = objectDragRenderGeneration
+            objectDragRenderQueue.async { [weak self] in
+                let rendered = Self.renderDragFrame(snapshot: snapshot)
+                DispatchQueue.main.async { [weak self] in
+                    self?.objectDragRenderInProgress = false
+                    guard let cg = rendered?.cgImage,
+                          self?.objectDragRenderGeneration == generation else { return }
+                    onFrameUpdate(cg, snapshot.sourceRect, snapshot.visibleSourceRect)
+                }
+            }
+        }
+
+        // Captures all model state needed to render one drag frame. Runs on the
+        // main thread in < 0.5 ms — no rendering, just value copies and
+        // cache lookups. The resulting snapshot is safe to hand to the
+        // background render queue because all fields are value types or
+        // immutable reference types (UIImage / PDFPage).
+        private func makeDragRenderSnapshot(canvas: PKCanvasView) -> DragRenderSnapshot? {
+            let viewportSize = canvas.bounds.size
+            guard viewportSize.width > 0, viewportSize.height > 0 else { return nil }
+            let outRect = outputRect(in: viewportSize)
+            let visibleSourceRect = sourceRect(for: outRect, on: canvas)
+            // 1× overscan during drag — no pan/zoom slack needed while an object moves
+            let dragSourceRect = visibleSourceRect
+            let destinationSize = CGSize(width: outRect.width, height: outRect.height)
+            let destinationRect = CGRect(origin: .zero, size: destinationSize)
+            let maximumDim = max(destinationSize.width, destinationSize.height)
+            let rendererScale = min(
+                Self.publishScale,
+                Self.maximumCommittedFramePixelDimension / max(maximumDim, 1)
+            )
+            guard rendererScale > 0 else { return nil }
+            let drawingImageScale = committedDrawingImageScale(
+                sourceRect: dragSourceRect,
+                destinationRect: destinationRect,
+                rendererScale: rendererScale
+            )
+            // Reuse the drawing image captured at drag start; ink doesn't change
+            // while an object is being moved/resized/rotated.
+            let drawingImage = dragCachedDrawingImage
+                ?? parent.drawing.image(from: dragSourceRect, scale: drawingImageScale)
+            let bgCache = parent.background.flatMap { committedFrameBackground(for: $0) }
+            let assetDirURL = CanvasImageObject.assetDirectoryURL(forDrawingURL: parent.drawingURL)
+            pruneCommittedFrameImageCache(activeImageFileNames: Set(parent.imageObjects.map(\.imageFileName)))
+            var loadedImages: [String: UIImage] = [:]
+            for object in parent.imageObjects {
+                if let image = committedFrameImage(named: object.imageFileName, assetDirectoryURL: assetDirURL) {
+                    loadedImages[object.imageFileName] = image
+                }
+            }
+            // Pre-render text layer on the main thread so the background queue
+            // never touches CanvasMathTextRenderer (which asserts MainActor).
+            // Text objects don't move while a geometry object is being dragged,
+            // so one render per unique source rect covers the whole drag session.
+            let textLayerImage: UIImage?
+            if let cached = dragTextLayerCache,
+               cached.sourceRect == dragSourceRect,
+               cached.destinationSize == destinationSize {
+                textLayerImage = cached.image
+            } else {
+                let rendered = renderTextLayerImage(
+                    sourceRect: dragSourceRect,
+                    destinationSize: destinationSize,
+                    rendererScale: rendererScale
+                )
+                dragTextLayerCache = rendered.map { (dragSourceRect, destinationSize, $0) }
+                textLayerImage = rendered
+            }
+            return DragRenderSnapshot(
+                sourceRect: dragSourceRect,
+                visibleSourceRect: visibleSourceRect,
+                destinationSize: destinationSize,
+                rendererScale: rendererScale,
+                drawingImage: drawingImage,
+                usableCanvasSize: usableCanvasSize,
+                backgroundCache: bgCache,
+                imageLayerPosition: parent.objectLayerState.imageLayerPosition,
+                textLayerImage: textLayerImage,
+                imageObjects: parent.imageObjects,
+                loadedImages: loadedImages,
+                geometryObjects: parent.geometryObjects,
+                coverObjects: parent.coverObjects
+            )
+        }
+
+        // Renders all text objects to a transparent UIImage on the main thread.
+        // Must run on the main actor: CanvasMathTextRenderer calls
+        // MainActor.assumeIsolated for math (LaTeX) segments and will crash otherwise.
+        private func renderTextLayerImage(
+            sourceRect: CGRect,
+            destinationSize: CGSize,
+            rendererScale: CGFloat
+        ) -> UIImage? {
+            guard !parent.textObjects.isEmpty else { return nil }
+            let destRect = CGRect(origin: .zero, size: destinationSize)
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = rendererScale
+            format.opaque = false
+            return UIGraphicsImageRenderer(size: destinationSize, format: format).image { context in
+                drawTextObjects(in: context.cgContext, sourceRect: sourceRect, destinationRect: destRect)
+            }
+        }
+
+        // Pure rendering function — runs entirely on the background render queue.
+        // Uses static draw helpers that access only the snapshot's value-type data,
+        // never touching main-thread-owned state.
+        private nonisolated static func renderDragFrame(snapshot: DragRenderSnapshot) -> UIImage? {
+            let destRect = CGRect(origin: .zero, size: snapshot.destinationSize)
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = snapshot.rendererScale
+            format.opaque = true
+            let renderer = UIGraphicsImageRenderer(size: snapshot.destinationSize, format: format)
+            return renderer.image { context in
+                let ctx = context.cgContext
+                PencilKitCanvasGeometry.canvasDeskColor.setFill()
+                UIRectFill(destRect)
+                drawBoardSurface(
+                    in: ctx,
+                    sourceRect: snapshot.sourceRect,
+                    destinationRect: destRect,
+                    usableCanvasSize: snapshot.usableCanvasSize
+                )
+                drawBackground(
+                    in: ctx,
+                    sourceRect: snapshot.sourceRect,
+                    destinationRect: destRect,
+                    backgroundCache: snapshot.backgroundCache
+                )
+                switch snapshot.imageLayerPosition {
+                case .belowGeometry:
+                    drawImageObjects(in: ctx, sourceRect: snapshot.sourceRect, destinationRect: destRect,
+                                     imageObjects: snapshot.imageObjects, loadedImages: snapshot.loadedImages)
+                    drawGeometryObjects(in: ctx, sourceRect: snapshot.sourceRect, destinationRect: destRect,
+                                        geometryObjects: snapshot.geometryObjects)
+                    snapshot.textLayerImage?.draw(in: destRect)
+                case .betweenGeometryAndText:
+                    drawGeometryObjects(in: ctx, sourceRect: snapshot.sourceRect, destinationRect: destRect,
+                                        geometryObjects: snapshot.geometryObjects)
+                    drawImageObjects(in: ctx, sourceRect: snapshot.sourceRect, destinationRect: destRect,
+                                     imageObjects: snapshot.imageObjects, loadedImages: snapshot.loadedImages)
+                    snapshot.textLayerImage?.draw(in: destRect)
+                case .aboveText:
+                    drawGeometryObjects(in: ctx, sourceRect: snapshot.sourceRect, destinationRect: destRect,
+                                        geometryObjects: snapshot.geometryObjects)
+                    snapshot.textLayerImage?.draw(in: destRect)
+                    drawImageObjects(in: ctx, sourceRect: snapshot.sourceRect, destinationRect: destRect,
+                                     imageObjects: snapshot.imageObjects, loadedImages: snapshot.loadedImages)
+                }
+                snapshot.drawingImage.draw(in: destRect)
+                drawCoverObjects(
+                    in: ctx,
+                    sourceRect: snapshot.sourceRect,
+                    destinationRect: destRect,
+                    coverObjects: snapshot.coverObjects
+                )
+            }
         }
 
         func publishImageFromModel() {
@@ -9056,11 +9557,212 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 context.addPath(path)
                 context.setFillColor(CGColor(
                     colorSpace: CGColorSpaceCreateDeviceRGB(),
-                    components: [object.red, object.green, object.blue, object.alpha]
+                    components: [object.red, object.green, object.blue, 1]
                 ) ?? CGColor(gray: 0.16, alpha: 1))
                 context.fillPath()
             }
 
+            context.restoreGState()
+        }
+
+        // MARK: - Static draw helpers (background-thread-safe)
+        // These mirror the instance draw methods above but accept explicit
+        // parameters instead of accessing `self`, making them safe to call
+        // from renderDragFrame on the background render queue.
+
+        private nonisolated static func drawBoardSurface(
+            in context: CGContext,
+            sourceRect: CGRect,
+            destinationRect: CGRect,
+            usableCanvasSize: CGSize
+        ) {
+            let boardRect = CGRect(origin: PencilKitCanvasGeometry.drawingOriginOffset, size: usableCanvasSize)
+            guard boardRect.intersects(sourceRect) else { return }
+            let scaleX = destinationRect.width / max(sourceRect.width, 0.001)
+            let scaleY = destinationRect.height / max(sourceRect.height, 0.001)
+            let outputBoardRect = CGRect(
+                x: destinationRect.minX + (boardRect.minX - sourceRect.minX) * scaleX,
+                y: destinationRect.minY + (boardRect.minY - sourceRect.minY) * scaleY,
+                width: boardRect.width * scaleX,
+                height: boardRect.height * scaleY
+            )
+            context.saveGState()
+            context.clip(to: destinationRect)
+            context.setShadow(
+                offset: CGSize(width: 0, height: 5),
+                blur: 12,
+                color: PencilKitCanvasGeometry.paperShadowColor.cgColor
+            )
+            context.setFillColor(PencilKitCanvasGeometry.boardSurfaceColor.cgColor)
+            context.fill(outputBoardRect)
+            context.restoreGState()
+            context.saveGState()
+            context.clip(to: destinationRect)
+            context.setStrokeColor(PencilKitCanvasGeometry.canvasEdgeColor.cgColor)
+            context.setLineWidth(max(1, min(scaleX, scaleY) * 4))
+            context.stroke(outputBoardRect)
+            context.restoreGState()
+        }
+
+        private nonisolated static func drawBackground(
+            in context: CGContext,
+            sourceRect: CGRect,
+            destinationRect: CGRect,
+            backgroundCache: CommittedFrameBackgroundCache?
+        ) {
+            guard let cachedBackground = backgroundCache else { return }
+            let page = cachedBackground.page
+            let pageBounds = cachedBackground.pageBounds
+            let backgroundRect = CGRect(
+                origin: PencilKitCanvasGeometry.drawingOriginOffset,
+                size: pageBounds.size
+            )
+            let scaleX = destinationRect.width / max(sourceRect.width, 0.001)
+            let scaleY = destinationRect.height / max(sourceRect.height, 0.001)
+            context.saveGState()
+            context.clip(to: destinationRect)
+            context.translateBy(x: destinationRect.minX, y: destinationRect.minY)
+            context.scaleBy(x: scaleX, y: scaleY)
+            context.translateBy(x: -sourceRect.minX, y: -sourceRect.minY)
+            context.saveGState()
+            context.setShadow(
+                offset: CGSize(width: 0, height: 7),
+                blur: 14,
+                color: PencilKitCanvasGeometry.paperShadowColor.cgColor
+            )
+            UIColor.white.setFill()
+            context.fill(backgroundRect)
+            context.restoreGState()
+            PDFCanvasBackgroundRenderer.draw(
+                page: page,
+                pageBounds: pageBounds,
+                in: backgroundRect,
+                context: context
+            )
+            context.saveGState()
+            context.setStrokeColor(PencilKitCanvasGeometry.paperBorderColor.cgColor)
+            context.setLineWidth(1)
+            context.stroke(backgroundRect)
+            context.restoreGState()
+            context.restoreGState()
+        }
+
+        private nonisolated static func drawImageObjects(
+            in context: CGContext,
+            sourceRect: CGRect,
+            destinationRect: CGRect,
+            imageObjects: [CanvasImageObject],
+            loadedImages: [String: UIImage]
+        ) {
+            guard !imageObjects.isEmpty else { return }
+            let scaleX = destinationRect.width / max(sourceRect.width, 0.001)
+            let scaleY = destinationRect.height / max(sourceRect.height, 0.001)
+            context.saveGState()
+            context.clip(to: destinationRect)
+            for object in imageObjects {
+                guard let image = loadedImages[object.imageFileName] else { continue }
+                let imageFrame = CGRect(
+                    x: destinationRect.minX + (PencilKitCanvasGeometry.drawingOriginOffset.x + object.x - sourceRect.minX) * scaleX,
+                    y: destinationRect.minY + (PencilKitCanvasGeometry.drawingOriginOffset.y + object.y - sourceRect.minY) * scaleY,
+                    width: object.width * scaleX,
+                    height: object.height * scaleY
+                )
+                if object.rotation == 0 {
+                    image.draw(in: imageFrame)
+                } else {
+                    context.saveGState()
+                    context.translateBy(x: imageFrame.midX, y: imageFrame.midY)
+                    context.rotate(by: object.rotation)
+                    image.draw(
+                        in: CGRect(
+                            x: -imageFrame.width / 2,
+                            y: -imageFrame.height / 2,
+                            width: imageFrame.width,
+                            height: imageFrame.height
+                        )
+                    )
+                    context.restoreGState()
+                }
+            }
+            context.restoreGState()
+        }
+
+        private nonisolated static func drawGeometryObjects(
+            in context: CGContext,
+            sourceRect: CGRect,
+            destinationRect: CGRect,
+            geometryObjects: [CanvasGeometryObject]
+        ) {
+            guard !geometryObjects.isEmpty else { return }
+            let scaleX = destinationRect.width / max(sourceRect.width, 0.001)
+            let scaleY = destinationRect.height / max(sourceRect.height, 0.001)
+            let origin = PencilKitCanvasGeometry.drawingOriginOffset
+            context.saveGState()
+            context.clip(to: destinationRect)
+            func map(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+                CGPoint(
+                    x: destinationRect.minX + (origin.x + x - sourceRect.minX) * scaleX,
+                    y: destinationRect.minY + (origin.y + y - sourceRect.minY) * scaleY
+                )
+            }
+            for object in geometryObjects {
+                let normalized = object.normalizedFrame
+                let topLeft = map(normalized.minX, normalized.minY)
+                let boundingRect = CGRect(
+                    x: topLeft.x,
+                    y: topLeft.y,
+                    width: normalized.width * scaleX,
+                    height: normalized.height * scaleY
+                )
+                let start = map(object.x, object.y)
+                let end = map(object.x + object.width, object.y + object.height)
+                let pivot = map(object.pivot.x, object.pivot.y)
+                CanvasGeometryRenderer.draw(
+                    object,
+                    boundingRect: boundingRect,
+                    start: start,
+                    end: end,
+                    lineWidthScale: scaleY,
+                    pivot: pivot,
+                    in: context
+                )
+            }
+            context.restoreGState()
+        }
+
+        private nonisolated static func drawCoverObjects(
+            in context: CGContext,
+            sourceRect: CGRect,
+            destinationRect: CGRect,
+            coverObjects: [CanvasCoverObject]
+        ) {
+            guard !coverObjects.isEmpty else { return }
+            let scaleX = destinationRect.width / max(sourceRect.width, 0.001)
+            let scaleY = destinationRect.height / max(sourceRect.height, 0.001)
+            let origin = PencilKitCanvasGeometry.drawingOriginOffset
+            context.saveGState()
+            context.clip(to: destinationRect)
+            func map(_ point: CGPoint) -> CGPoint {
+                CGPoint(
+                    x: destinationRect.minX + (origin.x + point.x - sourceRect.minX) * scaleX,
+                    y: destinationRect.minY + (origin.y + point.y - sourceRect.minY) * scaleY
+                )
+            }
+            for object in coverObjects where !object.isRevealed {
+                guard object.points.count >= 2 else { continue }
+                let path = CGMutablePath()
+                path.move(to: map(object.points[0]))
+                for point in object.points.dropFirst() {
+                    path.addLine(to: map(point))
+                }
+                path.closeSubpath()
+                context.addPath(path)
+                context.setFillColor(CGColor(
+                    colorSpace: CGColorSpaceCreateDeviceRGB(),
+                    components: [object.red, object.green, object.blue, 1]
+                ) ?? CGColor(gray: 0.16, alpha: 1))
+                context.fillPath()
+            }
             context.restoreGState()
         }
 

@@ -140,7 +140,7 @@ enum GraphCalculatorExpressionResolver {
             for expression in expressions {
                 guard let definition = ScalarDefinition(source: expression.expression),
                       scalarValues[definition.name] == nil,
-                      let compiled = try? engine.compile(normalizeImplicitVariableProducts(in: expandFunctionCalls(in: definition.body, definitions: definitionContext.definitions))),
+                      let compiled = try? engine.compile(normalizeImplicitVariableProducts(in: parenthesizeFractionDenominators(in: expandFunctionCalls(in: definition.body, definitions: definitionContext.definitions)))),
                       let value = try? engine.evaluate(compiled: compiled, angleMode: .radians, variables: values) else {
                     continue
                 }
@@ -174,7 +174,7 @@ enum GraphCalculatorExpressionResolver {
             return GraphCalculatorResolvedRow(index: index, source: source, plot: nil, displayValue: nil, errorMessage: error)
         } else if let scalarDefinition = ScalarDefinition(source: trimmed) {
             do {
-                let expandedBody = normalizeImplicitVariableProducts(in: expandFunctionCalls(in: scalarDefinition.body, definitions: definitionContext.definitions))
+                let expandedBody = normalizeImplicitVariableProducts(in: parenthesizeFractionDenominators(in: expandFunctionCalls(in: scalarDefinition.body, definitions: definitionContext.definitions)))
                 let compiled = try engine.compile(expandedBody)
                 if let value = try? engine.evaluate(compiled: compiled, angleMode: .radians, variables: variableValues) {
                     return GraphCalculatorResolvedRow(index: index, source: source, plot: nil, displayValue: CalculatorResultFormatter.string(for: value), errorMessage: nil)
@@ -197,7 +197,7 @@ enum GraphCalculatorExpressionResolver {
             rawPlot = .curve(trimmed)
         }
 
-        let plot = normalizeImplicitVariableProducts(in: expandFunctionCalls(in: rawPlot, definitions: definitionContext.definitions))
+        let plot = normalizeImplicitVariableProducts(in: parenthesizeFractionDenominators(in: expandFunctionCalls(in: rawPlot, definitions: definitionContext.definitions)))
         if case .point = plot {
             return GraphCalculatorResolvedRow(index: index, source: source, plot: plot, displayValue: nil, errorMessage: nil)
         }
@@ -646,6 +646,60 @@ enum GraphCalculatorExpressionResolver {
             self.x = x
             self.y = y
         }
+    }
+
+    // MARK: - Fraction denominator parenthesization
+
+    /// Wraps unparenthesized fraction denominators in () before normalization runs, so that
+    /// `normalizeImplicitVariableProducts` does not break implicit products inside denominators.
+    /// Example: `1/2x*x` → `1/(2x)*x` → after normalization → `1/(2*x)*x = 1/2` (line),
+    /// not `(1/2)*x*x = x²/2` (parabola).
+    private static func parenthesizeFractionDenominators(in plot: GraphCalculatorPlot) -> GraphCalculatorPlot {
+        switch plot {
+        case .curve(let expr): return .curve(parenthesizeFractionDenominators(in: expr))
+        case .yRelation(let expr, let rel): return .yRelation(parenthesizeFractionDenominators(in: expr), rel)
+        case .xRelation(let expr, let rel): return .xRelation(parenthesizeFractionDenominators(in: expr), rel)
+        case .implicitRelation(let expr): return .implicitRelation(parenthesizeFractionDenominators(in: expr))
+        case .point: return plot
+        }
+    }
+
+    private static func parenthesizeFractionDenominators(in expression: String) -> String {
+        var characters = Array(expression)
+        var offset = 0
+        while offset < characters.count {
+            guard characters[offset] == "/" else { offset += 1; continue }
+            let denomStart = offset + 1
+            guard denomStart < characters.count else { break }
+            var depth = 0
+            var denomEnd = denomStart
+            while denomEnd < characters.count {
+                let c = characters[denomEnd]
+                if c == "(" { depth += 1 }
+                else if c == ")" {
+                    if depth == 0 { break }
+                    depth -= 1
+                } else if depth == 0 && isDenomBoundary(c) {
+                    break
+                }
+                denomEnd += 1
+            }
+            guard denomEnd > denomStart else { offset += 1; continue }
+            // Check if denominator is already fully wrapped in a matching () pair.
+            let alreadyWrapped = characters[denomStart] == "(" && characters[denomEnd - 1] == ")"
+            if !alreadyWrapped {
+                characters.insert(")", at: denomEnd)
+                characters.insert("(", at: denomStart)
+                offset = denomEnd + 2
+            } else {
+                offset = denomEnd
+            }
+        }
+        return String(characters)
+    }
+
+    private static func isDenomBoundary(_ c: Character) -> Bool {
+        c == "+" || c == "-" || c == "*" || c == "/" || c == "=" || c == "," || c == "<" || c == ">"
     }
 }
 

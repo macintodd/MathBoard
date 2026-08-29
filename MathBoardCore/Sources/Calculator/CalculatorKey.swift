@@ -298,41 +298,67 @@ public enum CalculatorExpressionReducer {
 
 public enum CalculatorResultFormatter {
 
-    /// Format an evaluation result for the display. Integers render
-    /// without a trailing ".0"; very large/small magnitudes fall back to
-    /// scientific notation; non-finite values become a short label.
-    public static func string(for value: Double) -> String {
-        if value.isNaN { return "NaN" }
+    /// Format a result using the given MODE settings. Default args match factory defaults
+    /// so all existing call sites continue to produce Normal/Float output.
+    public static func string(
+        for value: Double,
+        notation: CalcNumberNotation = .normal,
+        precision: Int = -1  // -1 = Float (auto)
+    ) -> String {
+        if value.isNaN      { return "NaN" }
         if value.isInfinite { return value < 0 ? "−∞" : "∞" }
-        if value == 0 { return "0" }
 
+        switch notation {
+        case .sci: return sciNotation(value, digits: precision < 0 ? 6 : precision)
+        case .eng: return engNotation(value, digits: precision < 0 ? 6 : precision)
+        case .normal: break
+        }
+
+        if value == 0 { return "0" }
         let magnitude = abs(value)
 
-        // Whole numbers within a safe integer range render as integers.
-        // Use the unicode minus so all formatter paths are consistent.
+        if precision >= 0 {
+            if precision == 0 {
+                let rounded = value.rounded()
+                if abs(rounded) < 1e15 { return String(Int64(rounded)).replacingOccurrences(of: "-", with: "−") }
+            }
+            return String(format: "%.\(precision)f", value).replacingOccurrences(of: "-", with: "−")
+        }
+
+        // Float auto: integers as integers, extreme magnitudes → sci, else %.10g
         if value.rounded() == value, magnitude < 1e15 {
             return String(Int64(value)).replacingOccurrences(of: "-", with: "−")
         }
-
-        // Very large or very small → scientific notation.
         if magnitude >= 1e12 || magnitude < 1e-6 {
             return scientific(value)
         }
-
-        // Otherwise show up to 10 significant digits and trim trailing zeros.
         return fixed(value)
     }
 
     private static func fixed(_ value: Double) -> String {
-        var text = String(format: "%.10g", value)
-        // %g can still emit exponent form for some values — normalize the
-        // minus sign and return as-is if so.
-        text = text.replacingOccurrences(of: "-", with: "−")
-        return text
+        String(format: "%.10g", value).replacingOccurrences(of: "-", with: "−")
     }
 
     private static func scientific(_ value: Double) -> String {
-        let text = String(format: "%.6e", value)
-        return text.replacingOccurrences(of: "-", with: "−")
+        String(format: "%.6e", value).replacingOccurrences(of: "-", with: "−")
+    }
+
+    private static func sciNotation(_ value: Double, digits: Int) -> String {
+        if value == 0 { return "0" }
+        let d = max(0, min(9, digits))
+        return String(format: "%.\(d)E", value).replacingOccurrences(of: "-", with: "−")
+    }
+
+    private static func engNotation(_ value: Double, digits: Int) -> String {
+        if value == 0 { return "0" }
+        let sign: Double = value < 0 ? -1 : 1
+        let mag = abs(value)
+        let exp = Int(floor(log10(mag)))
+        let engExp = Int(floor(Double(exp) / 3.0)) * 3
+        let mantissa = sign * mag / pow(10.0, Double(engExp))
+        let d = max(0, min(9, digits))
+        let mStr = String(format: "%.\(d)f", mantissa).replacingOccurrences(of: "-", with: "−")
+        let eStr = engExp >= 0 ? "+\(engExp)" : "−\(abs(engExp))"
+        return "\(mStr)E\(eStr)"
     }
 }

@@ -47,6 +47,154 @@ public final class CalculatorState {
     /// Ephemeral (not persisted).
     public var computeIsError: Bool = false
 
+    /// Scrollable history of past expression/result pairs (most recent last).
+    /// Capped at 20 entries. Ephemeral (not persisted).
+    public var computeHistory: [CalculatorHistoryEntry] = []
+
+    /// When true, the history is hidden from the home screen (CLEAR on empty line).
+    /// History entries are retained in memory for UP-arrow recall.
+    public var computeScreenCleared: Bool = false
+
+    /// The raw expression that triggered the NONREAL ANSWERS error screen.
+    /// Used by the Goto action to position the cursor at the offending function.
+    public var nonrealErrorExpression: String = ""
+
+    /// Selected history line while UP/DOWN scrolling the home screen.
+    /// nil = live input active. Flat index from the bottom:
+    ///   even index → result of entry (history.count - 1 - index/2)
+    ///   odd index  → expression of entry (history.count - 1 - index/2)
+    public var computeHistoryLine: Int? = nil
+
+    /// Result from the last 1-Var Stats run. Ephemeral.
+    public var oneVarStatsResult: CalculatorOneVarStatsResult?
+
+    /// Result from the last 2-Var Stats run. Ephemeral.
+    public var twoVarStatsResult: CalculatorTwoVarStatsResult?
+
+    /// Currently selected field index in the WINDOW editor (0=Xmin … 5=Yscl).
+    public var windowEditorField: Int = 0
+
+    /// Text being typed for the current WINDOW field.
+    public var windowEditorText: String = ""
+
+    /// Whether TRACE mode is active on the graph plot.
+    public var isTraceActive: Bool = false
+
+    /// X coordinate of the trace cursor in graph space.
+    public var graphTraceCursorX: Double = 0
+
+    /// Which enabled equation the trace cursor rides (0-based).
+    public var graphTraceEquationIndex: Int = 0
+
+    /// Whether the calculator is waiting for the user to press a variable
+    /// letter key after pressing STO→.
+    public var isStoringVariable: Bool = false
+
+    /// Active highlighted row in the Y-VARS menu.
+    public var yVarsMenuSelection: Int = 0
+
+    /// Label of the most recently pressed key. The TV overlay uses this to
+    /// highlight the last pressed button in pink. Nil until first key press.
+    public var lastPressedKeyLabel: String? = nil
+
+    // MARK: - Equation editor cursor (per-session)
+
+    /// Horizontal cursor column in the equation editor.
+    /// 0 = color swatch + line style, 1 = Y= label, 2 = expression (default).
+    public var equationEditorColumn: Int = 2
+
+    /// Character index within the expression where the cursor sits (0 = before first char).
+    public var equationEditorCharIndex: Int = 0
+
+    /// Whether the color/line-style picker is visible for the selected equation.
+    public var isEquationStylePickerVisible: Bool = false
+
+    /// Which row within the style picker is active (0 = color, 1 = line style).
+    public var equationPickerField: Int = 0
+
+    // MARK: - MODE screen (per-session)
+
+    /// Which row of the MODE menu the cursor is on (0-based, rows 0-12 are interactive).
+    public var modeMenuRow: Int = 0
+
+    /// Output display style (MathPrint shows stacked fractions; Classic is legacy text).
+    public var calcDisplayFormat: CalcDisplayFormat = .mathPrint
+    /// Current graph type (Function / Parametric / Polar / Seq).
+    public var calcGraphType: CalcGraphType = .function_
+    /// Connected vs dotted, thin vs thick drawing mode.
+    public var calcDrawMode: CalcDrawMode = .thin
+    /// Whether functions are evaluated sequentially or simultaneously during animation.
+    public var calcEvalOrder: CalcEvalOrder = .sequential
+    /// Complex number display format.
+    public var calcComplexMode: CalcComplexMode = .real
+    /// Screen layout (full / horiz split / graph-table).
+    public var calcScreenLayout: CalcScreenLayout = .full
+    /// Fraction display type (proper vs mixed).
+    public var calcFractionType: CalcFractionType = .nOverD
+    /// Numeric answer format (Auto / Decimal).
+    public var calcAnswerMode: CalcAnswerMode = .auto
+    /// Whether r and r² appear in regression output.
+    public var calcStatDiagnostics: Bool = false
+    /// Whether Stat setup wizards are shown.
+    public var calcStatWizards: Bool = true
+
+    // MARK: - CALC tool (2nd+TRACE, per-session)
+
+    /// Current phase of the CALC tool workflow.
+    public var calcToolPhase: CalcToolPhase = .none
+    /// Which CALC operation is active (value/zero/min/max/intersect/dy∕dx/integral).
+    public var calcToolOperation: CalcToolOperation = .minimum
+    /// Highlighted row in the CALC menu (0-based = operation rawValue).
+    public var calcToolMenuSelection: Int = 2
+    /// Cursor X in graph coordinates during bound/guess prompts and result display.
+    public var calcToolCursorX: Double = 0
+    /// Left bound set by the user (nil until locked).
+    public var calcToolLeftBound: Double? = nil
+    /// Right bound set by the user (nil until locked).
+    public var calcToolRightBound: Double? = nil
+    /// Computed result X coordinate (nil for integral).
+    public var calcToolResultX: Double? = nil
+    /// Computed result Y value (or integral area).
+    public var calcToolResultY: Double? = nil
+    /// Label shown with the result (e.g. "Minimum", "∫f(x)dx").
+    public var calcToolResultLabel: String = ""
+    /// Index into the filtered enabled-equation array for intersect "1st Curve".
+    public var calcToolCurveIndex1: Int = 0
+    /// Index into the filtered enabled-equation array for intersect "2nd Curve".
+    public var calcToolCurveIndex2: Int = 1
+
+    /// Transition from the CALC menu into the interactive workflow for `operation`.
+    /// Resets all bounds/results and positions the cursor at window midpoint.
+    public func beginCalcTool(operation: CalcToolOperation) {
+        calcToolOperation = operation
+        calcToolMenuSelection = operation.rawValue
+        calcToolLeftBound = nil
+        calcToolRightBound = nil
+        calcToolResultX = nil
+        calcToolResultY = nil
+        calcToolResultLabel = ""
+        calcToolCursorX = (graphWindow.xMin + graphWindow.xMax) / 2
+        calcToolCurveIndex1 = 0
+        let enabledCount = graphEquations.filter { $0.isEnabled && !$0.expression.isEmpty }.count
+        calcToolCurveIndex2 = enabledCount > 1 ? 1 : 0
+        calcToolPhase = .leftBound
+        graphScreenMode = .plot
+    }
+
+    // MARK: - TBLSET editor (per-session)
+
+    /// Currently selected field in the TBLSET screen (0=TblStart, 1=ΔTbl, 2=Indpnt, 3=Depend).
+    public var tblSetEditorField: Int = 0
+
+    /// Text being typed for the current TBLSET numeric field.
+    public var tblSetEditorText: String = ""
+
+    /// Independent variable control mode (Auto = auto-generate X; Ask = user enters X).
+    public var tableIndpntMode: TableControlMode = .auto
+
+    /// Dependent variable control mode (Auto = compute Y; Ask = hide Y until revealed).
+    public var tableDependMode: TableControlMode = .auto
+
     /// Which TI-style calculator screen is visible while the Calc tab is active.
     public var calculatorScreenMode: CalculatorHomeScreenMode = .home
 
@@ -219,6 +367,22 @@ public final class CalculatorState {
         }
     }
 
+    /// Number notation (Normal / Sci / Eng). Persisted.
+    public var calcNumberNotation: CalcNumberNotation {
+        didSet {
+            guard oldValue != calcNumberNotation else { return }
+            store.set(calcNumberNotation.rawValue, forKey: Keys.calcNumberNotation)
+        }
+    }
+
+    /// Fixed decimal places (-1 = Float auto, 0-9 = fixed). Persisted.
+    public var calcNumberPrecision: Int {
+        didSet {
+            guard oldValue != calcNumberPrecision else { return }
+            store.set(calcNumberPrecision, forKey: Keys.calcNumberPrecision)
+        }
+    }
+
     public var graphWindow: GraphWindow {
         didSet {
             guard oldValue != graphWindow else { return }
@@ -261,6 +425,32 @@ public final class CalculatorState {
         didSet {
             guard oldValue != oneVarShowSolution else { return }
             store.set(oneVarShowSolution, forKey: Keys.oneVarShowSolution)
+        }
+    }
+
+    /// Variables A–Z stored via STO→. Persisted as JSON.
+    public var storedVariables: [String: Double] {
+        didSet {
+            guard oldValue != storedVariables else { return }
+            if let data = try? JSONEncoder().encode(storedVariables) {
+                store.set(data, forKey: Keys.storedVariables)
+            }
+        }
+    }
+
+    /// Starting X value for the TABLE view. Persisted.
+    public var tableStartX: Double {
+        didSet {
+            guard oldValue != tableStartX else { return }
+            store.set(tableStartX, forKey: Keys.tableStartX)
+        }
+    }
+
+    /// Step size for the TABLE view. Persisted.
+    public var tableStep: Double {
+        didSet {
+            guard oldValue != tableStep else { return }
+            store.set(tableStep, forKey: Keys.tableStep)
         }
     }
 
@@ -330,6 +520,24 @@ public final class CalculatorState {
         let connectiveRaw = store.string(forKey: Keys.oneVarConnective)
         self.oneVarConnective = connectiveRaw.flatMap { OneVarConnective(rawValue: $0) } ?? .none
         self.oneVarShowSolution = store.bool(forKey: Keys.oneVarShowSolution)
+
+        // Restore STO→ variables
+        if let data = store.data(forKey: Keys.storedVariables),
+           let vars = try? JSONDecoder().decode([String: Double].self, from: data) {
+            self.storedVariables = vars
+        } else {
+            self.storedVariables = [:]
+        }
+
+        // Restore TABLE settings (defaults: start=0, step=1)
+        self.tableStartX = store.object(forKey: Keys.tableStartX) as? Double ?? 0
+        self.tableStep = (store.object(forKey: Keys.tableStep) as? Double).map { max(1e-10, $0) } ?? 1
+
+        // Restore MODE notation/precision (defaults: Normal, Float)
+        let notationRaw = store.string(forKey: Keys.calcNumberNotation)
+        self.calcNumberNotation = notationRaw.flatMap { CalcNumberNotation(rawValue: $0) } ?? .normal
+        let rawPrecision = store.object(forKey: Keys.calcNumberPrecision) as? Int
+        self.calcNumberPrecision = rawPrecision ?? -1
     }
 
     // MARK: - UserDefaults keys
@@ -349,6 +557,11 @@ public final class CalculatorState {
         static let graphCombine = "calculator.graph.combine"
         static let oneVarConnective = "calculator.graph.onevar.connective"
         static let oneVarShowSolution = "calculator.graph.onevar.showSolution"
+        static let storedVariables = "calculator.storedVariables"
+        static let tableStartX = "calculator.table.startX"
+        static let tableStep = "calculator.table.step"
+        static let calcNumberNotation = "calculator.mode.notation"
+        static let calcNumberPrecision = "calculator.mode.precision"
     }
 
     private static let jsonEncoder = JSONEncoder()
@@ -382,6 +595,9 @@ public enum CalculatorGraphScreenMode: String, Sendable, Equatable {
     case equationEditor
     case zoomMenu
     case plot
+    case windowEditor
+    case tableView
+    case calcMenu
 }
 
 public enum CalculatorHomeScreenMode: String, Sendable, Equatable {
@@ -390,6 +606,58 @@ public enum CalculatorHomeScreenMode: String, Sendable, Equatable {
     case statMenu
     case statEditor
     case regressionResult
+    case oneVarStats
+    case twoVarStats
+    case yVarsMenu
+    case tblSet
+    case modeMenu
+    case nonrealError
+}
+
+public enum TableControlMode: String, Sendable, Equatable {
+    case auto, ask
+}
+
+public enum CalcToolPhase: String, Sendable, Equatable {
+    case none
+    case leftBound
+    case rightBound
+    case guess
+    case result
+}
+
+public enum CalcToolOperation: Int, CaseIterable, Sendable, Equatable {
+    case value     = 0
+    case zero      = 1
+    case minimum   = 2
+    case maximum   = 3
+    case intersect = 4
+    case dyDx      = 5
+    case integral  = 6
+
+    public var menuTitle: String {
+        switch self {
+        case .value:     return "value"
+        case .zero:      return "zero"
+        case .minimum:   return "minimum"
+        case .maximum:   return "maximum"
+        case .intersect: return "intersect"
+        case .dyDx:      return "dy/dx"
+        case .integral:  return "∫f(x)dx"
+        }
+    }
+
+    /// 0 = cursor-only (compute immediately on ENTER), 2 = lb+rb, 3 = lb+rb+guess
+    public var boundPhaseCount: Int {
+        switch self {
+        case .value, .dyDx:                          return 0
+        case .integral:                              return 2
+        case .zero, .minimum, .maximum, .intersect: return 3
+        }
+    }
+
+    public var needsGuess: Bool { boundPhaseCount == 3 }
+    public var needsBounds: Bool { boundPhaseCount >= 2 }
 }
 
 public enum CalculatorMathMenuTab: String, CaseIterable, Sendable, Equatable {
@@ -411,19 +679,41 @@ public enum CalculatorStatMenuTab: String, CaseIterable, Sendable, Equatable {
 public struct GraphWindow: Codable, Sendable, Equatable {
     public var xMin: Double
     public var xMax: Double
+    /// Tick-mark spacing on the x-axis (used by the WINDOW editor; drawn as gridlines).
+    public var xScl: Double
     public var yMin: Double
     public var yMax: Double
+    /// Tick-mark spacing on the y-axis.
+    public var yScl: Double
 
     public init(
         xMin: Double = -10,
         xMax: Double = 10,
+        xScl: Double = 1,
         yMin: Double = -10,
-        yMax: Double = 10
+        yMax: Double = 10,
+        yScl: Double = 1
     ) {
         self.xMin = xMin
         self.xMax = xMax
+        self.xScl = xScl
         self.yMin = yMin
         self.yMax = yMax
+        self.yScl = yScl
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case xMin, xMax, xScl, yMin, yMax, yScl
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        xMin = try c.decode(Double.self, forKey: .xMin)
+        xMax = try c.decode(Double.self, forKey: .xMax)
+        xScl = (try? c.decode(Double.self, forKey: .xScl)) ?? 1
+        yMin = try c.decode(Double.self, forKey: .yMin)
+        yMax = try c.decode(Double.self, forKey: .yMax)
+        yScl = (try? c.decode(Double.self, forKey: .yScl)) ?? 1
     }
 
     public var width: Double { xMax - xMin }
@@ -455,6 +745,8 @@ public struct GraphEquation: Identifiable, Codable, Hashable, Sendable {
     public var lineWidth: Double?
     /// Whether this equation is currently plotted.
     public var isEnabled: Bool
+    /// Index into `EquationLineStyle.allCases` (0 = solid, default).
+    public var lineStyleIndex: Int
 
     public init(
         id: UUID = UUID(),
@@ -462,7 +754,8 @@ public struct GraphEquation: Identifiable, Codable, Hashable, Sendable {
         colorIndex: Int = 0,
         lineHue: Double? = nil,
         lineWidth: Double? = nil,
-        isEnabled: Bool = true
+        isEnabled: Bool = true,
+        lineStyleIndex: Int = 0
     ) {
         self.id = id
         self.expression = expression
@@ -470,6 +763,22 @@ public struct GraphEquation: Identifiable, Codable, Hashable, Sendable {
         self.lineHue = lineHue
         self.lineWidth = lineWidth
         self.isEnabled = isEnabled
+        self.lineStyleIndex = lineStyleIndex
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, expression, colorIndex, lineHue, lineWidth, isEnabled, lineStyleIndex
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id             = try c.decode(UUID.self, forKey: .id)
+        expression     = try c.decode(String.self, forKey: .expression)
+        colorIndex     = try c.decode(Int.self, forKey: .colorIndex)
+        lineHue        = try c.decodeIfPresent(Double.self, forKey: .lineHue)
+        lineWidth      = try c.decodeIfPresent(Double.self, forKey: .lineWidth)
+        isEnabled      = try c.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        lineStyleIndex = try c.decodeIfPresent(Int.self, forKey: .lineStyleIndex) ?? 0
     }
 }
 
@@ -506,21 +815,136 @@ public enum GraphFunctionFamily: String, Codable, CaseIterable, Sendable {
     public var showsAngleToggle: Bool { self == .trig }
 }
 
+// MARK: - History entry
+
+/// One expression/result pair in the home-screen history scroll.
+public struct CalculatorHistoryEntry: Identifiable, Sendable {
+    public let id: UUID
+    public let expression: String
+    public let result: String
+
+    public init(expression: String, result: String) {
+        self.id = UUID()
+        self.expression = expression
+        self.result = result
+    }
+}
+
 /// Fixed curve-color palette, shared by the graph view and TV overlay.
 /// Pure data (no SwiftUI) so it lives with the SwiftUI-free state layer;
 /// the views convert `(red, green, blue)` to `Color`.
 public enum GraphPalette {
     public static let colors: [(red: Double, green: Double, blue: Double)] = [
-        (0.00, 0.45, 0.90), // blue
-        (0.85, 0.20, 0.20), // red
-        (0.10, 0.60, 0.25), // green
-        (0.55, 0.25, 0.80), // purple
-        (0.95, 0.55, 0.00), // orange
-        (0.00, 0.60, 0.65)  // teal
+        (0.00, 0.45, 0.90), // 0 BLUE
+        (0.85, 0.20, 0.20), // 1 RED
+        (0.10, 0.60, 0.25), // 2 GREEN
+        (0.55, 0.25, 0.80), // 3 PURPLE
+        (0.95, 0.55, 0.00), // 4 ORANGE
+        (0.00, 0.60, 0.65), // 5 TEAL
+        (0.05, 0.05, 0.05), // 6 BLACK
+        (0.80, 0.10, 0.80), // 7 MAGENTA
+        (0.55, 0.30, 0.10), // 8 BROWN
+        (0.95, 0.90, 0.00), // 9 YELLOW
+    ]
+
+    public static let colorNames: [String] = [
+        "BLUE", "RED", "GREEN", "PURPLE", "ORANGE", "TEAL",
+        "BLACK", "MAGENTA", "BROWN", "YELLOW"
     ]
 
     public static func rgb(for index: Int) -> (red: Double, green: Double, blue: Double) {
         let count = colors.count
         return colors[((index % count) + count) % count]
+    }
+
+    public static func name(for index: Int) -> String {
+        let count = colorNames.count
+        return colorNames[((index % count) + count) % count]
+    }
+}
+
+// MARK: - MODE screen setting enums
+
+public enum CalcDisplayFormat: String, CaseIterable, Sendable, Equatable {
+    case mathPrint = "MathPrint"
+    case classic   = "Classic"
+}
+
+public enum CalcNumberNotation: String, CaseIterable, Sendable, Equatable {
+    case normal = "NORMAL"
+    case sci    = "SCI"
+    case eng    = "ENG"
+}
+
+public enum CalcGraphType: String, CaseIterable, Sendable, Equatable {
+    case function_  = "FUNCTION"
+    case parametric = "PARAMETRIC"
+    case polar      = "POLAR"
+    case seq        = "SEQ"
+}
+
+public enum CalcDrawMode: String, CaseIterable, Sendable, Equatable {
+    case thick    = "THICK"
+    case dotThick = "DOT-THICK"
+    case thin     = "THIN"
+    case dotThin  = "DOT-THIN"
+}
+
+public enum CalcEvalOrder: String, CaseIterable, Sendable, Equatable {
+    case sequential = "SEQUENTIAL"
+    case simul      = "SIMUL"
+}
+
+public enum CalcComplexMode: String, CaseIterable, Sendable, Equatable {
+    case real    = "REAL"
+    case abi     = "a+bi"
+    case reTheta = "re^(θi)"
+}
+
+public enum CalcScreenLayout: String, CaseIterable, Sendable, Equatable {
+    case full       = "FULL"
+    case horizontal = "HORIZONTAL"
+    case graphTable = "GRAPH-TABLE"
+}
+
+public enum CalcFractionType: String, CaseIterable, Sendable, Equatable {
+    case nOverD = "n/d"
+    case mixed  = "Un/d"
+}
+
+public enum CalcAnswerMode: String, CaseIterable, Sendable, Equatable {
+    case auto = "AUTO"
+    case dec  = "DEC"
+}
+
+/// TI-84-style line styles for graphed equations.
+public enum EquationLineStyle: Int, CaseIterable, Sendable {
+    case solid     = 0
+    case thick     = 1
+    case dotted    = 2
+    case dashed    = 3
+    case shadeAbove = 4
+    case shadeBelow = 5
+
+    public var displaySymbol: String {
+        switch self {
+        case .solid:      return "─────"
+        case .thick:      return "━━━━━"
+        case .dotted:     return "·····"
+        case .dashed:     return "– – –"
+        case .shadeAbove: return "▲ ────"
+        case .shadeBelow: return "▼ ────"
+        }
+    }
+
+    public var name: String {
+        switch self {
+        case .solid:      return "Thin"
+        case .thick:      return "Thick"
+        case .dotted:     return "Dotted"
+        case .dashed:     return "Dashed"
+        case .shadeAbove: return "Above"
+        case .shadeBelow: return "Below"
+        }
     }
 }

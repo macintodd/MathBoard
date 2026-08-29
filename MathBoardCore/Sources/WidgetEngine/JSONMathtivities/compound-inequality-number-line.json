@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 2,
+  "widgetId": "compound-inequality-number-line-level-1",
+  "activity": "multipleChoice",
+  "title": "Compound Inequality",
+  "description": "Graph bounded compound inequalities on a number line.",
+  "learningObjective": "Students represent compound inequalities as interval segments with correct endpoint inclusion.",
+  "difficulty": "medium",
+  "presentation": {
+    "preferredTheme": "cleanClassroom",
+    "preferredExperience": "paperQuiz"
+  },
+  "rules": {
+    "scoreMode": "correctOutOfAttempted",
+    "advanceMode": "manual",
+    "allowRetry": true,
+    "shuffleQuestions": false,
+    "shuffleChoices": false,
+    "maxAttemptsPerQuestion": 2,
+    "calculatorAllowed": false
+  },
+  "feedback": {
+    "defaultCorrect": "Correct. Your interval matches the compound inequality.",
+    "defaultIncorrect": "Not yet. Check which endpoints are included.",
+    "defaultEncouragement": "Tap one endpoint, drag a ray handle toward the interval, then tap the other endpoint to make the segment."
+  },
+  "questions": [
+    {
+      "id": "q1",
+      "prompt": "Tap -2, drag the right ray handle, tap 5, then set -2 open.",
+      "expression": "-2 < x \\le 5",
+      "interactiveParts": [
+        {
+          "type": "numberLine",
+          "id": "compound-q1",
+          "domain": { "min": -6, "max": 8, "step": 1 },
+          "features": {
+            "pointsTappable": true,
+            "pointsDraggable": true,
+            "raysEnabled": true,
+            "segmentsEnabled": true,
+            "openClosedEndpoints": true,
+            "pointHasRay": true,
+            "maxPoints": 2,
+            "labelsVisible": true,
+            "snapToTicks": true
+          },
+          "answer": "linearGraphUtility{-2<x<=5}"
+        }
+      ],
+      "choices": [
+        { "id": "done", "label": "Done", "isCorrect": true },
+        { "id": "revise", "label": "I need to revise my graph", "isCorrect": false }
+      ],
+      "hints": [
+        "Tap -2 to place the first endpoint.",
+        "Drag the right arrow handle, then tap 5 to finish the segment.",
+        "-2 is not included. Tap that endpoint if it is closed.",
+        "5 is included."
+      ],
+      "correctFeedback": "The selected answer is correct. The graph score checks the interval.",
+      "incorrectFeedback": "Revise your interval endpoints before checking again."
+    },
+    {
+      "id": "q2",
+      "prompt": "Tap -4, drag the right ray handle, tap 1, then set 1 open.",
+      "expression": "-4 \\le x < 1",
+      "interactiveParts": [
+        {
+          "type": "numberLine",
+          "id": "compound-q2",
+          "domain": { "min": -8, "max": 5, "step": 1 },
+          "features": {
+            "pointsTappable": true,
+            "pointsDraggable": true,
+            "raysEnabled": true,
+            "segmentsEnabled": true,
+            "openClosedEndpoints": true,
+            "pointHasRay": true,
+            "maxPoints": 2,
+            "labelsVisible": true,
+            "snapToTicks": true
+          },
+          "answer": "linearGraphUtility{-4<=x<1}"
+        }
+      ],
+      "choices": [
+        { "id": "done", "label": "Done", "isCorrect": true },
+        { "id": "revise", "label": "I need to revise my graph", "isCorrect": false }
+      ],
+      "hints": [
+        "Tap -4 to place the first endpoint.",
+        "Drag the right arrow handle, then tap 1 to finish the segment.",
+        "-4 is included.",
+        "1 is not included. Tap that endpoint if it is closed."
+      ],
+      "correctFeedback": "The selected answer is correct. The graph score checks the interval.",
+      "incorrectFeedback": "Revise your interval endpoints before checking again."
+    }
+  ]
+}

@@ -386,6 +386,8 @@ public struct RadialToolPaletteView: View {
             PaletteSegmentedArcView(configuration: segmented, side: side, dialSize: dialSize, onCommand: send)
         case .disabled(let label):
             DisabledArcView(label: label, side: side, dialSize: dialSize)
+        case .hidden:
+            EmptyView()
         }
     }
 
@@ -516,6 +518,8 @@ public struct RadialToolPaletteView: View {
             return state.activeTool == .equation && state.textIsUnderlined
         case .openLatexEditor:
             return state.activeTool == .equation && !state.latexSource.isEmpty
+        case .setExtractAction(let action):
+            return state.activeTool == .extract && state.extractAction == action
         default:
             if item.id == "geometry.fillColor" {
                 return item.color == state.fillColor

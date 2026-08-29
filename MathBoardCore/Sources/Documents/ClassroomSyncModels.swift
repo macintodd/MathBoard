@@ -156,7 +156,7 @@ public struct StudentSubmissionPacket: Codable, Identifiable {
 }
 
 public struct StudentWidgetLiveProgress: Codable, Hashable, Identifiable {
-    static let defaultActiveStaleInterval: TimeInterval = 20
+    static let defaultActiveStaleInterval: TimeInterval = 10
     static let lessonPresenceWidgetID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
 
     public var id: String { "\(studentID.uuidString)_\(widgetID.uuidString)" }
@@ -171,6 +171,8 @@ public struct StudentWidgetLiveProgress: Codable, Hashable, Identifiable {
     public var attemptedCount: Int
     public var status: WidgetActivityScoreStatus
     public var isActiveOnStudentScreen: Bool
+    /// Persists across Reset so the teacher always sees green "Submitted" text after a student has submitted at least once.
+    public var hasEverBeenSubmitted: Bool
     public var updatedAt: Date
 
     public init(
@@ -185,6 +187,7 @@ public struct StudentWidgetLiveProgress: Codable, Hashable, Identifiable {
         attemptedCount: Int,
         status: WidgetActivityScoreStatus,
         isActiveOnStudentScreen: Bool = false,
+        hasEverBeenSubmitted: Bool = false,
         updatedAt: Date = Date()
     ) {
         self.assignmentID = assignmentID
@@ -198,6 +201,7 @@ public struct StudentWidgetLiveProgress: Codable, Hashable, Identifiable {
         self.attemptedCount = max(0, attemptedCount)
         self.status = status
         self.isActiveOnStudentScreen = isActiveOnStudentScreen
+        self.hasEverBeenSubmitted = hasEverBeenSubmitted
         self.updatedAt = updatedAt
     }
 
@@ -208,14 +212,26 @@ public struct StudentWidgetLiveProgress: Codable, Hashable, Identifiable {
 
     func indicatorState(
         now: Date = Date(),
-        staleInterval: TimeInterval = Self.defaultActiveStaleInterval
+        staleInterval: TimeInterval = Self.defaultActiveStaleInterval,
+        lessonPresence: StudentWidgetLiveProgress? = nil
     ) -> LiveProgressIndicatorState {
+        let presenceIsFresh = lessonPresence.map {
+            now.timeIntervalSince($0.updatedAt) <= staleInterval
+        } ?? false
+
         if status == .complete {
-            return .submitted
+            // Green only while the student has a fresh presence (currently in the lesson).
+            // When they exit, the presence doc is deleted and the dot turns gray.
+            return presenceIsFresh ? .submitted : .submittedOffline
         }
+
         if now.timeIntervalSince(updatedAt) > staleInterval {
-            return .offline
+            // Widget doc is stale. If the student has a fresh presence they re-entered the
+            // lesson and the loop hasn't refreshed this widget doc yet — show blue instead
+            // of red so the dot doesn't stay red while the student is actively in the lesson.
+            return presenceIsFresh ? .inactive : .offline
         }
+
         return isActiveOnStudentScreen ? .active : .inactive
     }
 }
@@ -225,6 +241,7 @@ enum LiveProgressIndicatorState: Equatable {
     case inactive
     case active
     case submitted
+    case submittedOffline
     case offline
 
     var displayName: String {
@@ -235,7 +252,7 @@ enum LiveProgressIndicatorState: Equatable {
             "Logged in"
         case .active:
             "On widget"
-        case .submitted:
+        case .submitted, .submittedOffline:
             "Submitted"
         case .offline:
             "Offline"
@@ -244,12 +261,20 @@ enum LiveProgressIndicatorState: Equatable {
 }
 
 extension Optional where Wrapped == StudentWidgetLiveProgress {
+    func indicatorState(
+        now: Date = Date(),
+        staleInterval: TimeInterval = StudentWidgetLiveProgress.defaultActiveStaleInterval,
+        lessonPresence: StudentWidgetLiveProgress? = nil
+    ) -> LiveProgressIndicatorState {
+        guard let progress = self else { return .notStarted }
+        return progress.indicatorState(now: now, staleInterval: staleInterval, lessonPresence: lessonPresence)
+    }
+
     func liveProgressIndicatorState(
         now: Date = Date(),
         staleInterval: TimeInterval = StudentWidgetLiveProgress.defaultActiveStaleInterval
     ) -> LiveProgressIndicatorState {
-        guard let progress = self else { return .notStarted }
-        return progress.indicatorState(now: now, staleInterval: staleInterval)
+        indicatorState(now: now, staleInterval: staleInterval)
     }
 }
 

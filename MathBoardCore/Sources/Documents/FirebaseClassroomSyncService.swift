@@ -232,7 +232,8 @@ struct FirebaseClassroomSyncService {
     func publishLessonPresence(
         assignmentPacket: AssignmentSyncPacket,
         studentIdentifier: String,
-        studentPreferredFirstName: String?
+        studentPreferredFirstName: String?,
+        isActiveOnStudentScreen: Bool = false
     ) async throws -> StudentWidgetLiveProgress {
         let code = ClassroomAssignmentStore.normalizedClassLessonCode(assignmentPacket.classLessonCode)
         guard !code.isEmpty else {
@@ -267,7 +268,7 @@ struct FirebaseClassroomSyncService {
             correctCount: 0,
             attemptedCount: 0,
             status: .inProgress,
-            isActiveOnStudentScreen: false,
+            isActiveOnStudentScreen: isActiveOnStudentScreen,
             updatedAt: Date()
         )
         try await setData(
@@ -283,10 +284,25 @@ struct FirebaseClassroomSyncService {
         return presence
     }
 
+    func deleteLessonPresence(
+        assignmentPacket: AssignmentSyncPacket,
+        studentIdentifier: String
+    ) async throws {
+        let code = ClassroomAssignmentStore.normalizedClassLessonCode(assignmentPacket.classLessonCode)
+        guard !code.isEmpty else { return }
+        let normalizedIdentifier = normalizedStudentIdentifier(studentIdentifier)
+        guard !normalizedIdentifier.isEmpty else { return }
+        let docRef = codeDocument(for: code)
+            .collection("liveProgress")
+            .document(submissionDocumentID(studentIdentifier: normalizedIdentifier, widgetID: StudentWidgetLiveProgress.lessonPresenceWidgetID))
+        try await deleteDocument(at: docRef)
+    }
+
     @discardableResult
     func publishLiveProgress(
         _ submission: StudentSubmissionPacket,
-        isActiveOnStudentScreen: Bool = true
+        isActiveOnStudentScreen: Bool = true,
+        hasEverBeenSubmitted: Bool = false
     ) async throws -> StudentWidgetLiveProgress {
         let code = ClassroomAssignmentStore.normalizedClassLessonCode(submission.classLessonCode)
         guard !code.isEmpty else {
@@ -326,9 +342,10 @@ struct FirebaseClassroomSyncService {
             studentPreferredFirstName: preferredFirstName,
             widgetID: widgetID,
             correctCount: submission.widgetScoreRecord.score,
-            attemptedCount: submission.widgetScoreRecord.attempts,
+            attemptedCount: submission.widgetScoreRecord.pointsPossible,
             status: submission.widgetScoreRecord.status,
             isActiveOnStudentScreen: isActiveOnStudentScreen,
+            hasEverBeenSubmitted: hasEverBeenSubmitted,
             updatedAt: submission.submittedAt
         )
         try await setData(
@@ -342,6 +359,32 @@ struct FirebaseClassroomSyncService {
             .document(submissionDocumentID(studentIdentifier: normalizedIdentifier, widgetID: widgetID))
         )
         return progress
+    }
+
+    /// Fetches only this student's previously-published widget progress records from Firebase.
+    /// Used at session start to restore submitted scores without relying on the local cache,
+    /// which may not exist on a fresh device or after a lesson re-download.
+    func fetchStudentWidgetProgress(
+        assignmentPacket: AssignmentSyncPacket,
+        studentIdentifier: String
+    ) async throws -> [StudentWidgetLiveProgress] {
+        let code = ClassroomAssignmentStore.normalizedClassLessonCode(assignmentPacket.classLessonCode)
+        guard !code.isEmpty else { return [] }
+        let normalizedIdentifier = normalizedStudentIdentifier(studentIdentifier)
+        guard !normalizedIdentifier.isEmpty else { return [] }
+        let identifierHash = studentIdentifierHash(forNormalizedIdentifier: normalizedIdentifier)
+        let packet = try await resolveAssignmentForValidatedStudent(code: code, studentIdentifierHash: identifierHash)
+        guard packet.id == assignmentPacket.id, packet.classroomID == assignmentPacket.classroomID else { return [] }
+        var results: [StudentWidgetLiveProgress] = []
+        let collection = codeDocument(for: code).collection("liveProgress")
+        for widgetSummary in packet.widgetSummaries {
+            let docID = submissionDocumentID(studentIdentifier: normalizedIdentifier, widgetID: widgetSummary.widgetID)
+            if let data = try? await getData(from: collection.document(docID)),
+               let progress = liveProgress(from: data) {
+                results.append(progress)
+            }
+        }
+        return results
     }
 
     func fetchLiveProgress(classLessonCode: String) async throws -> [StudentWidgetLiveProgress] {
@@ -970,6 +1013,7 @@ struct FirebaseClassroomSyncService {
             "attemptedCount": progress.attemptedCount,
             "status": progress.status.rawValue,
             "isActiveOnStudentScreen": progress.isActiveOnStudentScreen,
+            "hasEverBeenSubmitted": progress.hasEverBeenSubmitted,
             "updatedAt": Timestamp(date: progress.updatedAt)
         ]
         if let preferredFirstName = normalizedPreferredFirstName(progress.studentPreferredFirstName) {
@@ -1021,6 +1065,7 @@ struct FirebaseClassroomSyncService {
             attemptedCount: intValue(data["attemptedCount"]),
             status: status,
             isActiveOnStudentScreen: data["isActiveOnStudentScreen"] as? Bool ?? false,
+            hasEverBeenSubmitted: data["hasEverBeenSubmitted"] as? Bool ?? false,
             updatedAt: timestampValue(data["updatedAt"])
         )
     }
@@ -1124,8 +1169,8 @@ struct FirebaseClassroomSyncService {
         code: String,
         teacherUserID: String
     ) async throws -> [String: Any] {
-        let inlineDocument = teacherObjectSnapshotDocument(snapshot, teacherUserID: teacherUserID)
-        guard estimatedFirestorePayloadSize(inlineDocument) > Self.inlineTeacherObjectSnapshotLimit else {
+        let inlineDocument = Self.teacherObjectSnapshotDocument(snapshot, teacherUserID: teacherUserID)
+        guard Self.estimatedFirestorePayloadSize(inlineDocument) > Self.inlineTeacherObjectSnapshotLimit else {
             return inlineDocument
         }
 
@@ -1141,14 +1186,14 @@ struct FirebaseClassroomSyncService {
         try await putData(snapshotData, metadata: metadata, at: storage.reference(withPath: storagePath))
 
         print("[FirebaseSync] stored teacher object snapshot in Storage slide=\(snapshot.slideID) revision=\(snapshot.revision) bytes=\(snapshotData.count)")
-        return teacherObjectSnapshotReferenceDocument(
+        return Self.teacherObjectSnapshotReferenceDocument(
             snapshot,
             teacherUserID: teacherUserID,
             storagePath: storagePath
         )
     }
 
-    private func teacherObjectSnapshotDocument(_ snapshot: TeacherObjectSnapshot, teacherUserID: String) -> [String: Any] {
+    static func teacherObjectSnapshotDocument(_ snapshot: TeacherObjectSnapshot, teacherUserID: String) -> [String: Any] {
         [
             "id": snapshot.id.uuidString,
             "lessonCode": ClassroomAssignmentStore.normalizedClassLessonCode(snapshot.lessonCode),
@@ -1157,12 +1202,12 @@ struct FirebaseClassroomSyncService {
             "revision": snapshot.revision,
             "capturedAt": Timestamp(date: snapshot.snapshot.capturedAt),
             "sentAt": Timestamp(date: snapshot.sentAt),
-            "sidecarFiles": snapshot.snapshot.sidecarFiles.map(canvasObjectSnapshotFileDocument),
-            "imageAssetFiles": snapshot.snapshot.imageAssetFiles.map(canvasObjectSnapshotFileDocument)
+            "sidecarFiles": snapshot.snapshot.sidecarFiles.map(Self.canvasObjectSnapshotFileDocument),
+            "imageAssetFiles": snapshot.snapshot.imageAssetFiles.map(Self.canvasObjectSnapshotFileDocument)
         ]
     }
 
-    private func teacherObjectSnapshotReferenceDocument(
+    static func teacherObjectSnapshotReferenceDocument(
         _ snapshot: TeacherObjectSnapshot,
         teacherUserID: String,
         storagePath: String
@@ -1179,24 +1224,50 @@ struct FirebaseClassroomSyncService {
         ]
     }
 
-    private func canvasObjectSnapshotFileDocument(_ file: CanvasObjectSnapshotFile) -> [String: Any] {
+    private static func canvasObjectSnapshotFileDocument(_ file: CanvasObjectSnapshotFile) -> [String: Any] {
         [
             "name": file.name,
             "base64Data": file.base64Data
         ]
     }
 
-    private func teacherObjectSnapshot(from data: [String: Any], fallbackCode: String) async throws -> TeacherObjectSnapshot? {
-        if let storagePath = data["objectSnapshotStoragePath"] as? String,
-           !storagePath.isEmpty {
-            let snapshotData = try await getData(
-                from: storage.reference(withPath: storagePath),
-                maxSize: Self.teacherObjectSnapshotStorageMaxSize
-            )
-            return try JSONDecoder().decode(TeacherObjectSnapshot.self, from: snapshotData)
+    static func usesStorageBackedTeacherObjectSnapshotDocument(_ snapshot: TeacherObjectSnapshot, teacherUserID: String) -> Bool {
+        estimatedFirestorePayloadSize(teacherObjectSnapshotDocument(snapshot, teacherUserID: teacherUserID)) > inlineTeacherObjectSnapshotLimit
+    }
+
+    static func inlineTeacherObjectSnapshot(from data: [String: Any], fallbackCode: String) -> TeacherObjectSnapshot? {
+        func uuidValue(_ value: Any?) -> UUID? {
+            if let uuid = value as? UUID {
+                return uuid
+            }
+            if let string = value as? String {
+                return UUID(uuidString: string)
+            }
+            return nil
         }
 
-        guard let id = uuidValue(data["id"]),
+        func intValue(_ value: Any?) -> Int {
+            if let int = value as? Int {
+                return int
+            }
+            if let number = value as? NSNumber {
+                return number.intValue
+            }
+            return 0
+        }
+
+        func timestampValue(_ value: Any?) -> Date {
+            if let timestamp = value as? Timestamp {
+                return timestamp.dateValue()
+            }
+            if let date = value as? Date {
+                return date
+            }
+            return Date()
+        }
+
+        guard data["objectSnapshotStoragePath"] == nil,
+              let id = uuidValue(data["id"]),
               let slideID = uuidValue(data["slideID"]) else {
             return nil
         }
@@ -1219,7 +1290,20 @@ struct FirebaseClassroomSyncService {
         )
     }
 
-    private func canvasObjectSnapshotFile(from data: [String: Any]) -> CanvasObjectSnapshotFile? {
+    private func teacherObjectSnapshot(from data: [String: Any], fallbackCode: String) async throws -> TeacherObjectSnapshot? {
+        if let storagePath = data["objectSnapshotStoragePath"] as? String,
+           !storagePath.isEmpty {
+            let snapshotData = try await getData(
+                from: storage.reference(withPath: storagePath),
+                maxSize: Self.teacherObjectSnapshotStorageMaxSize
+            )
+            return try JSONDecoder().decode(TeacherObjectSnapshot.self, from: snapshotData)
+        }
+
+        return Self.inlineTeacherObjectSnapshot(from: data, fallbackCode: fallbackCode)
+    }
+
+    private static func canvasObjectSnapshotFile(from data: [String: Any]) -> CanvasObjectSnapshotFile? {
         guard let name = data["name"] as? String,
               let base64Data = data["base64Data"] as? String else {
             return nil
@@ -1236,7 +1320,7 @@ struct FirebaseClassroomSyncService {
         }
     }
 
-    private func estimatedFirestorePayloadSize(_ value: Any) -> Int {
+    static func estimatedFirestorePayloadSize(_ value: Any) -> Int {
         switch value {
         case let string as String:
             return string.utf8.count
@@ -1523,6 +1607,18 @@ struct FirebaseClassroomSyncService {
     private func setData(_ data: [String: Any], at document: DocumentReference) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             document.setData(data, merge: true) { error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: ())
+                }
+            }
+        }
+    }
+
+    private func deleteDocument(at document: DocumentReference) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            document.delete { error in
                 if let error {
                     continuation.resume(throwing: error)
                 } else {

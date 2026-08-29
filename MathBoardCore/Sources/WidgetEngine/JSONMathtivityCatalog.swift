@@ -61,10 +61,65 @@ public enum JSONMathtivityCatalog {
         resourceName: "exponent-rules-fill-in-the-blank"
     )
 
+    public static let inequalityMatchNumberLine = Entry(
+        title: "Inequality Match",
+        topic: "Algebra 1",
+        topicLevel: 1,
+        activityType: .multipleChoice,
+        mode: .scored,
+        tags: ["inequalities", "number line", "graph matching"],
+        resourceName: "inequality-match-number-line"
+    )
+
+    public static let graphTheInequalityNumberLine = Entry(
+        title: "Graph the Inequality",
+        topic: "Algebra 1",
+        topicLevel: 1,
+        activityType: .multipleChoice,
+        mode: .scored,
+        tags: ["inequalities", "number line", "graphing"],
+        resourceName: "graph-the-inequality-number-line"
+    )
+
+    public static let compoundInequalityNumberLine = Entry(
+        title: "Compound Inequality",
+        topic: "Algebra 1",
+        topicLevel: 1,
+        activityType: .multipleChoice,
+        mode: .scored,
+        tags: ["compound inequalities", "number line", "intervals"],
+        resourceName: "compound-inequality-number-line"
+    )
+
+    public static let whichGraphIsCorrectNumberLine = Entry(
+        title: "Which Graph Is Correct?",
+        topic: "Algebra 1",
+        topicLevel: 1,
+        activityType: .multipleChoice,
+        mode: .scored,
+        tags: ["inequalities", "number line", "graph matching"],
+        resourceName: "which-graph-is-correct-number-line"
+    )
+
+    public static let absoluteValueInequalityNumberLine = Entry(
+        title: "Absolute Value Inequality",
+        topic: "Algebra 2",
+        topicLevel: 2,
+        activityType: .multipleChoice,
+        mode: .scored,
+        tags: ["absolute value", "inequalities", "number line"],
+        resourceName: "absolute-value-inequality-number-line"
+    )
+
     public static let bundledEntries: [Entry] = [
         linearEquationFillInTheBlank,
         quadraticFeaturesMultipleChoice,
-        exponentRulesFillInTheBlank
+        exponentRulesFillInTheBlank,
+        inequalityMatchNumberLine,
+        graphTheInequalityNumberLine,
+        compoundInequalityNumberLine,
+        whichGraphIsCorrectNumberLine,
+        absoluteValueInequalityNumberLine
     ]
 
     public static func source(for entry: Entry) -> String? {

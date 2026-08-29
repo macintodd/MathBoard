@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 2,
+  "widgetId": "which-graph-is-correct-number-line-level-1",
+  "activity": "multipleChoice",
+  "title": "Which Graph Is Correct?",
+  "description": "Choose the number-line graph that matches a given inequality.",
+  "learningObjective": "Students compare number-line representations for similar inequalities.",
+  "difficulty": "medium",
+  "presentation": {
+    "preferredTheme": "cleanClassroom",
+    "preferredExperience": "paperQuiz"
+  },
+  "rules": {
+    "scoreMode": "correctOutOfAttempted",
+    "advanceMode": "manual",
+    "allowRetry": true,
+    "shuffleQuestions": false,
+    "shuffleChoices": false,
+    "maxAttemptsPerQuestion": 2,
+    "calculatorAllowed": false
+  },
+  "feedback": {
+    "defaultCorrect": "Correct. You matched the inequality to the graph.",
+    "defaultIncorrect": "Not yet. Compare endpoint type and direction.",
+    "defaultEncouragement": "The algebra statement tells you both the boundary value and the shading direction."
+  },
+  "questions": [
+    {
+      "id": "q1",
+      "prompt": "Which displayed graph matches the inequality?",
+      "expression": "x \\ge -1",
+      "interactiveParts": [
+        {
+          "type": "numberLine",
+          "id": "choice-a-graph",
+          "domain": { "min": -6, "max": 6, "step": 1 },
+          "features": {
+            "raysEnabled": true,
+            "openClosedEndpoints": true,
+            "labelsVisible": true,
+            "snapToTicks": true
+          },
+          "initialResponse": "linearGraphUtility{x>-1}"
+        },
+        {
+          "type": "numberLine",
+          "id": "choice-b-graph",
+          "domain": { "min": -6, "max": 6, "step": 1 },
+          "features": {
+            "raysEnabled": true,
+            "openClosedEndpoints": true,
+            "labelsVisible": true,
+            "snapToTicks": true
+          },
+          "initialResponse": "linearGraphUtility{x>=-1}"
+        },
+        {
+          "type": "numberLine",
+          "id": "choice-c-graph",
+          "domain": { "min": -6, "max": 6, "step": 1 },
+          "features": {
+            "raysEnabled": true,
+            "openClosedEndpoints": true,
+            "labelsVisible": true,
+            "snapToTicks": true
+          },
+          "initialResponse": "linearGraphUtility{x<=-1}"
+        }
+      ],
+      "choices": [
+        { "id": "a", "label": "Graph A", "isCorrect": false },
+        { "id": "b", "label": "Graph B", "isCorrect": true },
+        { "id": "c", "label": "Graph C", "isCorrect": false }
+      ],
+      "hints": [
+        "\\ge means the endpoint is closed.",
+        "Greater than values are to the right."
+      ],
+      "correctFeedback": "Correct. Graph B has a closed endpoint at -1 and shades right.",
+      "incorrectFeedback": "Check both whether -1 is included and which direction is shaded."
+    },
+    {
+      "id": "q2",
+      "prompt": "Which displayed graph matches the inequality?",
+      "expression": "-3 < x \\le 2",
+      "interactiveParts": [
+        {
+          "type": "numberLine",
+          "id": "choice-a-q2",
+          "domain": { "min": -6, "max": 6, "step": 1 },
+          "features": {
+            "segmentsEnabled": true,
+            "openClosedEndpoints": true,
+            "labelsVisible": true,
+            "snapToTicks": true
+          },
+          "initialResponse": "linearGraphUtility{-3<x<=2}"
+        },
+        {
+          "type": "numberLine",
+          "id": "choice-b-q2",
+          "domain": { "min": -6, "max": 6, "step": 1 },
+          "features": {
+            "segmentsEnabled": true,
+            "openClosedEndpoints": true,
+            "labelsVisible": true,
+            "snapToTicks": true
+          },
+          "initialResponse": "linearGraphUtility{-3<=x<2}"
+        },
+        {
+          "type": "numberLine",
+          "id": "choice-c-q2",
+          "domain": { "min": -6, "max": 6, "step": 1 },
+          "features": {
+            "segmentsEnabled": true,
+            "openClosedEndpoints": true,
+            "labelsVisible": true,
+            "snapToTicks": true
+          },
+          "initialResponse": "linearGraphUtility{-3<x<2}"
+        }
+      ],
+      "choices": [
+        { "id": "a", "label": "Graph A", "isCorrect": true },
+        { "id": "b", "label": "Graph B", "isCorrect": false },
+        { "id": "c", "label": "Graph C", "isCorrect": false }
+      ],
+      "hints": [
+        "-3 is open because the symbol is <.",
+        "2 is closed because the symbol is \\le."
+      ],
+      "correctFeedback": "Correct. Graph A has the open left endpoint and closed right endpoint.",
+      "incorrectFeedback": "Compare the endpoint circles to the inequality symbols."
+    }
+  ]
+}

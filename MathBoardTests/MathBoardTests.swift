@@ -538,6 +538,639 @@ struct MathBoardTests {
         #expect(question.hints.isEmpty)
     }
 
+    @Test func activityWidgetJSONDecodesInteractiveParts() throws {
+        let json = #"""
+        {
+          "schemaVersion": 2,
+          "widgetId": "interactive-parts",
+          "activity": "multipleChoice",
+          "title": "Interactive Parts",
+          "learningObjective": "Decode reusable Mathtivity parts.",
+          "questions": [
+            {
+              "id": "q1",
+              "prompt": "Choose the matching graph.",
+              "interactiveParts": [
+                {
+                  "type": "numberLine",
+                  "id": "solution-line",
+                  "domain": { "min": -5, "max": 5, "step": 1 },
+                  "features": {
+                    "pointsTappable": true,
+                    "pointsDraggable": true,
+                    "raysEnabled": true,
+                    "segmentsEnabled": true,
+                    "openClosedEndpoints": true,
+                    "pointHasRay": true,
+                    "maxPoints": 2,
+                    "labelsVisible": true,
+                    "snapToTicks": true
+                  }
+                },
+                {
+                  "type": "coordinatePlane",
+                  "id": "graph",
+                  "domain": { "xMin": 0, "xMax": 10, "yMin": 0, "yMax": 10, "xStep": 1, "yStep": 1 },
+                  "features": {
+                    "pointsTappable": true,
+                    "pointsDraggable": false,
+                    "linesEnabled": true,
+                    "segmentsEnabled": true,
+                    "raysEnabled": false,
+                    "parabolasEnabled": false,
+                    "labelsVisible": true,
+                    "snapToGrid": true
+                  }
+                }
+              ],
+              "choices": [
+                { "id": "a", "label": "A", "isCorrect": true },
+                { "id": "b", "label": "B", "isCorrect": false }
+              ]
+            }
+          ]
+        }
+        """#
+
+        let result = WidgetActivityJSONCodec.decode(json)
+        let parts = try #require(result.document?.questions.first?.interactiveParts)
+
+        #expect(result.errors.isEmpty)
+        #expect(parts.count == 2)
+        if case .numberLine(let numberLine) = parts[0] {
+            #expect(numberLine.id == "solution-line")
+            #expect(numberLine.domain.min == -5)
+            #expect(numberLine.features.pointsDraggable)
+            #expect(numberLine.features.raysEnabled)
+            #expect(numberLine.features.pointHasRay)
+            #expect(numberLine.features.maxPoints == 2)
+        } else {
+            Issue.record("Expected first interactive part to be numberLine.")
+        }
+        if case .coordinatePlane(let coordinatePlane) = parts[1] {
+            #expect(coordinatePlane.id == "graph")
+            #expect(coordinatePlane.domain.xMin == 0)
+            #expect(coordinatePlane.domain.yMax == 10)
+            #expect(coordinatePlane.features.linesEnabled)
+        } else {
+            Issue.record("Expected second interactive part to be coordinatePlane.")
+        }
+    }
+
+    @Test func activityWidgetJSONRejectsInvalidInteractivePartDomains() {
+        let json = #"""
+        {
+          "schemaVersion": 2,
+          "widgetId": "bad-interactive-parts",
+          "activity": "multipleChoice",
+          "title": "Bad Interactive Parts",
+          "learningObjective": "Reject invalid reusable Mathtivity parts.",
+          "questions": [
+            {
+              "id": "q1",
+              "prompt": "Choose.",
+              "interactiveParts": [
+                {
+                  "type": "numberLine",
+                  "id": "line",
+                  "domain": { "min": 5, "max": 5, "step": 1 }
+                },
+                {
+                  "type": "coordinatePlane",
+                  "id": "graph",
+                  "domain": { "xMin": -10, "xMax": 10, "yMin": 0, "yMax": 10, "xStep": 0, "yStep": 1 }
+                }
+              ],
+              "choices": [
+                { "id": "a", "label": "A", "isCorrect": true },
+                { "id": "b", "label": "B", "isCorrect": false }
+              ]
+            }
+          ]
+        }
+        """#
+
+        let result = WidgetActivityJSONCodec.decode(json)
+
+        #expect(result.document == nil)
+        #expect(result.errors.contains { $0.contains("numberLine domain min must be less than max") })
+        #expect(result.errors.contains { $0.contains("coordinatePlane steps must be greater than 0") })
+    }
+
+    @Test func activityWidgetJSONRejectsInvalidNumberLineInteractionFeatures() {
+        let json = #"""
+        {
+          "schemaVersion": 2,
+          "widgetId": "bad-number-line-features",
+          "activity": "multipleChoice",
+          "title": "Bad Number Line Features",
+          "learningObjective": "Reject invalid number-line interaction configuration.",
+          "questions": [
+            {
+              "id": "q1",
+              "prompt": "Choose.",
+              "interactiveParts": [
+                {
+                  "type": "numberLine",
+                  "id": "line",
+                  "domain": { "min": -5, "max": 5, "step": 1 },
+                  "features": {
+                    "pointHasRay": true,
+                    "maxPoints": 0
+                  },
+                  "answer": {
+                    "points": [
+                      { "value": 1, "isClosed": true }
+                    ]
+                  }
+                }
+              ],
+              "choices": [
+                { "id": "a", "label": "A", "isCorrect": true },
+                { "id": "b", "label": "B", "isCorrect": false }
+              ]
+            }
+          ]
+        }
+        """#
+
+        let result = WidgetActivityJSONCodec.decode(json)
+
+        #expect(result.document == nil)
+        #expect(result.errors.contains { $0.contains("numberLine pointHasRay requires raysEnabled") })
+        #expect(result.errors.contains { $0.contains("numberLine maxPoints must be greater than 0") })
+    }
+
+    @Test func activityWidgetNumberLineAnswerAddsInteractiveScoreRecordPoint() throws {
+        let json = #"""
+        {
+          "schemaVersion": 2,
+          "widgetId": "scored-number-line",
+          "activity": "multipleChoice",
+          "title": "Scored Number Line",
+          "learningObjective": "Score a number-line response from JSON.",
+          "questions": [
+            {
+              "id": "q1",
+              "prompt": "Graph x >= 2.",
+              "interactiveParts": [
+                {
+                  "type": "numberLine",
+                  "id": "solution-line",
+                  "domain": { "min": -5, "max": 5, "step": 1 },
+                  "features": {
+                    "pointsTappable": true,
+                    "raysEnabled": true,
+                    "openClosedEndpoints": true
+                  },
+                  "answer": {
+                    "rays": [
+                      { "endpoint": 2, "direction": "right", "isClosed": true }
+                    ]
+                  }
+                }
+              ],
+              "choices": [
+                { "id": "a", "label": "x \\ge 2", "isCorrect": true },
+                { "id": "b", "label": "x \\le 2", "isCorrect": false }
+              ]
+            }
+          ]
+        }
+        """#
+        let document = try #require(WidgetActivityJSONCodec.decode(json).document)
+        let runtimeState = WidgetActivityRuntimeState(
+            multipleChoice: WidgetMultipleChoiceRuntimeState(
+                selectedChoiceID: "a",
+                submittedChoiceID: "a",
+                submittedChoiceIDsByQuestionID: ["q1": "a"],
+                score: 1,
+                attempts: 1,
+                streak: 1,
+                longestStreak: 1,
+                answeredQuestionIDs: ["q1"],
+                correctlyAnsweredQuestionIDs: ["q1"],
+                questionAttempts: ["q1": 1]
+            ),
+            interactiveParts: WidgetInteractivePartsRuntimeState(
+                numberLineResponsesByPartID: [
+                    "solution-line": WidgetNumberLineRuntimeResponse(
+                        rays: [WidgetActivityNumberLineRay(endpoint: 2, direction: .right, isClosed: true)]
+                    )
+                ]
+            )
+        )
+
+        let record = runtimeState.scoreRecord(for: document)
+
+        #expect(record.status == .complete)
+        #expect(record.score == 2)
+        #expect(record.attempts == 2)
+        #expect(record.pointsPossible == 2)
+        #expect(record.numberCorrectFirstTry == 2)
+    }
+
+    @Test func activityWidgetJSONRejectsEmptyNumberLineAnswer() {
+        let json = #"""
+        {
+          "schemaVersion": 2,
+          "widgetId": "empty-answer",
+          "activity": "multipleChoice",
+          "title": "Empty Answer",
+          "learningObjective": "Reject empty interactive answers.",
+          "questions": [
+            {
+              "id": "q1",
+              "prompt": "Choose.",
+              "interactiveParts": [
+                {
+                  "type": "numberLine",
+                  "id": "line",
+                  "domain": { "min": -5, "max": 5, "step": 1 },
+                  "answer": {}
+                }
+              ],
+              "choices": [
+                { "id": "a", "label": "A", "isCorrect": true },
+                { "id": "b", "label": "B", "isCorrect": false }
+              ]
+            }
+          ]
+        }
+        """#
+
+        let result = WidgetActivityJSONCodec.decode(json)
+
+        #expect(result.document == nil)
+        #expect(result.errors.contains { $0.contains("numberLine answer must include at least one point, ray, or segment") })
+    }
+
+    @Test func activityWidgetJSONDecodesAuthoredNumberLineGraph() throws {
+        let json = #"""
+        {
+          "schemaVersion": 2,
+          "widgetId": "authored-number-line",
+          "activity": "multipleChoice",
+          "title": "Authored Number Line",
+          "learningObjective": "Show authored graph states.",
+          "questions": [
+            {
+              "id": "q1",
+              "prompt": "Which inequality matches the graph?",
+              "interactiveParts": [
+                {
+                  "type": "numberLine",
+                  "id": "choice-graph",
+                  "domain": { "min": -10, "max": 10, "step": 1 },
+                  "features": {
+                    "segmentsEnabled": true,
+                    "openClosedEndpoints": true
+                  },
+                  "initialResponse": {
+                    "points": [
+                      { "value": -2, "isClosed": false }
+                    ],
+                    "segments": [
+                      { "start": -2, "end": 5, "startClosed": false, "endClosed": true }
+                    ]
+                  }
+                }
+              ],
+              "choices": [
+                { "id": "a", "label": "-2 < x \\\\le 5", "isCorrect": true },
+                { "id": "b", "label": "-2 \\\\le x < 5", "isCorrect": false }
+              ]
+            }
+          ]
+        }
+        """#
+
+        let result = WidgetActivityJSONCodec.decode(json)
+        let part = try #require(result.document?.questions.first?.interactiveParts.first)
+
+        #expect(result.errors.isEmpty)
+        if case .numberLine(let numberLine) = part {
+            let initialResponse = try #require(numberLine.initialResponse)
+            #expect(initialResponse.points == [WidgetActivityNumberLinePoint(value: -2, isClosed: false)])
+            #expect(initialResponse.segments == [WidgetActivityNumberLineSegment(start: -2, end: 5, startClosed: false, endClosed: true)])
+        } else {
+            Issue.record("Expected authored part to be numberLine.")
+        }
+    }
+
+    @Test func activityWidgetNumberLineUtilityCompilesSimpleAndCompoundGraphs() throws {
+        let json = #"""
+        {
+          "schemaVersion": 2,
+          "widgetId": "compiled-number-line-utility",
+          "activity": "multipleChoice",
+          "title": "Compiled Number Line Utility",
+          "learningObjective": "Compile algebraic graph shorthand.",
+          "questions": [
+            {
+              "id": "q1",
+              "prompt": "Graph and identify the solution.",
+              "interactiveParts": [
+                {
+                  "type": "numberLine",
+                  "id": "right-ray",
+                  "domain": { "min": -10, "max": 10, "step": 1 },
+                  "features": {
+                    "raysEnabled": true,
+                    "openClosedEndpoints": true
+                  },
+                  "initialResponse": "linearGraphUtility{x>1}",
+                  "answer": "linearGraphUtility{x≥1}"
+                },
+                {
+                  "type": "numberLine",
+                  "id": "bounded",
+                  "domain": { "min": -10, "max": 10, "step": 1 },
+                  "features": {
+                    "segmentsEnabled": true,
+                    "openClosedEndpoints": true
+                  },
+                  "answer": "linearGraphUtility{-2<x<=5}"
+                },
+                {
+                  "type": "numberLine",
+                  "id": "point",
+                  "domain": { "min": -10, "max": 10, "step": 1 },
+                  "features": {
+                    "pointsTappable": true
+                  },
+                  "answer": "linearGraphUtility{3=x}"
+                }
+              ],
+              "choices": [
+                { "id": "a", "label": "A", "isCorrect": true },
+                { "id": "b", "label": "B", "isCorrect": false }
+              ]
+            }
+          ]
+        }
+        """#
+
+        let result = WidgetActivityJSONCodec.decode(json)
+        let parts = try #require(result.document?.questions.first?.interactiveParts)
+
+        #expect(result.errors.isEmpty)
+        if case .numberLine(let rightRay) = parts[0] {
+            #expect(rightRay.initialResponse?.rays == [
+                WidgetActivityNumberLineRay(endpoint: 1, direction: .right, isClosed: false)
+            ])
+            #expect(rightRay.answer?.rays == [
+                WidgetActivityNumberLineRay(endpoint: 1, direction: .right, isClosed: true)
+            ])
+        } else {
+            Issue.record("Expected first compiled utility part to be numberLine.")
+        }
+        if case .numberLine(let bounded) = parts[1] {
+            #expect(bounded.answer?.segments == [
+                WidgetActivityNumberLineSegment(start: -2, end: 5, startClosed: false, endClosed: true)
+            ])
+        } else {
+            Issue.record("Expected second compiled utility part to be numberLine.")
+        }
+        if case .numberLine(let point) = parts[2] {
+            #expect(point.answer?.points == [
+                WidgetActivityNumberLinePoint(value: 3, isClosed: true)
+            ])
+        } else {
+            Issue.record("Expected third compiled utility part to be numberLine.")
+        }
+    }
+
+    @Test func activityWidgetNumberLineAnswerScoresOpenPointAndSegment() throws {
+        let json = #"""
+        {
+          "schemaVersion": 2,
+          "widgetId": "segment-number-line",
+          "activity": "multipleChoice",
+          "title": "Segment Number Line",
+          "learningObjective": "Score open and closed graph endpoints.",
+          "questions": [
+            {
+              "id": "q1",
+              "prompt": "Graph -2 < x <= 5.",
+              "interactiveParts": [
+                {
+                  "type": "numberLine",
+                  "id": "solution-line",
+                  "domain": { "min": -10, "max": 10, "step": 1 },
+                  "features": {
+                    "segmentsEnabled": true,
+                    "openClosedEndpoints": true
+                  },
+                  "answer": {
+                    "segments": [
+                      { "start": -2, "end": 5, "startClosed": false, "endClosed": true }
+                    ]
+                  }
+                }
+              ],
+              "choices": [
+                { "id": "a", "label": "-2 < x \\\\le 5", "isCorrect": true },
+                { "id": "b", "label": "-2 \\\\le x < 5", "isCorrect": false }
+              ]
+            }
+          ]
+        }
+        """#
+        let document = try #require(WidgetActivityJSONCodec.decode(json).document)
+        let runtimeState = WidgetActivityRuntimeState(
+            multipleChoice: WidgetMultipleChoiceRuntimeState(
+                selectedChoiceID: "a",
+                submittedChoiceID: "a",
+                submittedChoiceIDsByQuestionID: ["q1": "a"],
+                score: 1,
+                attempts: 1,
+                streak: 1,
+                longestStreak: 1,
+                answeredQuestionIDs: ["q1"],
+                correctlyAnsweredQuestionIDs: ["q1"],
+                questionAttempts: ["q1": 1]
+            ),
+            interactiveParts: WidgetInteractivePartsRuntimeState(
+                numberLineResponsesByPartID: [
+                    "solution-line": WidgetNumberLineRuntimeResponse(
+                        segments: [
+                            WidgetActivityNumberLineSegment(start: 5, end: -2, startClosed: true, endClosed: false)
+                        ]
+                    )
+                ]
+            )
+        )
+
+        let record = runtimeState.scoreRecord(for: document)
+
+        #expect(record.status == .complete)
+        #expect(record.score == 2)
+        #expect(record.pointsPossible == 2)
+    }
+
+    @Test func activityWidgetNumberLineRayVisualEndDoesNotAffectScoring() throws {
+        let json = #"""
+        {
+          "schemaVersion": 2,
+          "widgetId": "ray-visual-end",
+          "activity": "multipleChoice",
+          "title": "Ray Visual End",
+          "learningObjective": "Score rays by endpoint and direction, not visual handle length.",
+          "questions": [
+            {
+              "id": "q1",
+              "prompt": "Graph x > 2.",
+              "interactiveParts": [
+                {
+                  "type": "numberLine",
+                  "id": "solution-line",
+                  "domain": { "min": -5, "max": 10, "step": 1 },
+                  "features": {
+                    "pointsTappable": true,
+                    "raysEnabled": true,
+                    "openClosedEndpoints": true,
+                    "pointHasRay": true,
+                    "maxPoints": 1
+                  },
+                  "answer": "linearGraphUtility{x>2}"
+                }
+              ],
+              "choices": [
+                { "id": "done", "label": "Done", "isCorrect": true },
+                { "id": "revise", "label": "Revise", "isCorrect": false }
+              ]
+            }
+          ]
+        }
+        """#
+        let document = try #require(WidgetActivityJSONCodec.decode(json).document)
+        let runtimeState = WidgetActivityRuntimeState(
+            multipleChoice: WidgetMultipleChoiceRuntimeState(
+                selectedChoiceID: "done",
+                submittedChoiceID: "done",
+                submittedChoiceIDsByQuestionID: ["q1": "done"],
+                score: 1,
+                attempts: 1,
+                streak: 1,
+                longestStreak: 1,
+                answeredQuestionIDs: ["q1"],
+                correctlyAnsweredQuestionIDs: ["q1"],
+                questionAttempts: ["q1": 1]
+            ),
+            interactiveParts: WidgetInteractivePartsRuntimeState(
+                numberLineResponsesByPartID: [
+                    "solution-line": WidgetNumberLineRuntimeResponse(
+                        rays: [WidgetActivityNumberLineRay(endpoint: 2, direction: .right, isClosed: false, visualEndValue: 6)]
+                    )
+                ]
+            )
+        )
+
+        let record = runtimeState.scoreRecord(for: document)
+
+        #expect(record.score == 2)
+        #expect(record.pointsPossible == 2)
+    }
+
+    @Test func activityWidgetJSONRejectsSegmentWhenSegmentsDisabled() {
+        let json = #"""
+        {
+          "schemaVersion": 2,
+          "widgetId": "bad-segment",
+          "activity": "multipleChoice",
+          "title": "Bad Segment",
+          "learningObjective": "Reject disabled segment answers.",
+          "questions": [
+            {
+              "id": "q1",
+              "prompt": "Choose.",
+              "interactiveParts": [
+                {
+                  "type": "numberLine",
+                  "id": "line",
+                  "domain": { "min": -5, "max": 5, "step": 1 },
+                  "answer": {
+                    "segments": [
+                      { "start": -1, "end": 3 }
+                    ]
+                  }
+                }
+              ],
+              "choices": [
+                { "id": "a", "label": "A", "isCorrect": true },
+                { "id": "b", "label": "B", "isCorrect": false }
+              ]
+            }
+          ]
+        }
+        """#
+
+        let result = WidgetActivityJSONCodec.decode(json)
+
+        #expect(result.document == nil)
+        #expect(result.errors.contains { $0.contains("numberLine answer includes a segment, but segmentsEnabled is false") })
+    }
+
+    @Test func activityWidgetNumberLineLegacySelectedPointsScoreAsClosedPoints() throws {
+        let json = #"""
+        {
+          "schemaVersion": 2,
+          "widgetId": "legacy-point",
+          "activity": "multipleChoice",
+          "title": "Legacy Point",
+          "learningObjective": "Keep selectedPoints compatible.",
+          "questions": [
+            {
+              "id": "q1",
+              "prompt": "Plot x = 2.",
+              "interactiveParts": [
+                {
+                  "type": "numberLine",
+                  "id": "solution-line",
+                  "domain": { "min": -5, "max": 5, "step": 1 },
+                  "features": { "pointsTappable": true },
+                  "answer": {
+                    "points": [
+                      { "value": 2, "isClosed": true }
+                    ]
+                  }
+                }
+              ],
+              "choices": [
+                { "id": "a", "label": "x = 2", "isCorrect": true },
+                { "id": "b", "label": "x = 3", "isCorrect": false }
+              ]
+            }
+          ]
+        }
+        """#
+        let document = try #require(WidgetActivityJSONCodec.decode(json).document)
+        let runtimeState = WidgetActivityRuntimeState(
+            multipleChoice: WidgetMultipleChoiceRuntimeState(
+                selectedChoiceID: "a",
+                submittedChoiceID: "a",
+                submittedChoiceIDsByQuestionID: ["q1": "a"],
+                score: 1,
+                attempts: 1,
+                streak: 1,
+                longestStreak: 1,
+                answeredQuestionIDs: ["q1"],
+                correctlyAnsweredQuestionIDs: ["q1"],
+                questionAttempts: ["q1": 1]
+            ),
+            interactiveParts: WidgetInteractivePartsRuntimeState(
+                numberLineResponsesByPartID: [
+                    "solution-line": WidgetNumberLineRuntimeResponse(selectedPoints: [2])
+                ]
+            )
+        )
+
+        let record = runtimeState.scoreRecord(for: document)
+
+        #expect(record.score == 2)
+    }
+
     @Test func fillInTheBlankMathtivityResourceDecodesAsValidActivity() throws {
         let source = try #require(JSONMathtivityCatalog.source(for: JSONMathtivityCatalog.linearEquationFillInTheBlank))
         let result = WidgetActivityJSONCodec.decode(source)
@@ -2759,6 +3392,131 @@ struct MathBoardTests {
         #expect(session.publishedChunks.count == 1)
         #expect(session.publishedChunks.first?.isFinalChunk == true)
         #expect(session.publishedChunks.first?.slideID == slideID)
+    }
+
+    @Test func canvasObjectSnapshotCapturesAndWritesJPEGAssets() throws {
+        let sourceDirectoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MathBoardObjectSnapshotSource-\(UUID().uuidString)", isDirectory: true)
+        let destinationDirectoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MathBoardObjectSnapshotDestination-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDirectoryURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: destinationDirectoryURL, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: sourceDirectoryURL)
+            try? FileManager.default.removeItem(at: destinationDirectoryURL)
+        }
+
+        let slideID = UUID()
+        let sourceDrawingURL = sourceDirectoryURL.appendingPathComponent("slide-live.drawing")
+        let sourceTextSidecarURL = sourceDirectoryURL.appendingPathComponent("slide-live.textobjects.json")
+        let sourceImageDirectoryURL = CanvasImageObject.assetDirectoryURL(forDrawingURL: sourceDrawingURL)
+        let jpegData = Data([0xFF, 0xD8, 0xFF, 0xE0, 0x01, 0x02, 0x03])
+        try Data(#"[{"text":"Live note"}]"#.utf8).write(to: sourceTextSidecarURL)
+        try FileManager.default.createDirectory(at: sourceImageDirectoryURL, withIntermediateDirectories: true)
+        try jpegData.write(to: sourceImageDirectoryURL.appendingPathComponent("teacher-photo.jpg"))
+
+        let snapshot = CanvasObjectSnapshot.capture(slideID: slideID, drawingURL: sourceDrawingURL, revision: 12)
+
+        #expect(snapshot.slideID == slideID)
+        #expect(snapshot.revision == 12)
+        #expect(snapshot.sidecarFiles.map(\.name) == ["textobjects.json"])
+        #expect(snapshot.imageAssetFiles.map(\.name) == ["teacher-photo.jpg"])
+        #expect(snapshot.imageAssetFiles.first?.data == jpegData)
+
+        let destinationDrawingURL = destinationDirectoryURL.appendingPathComponent("student-slide.drawing")
+        try snapshot.write(to: destinationDrawingURL)
+
+        let destinationTextSidecarURL = destinationDirectoryURL.appendingPathComponent("student-slide.textobjects.json")
+        let destinationImageURL = CanvasImageObject.assetDirectoryURL(forDrawingURL: destinationDrawingURL)
+            .appendingPathComponent("teacher-photo.jpg")
+        #expect((try? Data(contentsOf: destinationTextSidecarURL)) == Data(#"[{"text":"Live note"}]"#.utf8))
+        #expect((try? Data(contentsOf: destinationImageURL)) == jpegData)
+    }
+
+    @Test @MainActor func inlineTeacherObjectSnapshotFirestoreDocumentRoundTrips() throws {
+        let id = try #require(UUID(uuidString: "11111111-2222-3333-4444-555555555555"))
+        let slideID = try #require(UUID(uuidString: "22222222-3333-4444-5555-666666666666"))
+        let sentAt = Date(timeIntervalSince1970: 1_800_000_100)
+        let capturedAt = Date(timeIntervalSince1970: 1_800_000_050)
+        let textData = Data(#"[{"text":"Factor"}]"#.utf8)
+        let imageData = Data([0xFF, 0xD8, 0xFF, 0x01])
+        let snapshot = TeacherObjectSnapshot(
+            id: id,
+            lessonCode: "abc123",
+            slideID: slideID,
+            revision: 9,
+            snapshot: CanvasObjectSnapshot(
+                slideID: slideID,
+                revision: 9,
+                capturedAt: capturedAt,
+                sidecarFiles: [
+                    CanvasObjectSnapshotFile(name: "textobjects.json", data: textData)
+                ],
+                imageAssetFiles: [
+                    CanvasObjectSnapshotFile(name: "photo.jpg", data: imageData)
+                ]
+            ),
+            sentAt: sentAt
+        )
+
+        let document = FirebaseClassroomSyncService.teacherObjectSnapshotDocument(snapshot, teacherUserID: "teacher-1")
+        let decoded = try #require(FirebaseClassroomSyncService.inlineTeacherObjectSnapshot(from: document, fallbackCode: "FALLBACK"))
+
+        #expect(document["objectSnapshotStoragePath"] == nil)
+        #expect(decoded.id == id)
+        #expect(decoded.lessonCode == "ABC123")
+        #expect(decoded.slideID == slideID)
+        #expect(decoded.revision == 9)
+        #expect(decoded.snapshot.sidecarFiles.first?.data == textData)
+        #expect(decoded.snapshot.imageAssetFiles.first?.name == "photo.jpg")
+        #expect(decoded.snapshot.imageAssetFiles.first?.data == imageData)
+    }
+
+    @Test @MainActor func teacherObjectSnapshotSizeThresholdChoosesStorageBackedDocumentForLargeAssets() {
+        let slideID = UUID()
+        let smallSnapshot = TeacherObjectSnapshot(
+            lessonCode: "LIVE01",
+            slideID: slideID,
+            revision: 1,
+            snapshot: CanvasObjectSnapshot(
+                slideID: slideID,
+                revision: 1,
+                sidecarFiles: [CanvasObjectSnapshotFile(name: "textobjects.json", data: Data("[]".utf8))],
+                imageAssetFiles: []
+            )
+        )
+        let largeSnapshot = TeacherObjectSnapshot(
+            lessonCode: "LIVE01",
+            slideID: slideID,
+            revision: 2,
+            snapshot: CanvasObjectSnapshot(
+                slideID: slideID,
+                revision: 2,
+                sidecarFiles: [],
+                imageAssetFiles: [
+                    CanvasObjectSnapshotFile(name: "large-photo.jpg", data: Data(repeating: 0x7B, count: 600_000))
+                ]
+            )
+        )
+
+        #expect(!FirebaseClassroomSyncService.usesStorageBackedTeacherObjectSnapshotDocument(smallSnapshot, teacherUserID: "teacher-1"))
+        #expect(FirebaseClassroomSyncService.usesStorageBackedTeacherObjectSnapshotDocument(largeSnapshot, teacherUserID: "teacher-1"))
+
+        let referenceDocument = FirebaseClassroomSyncService.teacherObjectSnapshotReferenceDocument(
+            largeSnapshot,
+            teacherUserID: "teacher-1",
+            storagePath: "classLessonAssets/LIVE01/teacherObjects/\(slideID.uuidString).json"
+        )
+
+        #expect(referenceDocument["objectSnapshotStoragePath"] as? String == "classLessonAssets/LIVE01/teacherObjects/\(slideID.uuidString).json")
+        #expect(referenceDocument["sidecarFiles"] == nil)
+        #expect(referenceDocument["imageAssetFiles"] == nil)
+        #expect(
+            FirebaseClassroomSyncService.estimatedFirestorePayloadSize(referenceDocument)
+            < FirebaseClassroomSyncService.estimatedFirestorePayloadSize(
+                FirebaseClassroomSyncService.teacherObjectSnapshotDocument(largeSnapshot, teacherUserID: "teacher-1")
+            )
+        )
     }
 
     private func liveClassroomTeacherConfiguration() -> LiveClassroomSessionConfiguration {

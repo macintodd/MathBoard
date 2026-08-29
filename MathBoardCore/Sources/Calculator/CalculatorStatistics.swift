@@ -7,6 +7,43 @@
 
 import Foundation
 
+// MARK: - 1-Variable statistics result
+
+public struct CalculatorOneVarStatsResult: Equatable, Sendable {
+    public let mean: Double         // x̄
+    public let sumX: Double         // Σx
+    public let sumXSq: Double       // Σx²
+    public let sampleStdDev: Double // Sx  (sample, n-1)
+    public let popStdDev: Double    // σx  (population, n)
+    public let n: Int
+    public let minX: Double
+    public let q1: Double
+    public let median: Double
+    public let q3: Double
+    public let maxX: Double
+}
+
+// MARK: - 2-Variable statistics result
+
+public struct CalculatorTwoVarStatsResult: Equatable, Sendable {
+    public let meanX: Double         // x̄
+    public let meanY: Double         // ȳ
+    public let sumX: Double          // Σx
+    public let sumY: Double          // Σy
+    public let sumXSq: Double        // Σx²
+    public let sumYSq: Double        // Σy²
+    public let sumXY: Double         // Σxy
+    public let sampleStdDevX: Double // Sx
+    public let sampleStdDevY: Double // Sy
+    public let popStdDevX: Double    // σx
+    public let popStdDevY: Double    // σy
+    public let n: Int
+    public let r: Double?            // Pearson correlation coefficient
+    public let rSquared: Double?     // R²
+}
+
+// MARK: - Regression result
+
 public struct CalculatorRegressionResult: Equatable, Sendable {
     public var model: CalculatorRegressionModel
     public var coefficients: [Double]
@@ -90,6 +127,80 @@ public enum CalculatorStatistics {
             yValues: pairs.map(\.1)
         )
         return CalculatorRegressionResult(model: model, coefficients: coefficients, rSquared: rSquared)
+    }
+
+    // MARK: - 1-Variable stats
+
+    public static func oneVarStats(data: [Double]) -> CalculatorOneVarStatsResult? {
+        let values = data.filter { $0.isFinite }.sorted()
+        guard !values.isEmpty else { return nil }
+        let n = values.count
+        let sumX = values.reduce(0, +)
+        let mean = sumX / Double(n)
+        let sumXSq = values.reduce(0) { $0 + $1 * $1 }
+        let variance = values.reduce(0) { $0 + pow($1 - mean, 2) }
+        let popStdDev = sqrt(variance / Double(n))
+        let sampleStdDev = n > 1 ? sqrt(variance / Double(n - 1)) : 0
+        let (q1, median, q3) = ti84Quartiles(values)
+        return CalculatorOneVarStatsResult(
+            mean: mean, sumX: sumX, sumXSq: sumXSq,
+            sampleStdDev: sampleStdDev, popStdDev: popStdDev,
+            n: n, minX: values[0], q1: q1, median: median, q3: q3, maxX: values[n - 1]
+        )
+    }
+
+    // MARK: - 2-Variable stats
+
+    public static func twoVarStats(xValues: [Double], yValues: [Double]) -> CalculatorTwoVarStatsResult? {
+        let pairs = zip(xValues, yValues).filter { $0.0.isFinite && $0.1.isFinite }
+        guard !pairs.isEmpty else { return nil }
+        let n = pairs.count
+        let xs = pairs.map { $0.0 }
+        let ys = pairs.map { $0.1 }
+        let sumX = xs.reduce(0, +); let meanX = sumX / Double(n)
+        let sumY = ys.reduce(0, +); let meanY = sumY / Double(n)
+        let sumXSq = xs.reduce(0) { $0 + $1 * $1 }
+        let sumYSq = ys.reduce(0) { $0 + $1 * $1 }
+        let sumXY = zip(xs, ys).reduce(0) { $0 + $1.0 * $1.1 }
+        let varX = xs.reduce(0) { $0 + pow($1 - meanX, 2) }
+        let varY = ys.reduce(0) { $0 + pow($1 - meanY, 2) }
+        let sampleStdDevX = n > 1 ? sqrt(varX / Double(n - 1)) : 0
+        let sampleStdDevY = n > 1 ? sqrt(varY / Double(n - 1)) : 0
+        let popStdDevX = sqrt(varX / Double(n))
+        let popStdDevY = sqrt(varY / Double(n))
+        let r: Double? = (varX > 0 && varY > 0) ? {
+            let cov = zip(xs, ys).reduce(0) { $0 + ($1.0 - meanX) * ($1.1 - meanY) }
+            return cov / sqrt(varX * varY)
+        }() : nil
+        return CalculatorTwoVarStatsResult(
+            meanX: meanX, meanY: meanY, sumX: sumX, sumY: sumY,
+            sumXSq: sumXSq, sumYSq: sumYSq, sumXY: sumXY,
+            sampleStdDevX: sampleStdDevX, sampleStdDevY: sampleStdDevY,
+            popStdDevX: popStdDevX, popStdDevY: popStdDevY,
+            n: n, r: r, rSquared: r.map { $0 * $0 }
+        )
+    }
+
+    // MARK: - Quartile helper (TI-84 exclusive method)
+
+    private static func ti84Quartiles(_ sorted: [Double]) -> (q1: Double, median: Double, q3: Double) {
+        let n = sorted.count
+        let median: Double
+        if n % 2 == 1 {
+            median = sorted[n / 2]
+        } else {
+            median = (sorted[n / 2 - 1] + sorted[n / 2]) / 2
+        }
+        let lowerCount = n / 2
+        let upperStart = n % 2 == 1 ? n / 2 + 1 : n / 2
+        func medianOf(_ slice: [Double]) -> Double {
+            let c = slice.count
+            if c == 0 { return sorted[0] }
+            return c % 2 == 1 ? slice[c / 2] : (slice[c / 2 - 1] + slice[c / 2]) / 2
+        }
+        let q1 = medianOf(Array(sorted.prefix(lowerCount)))
+        let q3 = medianOf(Array(sorted.suffix(n - upperStart)))
+        return (q1, median, q3)
     }
 
     public static func fractionString(for value: Double, maxDenominator: Int = 10_000) -> String? {

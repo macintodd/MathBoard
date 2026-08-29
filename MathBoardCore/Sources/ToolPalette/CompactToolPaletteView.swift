@@ -249,15 +249,15 @@ public struct CompactToolPaletteView: View {
             }
         }
         .animation(Self.drawerAnimation, value: state.isCompactDrawerOpen)
+        .animation(Self.drawerAnimation, value: state.isCompactQuickStripOpen)
         .animation(Self.drawerAnimation, value: isQuickStripVisible)
         .environment(\.colorScheme, .dark)
         .onChange(of: state.activeTool) { _, newTool in
-            guard newTool.hasCompactDrawer else {
-                state.isCompactDrawerOpen = false
-                return
-            }
-            if !newTool.hasCompactQuickStrip || newTool == .equation {
-                state.isCompactDrawerOpen = true
+            withAnimation(Self.drawerAnimation) {
+                if !newTool.hasCompactQuickStrip {
+                    state.isCompactQuickStripOpen = false
+                }
+                state.isCompactDrawerOpen = state.isCompactDrawerOpen || newTool == .reserved
             }
         }
         // Popovers reuse the shared reducer via `send`, just like the radial dial.
@@ -394,18 +394,33 @@ public struct CompactToolPaletteView: View {
             send(.selectTool(toolID))
         }
 
-        if !toolID.hasCompactDrawer {
+        if toolID.hasCompactQuickStrip {
             withAnimation(Self.drawerAnimation) {
+                state.isCompactQuickStripOpen = !wasActive
+                state.isCompactDrawerOpen = wasActive
+            }
+        } else if !toolID.hasCompactDrawer {
+            withAnimation(Self.drawerAnimation) {
+                state.isCompactQuickStripOpen = false
                 state.isCompactDrawerOpen = false
             }
-        } else if toolID.hasCompactQuickStrip {
+        } else if toolID == .extract || toolID == .geometry || toolID == .reserved {
             withAnimation(Self.drawerAnimation) {
-                state.isCompactDrawerOpen = toolID == .extract ? false : (wasActive ? !state.isCompactDrawerOpen : false)
+                state.isCompactQuickStripOpen = false
+                state.isCompactDrawerOpen = wasActive ? !state.isCompactDrawerOpen : true
             }
         } else if wasActive {
-            withAnimation(Self.drawerAnimation) { state.isCompactDrawerOpen.toggle() }
+            // Second tap on the already-active tool: toggle the full drawer.
+            withAnimation(Self.drawerAnimation) {
+                state.isCompactQuickStripOpen = false
+                state.isCompactDrawerOpen.toggle()
+            }
         } else {
-            state.isCompactDrawerOpen = true
+            // First tap: activate the tool and leave contextual controls closed.
+            withAnimation(Self.drawerAnimation) {
+                state.isCompactQuickStripOpen = false
+                state.isCompactDrawerOpen = false
+            }
         }
     }
 
@@ -418,7 +433,7 @@ public struct CompactToolPaletteView: View {
     }
 
     private var isQuickStripVisible: Bool {
-        state.activeTool.hasCompactQuickStrip && !state.isCompactDrawerOpen
+        state.activeTool.hasCompactQuickStrip && state.isCompactQuickStripOpen && !state.isCompactDrawerOpen
     }
 
     @ViewBuilder
@@ -542,7 +557,7 @@ public struct CompactToolPaletteView: View {
                 .frame(width: 34, height: 2)
                 .padding(.vertical, 2)
 
-            ForEach(ExtractAction.allCases, id: \.rawValue) { action in
+            ForEach(ExtractAction.visibleActions, id: \.rawValue) { action in
                 CompactQuickModeButton(
                     iconSystemName: action.iconSystemName,
                     label: action.displayName,
@@ -570,7 +585,7 @@ public struct CompactToolPaletteView: View {
 
     private var addQuickStrip: some View {
         VStack(spacing: 10) {
-            ForEach(AddItemKind.allCases, id: \.rawValue) { kind in
+            ForEach(AddItemKind.visibleItems, id: \.rawValue) { kind in
                 CompactQuickModeButton(
                     iconSystemName: kind.iconSystemName,
                     label: kind.displayName,
@@ -642,15 +657,19 @@ public struct CompactToolPaletteView: View {
     }
 
     private func selectQuickColor(_ color: PaletteColor, at index: Int) {
+        editingColorSlot = index
+        editingColorTool = state.activeTool
         if isQuickColorSelected(index) {
-            colorPickerTarget = .stroke
-            editingColorSlot = index
-            editingColorTool = state.activeTool
-            isColorPickerPresented = true
+            withAnimation(Self.drawerAnimation) {
+                state.isCompactQuickStripOpen = false
+                state.isCompactDrawerOpen = true
+            }
         } else {
-            editingColorSlot = index
-            editingColorTool = state.activeTool
             send(.setStrokeColor(color))
+            withAnimation(Self.drawerAnimation) {
+                state.isCompactQuickStripOpen = true
+                state.isCompactDrawerOpen = false
+            }
         }
     }
 
@@ -668,7 +687,8 @@ public struct CompactToolPaletteView: View {
     }
 
     private func isQuickColorSelected(_ index: Int) -> Bool {
-        editingColorSlot == index && editingColorTool == state.activeTool
+        guard state.activePaletteColors.indices.contains(index) else { return false }
+        return state.activePaletteColors[index] == state.activeStrokeColor
     }
 
     private var quickPaletteColors: [PaletteColor] {
@@ -832,6 +852,8 @@ public struct CompactToolPaletteView: View {
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity)
             .background(Capsule().fill(Color.black.opacity(0.18)))
+        case .hidden:
+            EmptyView()
         }
     }
 
@@ -879,6 +901,8 @@ public struct CompactToolPaletteView: View {
             return state.activeTool == .equation && state.textIsUnderlined
         case .openLatexEditor:
             return state.activeTool == .equation && !state.latexSource.isEmpty
+        case .setExtractAction(let action):
+            return state.activeTool == .extract && state.extractAction == action
         default:
             if item.id == "geometry.fillColor" {
                 return item.color == state.fillColor
@@ -968,7 +992,7 @@ private extension ToolID {
     }
 
     var hasCompactQuickStrip: Bool {
-        isCompactInkTool || self == .selection || self == .extract || self == .reserved || self == .eraser || self == .geometry || self == .cover
+        self == .pen || self == .marker || self == .laser
     }
 
     var hasCompactDrawer: Bool {
@@ -1270,7 +1294,11 @@ private struct CompactOrbitActionChip: View {
         .padding(.horizontal, 11)
         .padding(.vertical, 8)
         .background(Capsule().fill(isSelected ? ToolPaletteTheme.cyan.opacity(0.92) : ToolPaletteTheme.segment))
-        .overlay(Capsule().strokeBorder(.white.opacity(0.08), lineWidth: 1))
+        .overlay(
+            Capsule()
+                .strokeBorder(isSelected ? Color.white.opacity(0.72) : Color.white.opacity(0.08), lineWidth: isSelected ? 1.5 : 1)
+        )
+        .shadow(color: ToolPaletteTheme.cyan.opacity(isSelected ? 0.24 : 0), radius: 5)
     }
 }
 

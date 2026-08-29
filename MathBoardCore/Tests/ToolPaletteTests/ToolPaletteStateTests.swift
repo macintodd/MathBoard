@@ -196,11 +196,12 @@ struct ToolPaletteStateTests {
         let configuration = definition.configuration(for: state)
 
         #expect(ToolID.extract.displayName == "Extract")
-        #expect(configuration.topOrbit.count == 6)
-        #expect(configuration.topOrbit.map(\.command).contains(.copySelection))
-        #expect(configuration.topOrbit.map(\.command).contains(.pasteSelection))
-        #expect(configuration.topOrbit.map(\.command).contains(.deleteSelection))
-        #expect(configuration.topOrbit.map(\.command).contains(.extractSelectionAsImageSticker))
+        #expect(configuration.topOrbit.count == 3)
+        #expect(configuration.topOrbit.map(\.command) == [
+            .setExtractAction(.copy),
+            .setExtractAction(.sticker),
+            .setExtractAction(.send)
+        ])
 
         guard case .disabled(let target) = configuration.leftArc else {
             Issue.record("Expected extract left arc to describe region selection")
@@ -215,6 +216,22 @@ struct ToolPaletteStateTests {
         #expect(mode.id == "extract.mode")
         #expect(mode.segments.count == 2)
         #expect(mode.segments[1].isSelected)
+    }
+
+    @Test func coverDefinitionUsesActivePaletteAndHidesArcLabels() throws {
+        var state = ToolPaletteState(activeTool: .cover, palettePreset: .pastel)
+        let definition = ToolPaletteDefinitions.definition(for: .cover)
+        var configuration = definition.configuration(for: state)
+
+        #expect(ToolID.cover.displayName == "Tape")
+        #expect(Array(configuration.topOrbit.dropFirst().map(\.color)) == state.activePaletteColors.map(Optional.some))
+        #expect(configuration.leftArc == .hidden)
+        #expect(configuration.rightArc == .hidden)
+
+        ToolPaletteReducer.reduce(&state, command: .setPalettePreset(.earth))
+        configuration = definition.configuration(for: state)
+
+        #expect(Array(configuration.topOrbit.dropFirst().map(\.color)) == state.activePaletteColors.map(Optional.some))
     }
 
     @Test func geometryDefinitionExposesColorsShapesAndAdaptiveControls() throws {
@@ -299,23 +316,19 @@ struct ToolPaletteStateTests {
         let configuration = definition.configuration(for: state)
 
         #expect(ToolID.reserved.displayName == "Add")
-        #expect(configuration.topOrbit.count == 4)
-        #expect(configuration.topOrbit.map(\.command).contains(.addItem(.file)))
-        #expect(configuration.topOrbit.map(\.command).contains(.addItem(.widget)))
-        #expect(configuration.topOrbit.map(\.command).contains(.addItem(.sticker)))
-        #expect(configuration.topOrbit.map(\.command).contains(.addItem(.axis)))
-
-        guard case .disabled(let leftLabel) = configuration.leftArc else {
-            Issue.record("Expected add tool left arc to be disabled")
-            return
-        }
-        #expect(leftLabel == "Insert")
-
-        guard case .disabled(let rightLabel) = configuration.rightArc else {
-            Issue.record("Expected add tool right arc to be disabled")
-            return
-        }
-        #expect(rightLabel == "Tap to add")
+        #expect(configuration.topOrbit.map(\.command) == [
+            .addItem(.file),
+            .addItem(.photo),
+            .addItem(.camera),
+            .addItem(.text),
+            .addItem(.latex),
+            .addItem(.widget)
+        ])
+        #expect(configuration.topOrbit.map(\.label) == ["File", "Photo", "Camera", "Text", "LaTeX", "Widget"])
+        #expect(configuration.topOrbit.map(\.command).contains(.addItem(.sticker)) == false)
+        #expect(configuration.topOrbit.map(\.command).contains(.addItem(.axis)) == false)
+        #expect(configuration.leftArc == .hidden)
+        #expect(configuration.rightArc == .hidden)
     }
 
     @Test func reducerUpdatesPenState() {
@@ -388,12 +401,33 @@ struct ToolPaletteStateTests {
     }
 
     @Test func canvasInteractionCollapsesCompactDrawerWithoutChangingTool() {
-        var state = ToolPaletteState(activeTool: .pen, isCompactDrawerOpen: true)
+        var state = ToolPaletteState(activeTool: .pen, isCompactDrawerOpen: true, isCompactQuickStripOpen: true)
 
         ToolPaletteReducer.reduce(&state, command: .collapseCompactDrawerForCanvasInteraction)
 
         #expect(state.activeTool == .pen)
         #expect(state.isCompactDrawerOpen == false)
+        #expect(state.isCompactQuickStripOpen == false)
+    }
+
+    @Test func selectingToolClosesCompactQuickStrip() {
+        var state = ToolPaletteState(activeTool: .pen, isCompactQuickStripOpen: true)
+
+        ToolPaletteReducer.reduce(&state, command: .selectTool(.marker))
+
+        #expect(state.activeTool == .marker)
+        #expect(state.isCompactQuickStripOpen == false)
+    }
+
+    @Test func canvasInteractionCollapsesMarkerAndLaserQuickStrips() {
+        for tool in [ToolID.marker, .laser] {
+            var state = ToolPaletteState(activeTool: tool, isCompactQuickStripOpen: true)
+
+            ToolPaletteReducer.reduce(&state, command: .collapseCompactDrawerForCanvasInteraction)
+
+            #expect(state.activeTool == tool)
+            #expect(state.isCompactQuickStripOpen == false)
+        }
     }
 
     @Test func canvasInteractionCollapsesDrawerForToolsWithoutQuickStrip() {

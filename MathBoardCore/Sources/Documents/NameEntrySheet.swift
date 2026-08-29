@@ -67,7 +67,15 @@ struct NameEntrySheet: View {
                         .disabled(trimmedName.isEmpty)
                 }
             }
-            .presentationDetents([.height(180)])
+            .presentationDetents([.height(220)])
+            .presentationBackground {
+                VStack(spacing: 0) {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(.regularMaterial)
+                        .frame(height: 200)
+                    Color.clear
+                }
+            }
             .onAppear {
                 isFocused = true
                 selectAllTextIfNeeded()

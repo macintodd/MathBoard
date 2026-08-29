@@ -59,6 +59,7 @@ public enum ToolPaletteReducer {
         case .selectTool(let tool):
             let wasSelection = state.activeTool == .selection
             state.activeTool = tool
+            state.isCompactQuickStripOpen = false
             if tool == .selection && !wasSelection {
                 state.selectionBehavior = .single
             }
@@ -173,8 +174,7 @@ public enum ToolPaletteReducer {
         case .openLatexEditor, .openFontPicker:
             break
         case .addItem:
-            // Insertion is wired later (file import, widget config, sticker
-            // placement, axis creator); selecting an option is a no-op for now.
+            // Insertion is wired later; selecting an option is a no-op for now.
             break
         case .copySelection, .pasteSelection, .duplicateSelection, .deleteSelection,
              .extractSelectionAsImageSticker, .sendSelectionToNextSlide:
@@ -183,6 +183,7 @@ public enum ToolPaletteReducer {
             break
         case .collapseCompactDrawerForCanvasInteraction:
             state.isCompactDrawerOpen = false
+            state.isCompactQuickStripOpen = false
         }
     }
 }
@@ -192,20 +193,28 @@ struct PenToolDefinition: ToolDefinition {
     let iconSystemName = ToolID.pen.iconSystemName
     let label = ToolID.pen.displayName
 
+    static let widthPresets: [Double] = [2, 5, 10, 17, 24]
+    static let widthLabels = ["XS", "S", "M", "L", "XL"]
+
     func configuration(for state: ToolPaletteState) -> ToolPaletteConfiguration {
-        ToolPaletteConfiguration(
+        let presets = Self.widthPresets
+        let labels = Self.widthLabels
+        let current = state.penStrokeWidth
+        return ToolPaletteConfiguration(
             topOrbit: colorOrbitItems(state.penPaletteColors, prefix: "pen"),
-            leftArc: .slider(
-                PaletteSliderConfiguration(
+            leftArc: .segmented(
+                PaletteSegmentedConfiguration(
                     id: "pen.width",
                     label: "Width",
-                    iconSystemName: "lineweight",
-                    value: state.penStrokeWidth,
-                    range: 1...24,
-                    minEndMarker: .thinLine,
-                    maxEndMarker: .thickLine,
-                    trackStyle: .graduatedThickness,
-                    command: { .setStrokeWidth($0) }
+                    segments: zip(presets, labels).enumerated().map { i, pair in
+                        let (size, label) = pair
+                        return PaletteSegment(
+                            id: "pen.width.\(i)",
+                            label: label,
+                            isSelected: current == size,
+                            command: .setStrokeWidth(size)
+                        )
+                    }
                 )
             ),
             rightArc: .slider(
@@ -389,44 +398,14 @@ struct ExtractToolDefinition: ToolDefinition {
 
     func configuration(for state: ToolPaletteState) -> ToolPaletteConfiguration {
         ToolPaletteConfiguration(
-            topOrbit: [
+            topOrbit: ExtractAction.visibleActions.map { action in
                 PaletteOrbitItem(
-                    id: "extract.copy",
-                    iconSystemName: "doc.on.doc",
-                    label: "Copy",
-                    command: .copySelection
-                ),
-                PaletteOrbitItem(
-                    id: "extract.paste",
-                    iconSystemName: "doc.on.clipboard",
-                    label: "Paste",
-                    command: .pasteSelection
-                ),
-                PaletteOrbitItem(
-                    id: "extract.duplicate",
-                    iconSystemName: "plus.square.on.square",
-                    label: "Clone",
-                    command: .duplicateSelection
-                ),
-                PaletteOrbitItem(
-                    id: "extract.delete",
-                    iconSystemName: "trash",
-                    label: "Delete",
-                    command: .deleteSelection
-                ),
-                PaletteOrbitItem(
-                    id: "extract.sticker",
-                    iconSystemName: "photo.badge.plus",
-                    label: "Sticker",
-                    command: .extractSelectionAsImageSticker
-                ),
-                PaletteOrbitItem(
-                    id: "extract.send",
-                    iconSystemName: "arrow.right.doc.on.clipboard",
-                    label: "Send",
-                    command: .sendSelectionToNextSlide
+                    id: "extract.\(action.rawValue)",
+                    iconSystemName: action.iconSystemName,
+                    label: action.displayName,
+                    command: .setExtractAction(action)
                 )
-            ],
+            },
             leftArc: .disabled(label: "Region"),
             rightArc: .segmented(
                 PaletteSegmentedConfiguration(
@@ -559,10 +538,9 @@ struct TextToolDefinition: ToolDefinition {
     }
 }
 
-/// The "Add" tool (`.reserved`). Selecting it opens a mini strip of insert
-/// options — File (images/PDFs/GIFs), Widget, Sticker, and the Axis creator —
-/// rendered as the contextual drawer's orbit chips. Each chip emits
-/// `.addItem(kind)`; the actual insertion flow is wired later.
+/// The "Add" tool (`.reserved`). Selecting it opens insert options rendered as
+/// the contextual drawer's orbit chips. Each chip emits `.addItem(kind)`; the
+/// actual insertion flow is wired later.
 struct AddToolDefinition: ToolDefinition {
     let id: ToolID = .reserved
     let iconSystemName = ToolID.reserved.iconSystemName
@@ -570,7 +548,7 @@ struct AddToolDefinition: ToolDefinition {
 
     func configuration(for state: ToolPaletteState) -> ToolPaletteConfiguration {
         ToolPaletteConfiguration(
-            topOrbit: AddItemKind.allCases.map { kind in
+            topOrbit: AddItemKind.visibleItems.map { kind in
                 PaletteOrbitItem(
                     id: "add.\(kind.rawValue)",
                     iconSystemName: kind.iconSystemName,
@@ -578,8 +556,8 @@ struct AddToolDefinition: ToolDefinition {
                     command: .addItem(kind)
                 )
             },
-            leftArc: .disabled(label: "Insert"),
-            rightArc: .disabled(label: "Tap to add")
+            leftArc: .hidden,
+            rightArc: .hidden
         )
     }
 }
@@ -639,9 +617,9 @@ struct CoverToolDefinition: ToolDefinition {
 
     func configuration(for state: ToolPaletteState) -> ToolPaletteConfiguration {
         ToolPaletteConfiguration(
-            topOrbit: colorOrbitItems(state.penPaletteColors, prefix: "cover"),
-            leftArc: .disabled(label: "Region"),
-            rightArc: .disabled(label: "Tap to reveal")
+            topOrbit: colorOrbitItems(state.activePaletteColors, prefix: "cover"),
+            leftArc: .hidden,
+            rightArc: .hidden
         )
     }
 }

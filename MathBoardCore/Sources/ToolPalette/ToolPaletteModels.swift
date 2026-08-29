@@ -53,10 +53,7 @@ public enum ToolID: String, CaseIterable, Codable, Equatable, Hashable, Sendable
 
 /// Kinds of content the "Add" tool (`.reserved`) can insert. Selecting the Add
 /// tool opens a mini strip of these options in the contextual drawer; picking
-/// one later triggers the matching insertion flow (file import, photo import,
-/// camera capture, widget config, sticker placement, or the coordinate-axis
-/// creator). Wiring is added later — for now the command is a no-op in the
-/// reducer.
+/// one later triggers the matching insertion flow.
 public enum AddItemKind: String, CaseIterable, Codable, Equatable, Sendable {
     /// Images imported from the file system. PDF objects are a separate flow.
     case file
@@ -75,13 +72,15 @@ public enum AddItemKind: String, CaseIterable, Codable, Equatable, Sendable {
     /// The coordinate-axis creator.
     case axis
 
+    public static let visibleItems: [AddItemKind] = [.file, .photo, .camera, .text, .latex, .widget]
+
     public var displayName: String {
         switch self {
         case .file: return "File"
         case .photo: return "Photo"
         case .camera: return "Camera"
         case .text: return "Text"
-        case .latex: return "f(x)"
+        case .latex: return "LaTeX"
         case .widget: return "Widget"
         case .sticker: return "Sticker"
         case .axis: return "Axis"
@@ -183,6 +182,8 @@ public enum ExtractAction: String, CaseIterable, Codable, Equatable, Sendable {
     case send
     case sticker
     case delete
+
+    public static let visibleActions: [ExtractAction] = [.copy, .sticker, .send]
 
     public var displayName: String {
         switch self {
@@ -332,10 +333,11 @@ public struct ToolPaletteState: Equatable, Sendable {
     public var rotation: Double
     public var isColorBloomOpen: Bool
     public var selectionActionSequence: Int
-    /// Compact-palette contextual drawer visibility. When false, tools that have
-    /// a quick-strip show the slim mini-strip instead of the full drawer. Kept in
-    /// shared state so the mirrored external display matches the iPad.
+    /// Compact-palette contextual drawer visibility. Kept in shared state so
+    /// the mirrored external display matches the iPad.
     public var isCompactDrawerOpen: Bool
+    /// Compact-palette mini strip visibility for quick tool choices.
+    public var isCompactQuickStripOpen: Bool
 
     public init(
         activeTool: ToolID = .pen,
@@ -379,7 +381,8 @@ public struct ToolPaletteState: Equatable, Sendable {
         rotation: Double = 0,
         isColorBloomOpen: Bool = false,
         selectionActionSequence: Int = 0,
-        isCompactDrawerOpen: Bool = true
+        isCompactDrawerOpen: Bool = true,
+        isCompactQuickStripOpen: Bool = false
     ) {
         self.activeTool = activeTool
         self.strokeColor = strokeColor
@@ -423,6 +426,7 @@ public struct ToolPaletteState: Equatable, Sendable {
         self.isColorBloomOpen = isColorBloomOpen
         self.selectionActionSequence = selectionActionSequence
         self.isCompactDrawerOpen = isCompactDrawerOpen
+        self.isCompactQuickStripOpen = isCompactQuickStripOpen
     }
 
     public func iconSystemName(for tool: ToolID) -> String {
@@ -570,6 +574,7 @@ public enum PaletteArcConfiguration: Equatable, Sendable {
     case slider(PaletteSliderConfiguration)
     case segmented(PaletteSegmentedConfiguration)
     case disabled(label: String)
+    case hidden
 }
 
 /// Glyph drawn at an end of a slider track to communicate what that extreme

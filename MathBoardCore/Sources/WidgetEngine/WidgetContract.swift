@@ -25,6 +25,8 @@ public struct WidgetObject: MathBoardObject, Codable, Equatable {
     public var isPinnedToCanvas: Bool
     public var librarySourceCodeString: String?
     public var hasRecordedLibraryDerivative: Bool
+    public var tags: [String]
+    public var requiresStudentWork: Bool
 
     public init(
         id: UUID = UUID(),
@@ -34,7 +36,9 @@ public struct WidgetObject: MathBoardObject, Codable, Equatable {
         activityRuntimeState: WidgetActivityRuntimeState? = nil,
         isPinnedToCanvas: Bool = false,
         librarySourceCodeString: String? = nil,
-        hasRecordedLibraryDerivative: Bool = false
+        hasRecordedLibraryDerivative: Bool = false,
+        tags: [String] = [],
+        requiresStudentWork: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -44,6 +48,8 @@ public struct WidgetObject: MathBoardObject, Codable, Equatable {
         self.isPinnedToCanvas = isPinnedToCanvas
         self.librarySourceCodeString = librarySourceCodeString
         self.hasRecordedLibraryDerivative = hasRecordedLibraryDerivative
+        self.tags = tags
+        self.requiresStudentWork = requiresStudentWork
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -55,6 +61,8 @@ public struct WidgetObject: MathBoardObject, Codable, Equatable {
         case isPinnedToCanvas
         case librarySourceCodeString
         case hasRecordedLibraryDerivative
+        case tags
+        case requiresStudentWork
     }
 
     public init(from decoder: Decoder) throws {
@@ -67,6 +75,8 @@ public struct WidgetObject: MathBoardObject, Codable, Equatable {
         isPinnedToCanvas = try container.decodeIfPresent(Bool.self, forKey: .isPinnedToCanvas) ?? false
         librarySourceCodeString = try container.decodeIfPresent(String.self, forKey: .librarySourceCodeString)
         hasRecordedLibraryDerivative = try container.decodeIfPresent(Bool.self, forKey: .hasRecordedLibraryDerivative) ?? false
+        tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
+        requiresStudentWork = try container.decodeIfPresent(Bool.self, forKey: .requiresStudentWork) ?? false
     }
 }
 
@@ -243,5 +253,102 @@ extension WidgetObject {
             codeString: WidgetSamples.advancedHTML,
             frame: CGRect(x: 80, y: 120, width: 360, height: 280)
         )
+    }
+}
+
+public struct WidgetLibraryFolderDescriptor: Identifiable, Sendable {
+    public let id: UUID
+    public let name: String
+
+    public init(id: UUID, name: String) {
+        self.id = id
+        self.name = name
+    }
+}
+
+public struct WidgetGearConfiguration {
+    public var questionCount: Int
+    public var tags: [String]
+    public var requiresStudentWork: Bool
+    public var isInLibrary: Bool
+    public var libraryFolders: [WidgetLibraryFolderDescriptor]
+    public var onResetWidget: (() -> Void)?
+    public var onEditWidget: (() -> Void)?
+    public var onSaveToLibrary: ((_ tags: [String], _ requiresStudentWork: Bool, _ folderID: UUID?) -> Void)?
+    public var onTagsChanged: ((_ tags: [String]) -> Void)?
+    public var onRequiresStudentWorkChanged: ((_ value: Bool) -> Void)?
+    /// True when the student has submitted this widget's score to the teacher.
+    public var isWidgetSubmitted: Bool
+    /// True when the widget was submitted and then reset (awaiting resubmit).
+    public var isWidgetReset: Bool
+    public var onSubmitWidget: (() -> Void)?
+    public var onResetAfterSubmit: (() -> Void)?
+
+    public init(
+        questionCount: Int,
+        tags: [String] = [],
+        requiresStudentWork: Bool = false,
+        isInLibrary: Bool = false,
+        libraryFolders: [WidgetLibraryFolderDescriptor] = [],
+        onResetWidget: (() -> Void)? = nil,
+        onEditWidget: (() -> Void)? = nil,
+        onSaveToLibrary: ((_ tags: [String], _ requiresStudentWork: Bool, _ folderID: UUID?) -> Void)? = nil,
+        onTagsChanged: ((_ tags: [String]) -> Void)? = nil,
+        onRequiresStudentWorkChanged: ((_ value: Bool) -> Void)? = nil,
+        isWidgetSubmitted: Bool = false,
+        isWidgetReset: Bool = false,
+        onSubmitWidget: (() -> Void)? = nil,
+        onResetAfterSubmit: (() -> Void)? = nil
+    ) {
+        self.questionCount = questionCount
+        self.tags = tags
+        self.requiresStudentWork = requiresStudentWork
+        self.isInLibrary = isInLibrary
+        self.libraryFolders = libraryFolders
+        self.onResetWidget = onResetWidget
+        self.onEditWidget = onEditWidget
+        self.onSaveToLibrary = onSaveToLibrary
+        self.onTagsChanged = onTagsChanged
+        self.onRequiresStudentWorkChanged = onRequiresStudentWorkChanged
+        self.isWidgetSubmitted = isWidgetSubmitted
+        self.isWidgetReset = isWidgetReset
+        self.onSubmitWidget = onSubmitWidget
+        self.onResetAfterSubmit = onResetAfterSubmit
+    }
+}
+
+// MARK: - Widget Submit Environment
+
+/// Injected from the lesson view into the widget hierarchy to wire up Submit/Reset/Resubmit
+/// without threading through the canvas overlay chain.
+public struct WidgetSubmitEnvironment: @unchecked Sendable {
+    public var isWidgetSubmitted: (UUID) -> Bool
+    public var isWidgetReset: (UUID) -> Bool
+    public var onSubmitWidget: (UUID) -> Void
+    public var onResetAfterSubmit: (UUID) -> Void
+
+    public init(
+        isWidgetSubmitted: @escaping (UUID) -> Bool,
+        isWidgetReset: @escaping (UUID) -> Bool,
+        onSubmitWidget: @escaping (UUID) -> Void,
+        onResetAfterSubmit: @escaping (UUID) -> Void
+    ) {
+        self.isWidgetSubmitted = isWidgetSubmitted
+        self.isWidgetReset = isWidgetReset
+        self.onSubmitWidget = onSubmitWidget
+        self.onResetAfterSubmit = onResetAfterSubmit
+    }
+}
+
+import SwiftUI
+
+public struct WidgetSubmitEnvironmentKey: EnvironmentKey {
+    public static let defaultValue: WidgetSubmitEnvironment? = nil
+}
+
+extension EnvironmentValues {
+    public var widgetSubmit: WidgetSubmitEnvironment? {
+        get { self[WidgetSubmitEnvironmentKey.self] }
+        set { self[WidgetSubmitEnvironmentKey.self] = newValue }
     }
 }

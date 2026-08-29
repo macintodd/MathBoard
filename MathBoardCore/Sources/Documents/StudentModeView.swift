@@ -778,6 +778,10 @@ public struct StudentModeView: View {
     }
 
     private func scheduleLiveProgressUpdate() {
+        // JSON-mathtivity lessons use StudentAssignedLessonView's own live progress system.
+        // The outer view must not interfere — its draft state (attempts=1, score=0) would
+        // write a stale 0/1 record to the same Firebase documents the inner view manages.
+        guard resolvedAssignmentPacket?.lesson.packageStoragePath == nil else { return }
         saveCurrentScoreDraft()
         liveProgressTask?.cancel()
         guard let selectedWidget,
@@ -891,6 +895,9 @@ public struct StudentModeView: View {
 
     private func publishCurrentWidgetAsInactive() {
         saveCurrentScoreDraft()
+        // JSON-mathtivity lessons are handled entirely by StudentAssignedLessonView.
+        // Writing here would overwrite the inner view's submitted score with 0/1 (draft default).
+        guard resolvedAssignmentPacket?.lesson.packageStoragePath == nil else { return }
         guard let selectedWidget else { return }
         publishLiveProgress(
             for: selectedWidget,
@@ -1166,9 +1173,10 @@ struct StudentAssignedLessonLiveProgressBuilder {
         if var scoreRecord = scoreRecordsByWidgetID[widget.widgetID] {
             scoreRecord.id = widget.widgetID.uuidString
             scoreRecord.title = widget.title
-            if submittedWidgetIDs.contains(widget.widgetID) {
-                scoreRecord.status = .complete
-            }
+            // Never publish .complete from the live loop — only submitWidgetScore() should
+            // trigger green. A widget whose questions are all answered but not yet submitted
+            // must show .inProgress so the dot stays yellow, not green.
+            scoreRecord.status = submittedWidgetIDs.contains(widget.widgetID) ? .complete : .inProgress
             return scoreRecord
         }
 
@@ -1198,6 +1206,7 @@ private struct StudentAssignedLessonView: View {
     @State private var activeWidgets: [WidgetObject] = []
     @State private var scoreRecordsByWidgetID: [UUID: WidgetActivityScoreRecord]
     @State private var localSubmittedWidgetIDs: Set<UUID>
+    @State private var everSubmittedWidgetIDs: Set<UUID> = []
     @State private var submissionMessage: String?
     @State private var hasResetBuiltInRuntimeStates = false
     @State private var hasLoadedDurableTeacherState = false
@@ -1236,9 +1245,6 @@ private struct StudentAssignedLessonView: View {
                 ToolbarItem(placement: .principal) {
                     studentNameTitle
                 }
-                ToolbarItem(placement: .primaryAction) {
-                    submitWidgetMenu
-                }
             }
             .overlay(alignment: .topLeading) {
                 studentLessonChrome
@@ -1269,12 +1275,18 @@ private struct StudentAssignedLessonView: View {
             .task {
                 await runLiveProgressLoop()
             }
+            .onChange(of: hasLoadedDurableTeacherState) { _, isLoaded in
+                if isLoaded { publishLessonPresence() }
+            }
             .onDisappear {
                 teacherSlideManifestListener?.remove()
                 teacherSlideManifestListener = nil
                 teacherObjectSnapshotListener?.remove()
                 teacherObjectSnapshotListener = nil
-                publishLiveProgress(forActiveWidgetIDs: [], activeWidgets: [])
+                // Do NOT publish here — writing a fresh updatedAt on exit would reset the
+                // 10-second stale timer and keep the dot blue. Instead, let the existing
+                // records go stale naturally from the last loop publish (~2 seconds ago).
+                removeLessonPresence()
             }
     }
 
@@ -1293,6 +1305,23 @@ private struct StudentAssignedLessonView: View {
                 onActiveWidgetsChanged: handleActiveWidgetsChanged,
                 onLiveTeacherSlideManifestRefreshRequested: refreshDurableTeacherSlideManifest
             )
+            .environment(\.widgetSubmit, WidgetSubmitEnvironment(
+                isWidgetSubmitted: { widgetID in localSubmittedWidgetIDs.contains(widgetID) },
+                isWidgetReset: { widgetID in everSubmittedWidgetIDs.contains(widgetID) && !localSubmittedWidgetIDs.contains(widgetID) },
+                onSubmitWidget: { widgetID in
+                    guard let summary = destination.assignmentPacket.widgetSummaries.first(where: { $0.widgetID == widgetID }),
+                          var record = scoreRecordsByWidgetID[widgetID] else { return }
+                    record.id = widgetID.uuidString
+                    record.title = summary.title
+                    submitWidgetScore(record)
+                },
+                onResetAfterSubmit: { widgetID in
+                    localSubmittedWidgetIDs.remove(widgetID)
+                    everSubmittedWidgetIDs.insert(widgetID)
+                    scoreRecordsByWidgetID.removeValue(forKey: widgetID)
+                    saveCachedScoreRecords()
+                }
+            ))
         } else {
             VStack(spacing: 12) {
                 ProgressView()
@@ -1406,9 +1435,49 @@ private struct StudentAssignedLessonView: View {
             durableTeacherObjectSnapshots = []
             print("[StudentMode] durable teacher state fetch error: \(error)")
         }
+        await restoreSubmittedScoresFromFirebase()
         hasLoadedDurableTeacherState = true
         startDurableTeacherSlideManifestListener()
         startDurableTeacherObjectSnapshotListener()
+    }
+
+    private func restoreSubmittedScoresFromFirebase() async {
+        do {
+            try await ensureOnlineStudentAccess()
+            let firebaseProgress = try await FirebaseClassroomSyncService().fetchStudentWidgetProgress(
+                assignmentPacket: destination.assignmentPacket,
+                studentIdentifier: destination.studentIdentifier
+            )
+            var didChange = false
+            for progress in firebaseProgress where progress.status == .complete {
+                let widgetID = progress.widgetID
+                if !localSubmittedWidgetIDs.contains(widgetID) {
+                    localSubmittedWidgetIDs.insert(widgetID)
+                    didChange = true
+                }
+                everSubmittedWidgetIDs.insert(widgetID)
+                if scoreRecordsByWidgetID[widgetID] == nil {
+                    let title = destination.assignmentPacket.widgetSummaries
+                        .first { $0.widgetID == widgetID }?.title ?? ""
+                    scoreRecordsByWidgetID[widgetID] = WidgetActivityScoreRecord(
+                        id: widgetID.uuidString,
+                        title: title,
+                        status: .complete,
+                        score: progress.correctCount,
+                        attempts: progress.attemptedCount,
+                        points: Double(progress.correctCount),
+                        pointsPossible: progress.attemptedCount,
+                        numberCorrectFirstTry: progress.correctCount,
+                        numberCorrectAfterRetry: 0,
+                        longestStreak: progress.correctCount
+                    )
+                    didChange = true
+                }
+            }
+            if didChange { saveCachedScoreRecords() }
+        } catch {
+            return
+        }
     }
 
     private func startDurableTeacherSlideManifestListener() {
@@ -1512,34 +1581,12 @@ private struct StudentAssignedLessonView: View {
         return identifier.isEmpty ? "Unknown" : identifier
     }
 
-    @ViewBuilder
-    private var submitWidgetMenu: some View {
-        let records = currentSubmittableScoreRecords
-        if records.count == 1, let record = records.first {
-            Button {
-                submitWidgetScore(record)
-            } label: {
-                Label("Submit Widget", systemImage: "checkmark.circle")
-            }
-            .disabled(record.attempts == 0)
-        } else {
-            Menu {
-                ForEach(records, id: \.id) { record in
-                    Button(record.title) {
-                        submitWidgetScore(record)
-                    }
-                    .disabled(record.attempts == 0)
-                }
-            } label: {
-                Label("Submit", systemImage: "checkmark.circle")
-            }
-            .disabled(records.isEmpty)
-        }
-    }
-
     private func handleActiveWidgetIDsChanged(_ widgetIDs: Set<UUID>) {
         guard widgetIDs != activeWidgetIDs else { return }
         activeWidgetIDs = widgetIDs
+        // Publish presence immediately so teacher's fallback dot reflects current widget
+        // activity without waiting for the next 2-second loop tick.
+        publishLessonPresence()
         publishLiveProgress(forActiveWidgetIDs: widgetIDs, activeWidgets: activeWidgets)
     }
 
@@ -1562,17 +1609,34 @@ private struct StudentAssignedLessonView: View {
     }
 
     private func publishLessonPresence() {
+        // Don't publish until the lesson is actually loaded and visible — publishing
+        // earlier would turn the teacher's dot blue while the student is still on the
+        // loading screen (or just entering the lesson code).
+        guard hasLoadedDurableTeacherState else { return }
+        // Presence reflects whether the student is on a widget slide so the teacher's
+        // dot turns yellow even when the teacher's widget picker shows a different widget.
+        let onWidgetSlide = !activeWidgetIDs.isEmpty
         Task { @MainActor in
             do {
                 try await ensureOnlineStudentAccess()
                 _ = try await FirebaseClassroomSyncService().publishLessonPresence(
                     assignmentPacket: destination.assignmentPacket,
                     studentIdentifier: destination.studentIdentifier,
-                    studentPreferredFirstName: destination.studentPreferredFirstName
+                    studentPreferredFirstName: destination.studentPreferredFirstName,
+                    isActiveOnStudentScreen: onWidgetSlide
                 )
             } catch {
                 return
             }
+        }
+    }
+
+    private func removeLessonPresence() {
+        Task { @MainActor in
+            try? await FirebaseClassroomSyncService().deleteLessonPresence(
+                assignmentPacket: destination.assignmentPacket,
+                studentIdentifier: destination.studentIdentifier
+            )
         }
     }
 
@@ -1599,6 +1663,10 @@ private struct StudentAssignedLessonView: View {
         forActiveWidgetIDs activeWidgetIDs: Set<UUID>,
         activeWidgets: [WidgetObject]
     ) {
+        // Don't publish until the lesson has loaded and any previously-submitted
+        // Firebase scores have been restored. This prevents the first loop iteration
+        // from publishing a stale 0/N record that would overwrite a real submission.
+        guard hasLoadedDurableTeacherState else { return }
         let mergedScoreRecords = mergeScoreRecords(from: activeWidgets)
         let builder = StudentAssignedLessonLiveProgressBuilder(
             assignmentPacket: destination.assignmentPacket,
@@ -1609,12 +1677,17 @@ private struct StudentAssignedLessonView: View {
         )
 
         for update in builder.updates(activeWidgetIDs: activeWidgetIDs) {
+            guard let widgetID = UUID(uuidString: update.submission.widgetScoreRecord.id) else { continue }
+            // Skip widgets that are currently locked in submitted state (their score is already in Firebase).
+            guard !localSubmittedWidgetIDs.contains(widgetID) else { continue }
+            let hasEverBeenSubmitted = everSubmittedWidgetIDs.contains(widgetID)
             Task { @MainActor in
                 do {
                     try await ensureOnlineStudentAccess()
                     _ = try await FirebaseClassroomSyncService().publishLiveProgress(
                         update.submission,
-                        isActiveOnStudentScreen: update.isActiveOnStudentScreen
+                        isActiveOnStudentScreen: update.isActiveOnStudentScreen,
+                        hasEverBeenSubmitted: hasEverBeenSubmitted
                     )
                 } catch {
                     return
@@ -1626,6 +1699,16 @@ private struct StudentAssignedLessonView: View {
     private func mergeScoreRecords(from widgets: [WidgetObject]) -> [UUID: WidgetActivityScoreRecord] {
         var updatedScoreRecords = scoreRecordsByWidgetID
         for widget in widgets {
+            // Widget was previously submitted but its on-disk runtime state is now nil —
+            // the student reset it via the gear menu. Clear the submission lock so the
+            // loop can re-publish the fresh 0/N state. The explicit Reset button goes
+            // through onResetAfterSubmit instead, but this handles edge cases.
+            if widget.activityRuntimeState == nil, localSubmittedWidgetIDs.contains(widget.id) {
+                everSubmittedWidgetIDs.insert(widget.id)
+                localSubmittedWidgetIDs.remove(widget.id)
+                updatedScoreRecords.removeValue(forKey: widget.id)
+                continue
+            }
             guard var scoreRecord = widget.liveActivityScoreRecord else { continue }
             if scoreRecord.attempts == 0,
                let cachedScoreRecord = updatedScoreRecords[widget.id],
@@ -1647,18 +1730,6 @@ private struct StudentAssignedLessonView: View {
             studentIdentifier: destination.studentIdentifier
         )
         return updatedScoreRecords
-    }
-
-    private var currentSubmittableScoreRecords: [WidgetActivityScoreRecord] {
-        destination.assignmentPacket.widgetSummaries.compactMap { widget in
-            guard activeWidgetIDs.contains(widget.widgetID),
-                  var scoreRecord = scoreRecordsByWidgetID[widget.widgetID] else {
-                return nil
-            }
-            scoreRecord.id = widget.widgetID.uuidString
-            scoreRecord.title = widget.title
-            return scoreRecord
-        }
     }
 
     private func submitWidgetScore(_ scoreRecord: WidgetActivityScoreRecord) {
@@ -1687,12 +1758,13 @@ private struct StudentAssignedLessonView: View {
                 _ = try await FirebaseClassroomSyncService().submitWidgetScore(submission)
                 _ = try await FirebaseClassroomSyncService().publishLiveProgress(
                     submission,
-                    isActiveOnStudentScreen: activeWidgetIDs.contains(widgetID)
+                    isActiveOnStudentScreen: activeWidgetIDs.contains(widgetID),
+                    hasEverBeenSubmitted: true
                 )
                 localSubmittedWidgetIDs.insert(widgetID)
+                everSubmittedWidgetIDs.insert(widgetID)
                 scoreRecordsByWidgetID[widgetID] = completedScoreRecord
                 saveCachedScoreRecords()
-                submissionMessage = "Submitted \(completedScoreRecord.title)."
             } catch {
                 submissionMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }
@@ -1775,8 +1847,17 @@ private enum StudentAssignedLessonScoreRecordCache {
         assignmentID: UUID,
         studentIdentifier: String
     ) -> URL {
-        lessonURL
-            .appendingPathComponent("student-progress", isDirectory: true)
+        // Store in app support, not inside the lesson bundle, so the cache survives
+        // lesson re-downloads and iCloud sync operations that may replace the bundle.
+        let appSupport = (try? FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        )) ?? FileManager.default.temporaryDirectory
+        return appSupport
+            .appendingPathComponent("MathBoard", isDirectory: true)
+            .appendingPathComponent("StudentProgress", isDirectory: true)
             .appendingPathComponent("\(assignmentID.uuidString)-\(safeFileComponent(studentIdentifier)).score-records.json")
     }
 

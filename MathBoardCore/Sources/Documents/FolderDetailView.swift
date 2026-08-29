@@ -69,6 +69,8 @@ struct FolderDetailView: View {
     @State private var isSelecting = false
     @State private var isShowingMoveSheet = false
     @State private var isShowingBulkDeleteConfirmation = false
+    @State private var showClassroomRosters = false
+    @State private var showClassroomAssignments = false
     @State private var errorMessage: String?
 
     private let folderColumns = [
@@ -286,6 +288,15 @@ struct FolderDetailView: View {
         } message: {
             Text(errorMessage ?? "Something went wrong.")
         }
+        .classroomRosterPresentation(
+            isPresented: $showClassroomRosters,
+            classroomRosterStore: classroomRosterStore
+        )
+        .classroomAssignmentsPresentation(
+            isPresented: $showClassroomAssignments,
+            classroomRosterStore: classroomRosterStore,
+            classroomAssignmentStore: classroomAssignmentStore
+        )
         .task {
             reloadFolderContents()
         }
@@ -517,6 +528,37 @@ struct FolderDetailView: View {
         }
     }
 
+    private var classManagementSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("Class Management", systemImage: "person.3.fill")
+            LazyVGrid(columns: folderColumns, spacing: 20) {
+                Button {
+                    showClassroomRosters = true
+                } label: {
+                    ClassManagementTileView(
+                        title: "Classroom Rosters",
+                        subtitle: "Manage student rosters",
+                        systemImage: "person.3.sequence",
+                        accentColor: .blue
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    showClassroomAssignments = true
+                } label: {
+                    ClassManagementTileView(
+                        title: "Assignments & Reports",
+                        subtitle: "Scores and progress",
+                        systemImage: "chart.bar.doc.horizontal",
+                        accentColor: .indigo
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
     private var summarySection: some View {
         HStack(spacing: 12) {
             Image(folder.color.assetName)
@@ -601,55 +643,25 @@ struct FolderDetailView: View {
             }
 
             ForEach(displayedLessons) { lesson in
-                Button {
-                    if isSelecting {
-                        toggleSelection(for: lesson)
-                    } else {
-                        selectedLesson = lesson
-                    }
-                } label: {
-                    LessonRow(
-                        lesson: lesson,
-                        isSelecting: isSelecting,
-                        isSelected: selectedLessonIDs.contains(lesson.id)
-                    )
-                }
-                .buttonStyle(.plain)
+                LessonRow(
+                    lesson: lesson,
+                    isSelecting: isSelecting,
+                    isSelected: selectedLessonIDs.contains(lesson.id),
+                    onOpen: {
+                        if isSelecting {
+                            toggleSelection(for: lesson)
+                        } else {
+                            selectedLesson = lesson
+                        }
+                    },
+                    onRename: { lessonToRename = lesson },
+                    onDuplicate: { lessonToDuplicate = lesson },
+                    onMove: { lessonToMove = lesson },
+                    canMove: hasMoveDestinations,
+                    onAssign: { lessonToAssign = lesson },
+                    onDelete: { lessonToDelete = lesson }
+                )
                 .accessibilityIdentifier("lessonRow.\(lesson.name)")
-                .contextMenu {
-                    if !isSelecting {
-                        Button {
-                            lessonToRename = lesson
-                        } label: {
-                            Label("Rename", systemImage: "pencil")
-                        }
-
-                        Button {
-                            lessonToDuplicate = lesson
-                        } label: {
-                            Label("Duplicate", systemImage: "doc.on.doc")
-                        }
-
-                        Button {
-                            lessonToMove = lesson
-                        } label: {
-                            Label("Move to Folder", systemImage: "folder")
-                        }
-                        .disabled(!hasMoveDestinations)
-
-                        Button {
-                            lessonToAssign = lesson
-                        } label: {
-                            Label("Assign Lesson", systemImage: "person.3.sequence")
-                        }
-
-                        Button(role: .destructive) {
-                            lessonToDelete = lesson
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                    }
-                }
             }
         }
     }
@@ -816,35 +828,75 @@ private struct LessonRow: View {
     let lesson: Lesson
     var isSelecting = false
     var isSelected = false
+    let onOpen: () -> Void
+    let onRename: () -> Void
+    let onDuplicate: () -> Void
+    let onMove: () -> Void
+    let canMove: Bool
+    let onAssign: () -> Void
+    let onDelete: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            if isSelecting {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(isSelected ? .blue : .secondary)
-                    .frame(width: 28, height: 36)
+        HStack(spacing: 0) {
+            Button(action: onOpen) {
+                HStack(spacing: 12) {
+                    if isSelecting {
+                        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                            .font(.title3)
+                            .foregroundStyle(isSelected ? .blue : .secondary)
+                            .frame(width: 28, height: 36)
+                    }
+                    LessonFileIconView()
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(lesson.name)
+                            .font(.subheadline.weight(.medium))
+                        Text(lesson.modifiedAt, format: .relative(presentation: .named))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 8)
+                }
+                .padding(.leading, 12)
+                .padding(.trailing, isSelecting ? 12 : 4)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
 
-            LessonFileIconView()
-            VStack(alignment: .leading, spacing: 2) {
-                Text(lesson.name)
-                    .font(.subheadline.weight(.medium))
-                Text(lesson.modifiedAt, format: .relative(presentation: .named))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 8)
             if !isSelecting {
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
+                Divider()
+                    .frame(height: 28)
+
+                HStack(spacing: 0) {
+                    rowActionButton("rectangle.and.pencil.and.ellipsis", label: "Rename", action: onRename)
+                    rowActionButton("doc.on.doc", label: "Duplicate", action: onDuplicate)
+                    rowActionButton("folder", label: "Move to Folder", action: onMove, disabled: !canMove)
+                    rowActionButton("person.3.sequence", label: "Assign Lesson", action: onAssign)
+                    rowActionButton("trash", label: "Delete", action: onDelete, isDestructive: true)
+                }
+                .padding(.trailing, 4)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .contentShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func rowActionButton(
+        _ systemImage: String,
+        label: String,
+        action: @escaping () -> Void,
+        disabled: Bool = false,
+        isDestructive: Bool = false
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(isDestructive ? Color.red : Color.secondary)
+                .frame(width: 44, height: 44)
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .accessibilityLabel(label)
     }
 }
 

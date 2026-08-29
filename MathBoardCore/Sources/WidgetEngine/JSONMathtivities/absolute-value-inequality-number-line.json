@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 2,
+  "widgetId": "absolute-value-inequality-number-line-level-1",
+  "activity": "multipleChoice",
+  "title": "Absolute Value Inequality",
+  "description": "This one requires work. Use pencil and paper first, then graph the interval. :)",
+  "learningObjective": "Students translate absolute-value inequalities into interval graphs on a number line.",
+  "difficulty": "medium",
+  "presentation": {
+    "preferredTheme": "cleanClassroom",
+    "preferredExperience": "paperQuiz"
+  },
+  "rules": {
+    "scoreMode": "correctOutOfAttempted",
+    "advanceMode": "manual",
+    "allowRetry": true,
+    "shuffleQuestions": false,
+    "shuffleChoices": false,
+    "maxAttemptsPerQuestion": 2,
+    "calculatorAllowed": false
+  },
+  "feedback": {
+    "defaultCorrect": "Correct. The absolute-value inequality describes all values within that distance of the center.",
+    "defaultIncorrect": "Not yet. Find the center and distance before graphing.",
+    "defaultEncouragement": "Use pencil and paper first. For |x - h| <= r, graph the interval from h - r to h + r."
+  },
+  "questions": [
+    {
+      "id": "q1",
+      "prompt": "Work it out first. Tap -2, drag the right ray handle, tap 4, then choose Done.",
+      "expression": "|x - 1| \\le 3",
+      "interactiveParts": [
+        {
+          "type": "numberLine",
+          "id": "absolute-q1",
+          "domain": { "min": -5, "max": 7, "step": 1 },
+          "features": {
+            "pointsTappable": true,
+            "pointsDraggable": true,
+            "raysEnabled": true,
+            "segmentsEnabled": true,
+            "openClosedEndpoints": true,
+            "pointHasRay": true,
+            "maxPoints": 2,
+            "labelsVisible": true,
+            "snapToTicks": true
+          },
+          "answer": "linearGraphUtility{-2<=x<=4}"
+        }
+      ],
+      "choices": [
+        { "id": "done", "label": "Done", "isCorrect": true },
+        { "id": "revise", "label": "I need to revise my graph", "isCorrect": false }
+      ],
+      "hints": [
+        "This problem requires work. Use pencil and paper first.",
+        "The center is 1.",
+        "Move 3 units left and 3 units right from 1.",
+        "Tap the endpoints -2 and 4 to make the interval."
+      ],
+      "correctFeedback": "The selected answer is correct. The graph score checks the interval [-2, 4].",
+      "incorrectFeedback": "The graph should include every x-value from -2 through 4."
+    },
+    {
+      "id": "q2",
+      "prompt": "Which interval matches the graph?",
+      "expression": "|x + 2| < 4",
+      "interactiveParts": [
+        {
+          "type": "numberLine",
+          "id": "absolute-q2-graph",
+          "domain": { "min": -8, "max": 4, "step": 1 },
+          "features": {
+            "segmentsEnabled": true,
+            "openClosedEndpoints": true,
+            "labelsVisible": true,
+            "snapToTicks": true
+          },
+          "initialResponse": "linearGraphUtility{-6<x<2}"
+        }
+      ],
+      "choices": [
+        { "id": "a", "label": "-6 < x < 2", "isCorrect": true },
+        { "id": "b", "label": "-6 \\le x \\le 2", "isCorrect": false },
+        { "id": "c", "label": "-2 < x < 4", "isCorrect": false },
+        { "id": "d", "label": "x < -6 or x > 2", "isCorrect": false }
+      ],
+      "hints": [
+        "The center is -2.",
+        "The strict inequality uses open endpoints."
+      ],
+      "correctFeedback": "Correct. The graph shows -6 < x < 2.",
+      "incorrectFeedback": "Check the center, radius, and whether the endpoints are included."
+    }
+  ]
+}

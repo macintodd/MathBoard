@@ -82,6 +82,7 @@ public struct StartScreenView: View {
                 if isSearching {
                     searchResultsSection
                 } else {
+                    classManagementSection
                     foldersSection
                     if !store.recentLessons.isEmpty {
                         recentSection
@@ -107,18 +108,6 @@ public struct StartScreenView: View {
                     showLessonImporter = true
                 } label: {
                     Label("Open Lesson", systemImage: "folder")
-                }
-
-                Button {
-                    showClassroomRosters = true
-                } label: {
-                    Label("Classroom Rosters", systemImage: "person.3.sequence")
-                }
-
-                Button {
-                    showClassroomAssignments = true
-                } label: {
-                    Label("Assignments / Reports", systemImage: "chart.bar.doc.horizontal")
                 }
 
                 Button {
@@ -447,6 +436,37 @@ public struct StartScreenView: View {
         .disabled(store.folders.isEmpty && !isSearching)
     }
 
+    private var classManagementSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("Class Management", systemImage: "person.3.fill")
+            LazyVGrid(columns: folderColumns, spacing: 20) {
+                Button {
+                    showClassroomRosters = true
+                } label: {
+                    ClassManagementTileView(
+                        title: "Classroom Rosters",
+                        subtitle: "Manage student rosters",
+                        systemImage: "person.3.sequence",
+                        accentColor: .blue
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    showClassroomAssignments = true
+                } label: {
+                    ClassManagementTileView(
+                        title: "Assignments & Reports",
+                        subtitle: "Scores and progress",
+                        systemImage: "chart.bar.doc.horizontal",
+                        accentColor: .indigo
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
     private var foldersSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             sectionHeader("Folders", systemImage: "folder.fill")
@@ -712,48 +732,6 @@ private struct SearchEmptyState: View {
     }
 }
 
-private extension View {
-    @ViewBuilder
-    func classroomRosterPresentation(
-        isPresented: Binding<Bool>,
-        classroomRosterStore: ClassroomRosterStore
-    ) -> some View {
-        #if os(iOS)
-        fullScreenCover(isPresented: isPresented) {
-            ClassroomRosterView()
-                .environment(classroomRosterStore)
-        }
-        #else
-        sheet(isPresented: isPresented) {
-            ClassroomRosterView()
-                .environment(classroomRosterStore)
-                .frame(minWidth: 1100, minHeight: 760)
-        }
-        #endif
-    }
-
-    @ViewBuilder
-    func classroomAssignmentsPresentation(
-        isPresented: Binding<Bool>,
-        classroomRosterStore: ClassroomRosterStore,
-        classroomAssignmentStore: ClassroomAssignmentStore
-    ) -> some View {
-        #if os(iOS)
-        fullScreenCover(isPresented: isPresented) {
-            ClassroomAssignmentsView()
-                .environment(classroomRosterStore)
-                .environment(classroomAssignmentStore)
-        }
-        #else
-        sheet(isPresented: isPresented) {
-            ClassroomAssignmentsView()
-                .environment(classroomRosterStore)
-                .environment(classroomAssignmentStore)
-                .frame(minWidth: 980, minHeight: 680)
-        }
-        #endif
-    }
-}
 
 #Preview {
     NavigationStack {
