@@ -1317,6 +1317,81 @@ struct MathBoardTests {
         #expect(item.version == 3)
     }
 
+    @Test func localCatalogGroupsSystemContentOutsideTeacherLibrary() throws {
+        let catalog = MathtivityCatalogLocalRegistry.bundledCatalog
+
+        #expect(catalog.contains { $0.catalogKind == .widgetTemplate })
+        #expect(catalog.contains { $0.catalogKind == .builtInInteractive })
+        #expect(catalog.contains { $0.catalogKind == .premadeMathtivity })
+        #expect(catalog.allSatisfy { $0.source == .bundled })
+        #expect(MathtivityCatalogLocalRegistry.bundledPremadeMathtivities.count == JSONMathtivityCatalog.bundledEntries.count)
+    }
+
+    @Test func localWidgetTemplateCatalogItemsProvideValidActivityJSON() throws {
+        for item in MathtivityCatalogLocalRegistry.widgetTemplates {
+            let source = try #require(MathtivityCatalogLocalRegistry.source(for: item))
+            let report = JSONMathtivityTestContract.evaluate(
+                source: source,
+                expectedActivityKind: item.activityType.widgetActivityKind
+            )
+
+            #expect(report.isValid, "Template failures for \(item.id): \(report.errors)")
+            #expect(report.questionCount == item.questionCount)
+        }
+    }
+
+    @Test func builtInInteractiveCatalogItemProvidesMarkerPayload() throws {
+        let items = MathtivityCatalogLocalRegistry.builtInInteractives
+
+        #expect(items.map(\.builtInKind).contains(.inequalitiesExplorer))
+        #expect(items.map(\.builtInKind).contains(.countdownTimer))
+        #expect(items.map(\.builtInKind).contains(.randomNumberGenerator))
+        #expect(items.map(\.builtInKind).contains(.coordinateGridGenerator))
+
+        for item in items {
+            let source = try #require(MathtivityCatalogLocalRegistry.source(for: item))
+            let kind = try #require(item.builtInKind)
+
+            #expect(item.catalogKind == .builtInInteractive)
+            #expect(source == kind.widgetCodeString)
+        }
+    }
+
+    @Test func nonScoreableBuiltInUtilitiesDoNotPublishScoreRecords() {
+        for kind in [
+            BuiltInInteractiveKind.countdownTimer,
+            BuiltInInteractiveKind.randomNumberGenerator,
+            BuiltInInteractiveKind.coordinateGridGenerator
+        ] {
+            let widget = WidgetObject(
+                name: kind.displayName,
+                codeString: kind.widgetCodeString,
+                frame: .zero
+            )
+
+            #expect(!kind.isScoreable)
+            #expect(widget.activityScoreRecord == nil)
+        }
+    }
+
+    @Test func mathtivityCatalogItemParsesFirestoreBuiltInShape() throws {
+        let item = try #require(MathtivityCatalogItem(
+            id: "builtin-inequalities-explorer",
+            firestoreData: [
+                "title": "Inequality Explorer",
+                "catalogKind": "builtInInteractive",
+                "builtInKind": "inequalitiesExplorer",
+                "topic": "Built-In Interactives",
+                "isPublished": true
+            ]
+        ))
+
+        #expect(item.catalogKind == .builtInInteractive)
+        #expect(item.source == .firebase)
+        #expect(item.builtInKind == .inequalitiesExplorer)
+        #expect(item.jsonStoragePath == "builtin://inequalitiesExplorer")
+    }
+
     @Test func fillInTheBlankAnswerCheckerMatchesTextAndNumericAnswers() {
         let numericBlank = WidgetActivityBlank(
             id: "x",

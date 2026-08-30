@@ -28,6 +28,15 @@ Acceptance standard:
 - Expression rows must preserve what the student typed, even when invalid.
 - Invalid rows should not crash or disappear; they should show row-level feedback.
 
+## 2026-08-29 Snapshot Handler Repair
+
+Completed:
+
+- Fixed the Desmos-style graph calculator photo button being greyed out in lesson presentation by passing `GraphCalculatorView` a stable forwarding snapshot closure from `LessonDetailView`.
+- Root cause: the view was receiving the current optional `DisplayBroker.graphSnapshotHandler` value directly. If the calculator overlay was constructed while the presenting canvas had not registered its handler yet, `onGraphSnapshot` stayed nil and the camera control disabled itself.
+- The forwarding closure now looks up the latest broker snapshot handler at tap time, preserving the existing `PresentingCanvasView.insertGraphSnapshot` image insertion path.
+- Full Xcode build passed after the change.
+
 ## 2026-07-14 Sectioned Calculator Layout Pass
 
 Completed:

@@ -73,17 +73,17 @@ enum LibraryTheme {
 
 // MARK: - Modes
 
-/// Top-level segmented control: the two ways to browse the Library.
+/// Top-level segmented control: Recents for this file and teacher-owned saved items.
 enum LibraryMode: String, CaseIterable, Identifiable {
     case recent = "Recent"
-    case libraries = "Libraries"
+    case libraries = "My Library"
 
     var id: String { rawValue }
     var title: String { rawValue }
 }
 
-/// Grid (cards) vs. compact list presentation for the Libraries browser — a
-/// list scales better once a teacher has dozens of libraries.
+/// Grid (cards) vs. compact list presentation for the My Library browser — a
+/// list scales better once a teacher has dozens of saved folders.
 enum LibraryLayout: String {
     case grid
     case list

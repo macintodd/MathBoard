@@ -59,7 +59,9 @@ struct LessonDetailView: View {
                 if broker.isGraphCalculatorVisible && broker.graphCalculator.hasVisibleSection {
                     GraphCalculatorView(
                         state: broker.graphCalculator,
-                        onGraphSnapshot: broker.graphSnapshotHandler
+                        onGraphSnapshot: { snapshot in
+                            DisplayBroker.shared.graphSnapshotHandler?(snapshot)
+                        }
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }

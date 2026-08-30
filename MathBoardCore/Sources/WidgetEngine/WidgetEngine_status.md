@@ -23,3 +23,12 @@ Detailed handoff and implementation notes live in `WidgetActivityArchitecture_st
 - **`WidgetGearConfiguration` new fields:** `isWidgetSubmitted`, `isWidgetReset`, `onSubmitWidget`, `onResetAfterSubmit`.
 - **`hasEverBeenSubmitted`:** New field on `StudentWidgetLiveProgress`, published to Firebase. Teacher always sees green "Submitted" text after a student submits, even after they reset and are reworking.
 - **`maxRetries` rule:** New field on `WidgetActivityRules`. `maxRetries: 1` = 2 total attempts per question. Takes precedence over `maxAttemptsPerQuestion`. Applied in both MC and FITB `isCurrentQuestionLocked`.
+
+## Recent changes (2026-08-29) — Catalog organization
+
+- **Catalog content kinds:** Library catalog metadata now distinguishes Widget Types, Built-In Interactives, and Premade Mathtivities.
+- **Local catalog registry:** Bundled widget templates, bundled JSON mathtivities, and built-in interactive marker payloads are exposed through one catalog source.
+- **Catalog utilities:** Built-In Interactives now include Countdown Timer, Random Number Generator, and a first-pass Coordinate Grid Generator alongside Inequality Explorer.
+- **Runtime safety:** Placed widget IDs, runtime state, and Ably/Firebase sync paths still use the existing widget-object path. Only scoreable built-ins publish live score records; classroom utilities return no score record.
+- **Shared utility state:** Timer, random-number, and coordinate-grid built-ins keep state in widget-ID registries so the teacher iPad and external display observe the same values. Countdown ticks are therefore visible on the secondary display once per second.
+- **Coordinate grid status:** The grid generator can configure viewing region, Minor Grid spacing, Major Grid spacing, label spacing, full gridlines versus ticks, axis numbering, axis labels, arrows, and line darkness as a native on-canvas utility. Its Photo button renders the configured grid to PNG via `ImageRenderer` and asks the host canvas to insert it as a selectable image object.

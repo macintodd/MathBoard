@@ -1,6 +1,6 @@
 # Library Drawer — Status
 
-Status: **Prototype (live insertions + JSON Mathtivity catalog)** · Live canvas overlay · Last updated 2026-07-31
+Status: **Prototype (live insertions + organized Catalog utilities)** · Live canvas overlay · Last updated 2026-08-29
 
 ## Purpose
 
@@ -20,21 +20,23 @@ libraries can be dragged from the drawer and dropped onto the canvas, and
 widget-backed entries carry reusable widget JSON templates that insert as fresh
 interactive canvas widgets, and LaTeX-backed entries carry editable source plus
 their rendered PNG so they insert as resizable equation objects. The Library side
-now also has a JSON Mathtivity catalog path: bundled JSON resources can appear as
-catalog items, and the Firebase-backed catalog service can authenticate
-anonymously before reading remote catalog/storage data while falling back to
-bundled resources when Firebase is unavailable. A pinned **Built-In Interactives**
-library now bootstraps curated native SwiftUI Mathtivities, starting with
-**Inequality Explorer**, which inserts through the same widget canvas shell using
-a reserved marker instead of widget JSON. It remains previewable via the
-**Library** scheme and has been confirmed rendering on device (iPad, landscape).
+now has an organized Catalog path: Widget Types, Built-In Interactives, and
+Premade Mathtivities all come from the Catalog, while teacher-created reusable
+items remain in the teacher's Library. Bundled catalog records provide offline
+defaults, and the Firebase-backed catalog service can authenticate anonymously
+before reading remote catalog/storage data while falling back to bundled records
+when Firebase is unavailable. Built-in interactives, including **Inequality
+Explorer**, **Countdown Timer**, **Random Number Generator**, and **Coordinate
+Grid Generator**, insert through the same widget canvas shell using reserved
+markers instead of widget JSON. It remains previewable via the **Library** scheme
+and has been confirmed rendering on device (iPad, landscape).
 
 Supported in the prototype:
 
 - **Skeuomorphic gold folder tab** on the right edge, vertical "LIBRARY" text,
   positioned near the **top** of the board (`folderTabTopInset`). Tapping it
   opens/closes the panel.
-- Panel header ("Library" + ✕ close) and a **Recent | Libraries** segmented
+- Panel header ("Library" + ✕ close) and a **Recent | My Library** segmented
   control (`LibraryMode`).
 - **Recent mode** — a grid of objects inserted on *this* board, each a card with
   a type **badge** (INK / STICKER / HTML / GIF / TEXT / f(x)) top-left and a **star**
@@ -43,7 +45,7 @@ Supported in the prototype:
   a stored copy with its PNG thumbnail when available. Per the design decision,
   **ink appears only when it was Extracted into a sticker** — raw handwriting
   never shows here.
-- **Libraries mode** — a grid of reusable **library cards** (icon chip, name,
+- **My Library mode** — a grid of reusable **library cards** (icon chip, name,
   "N items") plus a dashed **"New library"** card. Tapping a library **opens**
   it into a detail view: a sub-header with a **back arrow** (← returns to the
   library grid), the library name, and item count, over a grid of the library's
@@ -66,10 +68,12 @@ Supported in the prototype:
 | `MathBoardCore/Sources/Library/LibraryRecentStore.swift` | Public per-lesson Recent sidecar API. Stores `library/recent.json` plus optional PNG thumbnails in `library/recent-assets/` inside each `.mathboard` package. |
 | `MathBoardCore/Sources/Library/LibraryStore.swift` | Public global reusable Library store. Persists library folders in Application Support plus starred Recent items and copied thumbnails per library. |
 | `MathBoardCore/Sources/Library/LibraryDrawerPrototypeView.swift` | `LibraryDrawerPrototypeView` + folder tab, mode picker, persisted Recent loading, Recent grid, persisted Libraries grid + opened-library detail, star handling, code-drawn or PNG thumbnails, preview host, `#Preview`s. |
-| `MathBoardCore/Sources/Library/MathtivityCatalogModels.swift` | Catalog-facing Mathtivity item/source models for bundled or online JSON Mathtivities. |
-| `MathBoardCore/Sources/Library/MathtivityCatalogSheet.swift` | SwiftUI catalog browser sheet for choosing Mathtivities. |
-| `MathBoardCore/Sources/Library/FirebaseMathtivityCatalogService.swift` | Firebase-backed catalog service that authenticates anonymously when needed, reads online catalog/storage data, and falls back to bundled JSON Mathtivities when remote loading fails. |
+| `MathBoardCore/Sources/Library/MathtivityCatalogModels.swift` | Catalog-facing item/source models for Widget Types, Built-In Interactives, and Premade Mathtivities, plus the bundled catalog registry. |
+| `MathBoardCore/Sources/Library/MathtivityCatalogSheet.swift` | SwiftUI catalog browser sheet grouped into Widget Types, Built-In Interactives, and Premade Mathtivities, with filters for content kind, topic, activity type, difficulty, and question count. |
+| `MathBoardCore/Sources/Library/FirebaseMathtivityCatalogService.swift` | Firebase-backed catalog service that authenticates anonymously when needed, reads online catalog/storage data, and merges it with bundled catalog records when remote loading succeeds. |
+| `MathBoardCore/Sources/WidgetEngine/BuiltInInteractives/CatalogUtilityInteractivesView.swift` | Native built-in utility views for the Countdown Timer, Random Number Generator, and Coordinate Grid Generator catalog records. |
 | `MathBoardCore/Sources/WidgetEngine/JSONMathtivities/` | Bundled resource-backed JSON Mathtivity files used by the catalog and tests. |
+| `MathtivityCatalogSchema.md` | Firestore/Storage authoring contract for online catalog records. |
 | `MathBoard/LibraryDrawer_status.md` | This document. |
 
 `MathBoardCore/Package.swift` exposes the `Library` target/product and links it
@@ -119,17 +123,27 @@ Sticker, and Axis (`AddItemKind` + `.addItem`).
   Library placement. LaTeX entries carry both the rendered PNG and source
   metadata; they insert as image-backed equation objects, resize with image
   handles, and reopen in the LaTeX editor from the HUD.
-- **Built-in interactives.** `LibraryStore` bootstraps a pinned **Built-In
-  Interactives** folder containing **Inequality Explorer**. The stored item is
-  `kind: .widget`, but its payload is the reserved marker
-  `__mathboard_builtin_interactive__:inequalitiesExplorer`; `WidgetContainerView`
-  detects that marker and renders `CompoundInequalitiesInteractiveView` natively
-  instead of decoding the multiple-choice widget JSON schema.
-- **JSON Mathtivity catalog.** Catalog items can come from bundled
-  `WidgetEngine/JSONMathtivities/` resources or Firebase. The Firebase service
-  signs in anonymously when needed so Firestore/Storage rules can require
-  `request.auth != null`, and falls back to bundled catalog items if remote
-  loading fails or Firebase is not configured.
+- **Catalog owns system content.** Widget Types, Built-In Interactives, and
+  Premade Mathtivities are Catalog records, not teacher Library folders. The
+  teacher Library stores only items the teacher explicitly saves for reuse, and
+  newly created/renamed folders avoid reserved system category names.
+- **Built-in interactives.** Built-ins appear in the Catalog with
+  `catalogKind: builtInInteractive`. Their payload is the reserved marker
+  `__mathboard_builtin_interactive__:<kind>`; `WidgetContainerView`
+  detects that marker and renders the matching native interactive instead of
+  decoding the multiple-choice widget JSON schema. Classroom utilities are
+  explicitly non-scoreable so they do not publish live score records through the
+  Ably/Firebase progress path.
+- **Coordinate grid Photo output.** The Coordinate Grid Generator uses the
+  existing graph-snapshot pattern: render configured SwiftUI grid content to PNG
+  with `ImageRenderer`, then route the data to `CanvasViewportImageInsertion` so
+  it lands on the whiteboard as a selectable image object.
+- **JSON Mathtivity catalog.** Catalog items can come from bundled Widget Type
+  templates, bundled `WidgetEngine/JSONMathtivities/` resources, bundled built-in
+  interactive records, or Firebase. The Firebase service signs in anonymously
+  when needed so Firestore/Storage rules can require `request.auth != null`, and
+  falls back to bundled catalog items if remote loading fails or Firebase is not
+  configured.
 - **Stored item cleanup.** Opened persistent Libraries expose an item menu on
   each stored item with **Rename Item** and **Remove from Library**.
 - **Folder management.** Persistent Libraries expose a folder menu from grid/list
@@ -149,10 +163,10 @@ Sticker, and Axis (`AddItemKind` + `.addItem`).
 1. Generate richer widget/JSON Mathtivity thumbnails/previews for catalog and
    library cards; the current first pass can still fall back to schematic widget
    thumbnails.
-2. Add richer built-in interactive thumbnails/previews and a formal registry for
-   future Mathtivities beyond Inequality Explorer.
-3. Decide the final teacher-facing flow for browsing online catalog items versus
-   bundled/offline items inside the drawer.
+2. Add richer built-in interactive thumbnails/previews.
+3. Decide whether grid-generator Photo output should also record as a distinct
+   Library Recent kind instead of using the existing graph-snapshot thumbnail
+   path.
 4. Add richer text thumbnails/previews for text-backed library cards; the current
    first pass uses the schematic text fallback thumbnail.
 5. Expand Recent capture to any newly supported object categories (GIF-specific

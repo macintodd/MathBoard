@@ -82,31 +82,72 @@ public struct WidgetObject: MathBoardObject, Codable, Equatable {
 
 public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Identifiable {
     case inequalitiesExplorer
+    case countdownTimer
+    case randomNumberGenerator
+    case coordinateGridGenerator
 
     public var id: String { rawValue }
 
     public var displayName: String {
         switch self {
         case .inequalitiesExplorer: return "Inequality Explorer"
+        case .countdownTimer: return "Countdown Timer"
+        case .randomNumberGenerator: return "Random Number Generator"
+        case .coordinateGridGenerator: return "Coordinate Grid Generator"
+        }
+    }
+
+    public var catalogDescription: String {
+        switch self {
+        case .inequalitiesExplorer:
+            return "Native scored interactive for practicing compound inequalities."
+        case .countdownTimer:
+            return "On-canvas classroom timer for warmups, stations, and quick checks."
+        case .randomNumberGenerator:
+            return "On-canvas number picker for examples, teams, and randomized practice values."
+        case .coordinateGridGenerator:
+            return "Configurable Cartesian coordinate grid generator for canvas work."
+        }
+    }
+
+    public var catalogTags: [String] {
+        switch self {
+        case .inequalitiesExplorer:
+            return ["built-in", "interactive", "inequalities", "scoreable"]
+        case .countdownTimer:
+            return ["built-in", "interactive", "timer", "classroom tool"]
+        case .randomNumberGenerator:
+            return ["built-in", "interactive", "random number", "classroom tool"]
+        case .coordinateGridGenerator:
+            return ["built-in", "interactive", "coordinate grid", "graphing"]
         }
     }
 
     public var defaultSize: CGSize {
         switch self {
         case .inequalitiesExplorer: return CGSize(width: 900, height: 640)
+        case .countdownTimer: return CGSize(width: 420, height: 300)
+        case .randomNumberGenerator: return CGSize(width: 460, height: 320)
+        case .coordinateGridGenerator: return CGSize(width: 720, height: 560)
         }
     }
 
     public var scoreableTaskCount: Int {
         switch self {
         case .inequalitiesExplorer: return 50
+        case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator: return 0
         }
     }
 
     public var pointsPerTask: Int {
         switch self {
         case .inequalitiesExplorer: return 10
+        case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator: return 0
         }
+    }
+
+    public var isScoreable: Bool {
+        scoreableTaskCount > 0 && pointsPerTask > 0
     }
 
     public var pointsPossible: Int {
@@ -188,6 +229,7 @@ extension WidgetObject {
 
     public var activityScoreRecord: WidgetActivityScoreRecord? {
         if let builtInInteractiveKind {
+            guard builtInInteractiveKind.isScoreable else { return nil }
             return builtInInteractiveKind.defaultScoreRecord(widgetID: id, title: name)
         }
 
@@ -207,6 +249,8 @@ extension WidgetObject {
             switch builtInInteractiveKind {
             case .inequalitiesExplorer:
                 return InequalityExplorerStateRegistry.scoreRecord(for: id, title: name)
+            case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator:
+                return nil
             }
         }
 
@@ -218,6 +262,12 @@ extension WidgetObject {
             switch widget.builtInInteractiveKind {
             case .inequalitiesExplorer:
                 InequalityExplorerStateRegistry.removeState(for: widget.id)
+            case .countdownTimer:
+                CountdownTimerStateRegistry.removeState(for: widget.id)
+            case .randomNumberGenerator:
+                RandomNumberGeneratorStateRegistry.removeState(for: widget.id)
+            case .coordinateGridGenerator:
+                CoordinateGridGeneratorStateRegistry.removeState(for: widget.id)
             case .none:
                 continue
             }
@@ -314,6 +364,18 @@ public struct WidgetGearConfiguration {
         self.isWidgetReset = isWidgetReset
         self.onSubmitWidget = onSubmitWidget
         self.onResetAfterSubmit = onResetAfterSubmit
+    }
+}
+
+public struct WidgetCanvasImageInsertionRequest: Sendable {
+    public var title: String
+    public var pngData: Data
+    public var displaySize: CGSize
+
+    public init(title: String, pngData: Data, displaySize: CGSize) {
+        self.title = title
+        self.pngData = pngData
+        self.displaySize = displaySize
     }
 }
 

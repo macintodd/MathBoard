@@ -76,6 +76,7 @@ public struct WidgetCanvasOverlayView: View {
     private let onWidgetInteractionChanged: ((Bool) -> Void)?
     private let onWidgetDisplayFrameChanged: ((WidgetObject.ID, CGRect?) -> Void)?
     private let onMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)?
+    private let onImageInsertionRequested: (@MainActor (WidgetCanvasImageInsertionRequest) -> Void)?
 
     public init(
         widgets: Binding<[WidgetObject]>,
@@ -86,7 +87,8 @@ public struct WidgetCanvasOverlayView: View {
         allowsWidgetAuthoring: Bool = true,
         onWidgetInteractionChanged: ((Bool) -> Void)? = nil,
         onWidgetDisplayFrameChanged: ((WidgetObject.ID, CGRect?) -> Void)? = nil,
-        onMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)? = nil
+        onMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)? = nil,
+        onImageInsertionRequested: (@MainActor (WidgetCanvasImageInsertionRequest) -> Void)? = nil
     ) {
         _widgets = widgets
         self.viewport = viewport
@@ -97,6 +99,7 @@ public struct WidgetCanvasOverlayView: View {
         self.onWidgetInteractionChanged = onWidgetInteractionChanged
         self.onWidgetDisplayFrameChanged = onWidgetDisplayFrameChanged
         self.onMathInputRequested = onMathInputRequested
+        self.onImageInsertionRequested = onImageInsertionRequested
     }
 
     public var body: some View {
@@ -113,7 +116,8 @@ public struct WidgetCanvasOverlayView: View {
                         onDisplayFrameChanged: { frame in
                             onWidgetDisplayFrameChanged?(widget.id, frame)
                         },
-                        onMathInputRequested: onMathInputRequested
+                        onMathInputRequested: onMathInputRequested,
+                        onImageInsertionRequested: onImageInsertionRequested
                     )
                     .id("\(canvasIdentity)-\(widget.id.uuidString)")
                 }
@@ -129,9 +133,7 @@ public struct WidgetCanvasOverlayView: View {
             widgets.removeAll { $0.id == id }
             onWidgetInteractionChanged?(false)
             onWidgetDisplayFrameChanged?(id, nil)
-            if removedWidgets.contains(where: { $0.builtInInteractiveKind == .inequalitiesExplorer }) {
-                InequalityExplorerStateRegistry.removeState(for: id)
-            }
+            WidgetObject.resetBuiltInRuntimeStates(for: removedWidgets)
         }
     }
 

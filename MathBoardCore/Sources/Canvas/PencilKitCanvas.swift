@@ -195,6 +195,7 @@ struct PencilKitCanvasContainer: View {
     let onExtractActionCompleted: (@MainActor () -> Void)?
     let onWidgetEditRequested: (@MainActor (WidgetObject) -> Void)?
     let onWidgetMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)?
+    let onWidgetImageInsertionRequested: (@MainActor (WidgetCanvasImageInsertionRequest) -> Void)?
     let allowsWidgetAuthoring: Bool
 
     @State private var drawing: PKDrawing = PKDrawing()
@@ -317,6 +318,7 @@ struct PencilKitCanvasContainer: View {
             onExtractActionCompleted: onExtractActionCompleted,
             onWidgetEditRequested: onWidgetEditRequested,
             onWidgetMathInputRequested: onWidgetMathInputRequested,
+            onWidgetImageInsertionRequested: onWidgetImageInsertionRequested,
             allowsWidgetAuthoring: allowsWidgetAuthoring
         )
     }
@@ -809,6 +811,7 @@ private final class PencilKitCanvasHostView: UIView {
     private var onEditWidget: (@MainActor (WidgetObject) -> Void)?
     private var onWidgetInteractionChanged: (@MainActor (Bool) -> Void)?
     private var onWidgetMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)?
+    private var onWidgetImageInsertionRequested: (@MainActor (WidgetCanvasImageInsertionRequest) -> Void)?
     private var allowsWidgetAuthoring = true
 
     override init(frame: CGRect) {
@@ -1034,7 +1037,8 @@ private final class PencilKitCanvasHostView: UIView {
         onEditWidget: (@MainActor (WidgetObject) -> Void)? = nil,
         allowsWidgetAuthoring: Bool = true,
         onWidgetInteractionChanged: (@MainActor (Bool) -> Void)? = nil,
-        onWidgetMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)? = nil
+        onWidgetMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)? = nil,
+        onWidgetImageInsertionRequested: (@MainActor (WidgetCanvasImageInsertionRequest) -> Void)? = nil
     ) {
         if widgetCanvasIdentity != canvasIdentity {
             widgetCanvasIdentity = canvasIdentity
@@ -1046,6 +1050,7 @@ private final class PencilKitCanvasHostView: UIView {
         self.allowsWidgetAuthoring = allowsWidgetAuthoring
         self.onWidgetInteractionChanged = onWidgetInteractionChanged
         self.onWidgetMathInputRequested = onWidgetMathInputRequested
+        self.onWidgetImageInsertionRequested = onWidgetImageInsertionRequested
         let viewport = WidgetCanvasViewport(
             zoomScale: canvas.zoomScale,
             contentOffset: canvas.contentOffset,
@@ -1072,7 +1077,8 @@ private final class PencilKitCanvasHostView: UIView {
             onWidgetDisplayFrameChanged: { [weak self] id, frame in
                 self?.updateActiveWidgetDisplayFrame(id: id, frame: frame)
             },
-            onMathInputRequested: onWidgetMathInputRequested
+            onMathInputRequested: onWidgetMathInputRequested,
+            onImageInsertionRequested: onWidgetImageInsertionRequested
         )
 
         if let widgetOverlayController {
@@ -1115,7 +1121,8 @@ private final class PencilKitCanvasHostView: UIView {
             onWidgetDisplayFrameChanged: { [weak self] id, frame in
                 self?.updateActiveWidgetDisplayFrame(id: id, frame: frame)
             },
-            onMathInputRequested: onWidgetMathInputRequested
+            onMathInputRequested: onWidgetMathInputRequested,
+            onImageInsertionRequested: onWidgetImageInsertionRequested
         )
     }
 
@@ -2838,6 +2845,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
     let onExtractActionCompleted: (@MainActor () -> Void)?
     let onWidgetEditRequested: (@MainActor (WidgetObject) -> Void)?
     let onWidgetMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)?
+    let onWidgetImageInsertionRequested: (@MainActor (WidgetCanvasImageInsertionRequest) -> Void)?
     let allowsWidgetAuthoring: Bool
 
     func makeUIView(context: Context) -> PencilKitCanvasHostView {
@@ -2886,7 +2894,8 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             onWidgetInteractionChanged: { [weak canvas] isInteracting in
                 canvas?.isScrollEnabled = !isInteracting
             },
-            onWidgetMathInputRequested: onWidgetMathInputRequested
+            onWidgetMathInputRequested: onWidgetMathInputRequested,
+            onWidgetImageInsertionRequested: onWidgetImageInsertionRequested
         )
         context.coordinator.publishWidgetObjects(using: canvas)
         hostView.updateTextObjects(textObjects, using: canvas)
@@ -2923,7 +2932,8 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 onWidgetInteractionChanged: { [weak canvas] isInteracting in
                     canvas?.isScrollEnabled = !isInteracting
                 },
-                onWidgetMathInputRequested: self.onWidgetMathInputRequested
+                onWidgetMathInputRequested: self.onWidgetMathInputRequested,
+                onWidgetImageInsertionRequested: self.onWidgetImageInsertionRequested
             )
             context.coordinator.publishWidgetObjects(using: canvas)
             hostView.updateTextObjects(
@@ -2976,7 +2986,8 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             onWidgetInteractionChanged: { [weak canvas] isInteracting in
                 canvas?.isScrollEnabled = !isInteracting
             },
-            onWidgetMathInputRequested: onWidgetMathInputRequested
+            onWidgetMathInputRequested: onWidgetMathInputRequested,
+            onWidgetImageInsertionRequested: onWidgetImageInsertionRequested
         )
         context.coordinator.publishWidgetObjects(using: canvas)
         hostView.updateTextObjects(
@@ -8388,7 +8399,8 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 onWidgetInteractionChanged: { [weak canvas] isInteracting in
                     canvas?.isScrollEnabled = !isInteracting
                 },
-                onWidgetMathInputRequested: parent.onWidgetMathInputRequested
+                onWidgetMathInputRequested: parent.onWidgetMathInputRequested,
+                onWidgetImageInsertionRequested: parent.onWidgetImageInsertionRequested
             )
             publishWidgetObjects(using: canvas)
         }

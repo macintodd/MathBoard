@@ -113,6 +113,15 @@ public enum LibraryStore {
     private static let itemsFileName = "items.json"
     private static let assetsDirectoryName = "assets"
     private static let maximumItemsPerLibrary = 240
+    private static let reservedSystemFolderNames: Set<String> = [
+        "catalog",
+        "widget type",
+        "widget types",
+        "built-in interactive",
+        "built-in interactives",
+        "premade mathtivity",
+        "premade mathtivities"
+    ]
 
     public static func loadFolders() -> [LibraryStoredFolder] {
         ensureBootstrapIfNeeded()
@@ -251,17 +260,19 @@ public enum LibraryStore {
         _ downloadedItem: DownloadedMathtivityCatalogItem,
         to folderID: UUID
     ) throws {
-        guard let expectedActivityKind = downloadedItem.item.activityType.widgetActivityKind else {
-            throw MathtivityCatalogError.invalidJSONMathtivity([
-                "\(downloadedItem.item.activityType.displayName) catalog items are not supported by this app build yet."
-            ])
-        }
-        let report = JSONMathtivityTestContract.evaluate(
-            source: downloadedItem.jsonSource,
-            expectedActivityKind: expectedActivityKind
-        )
-        guard report.isValid else {
-            throw MathtivityCatalogError.invalidJSONMathtivity(report.errors)
+        if downloadedItem.item.catalogKind != .builtInInteractive {
+            guard let expectedActivityKind = downloadedItem.item.activityType.widgetActivityKind else {
+                throw MathtivityCatalogError.invalidJSONMathtivity([
+                    "\(downloadedItem.item.activityType.displayName) catalog items are not supported by this app build yet."
+                ])
+            }
+            let report = JSONMathtivityTestContract.evaluate(
+                source: downloadedItem.jsonSource,
+                expectedActivityKind: expectedActivityKind
+            )
+            guard report.isValid else {
+                throw MathtivityCatalogError.invalidJSONMathtivity(report.errors)
+            }
         }
 
         try FileManager.default.createDirectory(
@@ -352,7 +363,10 @@ public enum LibraryStore {
 
     private static func uniqueFolderName(for requestedName: String, excluding excludedID: UUID? = nil) -> String {
         let trimmed = requestedName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let base = trimmed.isEmpty ? "New Library" : trimmed
+        let requestedBase = trimmed.isEmpty ? "New Library" : trimmed
+        let base = reservedSystemFolderNames.contains(requestedBase.lowercased())
+            ? "My \(requestedBase)"
+            : requestedBase
         let existingNames = Set(
             loadFolders()
                 .filter { $0.id != excludedID }

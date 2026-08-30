@@ -83,6 +83,7 @@ public struct WidgetContainerView: View {
     private let onInteractionChanged: ((Bool) -> Void)?
     private let onDisplayFrameChanged: ((CGRect?) -> Void)?
     private let onMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)?
+    private let onImageInsertionRequested: (@MainActor (WidgetCanvasImageInsertionRequest) -> Void)?
     private let gearConfiguration: WidgetGearConfiguration?
 
     @Environment(\.widgetSubmit) private var widgetSubmit
@@ -115,6 +116,7 @@ public struct WidgetContainerView: View {
         onInteractionChanged: ((Bool) -> Void)? = nil,
         onDisplayFrameChanged: ((CGRect?) -> Void)? = nil,
         onMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)? = nil,
+        onImageInsertionRequested: (@MainActor (WidgetCanvasImageInsertionRequest) -> Void)? = nil,
         gearConfiguration: WidgetGearConfiguration? = nil
     ) {
         _widget = widget
@@ -125,6 +127,7 @@ public struct WidgetContainerView: View {
         self.onInteractionChanged = onInteractionChanged
         self.onDisplayFrameChanged = onDisplayFrameChanged
         self.onMathInputRequested = onMathInputRequested
+        self.onImageInsertionRequested = onImageInsertionRequested
         self.gearConfiguration = gearConfiguration
         _frame = State(initialValue: widget.wrappedValue.frame)
         _committedOrigin = State(initialValue: widget.wrappedValue.frame.origin)
@@ -140,6 +143,7 @@ public struct WidgetContainerView: View {
         self.onInteractionChanged = nil
         self.onDisplayFrameChanged = nil
         self.onMathInputRequested = nil
+        self.onImageInsertionRequested = nil
         self.gearConfiguration = nil
         _frame = State(initialValue: widget.frame)
         _committedOrigin = State(initialValue: widget.frame.origin)
@@ -238,6 +242,20 @@ public struct WidgetContainerView: View {
         case .inequalitiesExplorer:
             CompoundInequalitiesInteractiveView(
                 state: InequalityExplorerStateRegistry.state(for: widget.id)
+            )
+        case .countdownTimer:
+            CountdownTimerInteractiveView(
+                state: CountdownTimerStateRegistry.state(for: widget.id)
+            )
+        case .randomNumberGenerator:
+            RandomNumberGeneratorInteractiveView(
+                state: RandomNumberGeneratorStateRegistry.state(for: widget.id)
+            )
+        case .coordinateGridGenerator:
+            CoordinateGridGeneratorInteractiveView(
+                state: CoordinateGridGeneratorStateRegistry.state(for: widget.id),
+                onMathInputRequested: onMathInputRequested,
+                onImageInsertionRequested: onImageInsertionRequested
             )
         }
     }

@@ -18,16 +18,74 @@ struct MathtivityCatalogSheet: View {
     let onOpen: @MainActor (MathtivityCatalogItem) async -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var selectedKind: MathtivityCatalogKind?
+    @State private var selectedTopic: String?
+    @State private var selectedActivityType: MathtivityCatalogActivityType?
+    @State private var selectedDifficulty: String?
+    @State private var selectedQuestionCount: CatalogQuestionCountFilter = .any
 
     private var filteredItems: [MathtivityCatalogItem] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return items }
         return items.filter { item in
-            item.title.localizedCaseInsensitiveContains(query)
+            let matchesSearch = query.isEmpty
+                || item.title.localizedCaseInsensitiveContains(query)
+                || item.catalogKind.displayName.localizedCaseInsensitiveContains(query)
                 || item.topic.localizedCaseInsensitiveContains(query)
                 || (item.course?.localizedCaseInsensitiveContains(query) ?? false)
+                || (item.answerMode?.displayName.localizedCaseInsensitiveContains(query) ?? false)
+                || (item.difficulty?.localizedCaseInsensitiveContains(query) ?? false)
                 || item.tags.contains { $0.localizedCaseInsensitiveContains(query) }
+
+            let matchesKind = selectedKind.map { item.catalogKind == $0 } ?? true
+            let matchesTopic = selectedTopic.map { item.topic == $0 } ?? true
+            let matchesActivity = selectedActivityType.map { item.activityType == $0 } ?? true
+            let matchesDifficulty = selectedDifficulty.map { item.difficulty == $0 } ?? true
+            let matchesQuestionCount = selectedQuestionCount.matches(item.questionCount)
+            return matchesSearch && matchesKind && matchesTopic && matchesActivity && matchesDifficulty && matchesQuestionCount
         }
+    }
+
+    private var availableTopics: [String] {
+        sortedUnique(items.map(\.topic))
+    }
+
+    private var availableDifficulties: [String] {
+        sortedUnique(items.compactMap(\.difficulty))
+    }
+
+    private var hasActiveFilters: Bool {
+        selectedKind != nil
+            || selectedTopic != nil
+            || selectedActivityType != nil
+            || selectedDifficulty != nil
+            || selectedQuestionCount != .any
+    }
+
+    private var catalogSections: [CatalogSection] {
+        [
+            CatalogSection(
+                title: "Widget Types",
+                subtitle: "Starter formats teachers can customize",
+                items: filteredItems
+                    .filter { $0.catalogKind == .widgetTemplate }
+                    .sorted(by: catalogSort)
+            ),
+            CatalogSection(
+                title: "Built-In Interactives",
+                subtitle: "Native classroom tools and interactive generators",
+                items: filteredItems
+                    .filter { $0.catalogKind == .builtInInteractive }
+                    .sorted(by: catalogSort)
+            ),
+            CatalogSection(
+                title: "Premade Mathtivities",
+                subtitle: "Ready-to-edit activities organized by topic",
+                items: filteredItems
+                    .filter { $0.catalogKind == .premadeMathtivity }
+                    .sorted(by: mathtivitySort)
+            )
+        ]
+        .filter { !$0.items.isEmpty }
     }
 
     var body: some View {
@@ -35,6 +93,9 @@ struct MathtivityCatalogSheet: View {
             VStack(spacing: 0) {
                 catalogSearchField
                     .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+
+                catalogFilterBar
                     .padding(.bottom, 10)
 
                 if let errorMessage {
@@ -46,20 +107,28 @@ struct MathtivityCatalogSheet: View {
                 if isLoading && items.isEmpty {
                     ProgressView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if filteredItems.isEmpty {
+                } else if catalogSections.isEmpty {
                     catalogStatus("No mathtivities found.", systemImage: "magnifyingglass")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    List(filteredItems) { item in
-                        catalogRow(item)
+                    List {
+                        ForEach(catalogSections) { section in
+                            Section {
+                                ForEach(section.items) { item in
+                                    catalogRow(item)
+                                }
+                            } header: {
+                                catalogSectionHeader(section)
+                            }
+                        }
                     }
-                    .listStyle(.plain)
+                    .listStyle(.insetGrouped)
                     .refreshable {
                         await onRefresh()
                     }
                 }
             }
-            .navigationTitle("Mathtivity Catalog")
+            .navigationTitle("Catalog")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -114,6 +183,91 @@ struct MathtivityCatalogSheet: View {
         )
     }
 
+    private var catalogFilterBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                filterMenu(
+                    title: selectedKind?.displayName ?? "All Content",
+                    systemImage: "square.grid.2x2"
+                ) {
+                    Button("All Content") { selectedKind = nil }
+                    Divider()
+                    ForEach(MathtivityCatalogKind.allCases, id: \.self) { kind in
+                        Button(kind.displayName) { selectedKind = kind }
+                    }
+                }
+
+                filterMenu(
+                    title: selectedTopic ?? "All Topics",
+                    systemImage: "tag"
+                ) {
+                    Button("All Topics") { selectedTopic = nil }
+                    Divider()
+                    ForEach(availableTopics, id: \.self) { topic in
+                        Button(topic) { selectedTopic = topic }
+                    }
+                }
+
+                filterMenu(
+                    title: selectedActivityType?.displayName ?? "All Activity Types",
+                    systemImage: "checklist"
+                ) {
+                    Button("All Activity Types") { selectedActivityType = nil }
+                    Divider()
+                    ForEach(MathtivityCatalogActivityType.allCases, id: \.self) { activityType in
+                        Button(activityType.displayName) { selectedActivityType = activityType }
+                    }
+                }
+
+                filterMenu(
+                    title: selectedDifficulty?.capitalized ?? "All Difficulty",
+                    systemImage: "speedometer"
+                ) {
+                    Button("All Difficulty") { selectedDifficulty = nil }
+                    Divider()
+                    ForEach(availableDifficulties, id: \.self) { difficulty in
+                        Button(difficulty.capitalized) { selectedDifficulty = difficulty }
+                    }
+                }
+
+                filterMenu(
+                    title: selectedQuestionCount.displayName,
+                    systemImage: "number"
+                ) {
+                    ForEach(CatalogQuestionCountFilter.allCases) { filter in
+                        Button(filter.displayName) { selectedQuestionCount = filter }
+                    }
+                }
+
+                if hasActiveFilters {
+                    Button {
+                        clearFilters()
+                    } label: {
+                        Label("Clear", systemImage: "xmark.circle")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+    }
+
+    private func filterMenu<Content: View>(
+        title: String,
+        systemImage: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        Menu {
+            content()
+        } label: {
+            Label(title, systemImage: systemImage)
+                .lineLimit(1)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+    }
+
     private func catalogRow(_ item: MathtivityCatalogItem) -> some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: iconName(for: item))
@@ -146,7 +300,7 @@ struct MathtivityCatalogSheet: View {
                         .controlSize(.small)
                         .frame(width: 54, height: 30)
                 } else {
-                    Text("Open")
+                    Text(buttonTitle(for: item))
                         .font(.system(size: 13, weight: .semibold))
                         .frame(width: 54, height: 30)
                 }
@@ -158,12 +312,39 @@ struct MathtivityCatalogSheet: View {
         .padding(.vertical, 6)
     }
 
+    private func catalogSectionHeader(_ section: CatalogSection) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(section.title)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.primary)
+            Text(section.subtitle)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+        .textCase(nil)
+        .padding(.top, 6)
+    }
+
     private func catalogBadges(for item: MathtivityCatalogItem) -> some View {
         FlowLayout(spacing: 6, lineSpacing: 6) {
-            catalogBadge(item.mode.displayName)
-            catalogBadge(item.activityType.displayName)
+            catalogBadge(item.source.displayName)
+            if item.catalogKind != .premadeMathtivity {
+                catalogBadge(item.catalogKind.displayName)
+            }
+            if item.catalogKind != .builtInInteractive {
+                catalogBadge(item.activityType.displayName)
+            }
+            if let answerMode = item.answerMode {
+                catalogBadge(answerMode.displayName)
+            }
+            if let questionCount = item.questionCount {
+                catalogBadge("\(questionCount) \(questionCount == 1 ? "question" : "questions")")
+            }
             if let topicLevel = item.topicLevel {
                 catalogBadge("Level \(topicLevel)")
+            }
+            if let difficulty = item.difficulty {
+                catalogBadge(difficulty.capitalized)
             }
             catalogBadge(item.topic)
             ForEach(item.tags.prefix(2), id: \.self) { tag in
@@ -209,6 +390,15 @@ struct MathtivityCatalogSheet: View {
     }
 
     private func iconName(for item: MathtivityCatalogItem) -> String {
+        switch item.catalogKind {
+        case .widgetTemplate:
+            return "square.on.square"
+        case .builtInInteractive:
+            return "hand.point.up.left"
+        case .premadeMathtivity:
+            break
+        }
+
         switch item.activityType {
         case .multipleChoice:
             return item.mode == .scored ? "checklist" : "rectangle.on.rectangle"
@@ -228,11 +418,97 @@ struct MathtivityCatalogSheet: View {
     }
 
     private func iconColor(for item: MathtivityCatalogItem) -> Color {
+        switch item.catalogKind {
+        case .widgetTemplate:
+            return Color(red: 0.35, green: 0.66, blue: 0.68)
+        case .builtInInteractive:
+            return Color(red: 0.35, green: 0.70, blue: 0.48)
+        case .premadeMathtivity:
+            break
+        }
+
         switch item.mode {
         case .scored:
             return Color(red: 0.29, green: 0.53, blue: 0.86)
         case .demo:
             return Color(red: 0.42, green: 0.48, blue: 0.56)
+        }
+    }
+
+    private func buttonTitle(for item: MathtivityCatalogItem) -> String {
+        item.catalogKind == .builtInInteractive ? "Add" : "Open"
+    }
+
+    private func catalogSort(_ lhs: MathtivityCatalogItem, _ rhs: MathtivityCatalogItem) -> Bool {
+        lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+    }
+
+    private func mathtivitySort(_ lhs: MathtivityCatalogItem, _ rhs: MathtivityCatalogItem) -> Bool {
+        let lhsCourse = lhs.course ?? ""
+        let rhsCourse = rhs.course ?? ""
+        if lhsCourse.localizedCaseInsensitiveCompare(rhsCourse) != .orderedSame {
+            return lhsCourse.localizedCaseInsensitiveCompare(rhsCourse) == .orderedAscending
+        }
+        if lhs.topic.localizedCaseInsensitiveCompare(rhs.topic) != .orderedSame {
+            return lhs.topic.localizedCaseInsensitiveCompare(rhs.topic) == .orderedAscending
+        }
+        return catalogSort(lhs, rhs)
+    }
+
+    private func clearFilters() {
+        selectedKind = nil
+        selectedTopic = nil
+        selectedActivityType = nil
+        selectedDifficulty = nil
+        selectedQuestionCount = .any
+    }
+
+    private func sortedUnique(_ values: [String]) -> [String] {
+        Array(Set(values.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }))
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+}
+
+private struct CatalogSection: Identifiable {
+    var id: String { title }
+    var title: String
+    var subtitle: String
+    var items: [MathtivityCatalogItem]
+}
+
+private enum CatalogQuestionCountFilter: String, CaseIterable, Identifiable {
+    case any
+    case single
+    case short
+    case extended
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .any:
+            return "Any Length"
+        case .single:
+            return "1 Question"
+        case .short:
+            return "2-5 Questions"
+        case .extended:
+            return "6+ Questions"
+        }
+    }
+
+    func matches(_ questionCount: Int?) -> Bool {
+        switch self {
+        case .any:
+            return true
+        case .single:
+            return questionCount == 1
+        case .short:
+            guard let questionCount else { return false }
+            return (2...5).contains(questionCount)
+        case .extended:
+            guard let questionCount else { return false }
+            return questionCount >= 6
         }
     }
 }

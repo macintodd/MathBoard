@@ -173,6 +173,7 @@ public struct PresentingCanvasView: View {
                 onExtractActionCompleted: activateSelectToolAfterExtractAction,
                 onWidgetEditRequested: allowsWidgetAuthoring ? requestWidgetEdit : nil,
                 onWidgetMathInputRequested: handleWidgetMathInputRequest,
+                onWidgetImageInsertionRequested: handleWidgetImageInsertionRequest,
                 allowsWidgetAuthoring: allowsWidgetAuthoring
             )
             ViewfinderOverlay()
@@ -1057,6 +1058,22 @@ public struct PresentingCanvasView: View {
     }
 
     private func presentCatalogWidgetPreview(_ downloadedItem: DownloadedMathtivityCatalogItem) {
+        if downloadedItem.item.catalogKind == .builtInInteractive {
+            let displaySize = downloadedItem.item.builtInKind?.defaultSize ?? CGSize(width: 820, height: 420)
+            placeLibraryItemAtViewportCenter(LibraryCanvasDragPayload(
+                title: downloadedItem.item.title,
+                kind: .widget,
+                displaySize: displaySize,
+                widgetCodeString: downloadedItem.jsonSource
+            ))
+            recordLibraryRecent(
+                title: downloadedItem.item.title,
+                kind: .widget,
+                widgetCodeString: downloadedItem.jsonSource
+            )
+            return
+        }
+
         Task { @MainActor in
             await Task.yield()
             pendingCatalogWidgetPreview = PendingCatalogWidgetPreview(downloadedItem: downloadedItem)
@@ -1537,6 +1554,23 @@ public struct PresentingCanvasView: View {
 
     private func handleWidgetMathInputRequest(_ request: WidgetMathInputKeypadRequest) {
         activeWidgetMathInputRequest = request
+    }
+
+    private func handleWidgetImageInsertionRequest(_ request: WidgetCanvasImageInsertionRequest) {
+        guard allowsWidgetAuthoring else { return }
+        objectCommand = CanvasObjectCommand(.insertImageNearViewport(
+            CanvasViewportImageInsertion(
+                pngData: request.pngData,
+                displaySize: request.displaySize,
+                selectAfterInsert: true
+            )
+        ))
+        recordLibraryRecent(
+            title: Self.libraryRecentTitle(request.title),
+            kind: .graphSnapshot,
+            thumbnailPNGData: request.pngData
+        )
+        activateSelectTool()
     }
 
     private func insertWidgetMathInputText(_ text: String, into request: WidgetMathInputKeypadRequest) {

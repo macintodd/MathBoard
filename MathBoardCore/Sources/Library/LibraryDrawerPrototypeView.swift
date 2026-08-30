@@ -302,7 +302,7 @@ public struct LibraryDrawerPrototypeView: View {
                     )
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("View Mathtivity Catalog")
+            .accessibilityLabel("View MathBoard Catalog")
             Button {
                 withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
                     isOpen = false
@@ -535,7 +535,7 @@ public struct LibraryDrawerPrototypeView: View {
                         if !pinned.isEmpty {
                             librarySection("Pinned", pinned, showNewCard: false)
                         }
-                        librarySection("All Libraries", results.filter { !$0.isPinned }, showNewCard: true)
+                        librarySection("My Library", results.filter { !$0.isPinned }, showNewCard: true)
                     }
                 }
                 .padding(.horizontal, 18)
@@ -551,7 +551,7 @@ public struct LibraryDrawerPrototypeView: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(LibraryTheme.muted)
-                TextField("Search libraries & contents", text: $librarySearch)
+                TextField("Search My Library", text: $librarySearch)
                     .textFieldStyle(.plain)
                     .font(.system(size: 14))
                     .foregroundStyle(LibraryTheme.ink)
@@ -957,7 +957,8 @@ public struct LibraryDrawerPrototypeView: View {
 
         do {
             let downloadedItem = try await FirebaseMathtivityCatalogService().downloadMathtivity(item)
-            if let expectedActivityKind = item.activityType.widgetActivityKind {
+            if item.catalogKind != .builtInInteractive,
+               let expectedActivityKind = item.activityType.widgetActivityKind {
                 let report = JSONMathtivityTestContract.evaluate(
                     source: downloadedItem.jsonSource,
                     expectedActivityKind: expectedActivityKind

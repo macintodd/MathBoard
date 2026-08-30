@@ -31,19 +31,19 @@ public struct FirebaseMathtivityCatalogService: MathtivityCatalogProviding {
     }
 
     public func fetchPublishedCatalog(limit: Int = 80) async throws -> [MathtivityCatalogItem] {
-        let bundledItems = JSONMathtivityCatalog.bundledEntries.compactMap(MathtivityCatalogItem.init(bundledEntry:))
+        let localItems = MathtivityCatalogLocalRegistry.bundledCatalog
 
         let snapshot: QuerySnapshot
         do {
             try await Self.ensureAuthenticatedAccess()
             snapshot = try await getDocuments(
                 from: firestore
-                    .collection(Self.collectionName)
+                .collection(Self.collectionName)
                     .whereField("isPublished", isEqualTo: true)
                     .limit(to: limit)
             )
         } catch {
-            return bundledItems
+            return localItems
         }
 
         let onlineItems = snapshot.documents.compactMap { document in
@@ -65,14 +65,12 @@ public struct FirebaseMathtivityCatalogService: MathtivityCatalogProviding {
                 return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
             }
         }
-        let bundledIDs = Set(bundledItems.map(\.id))
-        return bundledItems + onlineItems.filter { !bundledIDs.contains($0.id) }
+        let localIDs = Set(localItems.map(\.id))
+        return localItems + onlineItems.filter { !localIDs.contains($0.id) }
     }
 
     public func downloadMathtivity(_ item: MathtivityCatalogItem) async throws -> DownloadedMathtivityCatalogItem {
-        if let bundledResourceName = item.bundledResourceName,
-           let bundledEntry = JSONMathtivityCatalog.bundledEntries.first(where: { $0.resourceName == bundledResourceName }),
-           let source = JSONMathtivityCatalog.source(for: bundledEntry) {
+        if let source = MathtivityCatalogLocalRegistry.source(for: item) {
             return DownloadedMathtivityCatalogItem(item: item, jsonSource: source)
         }
 
