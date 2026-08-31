@@ -1030,6 +1030,10 @@ private struct MacTextObjectLayer: View {
                 .lineLimit(nil)
                 .frame(width: object.width, height: object.height, alignment: .topLeading)
                 .padding(4)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(backgroundColor(for: object) ?? Color.clear)
+                )
                 .overlay(alignment: .bottomTrailing) {
                     if isSelected {
                         ResizeHandle(size: resizeHandleSize)
@@ -1056,6 +1060,16 @@ private struct MacTextObjectLayer: View {
             green: Double(object.green),
             blue: Double(object.blue),
             opacity: Double(object.alpha)
+        )
+    }
+
+    private func backgroundColor(for object: CanvasTextObject) -> Color? {
+        guard let background = object.backgroundColorComponents else { return nil }
+        return Color(
+            red: Double(background.red),
+            green: Double(background.green),
+            blue: Double(background.blue),
+            opacity: Double(background.alpha)
         )
     }
 

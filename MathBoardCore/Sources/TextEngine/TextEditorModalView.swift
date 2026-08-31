@@ -11,6 +11,8 @@
 import SwiftUI
 #if os(iOS)
 import UIKit
+#elseif os(macOS)
+import AppKit
 #endif
 
 public struct TextEditorModalView: View {
@@ -132,8 +134,13 @@ public struct TextEditorModalView: View {
         ZStack(alignment: .topLeading) {
             TextEditor(text: $viewModel.text, selection: $selection)
                 .font(editorFont)
+                .foregroundStyle(viewModel.textColor.swiftUIColor)
                 .scrollContentBackground(.hidden)
                 .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(editorBackgroundColor)
+                )
                 .focused($editorFocused)
 
             if viewModel.text.isEmpty {
@@ -146,6 +153,11 @@ public struct TextEditorModalView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(editorBackgroundColor)
+    }
+
+    private var editorBackgroundColor: Color {
+        (viewModel.backgroundColor ?? TextEditorColor(red: 1, green: 1, blue: 1, alpha: 0)).swiftUIColor
     }
 
     // MARK: Formatting toolbar
@@ -182,6 +194,10 @@ public struct TextEditorModalView: View {
             Divider().frame(height: 24)
 
             fontMenu
+
+            Divider().frame(height: 24)
+
+            colorControls
 
             Divider().frame(height: 24)
 
@@ -250,6 +266,64 @@ public struct TextEditorModalView: View {
         .fixedSize()
     }
 
+    private var colorControls: some View {
+        HStack(spacing: 8) {
+            ColorPicker(
+                "Text Color",
+                selection: textColorBinding,
+                supportsOpacity: true
+            )
+            .labelsHidden()
+            .frame(width: 34)
+            .help("Text Color")
+
+            Button {
+                viewModel.backgroundColor = viewModel.backgroundColor == nil ? .yellowHighlight : nil
+            } label: {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill((viewModel.backgroundColor ?? .yellowHighlight).swiftUIColor)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .stroke(Color.primary.opacity(0.18), lineWidth: 1)
+                        )
+                    Image(systemName: viewModel.backgroundColor == nil ? "square.dashed" : "textformat.alt")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(viewModel.backgroundColor == nil ? .secondary : .primary)
+                }
+                .frame(width: 30, height: 26)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(viewModel.backgroundColor == nil ? "Enable text background" : "Remove text background")
+            .help(viewModel.backgroundColor == nil ? "Enable Text Background" : "Remove Text Background")
+
+            ColorPicker(
+                "Background Color",
+                selection: backgroundColorBinding,
+                supportsOpacity: true
+            )
+            .labelsHidden()
+            .frame(width: 34)
+            .help("Background Color")
+        }
+    }
+
+    private var textColorBinding: Binding<Color> {
+        Binding {
+            viewModel.textColor.swiftUIColor
+        } set: { color in
+            viewModel.textColor = TextEditorColor(color)
+        }
+    }
+
+    private var backgroundColorBinding: Binding<Color> {
+        Binding {
+            (viewModel.backgroundColor ?? .yellowHighlight).swiftUIColor
+        } set: { color in
+            viewModel.backgroundColor = TextEditorColor(color)
+        }
+    }
+
     // MARK: Toolbar button builder
 
     private func toggleButton(
@@ -298,17 +372,63 @@ public struct TextEditorModalView: View {
     /// (Underline is not applied here — the plain `TextEditor` shows raw `<u>…</u>`
     /// markup; visual underline arrives with the real renderer at integration.)
     private var editorFont: Font {
-        let design: Font.Design = switch viewModel.fontName {
-        case "Serif": .serif
-        case "Monospaced": .monospaced
-        case "Rounded": .rounded
-        default: .default
-        }
-        var font = Font.system(size: viewModel.fontSize, design: design)
-            .pointSize(viewModel.fontSize)
+        var font = Self.font(for: viewModel.fontName, size: viewModel.fontSize)
         if viewModel.isBold { font = font.bold() }
         if viewModel.isItalic { font = font.italic() }
         return font
+    }
+
+    private static func font(for name: String, size: CGFloat) -> Font {
+        switch name {
+        case "Serif":
+            return .system(size: size, design: .serif)
+        case "Rounded":
+            return .system(size: size, design: .rounded)
+        case "Monospaced":
+            return .system(size: size, design: .monospaced)
+        case "Avenir Next":
+            return .custom("AvenirNext-Regular", size: size)
+        case "Futura":
+            return .custom("Futura-Medium", size: size)
+        case "Helvetica Neue":
+            return .custom("HelveticaNeue", size: size)
+        case "Georgia":
+            return .custom("Georgia", size: size)
+        case "Chalkboard SE":
+            return .custom("ChalkboardSE-Regular", size: size)
+        case "Marker Felt":
+            return .custom("MarkerFelt-Thin", size: size)
+        default:
+            return .system(size: size)
+        }
+    }
+}
+
+private extension TextEditorColor {
+    var swiftUIColor: Color {
+        Color(red: red, green: green, blue: blue, opacity: alpha)
+    }
+
+    init(_ color: Color) {
+        #if os(iOS)
+        let platformColor = UIColor(color)
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        platformColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        self.init(red: red, green: green, blue: blue, alpha: alpha)
+        #elseif os(macOS)
+        let platformColor = NSColor(color).usingColorSpace(.deviceRGB) ?? .black
+        self.init(
+            red: platformColor.redComponent,
+            green: platformColor.greenComponent,
+            blue: platformColor.blueComponent,
+            alpha: platformColor.alphaComponent
+        )
+        #else
+        self.init(red: 0, green: 0, blue: 0, alpha: 1)
+        #endif
     }
 }
 

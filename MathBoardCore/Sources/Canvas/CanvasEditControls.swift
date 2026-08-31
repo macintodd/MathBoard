@@ -134,6 +134,13 @@ public struct CanvasObjectCommand: Sendable, Equatable, Identifiable {
         case reorderImage(UUID, ImageLayerAction)
         case setImageLocked(UUID, Bool)
         case setGeometryLocked(UUID, Bool)
+        case setAnimationPreset(CanvasAnimatedObjectRef, CanvasAnimationPreset)
+        case removeAnimation(CanvasAnimatedObjectRef)
+        case setTextEffect(UUID, CanvasAnimationPreset)
+        case toggleTextEffectHidden(UUID)
+        case playTextEffect(UUID)
+        case pauseTextEffect(UUID)
+        case setTextEffectRepeatMode(UUID, CanvasAnimationRepeatMode)
         case reloadObjectState
         case groupSelection
         case ungroupSelection
@@ -361,6 +368,7 @@ public struct CanvasTextInsertion: Sendable, Equatable {
     public var canvasPoint: CGPoint?
     public var fontSize: CGFloat
     public var color: CanvasStrokeColor
+    public var backgroundColor: CanvasStrokeColor?
     public var isBold: Bool
     public var isItalic: Bool
     public var isUnderlined: Bool
@@ -375,6 +383,7 @@ public struct CanvasTextInsertion: Sendable, Equatable {
         canvasPoint: CGPoint? = nil,
         fontSize: CGFloat,
         color: CanvasStrokeColor,
+        backgroundColor: CanvasStrokeColor? = nil,
         isBold: Bool = false,
         isItalic: Bool = false,
         isUnderlined: Bool = false,
@@ -388,6 +397,7 @@ public struct CanvasTextInsertion: Sendable, Equatable {
         self.canvasPoint = canvasPoint
         self.fontSize = fontSize
         self.color = color
+        self.backgroundColor = backgroundColor
         self.isBold = isBold
         self.isItalic = isItalic
         self.isUnderlined = isUnderlined
@@ -412,6 +422,9 @@ public struct CanvasTextUpdate: Sendable, Equatable {
     public var id: UUID
     public var text: String
     public var fontSize: CGFloat
+    public var color: CanvasStrokeColor?
+    public var backgroundColor: CanvasStrokeColor?
+    public var updatesBackgroundColor: Bool
     public var isBold: Bool
     public var isItalic: Bool
     public var isUnderlined: Bool
@@ -423,6 +436,9 @@ public struct CanvasTextUpdate: Sendable, Equatable {
         id: UUID,
         text: String,
         fontSize: CGFloat,
+        color: CanvasStrokeColor? = nil,
+        backgroundColor: CanvasStrokeColor? = nil,
+        updatesBackgroundColor: Bool = false,
         isBold: Bool = false,
         isItalic: Bool = false,
         isUnderlined: Bool = false,
@@ -433,6 +449,9 @@ public struct CanvasTextUpdate: Sendable, Equatable {
         self.id = id
         self.text = text
         self.fontSize = fontSize
+        self.color = color
+        self.backgroundColor = backgroundColor
+        self.updatesBackgroundColor = updatesBackgroundColor
         self.isBold = isBold
         self.isItalic = isItalic
         self.isUnderlined = isUnderlined

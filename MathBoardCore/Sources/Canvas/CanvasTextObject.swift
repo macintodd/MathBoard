@@ -18,6 +18,10 @@ public struct CanvasTextObject: Identifiable, Codable, Hashable, Sendable {
     public var green: CGFloat
     public var blue: CGFloat
     public var alpha: CGFloat
+    public var backgroundRed: CGFloat?
+    public var backgroundGreen: CGFloat?
+    public var backgroundBlue: CGFloat?
+    public var backgroundAlpha: CGFloat?
     public var isBold: Bool
     public var isItalic: Bool
     public var isUnderlined: Bool
@@ -39,6 +43,10 @@ public struct CanvasTextObject: Identifiable, Codable, Hashable, Sendable {
         green: CGFloat = 0,
         blue: CGFloat = 0,
         alpha: CGFloat = 1,
+        backgroundRed: CGFloat? = nil,
+        backgroundGreen: CGFloat? = nil,
+        backgroundBlue: CGFloat? = nil,
+        backgroundAlpha: CGFloat? = nil,
         isBold: Bool = false,
         isItalic: Bool = false,
         isUnderlined: Bool = false,
@@ -58,6 +66,10 @@ public struct CanvasTextObject: Identifiable, Codable, Hashable, Sendable {
         self.green = green
         self.blue = blue
         self.alpha = alpha
+        self.backgroundRed = backgroundRed
+        self.backgroundGreen = backgroundGreen
+        self.backgroundBlue = backgroundBlue
+        self.backgroundAlpha = backgroundAlpha
         self.isBold = isBold
         self.isItalic = isItalic
         self.isUnderlined = isUnderlined
@@ -100,11 +112,36 @@ public struct CanvasTextObject: Identifiable, Codable, Hashable, Sendable {
         (red, green, blue, alpha)
     }
 
+    public var backgroundColorComponents: (red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat)? {
+        guard let backgroundRed,
+              let backgroundGreen,
+              let backgroundBlue,
+              let backgroundAlpha,
+              backgroundAlpha > 0 else {
+            return nil
+        }
+        return (backgroundRed, backgroundGreen, backgroundBlue, backgroundAlpha)
+    }
+
     public mutating func setColor(red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat = 1) {
         self.red = red
         self.green = green
         self.blue = blue
         self.alpha = alpha
+    }
+
+    public mutating func setBackgroundColor(red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat) {
+        self.backgroundRed = red
+        self.backgroundGreen = green
+        self.backgroundBlue = blue
+        self.backgroundAlpha = alpha
+    }
+
+    public mutating func clearBackgroundColor() {
+        backgroundRed = nil
+        backgroundGreen = nil
+        backgroundBlue = nil
+        backgroundAlpha = nil
     }
 
     public static func sidecarURL(forDrawingURL drawingURL: URL) -> URL {
@@ -142,6 +179,10 @@ public struct CanvasTextObject: Identifiable, Codable, Hashable, Sendable {
         case green
         case blue
         case alpha
+        case backgroundRed
+        case backgroundGreen
+        case backgroundBlue
+        case backgroundAlpha
         case isBold
         case isItalic
         case isUnderlined
@@ -164,6 +205,10 @@ public struct CanvasTextObject: Identifiable, Codable, Hashable, Sendable {
         green = try container.decodeIfPresent(CGFloat.self, forKey: .green) ?? 0
         blue = try container.decodeIfPresent(CGFloat.self, forKey: .blue) ?? 0
         alpha = try container.decodeIfPresent(CGFloat.self, forKey: .alpha) ?? 1
+        backgroundRed = try container.decodeIfPresent(CGFloat.self, forKey: .backgroundRed)
+        backgroundGreen = try container.decodeIfPresent(CGFloat.self, forKey: .backgroundGreen)
+        backgroundBlue = try container.decodeIfPresent(CGFloat.self, forKey: .backgroundBlue)
+        backgroundAlpha = try container.decodeIfPresent(CGFloat.self, forKey: .backgroundAlpha)
         isBold = try container.decodeIfPresent(Bool.self, forKey: .isBold) ?? false
         isItalic = try container.decodeIfPresent(Bool.self, forKey: .isItalic) ?? false
         isUnderlined = try container.decodeIfPresent(Bool.self, forKey: .isUnderlined) ?? false

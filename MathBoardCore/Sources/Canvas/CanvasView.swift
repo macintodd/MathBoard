@@ -25,6 +25,7 @@ public struct CanvasView: View {
     private let editCommand: CanvasEditCommand?
     private let toolCommand: CanvasToolCommand?
     private let objectCommand: CanvasObjectCommand?
+    private let animationPlaybackState: CanvasAnimationPlaybackState
     @Binding private var selectionState: CanvasSelectionState
     private let showsSystemToolPicker: Bool
     private let onFrameUpdate: (@MainActor (CGImage, CGRect, CGRect) -> Void)?
@@ -57,6 +58,7 @@ public struct CanvasView: View {
         editCommand: CanvasEditCommand? = nil,
         toolCommand: CanvasToolCommand? = nil,
         objectCommand: CanvasObjectCommand? = nil,
+        animationPlaybackState: CanvasAnimationPlaybackState = CanvasAnimationPlaybackState(),
         selectionState: Binding<CanvasSelectionState> = .constant(CanvasSelectionState()),
         showsSystemToolPicker: Bool = true,
         onFrameUpdate: (@MainActor (CGImage, CGRect, CGRect) -> Void)? = nil,
@@ -88,6 +90,7 @@ public struct CanvasView: View {
         self.editCommand = editCommand
         self.toolCommand = toolCommand
         self.objectCommand = objectCommand
+        self.animationPlaybackState = animationPlaybackState
         self._selectionState = selectionState
         self.showsSystemToolPicker = showsSystemToolPicker
         self.onFrameUpdate = onFrameUpdate
@@ -123,6 +126,7 @@ public struct CanvasView: View {
             editCommand: editCommand,
             toolCommand: toolCommand,
             objectCommand: objectCommand,
+            animationPlaybackState: animationPlaybackState,
             selectionState: $selectionState,
             showsSystemToolPicker: showsSystemToolPicker,
             onFrameUpdate: onFrameUpdate,

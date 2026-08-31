@@ -70,6 +70,7 @@ public struct PresentingCanvasView: View {
     @State private var editCommand: CanvasEditCommand?
     @State private var toolCommand: CanvasToolCommand?
     @State private var objectCommand: CanvasObjectCommand?
+    @State private var animationPlaybackState = CanvasAnimationPlaybackState()
     @State private var selectionState = CanvasSelectionState()
     @State private var editState = CanvasEditState()
     @State private var pendingTextPlacement: PendingTextPlacement?
@@ -153,6 +154,7 @@ public struct PresentingCanvasView: View {
                 editCommand: editCommand,
                 toolCommand: toolCommand,
                 objectCommand: objectCommand,
+                animationPlaybackState: animationPlaybackState,
                 selectionState: $selectionState,
                 showsSystemToolPicker: !paletteSettings.isCustomPaletteEnabled,
                 onFrameUpdate: broker.isExternalDisplayConnected ? Self.publishFrame : nil,
@@ -341,7 +343,14 @@ public struct PresentingCanvasView: View {
             }
         }
         .platformEditorCover(item: $pendingTextPlacement) { placement in
-            TextEditorModalView { result in
+            let state = broker.toolPaletteState
+            TextEditorModalView(
+                viewModel: TextEditorViewModel(
+                    fontSize: editorFontSize(forCanvasFontSize: CGFloat(state.textSize)),
+                    fontName: state.textFontName,
+                    textColor: TextEditorColor(CanvasStrokeColor(color: state.strokeColor, opacity: state.opacity))
+                )
+            ) { result in
                 insertText(result, placement: placement)
                 pendingTextPlacement = nil
                 activateSelectTool()
@@ -358,7 +367,16 @@ public struct PresentingCanvasView: View {
                     isItalic: edit.object.isItalic,
                     isUnderline: edit.object.isUnderlined,
                     fontSize: editorFontSize(forCanvasFontSize: edit.object.fontSize),
-                    fontName: edit.object.fontName ?? "System"
+                    fontName: edit.object.fontName ?? "System",
+                    textColor: TextEditorColor(
+                        red: edit.object.red,
+                        green: edit.object.green,
+                        blue: edit.object.blue,
+                        alpha: edit.object.alpha
+                    ),
+                    backgroundColor: edit.object.backgroundColorComponents.map {
+                        TextEditorColor(red: $0.red, green: $0.green, blue: $0.blue, alpha: $0.alpha)
+                    }
                 )
             ) { result in
                 updateText(result, object: edit.object)
@@ -488,6 +506,12 @@ public struct PresentingCanvasView: View {
                 label: broker.mode == .present ? "Mirror Mode" : "Present Mode"
             ) {
                 togglePresentationMode()
+            }
+            toolbarIconButton("forward.frame.fill", label: "Next Animation") {
+                advanceAnimationPlayback()
+            }
+            toolbarIconButton("arrow.counterclockwise.circle", label: "Reset Animations") {
+                resetAnimationPlayback()
             }
             #if os(iOS)
             toolbarIconButton(
@@ -670,6 +694,19 @@ public struct PresentingCanvasView: View {
                     onCopy: { objectCommand = CanvasObjectCommand(.copy(.text(object.id))) },
                     onPaste: { objectCommand = CanvasObjectCommand(.pasteClipboard) },
                     onClone: { objectCommand = CanvasObjectCommand(.duplicate(.text(object.id))) },
+                    onTextEffect: textEffectAction(for: object.id),
+                    onTextEffectToggleVisibility: {
+                        objectCommand = CanvasObjectCommand(.toggleTextEffectHidden(object.id))
+                    },
+                    onTextEffectPlay: {
+                        objectCommand = CanvasObjectCommand(.playTextEffect(object.id))
+                    },
+                    onTextEffectPause: {
+                        objectCommand = CanvasObjectCommand(.pauseTextEffect(object.id))
+                    },
+                    onTextEffectRepeat: { repeatMode in
+                        objectCommand = CanvasObjectCommand(.setTextEffectRepeatMode(object.id, repeatMode))
+                    },
                     onDelete: { objectCommand = CanvasObjectCommand(.delete(.text(object.id))) }
                 )
                 .position(hudPosition(for: viewportFrame, in: proxy.size))
@@ -890,8 +927,32 @@ public struct PresentingCanvasView: View {
     private func togglePresentationMode() {
         let nextMode: CanvasPresentationMode = broker.mode == .present ? .mirror : .present
         broker.mode = nextMode
+        animationPlaybackState = nextMode == .present
+            ? CanvasAnimationPlaybackState(currentStep: 0, isPresenting: true)
+            : animationPlaybackState.reset()
         if nextMode == .present, broker.externalDisplayConnectionRoute == .none {
             isExternalDisplayUnavailableAlertPresented = true
+        }
+    }
+
+    private func advanceAnimationPlayback() {
+        animationPlaybackState = animationPlaybackState.advancing()
+    }
+
+    private func resetAnimationPlayback() {
+        animationPlaybackState = broker.mode == .present
+            ? CanvasAnimationPlaybackState(currentStep: 0, isPresenting: true)
+            : animationPlaybackState.reset()
+    }
+
+    private func textEffectAction(for textObjectID: UUID) -> (CanvasAnimationPreset?) -> Void {
+        { preset in
+            if let preset {
+                objectCommand = CanvasObjectCommand(.setTextEffect(textObjectID, preset))
+            } else {
+                objectCommand = CanvasObjectCommand(.removeAnimation(CanvasAnimatedObjectRef(kind: .text, id: textObjectID)))
+            }
+            resetAnimationPlayback()
         }
     }
 
@@ -1303,6 +1364,14 @@ public struct PresentingCanvasView: View {
                     blue: textPayload.blue,
                     alpha: textPayload.alpha
                 ),
+                backgroundColor: textPayload.backgroundAlpha.map { alpha in
+                    CanvasStrokeColor(
+                        red: textPayload.backgroundRed ?? 1,
+                        green: textPayload.backgroundGreen ?? 1,
+                        blue: textPayload.backgroundBlue ?? 1,
+                        alpha: alpha
+                    )
+                },
                 isBold: textPayload.isBold,
                 isItalic: textPayload.isItalic,
                 isUnderlined: textPayload.isUnderlined,
@@ -1403,14 +1472,14 @@ public struct PresentingCanvasView: View {
     }
 
     private func insertText(_ result: TextEditorResult, placement: PendingTextPlacement) {
-        let state = broker.toolPaletteState
         let canvasFontSize = canvasFontSize(forEditorFontSize: result.fontSize)
         objectCommand = CanvasObjectCommand(.insertText(CanvasTextInsertion(
             text: result.sourceText,
             sourcePoint: placement.sourcePoint,
             canvasPoint: placement.canvasPoint,
             fontSize: canvasFontSize,
-            color: CanvasStrokeColor(color: state.strokeColor, opacity: state.opacity),
+            color: CanvasStrokeColor(result.textColor),
+            backgroundColor: result.backgroundColor.map(CanvasStrokeColor.init),
             isBold: result.isBold,
             isItalic: result.isItalic,
             isUnderlined: result.isUnderline,
@@ -1422,7 +1491,6 @@ public struct PresentingCanvasView: View {
             kind: .text,
             textPayload: LibraryTextPayload(
                 result,
-                color: CanvasStrokeColor(color: state.strokeColor, opacity: state.opacity),
                 fontSize: canvasFontSize
             )
         )
@@ -1438,12 +1506,6 @@ public struct PresentingCanvasView: View {
             kind: .text,
             textPayload: LibraryTextPayload(
                 result,
-                color: CanvasStrokeColor(
-                    red: object.red,
-                    green: object.green,
-                    blue: object.blue,
-                    alpha: object.alpha
-                ),
                 fontSize: canvasFontSize,
                 fallbackSize: object.frame.size
             )
@@ -1453,6 +1515,9 @@ public struct PresentingCanvasView: View {
             id: object.id,
             text: result.sourceText,
             fontSize: canvasFontSize,
+            color: CanvasStrokeColor(result.textColor),
+            backgroundColor: result.backgroundColor.map(CanvasStrokeColor.init),
+            updatesBackgroundColor: true,
             isBold: result.isBold,
             isItalic: result.isItalic,
             isUnderlined: result.isUnderline,
@@ -2213,17 +2278,20 @@ private extension CanvasTextObject {
 private extension LibraryTextPayload {
     init(
         _ result: TextEditorResult,
-        color: CanvasStrokeColor,
         fontSize: CGFloat? = nil,
         fallbackSize: CGSize = CGSize(width: 220, height: 80)
     ) {
         self.init(
             text: result.sourceText,
             fontSize: fontSize ?? result.fontSize,
-            red: color.red,
-            green: color.green,
-            blue: color.blue,
-            alpha: color.alpha,
+            red: result.textColor.red,
+            green: result.textColor.green,
+            blue: result.textColor.blue,
+            alpha: result.textColor.alpha,
+            backgroundRed: result.backgroundColor?.red,
+            backgroundGreen: result.backgroundColor?.green,
+            backgroundBlue: result.backgroundColor?.blue,
+            backgroundAlpha: result.backgroundColor?.alpha,
             isBold: result.isBold,
             isItalic: result.isItalic,
             isUnderlined: result.isUnderline,
@@ -2241,6 +2309,10 @@ private extension LibraryTextPayload {
             green: object.green,
             blue: object.blue,
             alpha: object.alpha,
+            backgroundRed: object.backgroundRed,
+            backgroundGreen: object.backgroundGreen,
+            backgroundBlue: object.backgroundBlue,
+            backgroundAlpha: object.backgroundAlpha,
             isBold: object.isBold,
             isItalic: object.isItalic,
             isUnderlined: object.isUnderlined,
@@ -2248,6 +2320,18 @@ private extension LibraryTextPayload {
             width: object.width,
             height: object.height
         )
+    }
+}
+
+private extension TextEditorColor {
+    init(_ color: CanvasStrokeColor) {
+        self.init(red: color.red, green: color.green, blue: color.blue, alpha: color.alpha)
+    }
+}
+
+private extension CanvasStrokeColor {
+    init(_ color: TextEditorColor) {
+        self.init(red: color.red, green: color.green, blue: color.blue, alpha: color.alpha)
     }
 }
 
@@ -2643,6 +2727,11 @@ private struct FloatingActionHUD: View {
     var onGroupToggle: (() -> Void)?
     var groupToggleTitle = "Group"
     var groupToggleSystemImage = "rectangle.3.group"
+    var onTextEffect: ((CanvasAnimationPreset?) -> Void)?
+    var onTextEffectToggleVisibility: (() -> Void)?
+    var onTextEffectPlay: (() -> Void)?
+    var onTextEffectPause: (() -> Void)?
+    var onTextEffectRepeat: ((CanvasAnimationRepeatMode) -> Void)?
     var canDelete = true
     let onDelete: () -> Void
 
@@ -2682,6 +2771,85 @@ private struct FloatingActionHUD: View {
             }
             if let onGroupToggle {
                 hudButton(groupToggleTitle, systemImage: groupToggleSystemImage, action: onGroupToggle)
+            }
+            if let onTextEffectToggleVisibility {
+                hudButton("Show or Hide Text Effect", systemImage: "eye", action: onTextEffectToggleVisibility)
+            }
+            if let onTextEffectPlay {
+                hudButton("Play Text Effect", systemImage: "play.fill", action: onTextEffectPlay)
+            }
+            if let onTextEffectPause {
+                hudButton("Pause Text Effect", systemImage: "pause.fill", action: onTextEffectPause)
+            }
+            if let onTextEffectRepeat {
+                Menu {
+                    ForEach(CanvasAnimationRepeatMode.allCases, id: \.self) { repeatMode in
+                        Button(repeatMode.displayName) {
+                            onTextEffectRepeat(repeatMode)
+                        }
+                    }
+                } label: {
+                    Label("Repeat Text Effect", systemImage: "repeat")
+                        .labelStyle(.iconOnly)
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(width: 34, height: 34)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.primary)
+                .background(
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.96), Color(red: 0.84, green: 0.90, blue: 0.96)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                )
+                .overlay(
+                    Circle()
+                        .stroke(Color.white.opacity(0.72), lineWidth: 1)
+                )
+                .shadow(color: .white.opacity(0.32), radius: 2, x: -1, y: -1)
+                .shadow(color: .black.opacity(0.12), radius: 3, x: 1, y: 2)
+                .help("Repeat Text Effect")
+            }
+            if let onTextEffect {
+                Menu {
+                    ForEach(CanvasAnimationPreset.textEffectPresets, id: \.self) { preset in
+                        Button(preset.displayName) {
+                            onTextEffect(preset)
+                        }
+                    }
+                    Divider()
+                    Button("None", role: .destructive) {
+                        onTextEffect(nil)
+                    }
+                } label: {
+                    Label("Text Effects", systemImage: "textformat")
+                        .labelStyle(.iconOnly)
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(width: 34, height: 34)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color.primary)
+                .background(
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.96), Color(red: 0.84, green: 0.90, blue: 0.96)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                )
+                .overlay(
+                    Circle()
+                        .stroke(Color.white.opacity(0.72), lineWidth: 1)
+                )
+                .shadow(color: .white.opacity(0.32), radius: 2, x: -1, y: -1)
+                .shadow(color: .black.opacity(0.12), radius: 3, x: 1, y: 2)
+                .help("Text Effects")
             }
             hudButton("Delete", systemImage: "trash", role: .destructive, isEnabled: canDelete, action: onDelete)
         }

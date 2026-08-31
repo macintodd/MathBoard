@@ -86,9 +86,20 @@ private extension CanvasTextObject {
         UIColor(red: red, green: green, blue: blue, alpha: alpha)
     }
 
+    var backgroundUIColor: UIColor? {
+        guard let backgroundColorComponents else { return nil }
+        return UIColor(
+            red: backgroundColorComponents.red,
+            green: backgroundColorComponents.green,
+            blue: backgroundColorComponents.blue,
+            alpha: backgroundColorComponents.alpha
+        )
+    }
+
     func uiFont(size: CGFloat) -> UIFont {
+        let resolvedFontName = Self.postScriptFontName(for: fontName)
         let baseFont: UIFont
-        if let fontName, let namedFont = UIFont(name: fontName, size: size) {
+        if let resolvedFontName, let namedFont = UIFont(name: resolvedFontName, size: size) {
             baseFont = namedFont
         } else {
             baseFont = .systemFont(ofSize: size)
@@ -107,6 +118,31 @@ private extension CanvasTextObject {
             return baseFont
         }
         return UIFont(descriptor: descriptor, size: size)
+    }
+
+    private static func postScriptFontName(for fontName: String?) -> String? {
+        switch fontName {
+        case "Serif":
+            return "Georgia"
+        case "Rounded":
+            return "ArialRoundedMTBold"
+        case "Monospaced":
+            return "Menlo-Regular"
+        case "Avenir Next":
+            return "AvenirNext-Regular"
+        case "Futura":
+            return "Futura-Medium"
+        case "Helvetica Neue":
+            return "HelveticaNeue"
+        case "Georgia":
+            return "Georgia"
+        case "Chalkboard SE":
+            return "ChalkboardSE-Regular"
+        case "Marker Felt":
+            return "MarkerFelt-Thin"
+        default:
+            return fontName
+        }
     }
 
     func textAttributes(size: CGFloat) -> [NSAttributedString.Key: Any] {
@@ -175,6 +211,7 @@ struct PencilKitCanvasContainer: View {
     let editCommand: CanvasEditCommand?
     let toolCommand: CanvasToolCommand?
     let objectCommand: CanvasObjectCommand?
+    let animationPlaybackState: CanvasAnimationPlaybackState
     @Binding var selectionState: CanvasSelectionState
     let showsSystemToolPicker: Bool
     let onFrameUpdate: (@MainActor (CGImage, CGRect, CGRect) -> Void)?
@@ -206,6 +243,7 @@ struct PencilKitCanvasContainer: View {
     @State private var coverObjects: [CanvasCoverObject] = []
     @State private var widgetObjects: [WidgetObject] = []
     @State private var objectLayerState = CanvasObjectLayerState()
+    @State private var animationState = CanvasAnimationState()
     @State private var didLoad = false
     @State private var saveTask: Task<Void, Never>?
     @State private var textSaveTask: Task<Void, Never>?
@@ -215,6 +253,7 @@ struct PencilKitCanvasContainer: View {
     @State private var coverObjectSaveTask: Task<Void, Never>?
     @State private var widgetObjectSaveTask: Task<Void, Never>?
     @State private var objectLayerSaveTask: Task<Void, Never>?
+    @State private var animationSaveTask: Task<Void, Never>?
     @State private var hasPendingSave = false
     @State private var hasPendingTextSave = false
     @State private var hasPendingImageObjectSave = false
@@ -223,6 +262,7 @@ struct PencilKitCanvasContainer: View {
     @State private var hasPendingCoverObjectSave = false
     @State private var hasPendingWidgetObjectSave = false
     @State private var hasPendingObjectLayerSave = false
+    @State private var hasPendingAnimationSave = false
     @State private var undoStack: [PKDrawing] = []
     @State private var redoStack: [PKDrawing] = []
     @State private var isApplyingEditCommand = false
@@ -246,6 +286,9 @@ struct PencilKitCanvasContainer: View {
             }
             .onChange(of: objectLayerState) { _, newObjectLayerState in
                 handleObjectLayerStateChange(newObjectLayerState)
+            }
+            .onChange(of: animationState) { _, newAnimationState in
+                handleAnimationStateChange(newAnimationState)
             }
             .onChange(of: editCommand) { _, command in
                 applyEditCommandIfNeeded(command)
@@ -293,12 +336,14 @@ struct PencilKitCanvasContainer: View {
             coverObjects: $coverObjects,
             widgetObjects: $widgetObjects,
             objectLayerState: $objectLayerState,
+            animationState: $animationState,
             background: background,
             presentationMode: presentationMode,
             initialViewportState: initialViewportState,
             viewportCommand: viewportCommand,
             toolCommand: toolCommand,
             objectCommand: objectCommand,
+            animationPlaybackState: animationPlaybackState,
             selectionState: $selectionState,
             showsSystemToolPicker: showsSystemToolPicker,
             onFrameUpdate: onFrameUpdate,
@@ -339,6 +384,8 @@ struct PencilKitCanvasContainer: View {
         widgetObjectSaveTask = nil
         objectLayerSaveTask?.cancel()
         objectLayerSaveTask = nil
+        animationSaveTask?.cancel()
+        animationSaveTask = nil
         hasPendingTextSave = false
         hasPendingImageObjectSave = false
         hasPendingLaTeXObjectSave = false
@@ -346,6 +393,7 @@ struct PencilKitCanvasContainer: View {
         hasPendingCoverObjectSave = false
         hasPendingWidgetObjectSave = false
         hasPendingObjectLayerSave = false
+        hasPendingAnimationSave = false
         drawing = (try? Self.loadDrawing(at: drawingURL)) ?? PKDrawing()
         textObjects = CanvasTextObject.load(from: CanvasTextObject.sidecarURL(forDrawingURL: drawingURL))
         imageObjects = CanvasImageObject.load(from: CanvasImageObject.sidecarURL(forDrawingURL: drawingURL))
@@ -354,6 +402,8 @@ struct PencilKitCanvasContainer: View {
         coverObjects = CanvasCoverObject.load(from: CanvasCoverObject.sidecarURL(forDrawingURL: drawingURL))
         widgetObjects = WidgetObject.load(from: WidgetObject.sidecarURL(forDrawingURL: drawingURL))
         objectLayerState = CanvasObjectLayerState.load(from: CanvasObjectLayerState.sidecarURL(forDrawingURL: drawingURL))
+        animationState = CanvasAnimationState.load(from: CanvasAnimationState.sidecarURL(forDrawingURL: drawingURL))
+        animationState.removeMissingTargets(validTargets: validAnimationTargets)
         undoStack = []
         redoStack = []
         isApplyingEditCommand = false
@@ -372,6 +422,7 @@ struct PencilKitCanvasContainer: View {
         flushPendingCoverObjectSave()
         flushPendingWidgetObjectSave()
         flushPendingObjectLayerSave()
+        flushPendingAnimationSave()
     }
 
     private func handleDrawingChange(from oldDrawing: PKDrawing, to newDrawing: PKDrawing) {
@@ -423,6 +474,32 @@ struct PencilKitCanvasContainer: View {
     private func handleObjectLayerStateChange(_ newObjectLayerState: CanvasObjectLayerState) {
         guard didLoad else { return }
         scheduleObjectLayerSave(of: newObjectLayerState)
+    }
+
+    private func handleAnimationStateChange(_ newAnimationState: CanvasAnimationState) {
+        guard didLoad else { return }
+        scheduleAnimationSave(of: newAnimationState)
+    }
+
+    private var validAnimationTargets: Set<CanvasAnimatedObjectRef> {
+        Self.validAnimationTargets(
+            textObjects: textObjects,
+            imageObjects: imageObjects,
+            geometryObjects: geometryObjects,
+            widgetObjects: widgetObjects
+        )
+    }
+
+    fileprivate static func validAnimationTargets(
+        textObjects: [CanvasTextObject],
+        imageObjects: [CanvasImageObject],
+        geometryObjects: [CanvasGeometryObject],
+        widgetObjects: [WidgetObject]
+    ) -> Set<CanvasAnimatedObjectRef> {
+        Set(textObjects.map { CanvasAnimatedObjectRef(kind: .text, id: $0.id) })
+            .union(imageObjects.map { CanvasAnimatedObjectRef(kind: .image, id: $0.id) })
+            .union(geometryObjects.map { CanvasAnimatedObjectRef(kind: .geometry, id: $0.id) })
+            .union(widgetObjects.map { CanvasAnimatedObjectRef(kind: .widget, id: $0.id) })
     }
 
     private func applyEditCommandIfNeeded(_ command: CanvasEditCommand?) {
@@ -621,6 +698,25 @@ struct PencilKitCanvasContainer: View {
         hasPendingObjectLayerSave = false
     }
 
+    private func scheduleAnimationSave(of newAnimationState: CanvasAnimationState) {
+        hasPendingAnimationSave = true
+        animationSaveTask?.cancel()
+        animationSaveTask = Task { @MainActor in
+            try? await Task.sleep(for: Self.saveDebounce)
+            guard !Task.isCancelled else { return }
+            saveAnimationState(newAnimationState, to: CanvasAnimationState.sidecarURL(forDrawingURL: drawingURL))
+            hasPendingAnimationSave = false
+        }
+    }
+
+    private func flushPendingAnimationSave() {
+        animationSaveTask?.cancel()
+        animationSaveTask = nil
+        guard hasPendingAnimationSave else { return }
+        saveAnimationState(animationState, to: CanvasAnimationState.sidecarURL(forDrawingURL: drawingURL))
+        hasPendingAnimationSave = false
+    }
+
     private static func loadDrawing(at url: URL) throws -> PKDrawing {
         let data = try Data(contentsOf: url)
         let drawing = try PKDrawing(data: data)
@@ -760,6 +856,15 @@ struct PencilKitCanvasContainer: View {
             print("[Canvas] object layer save error: \(error)")
         }
     }
+
+    private func saveAnimationState(_ state: CanvasAnimationState, to url: URL) {
+        do {
+            try CanvasAnimationState.save(state, to: url)
+            onCanvasObjectStateChange?()
+        } catch {
+            print("[Canvas] animation save error: \(error)")
+        }
+    }
 }
 
 private final class CanvasWidgetObjectsView: UIView {
@@ -884,12 +989,16 @@ private final class PencilKitCanvasHostView: UIView {
         _ textObjects: [CanvasTextObject],
         using canvas: PKCanvasView,
         hiddenTextObjectID: UUID? = nil,
-        selectedTextObjectID: UUID? = nil
+        selectedTextObjectID: UUID? = nil,
+        animationState: CanvasAnimationState = CanvasAnimationState(),
+        animationPlaybackState: CanvasAnimationPlaybackState = CanvasAnimationPlaybackState()
     ) {
         textObjectsView.configure(
             textObjects,
             hiddenTextObjectID: hiddenTextObjectID,
-            selectedTextObjectID: selectedTextObjectID
+            selectedTextObjectID: selectedTextObjectID,
+            animationState: animationState,
+            animationPlaybackState: animationPlaybackState
         )
         updateTextObjectFrame(using: canvas)
     }
@@ -898,12 +1007,16 @@ private final class PencilKitCanvasHostView: UIView {
         _ imageObjects: [CanvasImageObject],
         assetDirectoryURL: URL,
         using canvas: PKCanvasView,
-        selectedImageObjectID: UUID? = nil
+        selectedImageObjectID: UUID? = nil,
+        animationState: CanvasAnimationState = CanvasAnimationState(),
+        animationPlaybackState: CanvasAnimationPlaybackState = CanvasAnimationPlaybackState()
     ) {
         imageObjectsView.configure(
             imageObjects,
             assetDirectoryURL: assetDirectoryURL,
-            selectedImageObjectID: selectedImageObjectID
+            selectedImageObjectID: selectedImageObjectID,
+            animationState: animationState,
+            animationPlaybackState: animationPlaybackState
         )
         updateImageObjectFrame(using: canvas)
     }
@@ -912,12 +1025,16 @@ private final class PencilKitCanvasHostView: UIView {
         _ geometryObjects: [CanvasGeometryObject],
         using canvas: PKCanvasView,
         selectedGeometryObjectID: UUID? = nil,
-        resizingGeometryObjectID: UUID? = nil
+        resizingGeometryObjectID: UUID? = nil,
+        animationState: CanvasAnimationState = CanvasAnimationState(),
+        animationPlaybackState: CanvasAnimationPlaybackState = CanvasAnimationPlaybackState()
     ) {
         geometryObjectsView.configure(
             geometryObjects,
             selectedGeometryObjectID: selectedGeometryObjectID,
-            resizingGeometryObjectID: resizingGeometryObjectID
+            resizingGeometryObjectID: resizingGeometryObjectID,
+            animationState: animationState,
+            animationPlaybackState: animationPlaybackState
         )
         updateGeometryObjectFrame(using: canvas)
     }
@@ -2028,6 +2145,9 @@ private final class CanvasImageObjectsView: UIView {
     private var zoomScale: CGFloat = 1
     private var contentOffset: CGPoint = .zero
     private var canvasOrigin: CGPoint = .zero
+    private var animationState = CanvasAnimationState()
+    private var animationPlaybackState = CanvasAnimationPlaybackState()
+    private var isAnimationRedrawScheduled = false
     private var imageCache: [String: UIImage] = [:]
     private static let rotationStemLength: CGFloat = 30
 
@@ -2045,16 +2165,22 @@ private final class CanvasImageObjectsView: UIView {
     func configure(
         _ imageObjects: [CanvasImageObject],
         assetDirectoryURL: URL,
-        selectedImageObjectID: UUID? = nil
+        selectedImageObjectID: UUID? = nil,
+        animationState: CanvasAnimationState = CanvasAnimationState(),
+        animationPlaybackState: CanvasAnimationPlaybackState = CanvasAnimationPlaybackState()
     ) {
         guard self.imageObjects != imageObjects
                 || self.assetDirectoryURL != assetDirectoryURL
-                || self.selectedImageObjectID != selectedImageObjectID else {
+                || self.selectedImageObjectID != selectedImageObjectID
+                || self.animationState != animationState
+                || self.animationPlaybackState != animationPlaybackState else {
             return
         }
         self.imageObjects = imageObjects
         self.assetDirectoryURL = assetDirectoryURL
         self.selectedImageObjectID = selectedImageObjectID
+        self.animationState = animationState
+        self.animationPlaybackState = animationPlaybackState
         imageCache = imageCache.filter { fileName, _ in
             imageObjects.contains { $0.imageFileName == fileName }
         }
@@ -2074,11 +2200,21 @@ private final class CanvasImageObjectsView: UIView {
 
         for object in imageObjects {
             guard let image = image(for: object) else { continue }
+            let effect = animationState.renderEffect(
+                for: CanvasAnimatedObjectRef(kind: .image, id: object.id),
+                playback: animationPlaybackState
+            )
+            guard effect.isVisible else { continue }
             let frame = screenRect(for: object.frame)
-            if let context = UIGraphicsGetCurrentContext(), object.rotation != 0 {
+            if let context = UIGraphicsGetCurrentContext() {
                 context.saveGState()
+                context.setAlpha(effect.opacity)
                 let center = screenPoint(object.center)
-                context.translateBy(x: center.x, y: center.y)
+                context.translateBy(
+                    x: center.x + effect.translation.width * zoomScale,
+                    y: center.y + effect.translation.height * zoomScale
+                )
+                context.scaleBy(x: effect.scale, y: effect.scale)
                 context.rotate(by: object.rotation)
                 let rotatedFrame = CGRect(
                     x: -frame.width / 2,
@@ -2094,6 +2230,19 @@ private final class CanvasImageObjectsView: UIView {
             if object.id == selectedImageObjectID {
                 drawSelectionFrame(for: object)
             }
+        }
+        scheduleAnimationRedrawIfNeeded()
+    }
+
+    private func scheduleAnimationRedrawIfNeeded() {
+        guard !isAnimationRedrawScheduled,
+              animationState.needsRenderTicks(for: .image, playback: animationPlaybackState) else {
+            return
+        }
+        isAnimationRedrawScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 30.0) { [weak self] in
+            self?.isAnimationRedrawScheduled = false
+            self?.setNeedsDisplay()
         }
     }
 
@@ -2218,6 +2367,9 @@ private final class CanvasGeometryObjectsView: UIView {
     private var zoomScale: CGFloat = 1
     private var contentOffset: CGPoint = .zero
     private var canvasOrigin: CGPoint = .zero
+    private var animationState = CanvasAnimationState()
+    private var animationPlaybackState = CanvasAnimationPlaybackState()
+    private var isAnimationRedrawScheduled = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -2233,16 +2385,22 @@ private final class CanvasGeometryObjectsView: UIView {
     func configure(
         _ geometryObjects: [CanvasGeometryObject],
         selectedGeometryObjectID: UUID? = nil,
-        resizingGeometryObjectID: UUID? = nil
+        resizingGeometryObjectID: UUID? = nil,
+        animationState: CanvasAnimationState = CanvasAnimationState(),
+        animationPlaybackState: CanvasAnimationPlaybackState = CanvasAnimationPlaybackState()
     ) {
         guard self.geometryObjects != geometryObjects
                 || self.selectedGeometryObjectID != selectedGeometryObjectID
-                || self.resizingGeometryObjectID != resizingGeometryObjectID else {
+                || self.resizingGeometryObjectID != resizingGeometryObjectID
+                || self.animationState != animationState
+                || self.animationPlaybackState != animationPlaybackState else {
             return
         }
         self.geometryObjects = geometryObjects
         self.selectedGeometryObjectID = selectedGeometryObjectID
         self.resizingGeometryObjectID = resizingGeometryObjectID
+        self.animationState = animationState
+        self.animationPlaybackState = animationPlaybackState
         setNeedsDisplay()
     }
 
@@ -2262,11 +2420,21 @@ private final class CanvasGeometryObjectsView: UIView {
         guard let context = UIGraphicsGetCurrentContext() else { return }
 
         for object in geometryObjects {
+            let effect = animationState.renderEffect(
+                for: CanvasAnimatedObjectRef(kind: .geometry, id: object.id),
+                playback: animationPlaybackState
+            )
+            guard effect.isVisible else { continue }
             let normalized = object.normalizedFrame
             let boundingRect = screenRect(for: normalized)
             let start = screenPoint(x: object.x, y: object.y)
             let end = screenPoint(x: object.x + object.width, y: object.y + object.height)
             let pivot = screenPoint(x: object.pivot.x, y: object.pivot.y)
+            context.saveGState()
+            context.setAlpha(effect.opacity)
+            context.translateBy(x: pivot.x + effect.translation.width * zoomScale, y: pivot.y + effect.translation.height * zoomScale)
+            context.scaleBy(x: effect.scale, y: effect.scale)
+            context.translateBy(x: -pivot.x, y: -pivot.y)
             CanvasGeometryRenderer.draw(
                 object,
                 boundingRect: boundingRect,
@@ -2276,9 +2444,23 @@ private final class CanvasGeometryObjectsView: UIView {
                 pivot: pivot,
                 in: context
             )
+            context.restoreGState()
             if object.id == selectedGeometryObjectID {
                 drawSelection(for: object)
             }
+        }
+        scheduleAnimationRedrawIfNeeded()
+    }
+
+    private func scheduleAnimationRedrawIfNeeded() {
+        guard !isAnimationRedrawScheduled,
+              animationState.needsRenderTicks(for: .geometry, playback: animationPlaybackState) else {
+            return
+        }
+        isAnimationRedrawScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 30.0) { [weak self] in
+            self?.isAnimationRedrawScheduled = false
+            self?.setNeedsDisplay()
         }
     }
 
@@ -2432,6 +2614,9 @@ private final class CanvasTextObjectsView: UIView {
     private var zoomScale: CGFloat = 1
     private var contentOffset: CGPoint = .zero
     private var canvasOrigin: CGPoint = .zero
+    private var animationState = CanvasAnimationState()
+    private var animationPlaybackState = CanvasAnimationPlaybackState()
+    private var isAnimationRedrawScheduled = false
     private static let rotationStemLength: CGFloat = 30
 
     override init(frame: CGRect) {
@@ -2448,16 +2633,22 @@ private final class CanvasTextObjectsView: UIView {
     func configure(
         _ textObjects: [CanvasTextObject],
         hiddenTextObjectID: UUID? = nil,
-        selectedTextObjectID: UUID? = nil
+        selectedTextObjectID: UUID? = nil,
+        animationState: CanvasAnimationState = CanvasAnimationState(),
+        animationPlaybackState: CanvasAnimationPlaybackState = CanvasAnimationPlaybackState()
     ) {
         guard self.textObjects != textObjects
                 || self.hiddenTextObjectID != hiddenTextObjectID
-                || self.selectedTextObjectID != selectedTextObjectID else {
+                || self.selectedTextObjectID != selectedTextObjectID
+                || self.animationState != animationState
+                || self.animationPlaybackState != animationPlaybackState else {
             return
         }
         self.textObjects = textObjects
         self.hiddenTextObjectID = hiddenTextObjectID
         self.selectedTextObjectID = selectedTextObjectID
+        self.animationState = animationState
+        self.animationPlaybackState = animationPlaybackState
         setNeedsDisplay()
     }
 
@@ -2473,29 +2664,133 @@ private final class CanvasTextObjectsView: UIView {
         UIRectFill(rect)
 
         for object in textObjects where !object.text.isEmpty && object.id != hiddenTextObjectID {
+            let effect = animationState.renderEffect(
+                for: CanvasAnimatedObjectRef(kind: .text, id: object.id),
+                playback: animationPlaybackState
+            )
             let frame = CGRect(
                 x: (canvasOrigin.x + object.x) * zoomScale - contentOffset.x,
                 y: (canvasOrigin.y + object.y) * zoomScale - contentOffset.y,
                 width: object.width * zoomScale,
                 height: object.height * zoomScale
             )
-            if let context = UIGraphicsGetCurrentContext(), object.rotation != 0 {
+            if effect.isVisible, let context = UIGraphicsGetCurrentContext() {
                 context.saveGState()
                 let center = screenPoint(object.center)
-                context.translateBy(x: center.x, y: center.y)
+                context.setAlpha(effect.opacity)
+                context.translateBy(
+                    x: center.x + effect.translation.width * zoomScale,
+                    y: center.y + effect.translation.height * zoomScale
+                )
+                context.scaleBy(x: effect.scale, y: effect.scale)
                 context.rotate(by: object.rotation)
-                CanvasMathTextRenderer.draw(
+                drawTextEffectBacking(effect, in: CGRect(x: -frame.width / 2, y: -frame.height / 2, width: frame.width, height: frame.height))
+                drawTextObject(
                     object,
                     in: CGRect(x: -frame.width / 2, y: -frame.height / 2, width: frame.width, height: frame.height),
-                    scale: zoomScale
+                    scale: zoomScale,
+                    effect: effect
                 )
                 context.restoreGState()
-            } else {
-                CanvasMathTextRenderer.draw(object, in: frame, scale: zoomScale)
+            } else if effect.isVisible {
+                CanvasMathTextRenderer.draw(renderObject(object, effect: effect), in: frame, scale: zoomScale)
             }
             if object.id == selectedTextObjectID {
                 drawSelectionFrame(for: object)
+                if animationState.containsAnimation(for: CanvasAnimatedObjectRef(kind: .text, id: object.id)) {
+                    drawTextEffectFrame(for: object)
+                }
             }
+        }
+        scheduleAnimationRedrawIfNeeded()
+    }
+
+    private func drawTextObject(
+        _ object: CanvasTextObject,
+        in frame: CGRect,
+        scale: CGFloat,
+        effect: CanvasAnimationRenderEffect
+    ) {
+        guard let context = UIGraphicsGetCurrentContext() else {
+            CanvasMathTextRenderer.draw(renderObject(object, effect: effect), in: frame, scale: scale)
+            return
+        }
+
+        context.saveGState()
+        if let clipFraction = effect.clipFraction {
+            context.clip(to: CGRect(x: frame.minX, y: frame.minY, width: frame.width * clipFraction, height: frame.height))
+        }
+        if effect.glowAlpha > 0 {
+            context.setShadow(
+                offset: .zero,
+                blur: 12 * scale,
+                color: UIColor.systemCyan.withAlphaComponent(0.75 * effect.glowAlpha).cgColor
+            )
+        }
+        if effect.titleShadowAlpha > 0 {
+            context.setShadow(
+                offset: CGSize(width: 7 * scale, height: 7 * scale),
+                blur: 1,
+                color: UIColor.systemPurple.withAlphaComponent(0.75 * effect.titleShadowAlpha).cgColor
+            )
+        }
+        CanvasMathTextRenderer.draw(renderObject(object, effect: effect), in: frame, scale: scale)
+        context.restoreGState()
+    }
+
+    private func renderObject(_ object: CanvasTextObject, effect: CanvasAnimationRenderEffect) -> CanvasTextObject {
+        guard let textRevealFraction = effect.textRevealFraction else {
+            if let visibleCharacterCount = effect.visibleCharacterCount, visibleCharacterCount < object.text.count {
+                var copy = object
+                copy.text = String(object.text.prefix(max(0, visibleCharacterCount)))
+                return copy
+            }
+            return object
+        }
+
+        var copy = object
+        let characterCount = Int(ceil(CGFloat(object.text.count) * textRevealFraction))
+        copy.text = String(object.text.prefix(max(0, min(object.text.count, characterCount))))
+        return copy
+    }
+
+    private func drawTextEffectBacking(_ effect: CanvasAnimationRenderEffect, in frame: CGRect) {
+        guard let highlightProgress = effect.highlightProgress else { return }
+        let sweepWidth = max(frame.width * 0.28, 24)
+        let sweepX = frame.minX - sweepWidth + (frame.width + sweepWidth * 2) * highlightProgress
+        let highlightRect = CGRect(x: sweepX, y: frame.minY, width: sweepWidth, height: frame.height)
+        UIColor.systemYellow.withAlphaComponent(0.42).setFill()
+        UIBezierPath(roundedRect: highlightRect, cornerRadius: 6).fill()
+    }
+
+    private func drawTextEffectFrame(for object: CanvasTextObject) {
+        let inset: CGFloat = -11 / max(zoomScale, 0.001)
+        let frame = object.frame.insetBy(dx: inset, dy: inset)
+        let topLeft = screenPoint(rotatedSourcePoint(CGPoint(x: frame.minX, y: frame.minY), object: object))
+        let topRight = screenPoint(rotatedSourcePoint(CGPoint(x: frame.maxX, y: frame.minY), object: object))
+        let bottomRight = screenPoint(rotatedSourcePoint(CGPoint(x: frame.maxX, y: frame.maxY), object: object))
+        let bottomLeft = screenPoint(rotatedSourcePoint(CGPoint(x: frame.minX, y: frame.maxY), object: object))
+
+        let path = UIBezierPath()
+        path.move(to: topLeft)
+        path.addLine(to: topRight)
+        path.addLine(to: bottomRight)
+        path.addLine(to: bottomLeft)
+        path.close()
+        UIColor.systemPurple.withAlphaComponent(0.95).setStroke()
+        path.lineWidth = 2.5
+        path.stroke()
+    }
+
+    private func scheduleAnimationRedrawIfNeeded() {
+        guard !isAnimationRedrawScheduled,
+              animationState.needsRenderTicks(for: .text, playback: animationPlaybackState) else {
+            return
+        }
+        isAnimationRedrawScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 30.0) { [weak self] in
+            self?.isAnimationRedrawScheduled = false
+            self?.setNeedsDisplay()
         }
     }
 
@@ -2580,6 +2875,10 @@ private enum CanvasMathTextRenderer {
 
     static func draw(_ object: CanvasTextObject, in frame: CGRect, scale: CGFloat) {
         let resolvedScale = max(scale, 0.001)
+        if let backgroundColor = object.backgroundUIColor {
+            backgroundColor.setFill()
+            UIBezierPath(roundedRect: frame, cornerRadius: 8 * resolvedScale).fill()
+        }
         let attributes = object.textAttributes(size: object.fontSize * resolvedScale)
         let segments = CanvasMathTextParser.segments(in: object.text)
         guard segments.contains(where: \.isMath) else {
@@ -2820,12 +3119,14 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
     @Binding var coverObjects: [CanvasCoverObject]
     @Binding var widgetObjects: [WidgetObject]
     @Binding var objectLayerState: CanvasObjectLayerState
+    @Binding var animationState: CanvasAnimationState
     let background: CanvasBackground?
     let presentationMode: CanvasPresentationMode
     let initialViewportState: CanvasViewportState?
     let viewportCommand: CanvasViewportCommand?
     let toolCommand: CanvasToolCommand?
     let objectCommand: CanvasObjectCommand?
+    let animationPlaybackState: CanvasAnimationPlaybackState
     @Binding var selectionState: CanvasSelectionState
     let showsSystemToolPicker: Bool
     let onFrameUpdate: (@MainActor (CGImage, CGRect, CGRect) -> Void)?
@@ -2880,9 +3181,16 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         hostView.updateImageObjects(
             imageObjects,
             assetDirectoryURL: CanvasImageObject.assetDirectoryURL(forDrawingURL: drawingURL),
-            using: canvas
+            using: canvas,
+            animationState: animationState,
+            animationPlaybackState: animationPlaybackState
         )
-        hostView.updateGeometryObjects(geometryObjects, using: canvas)
+        hostView.updateGeometryObjects(
+            geometryObjects,
+            using: canvas,
+            animationState: animationState,
+            animationPlaybackState: animationPlaybackState
+        )
         hostView.updateCoverObjects(coverObjects, using: canvas)
         hostView.updateWidgetObjects(
             $widgetObjects,
@@ -2898,7 +3206,12 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             onWidgetImageInsertionRequested: onWidgetImageInsertionRequested
         )
         context.coordinator.publishWidgetObjects(using: canvas)
-        hostView.updateTextObjects(textObjects, using: canvas)
+        hostView.updateTextObjects(
+            textObjects,
+            using: canvas,
+            animationState: animationState,
+            animationPlaybackState: animationPlaybackState
+        )
         hostView.updateObjectLayerState(objectLayerState)
 
         // Tool picker has to be installed after the view is in a window;
@@ -2914,12 +3227,16 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 self.imageObjects,
                 assetDirectoryURL: CanvasImageObject.assetDirectoryURL(forDrawingURL: self.drawingURL),
                 using: canvas,
-                selectedImageObjectID: context.coordinator.selectedImageObjectForDisplayID
+                selectedImageObjectID: context.coordinator.selectedImageObjectForDisplayID,
+                animationState: self.animationState,
+                animationPlaybackState: self.animationPlaybackState
             )
             hostView.updateGeometryObjects(
                 self.geometryObjects,
                 using: canvas,
-                selectedGeometryObjectID: context.coordinator.selectedGeometryObjectForDisplayID
+                selectedGeometryObjectID: context.coordinator.selectedGeometryObjectForDisplayID,
+                animationState: self.animationState,
+                animationPlaybackState: self.animationPlaybackState
             )
             hostView.updateCoverObjects(self.coverObjects, using: canvas)
             hostView.updateWidgetObjects(
@@ -2940,7 +3257,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 self.textObjects,
                 using: canvas,
                 hiddenTextObjectID: context.coordinator.activeEditingTextObjectID,
-                selectedTextObjectID: context.coordinator.selectedTextObjectForDisplayID
+                selectedTextObjectID: context.coordinator.selectedTextObjectForDisplayID,
+                animationState: self.animationState,
+                animationPlaybackState: self.animationPlaybackState
             )
             hostView.updateObjectLayerState(self.objectLayerState)
             context.coordinator.publishImageFromModel()
@@ -2968,12 +3287,16 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             imageObjects,
             assetDirectoryURL: CanvasImageObject.assetDirectoryURL(forDrawingURL: drawingURL),
             using: canvas,
-            selectedImageObjectID: context.coordinator.selectedImageObjectForDisplayID
+            selectedImageObjectID: context.coordinator.selectedImageObjectForDisplayID,
+            animationState: animationState,
+            animationPlaybackState: animationPlaybackState
         )
         hostView.updateGeometryObjects(
             geometryObjects,
             using: canvas,
-            selectedGeometryObjectID: context.coordinator.selectedGeometryObjectForDisplayID
+            selectedGeometryObjectID: context.coordinator.selectedGeometryObjectForDisplayID,
+            animationState: animationState,
+            animationPlaybackState: animationPlaybackState
         )
         hostView.updateCoverObjects(coverObjects, using: canvas)
         hostView.updateWidgetObjects(
@@ -2994,7 +3317,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             textObjects,
             using: canvas,
             hiddenTextObjectID: context.coordinator.activeEditingTextObjectID,
-            selectedTextObjectID: context.coordinator.selectedTextObjectForDisplayID
+            selectedTextObjectID: context.coordinator.selectedTextObjectForDisplayID,
+            animationState: animationState,
+            animationPlaybackState: animationPlaybackState
         )
         hostView.updateObjectLayerState(objectLayerState)
         context.coordinator.updateActiveTextEditorFrame(on: canvas)
@@ -3016,6 +3341,12 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             }
         }
 
+        if context.coordinator.animationPlaybackDidChange(to: animationPlaybackState) {
+            DispatchQueue.main.async {
+                context.coordinator.publishImageFromModel()
+            }
+        }
+
         if canvas.drawing != drawing {
             canvas.drawing = drawing
             // Belt and suspenders: if PencilKit doesn't fire
@@ -3029,6 +3360,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
 
     static func dismantleUIView(_ uiView: PencilKitCanvasHostView, coordinator: Coordinator) {
         coordinator.cancelPendingViewportFramePublish()
+        coordinator.cancelAnimationFramePublish()
         coordinator.clearLiveStroke()
     }
 
@@ -3043,6 +3375,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         weak var canvas: PKCanvasView?
         private var publishedPresentationMode: CanvasPresentationMode
         private var publishedTextObjects: [CanvasTextObject]
+        private var publishedAnimationPlaybackState: CanvasAnimationPlaybackState
 
         private static let targetAspect: CGFloat = 16.0 / 9.0
         private static let publishScale: CGFloat = 2
@@ -3080,6 +3413,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private var usableCanvasSize = CanvasBoardMetrics.defaultUsableSize
         private var didSetInitialContentOffset = false
         private var viewportFramePublishTask: Task<Void, Never>?
+        private var animationFramePublishTask: Task<Void, Never>?
         private var objectDragDisplayLink: CADisplayLink?
         private var hasPendingObjectDragPublish = false
         private var dragCachedDrawingImage: UIImage?
@@ -3298,6 +3632,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             self.parent = parent
             self.publishedPresentationMode = parent.presentationMode
             self.publishedTextObjects = parent.textObjects
+            self.publishedAnimationPlaybackState = parent.animationPlaybackState
         }
 
         func installToolPicker(on canvas: PKCanvasView, isVisible: Bool) {
@@ -3800,6 +4135,56 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 Task { @MainActor [weak self, weak canvas] in
                     guard let self, let canvas else { return }
                     self.ungroupSelectedObjects(using: canvas)
+                }
+            case .setAnimationPreset(let target, let preset):
+                Task { @MainActor [weak self, weak canvas] in
+                    guard let self, let canvas else { return }
+                    self.parent.animationState.setPreset(preset, for: target)
+                    self.updateAnimatedObjectLayers(using: canvas)
+                    self.publishImageFromModel()
+                }
+            case .removeAnimation(let target):
+                Task { @MainActor [weak self, weak canvas] in
+                    guard let self, let canvas else { return }
+                    self.parent.animationState.removeAnimation(for: target)
+                    self.updateAnimatedObjectLayers(using: canvas)
+                    self.publishImageFromModel()
+                }
+            case .setTextEffect(let id, let preset):
+                Task { @MainActor [weak self, weak canvas] in
+                    guard let self, let canvas else { return }
+                    self.parent.animationState.setTextEffect(preset, forTextObjectID: id)
+                    self.updateAnimatedObjectLayers(using: canvas)
+                    self.publishImageFromModel()
+                }
+            case .toggleTextEffectHidden(let id):
+                Task { @MainActor [weak self, weak canvas] in
+                    guard let self, let canvas else { return }
+                    self.parent.animationState.toggleHidden(for: CanvasAnimatedObjectRef(kind: .text, id: id))
+                    self.updateAnimatedObjectLayers(using: canvas)
+                    self.publishImageFromModel()
+                }
+            case .playTextEffect(let id):
+                Task { @MainActor [weak self, weak canvas] in
+                    guard let self, let canvas else { return }
+                    self.parent.animationState.playEffect(for: CanvasAnimatedObjectRef(kind: .text, id: id))
+                    self.updateAnimatedObjectLayers(using: canvas)
+                    self.publishImageFromModel()
+                    self.startAnimationFramePublishIfNeeded()
+                }
+            case .pauseTextEffect(let id):
+                Task { @MainActor [weak self, weak canvas] in
+                    guard let self, let canvas else { return }
+                    self.parent.animationState.pauseEffect(for: CanvasAnimatedObjectRef(kind: .text, id: id))
+                    self.updateAnimatedObjectLayers(using: canvas)
+                    self.publishImageFromModel()
+                }
+            case .setTextEffectRepeatMode(let id, let repeatMode):
+                Task { @MainActor [weak self, weak canvas] in
+                    guard let self, let canvas else { return }
+                    self.parent.animationState.setRepeatMode(repeatMode, for: CanvasAnimatedObjectRef(kind: .text, id: id))
+                    self.updateAnimatedObjectLayers(using: canvas)
+                    self.publishImageFromModel()
                 }
             }
         }
@@ -6620,6 +7005,10 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 green: object.green,
                 blue: object.blue,
                 alpha: object.alpha,
+                backgroundRed: object.backgroundRed,
+                backgroundGreen: object.backgroundGreen,
+                backgroundBlue: object.backgroundBlue,
+                backgroundAlpha: object.backgroundAlpha,
                 isBold: object.isBold,
                 isItalic: object.isItalic,
                 isUnderlined: object.isUnderlined,
@@ -6666,12 +7055,16 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private func deleteTextObject(at index: Int, using canvas: PKCanvasView) {
             parent.onInteractionBegan?()
             var textObjects = parent.textObjects
+            let removedID = textObjects[index].id
             textObjects.remove(at: index)
             parent.textObjects = textObjects
             setSelectedTextObjectID(nil)
             lastSelectedTextObjectID = nil
             movingTextObjectID = nil
             resizingTextObjectID = nil
+            parent.animationState.removeAnimation(
+                for: CanvasAnimatedObjectRef(kind: .text, id: removedID)
+            )
             updateHostTextObjects(using: canvas)
             publishImageFromModel()
         }
@@ -6714,6 +7107,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             movingImageObjectID = nil
             resizingImageObjectID = nil
             rotatingImageObjectID = nil
+            parent.animationState.removeAnimation(for: CanvasAnimatedObjectRef(kind: .image, id: id))
             updateHostImageObjects(using: canvas)
             publishImageFromModel()
         }
@@ -6856,6 +7250,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             setSelectedGeometryObjectID(nil)
             lastSelectedGeometryObjectID = nil
             clearObjectDragState()
+            parent.animationState.removeAnimation(for: CanvasAnimatedObjectRef(kind: .geometry, id: id))
             updateHostGeometryObjects(using: canvas)
             publishImageFromModel()
         }
@@ -6984,6 +7379,10 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     green: object.green,
                     blue: object.blue,
                     alpha: object.alpha,
+                    backgroundRed: object.backgroundRed,
+                    backgroundGreen: object.backgroundGreen,
+                    backgroundBlue: object.backgroundBlue,
+                    backgroundAlpha: object.backgroundAlpha,
                     isBold: object.isBold,
                     isItalic: object.isItalic,
                     isUnderlined: object.isUnderlined,
@@ -7640,6 +8039,10 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                         green: object.green,
                         blue: object.blue,
                         alpha: object.alpha,
+                        backgroundRed: object.backgroundRed,
+                        backgroundGreen: object.backgroundGreen,
+                        backgroundBlue: object.backgroundBlue,
+                        backgroundAlpha: object.backgroundAlpha,
                         isBold: object.isBold,
                         isItalic: object.isItalic,
                         isUnderlined: object.isUnderlined,
@@ -7969,6 +8372,10 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 green: insertion.color.green,
                 blue: insertion.color.blue,
                 alpha: insertion.color.alpha,
+                backgroundRed: insertion.backgroundColor?.red,
+                backgroundGreen: insertion.backgroundColor?.green,
+                backgroundBlue: insertion.backgroundColor?.blue,
+                backgroundAlpha: insertion.backgroundColor?.alpha,
                 isBold: insertion.isBold,
                 isItalic: insertion.isItalic,
                 isUnderlined: insertion.isUnderlined,
@@ -8004,6 +8411,24 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             commitTextObjectUpdate(at: index, using: canvas) { object in
                 object.text = text
                 object.fontSize = update.fontSize
+                if let color = update.color {
+                    object.red = color.red
+                    object.green = color.green
+                    object.blue = color.blue
+                    object.alpha = color.alpha
+                }
+                if update.updatesBackgroundColor {
+                    if let backgroundColor = update.backgroundColor {
+                        object.setBackgroundColor(
+                            red: backgroundColor.red,
+                            green: backgroundColor.green,
+                            blue: backgroundColor.blue,
+                            alpha: backgroundColor.alpha
+                        )
+                    } else {
+                        object.clearBackgroundColor()
+                    }
+                }
                 object.isBold = update.isBold
                 object.isItalic = update.isItalic
                 object.isUnderlined = update.isUnderlined
@@ -8347,6 +8772,13 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             parent.coverObjects = CanvasCoverObject.load(from: CanvasCoverObject.sidecarURL(forDrawingURL: parent.drawingURL))
             parent.widgetObjects = WidgetObject.load(from: WidgetObject.sidecarURL(forDrawingURL: parent.drawingURL))
             parent.objectLayerState = CanvasObjectLayerState.load(from: CanvasObjectLayerState.sidecarURL(forDrawingURL: parent.drawingURL))
+            parent.animationState = CanvasAnimationState.load(from: CanvasAnimationState.sidecarURL(forDrawingURL: parent.drawingURL))
+            parent.animationState.removeMissingTargets(validTargets: PencilKitCanvasContainer.validAnimationTargets(
+                textObjects: parent.textObjects,
+                imageObjects: parent.imageObjects,
+                geometryObjects: parent.geometryObjects,
+                widgetObjects: parent.widgetObjects
+            ))
             parent.selectionState = CanvasSelectionState()
             activeTextObjectID = nil
             activeTextEditor?.removeFromSuperview()
@@ -8366,7 +8798,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 parent.textObjects,
                 using: canvas,
                 hiddenTextObjectID: activeEditingTextObjectID,
-                selectedTextObjectID: selectedTextObjectForDisplayID
+                selectedTextObjectID: selectedTextObjectForDisplayID,
+                animationState: parent.animationState,
+                animationPlaybackState: parent.animationPlaybackState
             )
         }
 
@@ -8375,7 +8809,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 parent.imageObjects,
                 assetDirectoryURL: CanvasImageObject.assetDirectoryURL(forDrawingURL: parent.drawingURL),
                 using: canvas,
-                selectedImageObjectID: selectedImageObjectForDisplayID
+                selectedImageObjectID: selectedImageObjectForDisplayID,
+                animationState: parent.animationState,
+                animationPlaybackState: parent.animationPlaybackState
             )
         }
 
@@ -8384,8 +8820,16 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 parent.geometryObjects,
                 using: canvas,
                 selectedGeometryObjectID: selectedGeometryObjectForDisplayID,
-                resizingGeometryObjectID: resizingGeometryObjectID
+                resizingGeometryObjectID: resizingGeometryObjectID,
+                animationState: parent.animationState,
+                animationPlaybackState: parent.animationPlaybackState
             )
+        }
+
+        private func updateAnimatedObjectLayers(using canvas: PKCanvasView) {
+            updateHostTextObjects(using: canvas)
+            updateHostImageObjects(using: canvas)
+            updateHostGeometryObjects(using: canvas)
         }
 
         private func updateHostWidgetObjects(using canvas: PKCanvasView) {
@@ -8697,6 +9141,34 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             guard publishedPresentationMode != mode else { return false }
             publishedPresentationMode = mode
             return true
+        }
+
+        fileprivate func animationPlaybackDidChange(to playbackState: CanvasAnimationPlaybackState) -> Bool {
+            guard publishedAnimationPlaybackState != playbackState else { return false }
+            publishedAnimationPlaybackState = playbackState
+            startAnimationFramePublishIfNeeded()
+            return true
+        }
+
+        fileprivate func cancelAnimationFramePublish() {
+            animationFramePublishTask?.cancel()
+            animationFramePublishTask = nil
+        }
+
+        private func startAnimationFramePublishIfNeeded() {
+            cancelAnimationFramePublish()
+            guard parent.animationState.needsRenderTicks(playback: parent.animationPlaybackState) else { return }
+            animationFramePublishTask = Task { @MainActor [weak self] in
+                guard let self else { return }
+                while !Task.isCancelled,
+                      self.parent.animationState.needsRenderTicks(playback: self.parent.animationPlaybackState) {
+                    try? await Task.sleep(for: .milliseconds(50))
+                    guard !Task.isCancelled, let canvas = self.canvas else { continue }
+                    self.updateAnimatedObjectLayers(using: canvas)
+                    self.publishImageFromModel()
+                }
+                self.animationFramePublishTask = nil
+            }
         }
 
         fileprivate func textObjectsDidChange(to textObjects: [CanvasTextObject]) -> Bool {
@@ -9417,33 +9889,111 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             context.clip(to: destinationRect)
 
             for object in parent.textObjects where !object.text.isEmpty {
+                let effect = parent.animationState.renderEffect(
+                    for: CanvasAnimatedObjectRef(kind: .text, id: object.id),
+                    playback: parent.animationPlaybackState
+                )
+                guard effect.isVisible else { continue }
                 let textFrame = CGRect(
                     x: destinationRect.minX + (PencilKitCanvasGeometry.drawingOriginOffset.x + object.x - sourceRect.minX) * scaleX,
                     y: destinationRect.minY + (PencilKitCanvasGeometry.drawingOriginOffset.y + object.y - sourceRect.minY) * scaleY,
                     width: object.width * scaleX,
                     height: object.height * scaleY
                 )
-                if object.rotation == 0 {
-                    CanvasMathTextRenderer.draw(object, in: textFrame, scale: scaleY)
-                } else {
-                    context.saveGState()
-                    context.translateBy(x: textFrame.midX, y: textFrame.midY)
-                    context.rotate(by: object.rotation)
-                    CanvasMathTextRenderer.draw(
-                        object,
-                        in: CGRect(
-                            x: -textFrame.width / 2,
-                            y: -textFrame.height / 2,
-                            width: textFrame.width,
-                            height: textFrame.height
-                        ),
-                        scale: scaleY
-                    )
-                    context.restoreGState()
-                }
+                context.saveGState()
+                context.setAlpha(effect.opacity)
+                context.translateBy(
+                    x: textFrame.midX + effect.translation.width * scaleX,
+                    y: textFrame.midY + effect.translation.height * scaleY
+                )
+                context.scaleBy(x: effect.scale, y: effect.scale)
+                context.rotate(by: object.rotation)
+                drawTextEffectBacking(
+                    effect,
+                    in: CGRect(
+                        x: -textFrame.width / 2,
+                        y: -textFrame.height / 2,
+                        width: textFrame.width,
+                        height: textFrame.height
+                    ),
+                    scale: scaleY,
+                    context: context
+                )
+                drawTextObject(
+                    object,
+                    in: CGRect(
+                        x: -textFrame.width / 2,
+                        y: -textFrame.height / 2,
+                        width: textFrame.width,
+                        height: textFrame.height
+                    ),
+                    scale: scaleY,
+                    effect: effect,
+                    context: context
+                )
+                context.restoreGState()
             }
 
             context.restoreGState()
+        }
+
+        private func drawTextObject(
+            _ object: CanvasTextObject,
+            in frame: CGRect,
+            scale: CGFloat,
+            effect: CanvasAnimationRenderEffect,
+            context: CGContext
+        ) {
+            context.saveGState()
+            if let clipFraction = effect.clipFraction {
+                context.clip(to: CGRect(x: frame.minX, y: frame.minY, width: frame.width * clipFraction, height: frame.height))
+            }
+            if effect.glowAlpha > 0 {
+                context.setShadow(
+                    offset: .zero,
+                    blur: 12 * scale,
+                    color: UIColor.systemCyan.withAlphaComponent(0.75 * effect.glowAlpha).cgColor
+                )
+            }
+            if effect.titleShadowAlpha > 0 {
+                context.setShadow(
+                    offset: CGSize(width: 7 * scale, height: 7 * scale),
+                    blur: 1,
+                    color: UIColor.systemPurple.withAlphaComponent(0.75 * effect.titleShadowAlpha).cgColor
+                )
+            }
+            CanvasMathTextRenderer.draw(renderObject(object, effect: effect), in: frame, scale: scale)
+            context.restoreGState()
+        }
+
+        private func renderObject(_ object: CanvasTextObject, effect: CanvasAnimationRenderEffect) -> CanvasTextObject {
+            guard let textRevealFraction = effect.textRevealFraction else {
+                if let visibleCharacterCount = effect.visibleCharacterCount, visibleCharacterCount < object.text.count {
+                    var copy = object
+                    copy.text = String(object.text.prefix(max(0, visibleCharacterCount)))
+                    return copy
+                }
+                return object
+            }
+
+            var copy = object
+            let characterCount = Int(ceil(CGFloat(object.text.count) * textRevealFraction))
+            copy.text = String(object.text.prefix(max(0, min(object.text.count, characterCount))))
+            return copy
+        }
+
+        private func drawTextEffectBacking(
+            _ effect: CanvasAnimationRenderEffect,
+            in frame: CGRect,
+            scale: CGFloat,
+            context: CGContext
+        ) {
+            guard let highlightProgress = effect.highlightProgress else { return }
+            let sweepWidth = max(frame.width * 0.28, 24 * scale)
+            let sweepX = frame.minX - sweepWidth + (frame.width + sweepWidth * 2) * highlightProgress
+            let highlightRect = CGRect(x: sweepX, y: frame.minY, width: sweepWidth, height: frame.height)
+            context.setFillColor(UIColor.systemYellow.withAlphaComponent(0.42).cgColor)
+            context.fill(highlightRect)
         }
 
         private func drawImageObjects(
@@ -9465,28 +10015,34 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     named: object.imageFileName,
                     assetDirectoryURL: assetDirectoryURL
                 ) else { continue }
+                let effect = parent.animationState.renderEffect(
+                    for: CanvasAnimatedObjectRef(kind: .image, id: object.id),
+                    playback: parent.animationPlaybackState
+                )
+                guard effect.isVisible else { continue }
                 let imageFrame = CGRect(
                     x: destinationRect.minX + (PencilKitCanvasGeometry.drawingOriginOffset.x + object.x - sourceRect.minX) * scaleX,
                     y: destinationRect.minY + (PencilKitCanvasGeometry.drawingOriginOffset.y + object.y - sourceRect.minY) * scaleY,
                     width: object.width * scaleX,
                     height: object.height * scaleY
                 )
-                if object.rotation == 0 {
-                    image.draw(in: imageFrame)
-                } else {
-                    context.saveGState()
-                    context.translateBy(x: imageFrame.midX, y: imageFrame.midY)
-                    context.rotate(by: object.rotation)
-                    image.draw(
-                        in: CGRect(
-                            x: -imageFrame.width / 2,
-                            y: -imageFrame.height / 2,
-                            width: imageFrame.width,
-                            height: imageFrame.height
-                        )
+                context.saveGState()
+                context.setAlpha(effect.opacity)
+                context.translateBy(
+                    x: imageFrame.midX + effect.translation.width * scaleX,
+                    y: imageFrame.midY + effect.translation.height * scaleY
+                )
+                context.scaleBy(x: effect.scale, y: effect.scale)
+                context.rotate(by: object.rotation)
+                image.draw(
+                    in: CGRect(
+                        x: -imageFrame.width / 2,
+                        y: -imageFrame.height / 2,
+                        width: imageFrame.width,
+                        height: imageFrame.height
                     )
-                    context.restoreGState()
-                }
+                )
+                context.restoreGState()
             }
 
             context.restoreGState()
@@ -9513,6 +10069,11 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             }
 
             for object in parent.geometryObjects {
+                let effect = parent.animationState.renderEffect(
+                    for: CanvasAnimatedObjectRef(kind: .geometry, id: object.id),
+                    playback: parent.animationPlaybackState
+                )
+                guard effect.isVisible else { continue }
                 let normalized = object.normalizedFrame
                 let topLeft = map(normalized.minX, normalized.minY)
                 let boundingRect = CGRect(
@@ -9524,6 +10085,14 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 let start = map(object.x, object.y)
                 let end = map(object.x + object.width, object.y + object.height)
                 let pivot = map(object.pivot.x, object.pivot.y)
+                context.saveGState()
+                context.setAlpha(effect.opacity)
+                context.translateBy(
+                    x: pivot.x + effect.translation.width * scaleX,
+                    y: pivot.y + effect.translation.height * scaleY
+                )
+                context.scaleBy(x: effect.scale, y: effect.scale)
+                context.translateBy(x: -pivot.x, y: -pivot.y)
                 CanvasGeometryRenderer.draw(
                     object,
                     boundingRect: boundingRect,
@@ -9533,6 +10102,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     pivot: pivot,
                     in: context
                 )
+                context.restoreGState()
             }
 
             context.restoreGState()

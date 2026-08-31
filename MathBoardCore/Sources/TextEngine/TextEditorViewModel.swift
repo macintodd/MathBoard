@@ -35,12 +35,27 @@ public final class TextEditorViewModel {
     /// until real font handling lands during integration.
     public var fontName: String
 
+    /// Text color selected in the editor.
+    public var textColor: TextEditorColor
+
+    /// Optional background color drawn behind the placed text object.
+    public var backgroundColor: TextEditorColor?
+
     // MARK: Placeholder font choices
 
-    /// Placeholder font options surfaced by the font selector. Names are mapped to
-    /// concrete `Font.Design` values in the view; a Coordinator resolves them to a
-    /// real font family at integration time.
-    public static let availableFonts: [String] = ["System", "Serif", "Monospaced", "Rounded"]
+    /// Curated font options surfaced by the font selector.
+    public static let availableFonts: [String] = [
+        "System",
+        "Serif",
+        "Rounded",
+        "Monospaced",
+        "Avenir Next",
+        "Futura",
+        "Helvetica Neue",
+        "Georgia",
+        "Chalkboard SE",
+        "Marker Felt"
+    ]
 
     // MARK: Bounds
 
@@ -59,7 +74,9 @@ public final class TextEditorViewModel {
         isItalic: Bool = false,
         isUnderline: Bool = false,
         fontSize: CGFloat = 24,
-        fontName: String = "System"
+        fontName: String = "System",
+        textColor: TextEditorColor = .black,
+        backgroundColor: TextEditorColor? = nil
     ) {
         self.text = text
         self.isBold = isBold
@@ -67,6 +84,8 @@ public final class TextEditorViewModel {
         self.isUnderline = isUnderline
         self.fontSize = fontSize
         self.fontName = fontName
+        self.textColor = textColor
+        self.backgroundColor = backgroundColor
     }
 
     // MARK: Derived values
@@ -82,6 +101,8 @@ public final class TextEditorViewModel {
             sourceText: text,
             fontSize: fontSize,
             fontName: fontName == "System" ? nil : fontName,
+            textColor: textColor,
+            backgroundColor: backgroundColor,
             isBold: isBold,
             isItalic: isItalic,
             isUnderline: isUnderline,

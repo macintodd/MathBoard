@@ -10,6 +10,7 @@ import Testing
 @testable import Canvas
 @testable import Library
 @testable import LiveClassroom
+@testable import TextEngine
 import Slides
 @testable import WidgetEngine
 
@@ -42,7 +43,11 @@ struct MathBoardTests {
                 red: 0.92,
                 green: 0.08,
                 blue: 0.12,
-                alpha: 1
+                alpha: 1,
+                backgroundRed: 1,
+                backgroundGreen: 0.92,
+                backgroundBlue: 0.25,
+                backgroundAlpha: 0.6
             )
         ]
 
@@ -50,6 +55,7 @@ struct MathBoardTests {
         let loaded = PresentationCanvasTextObject.load(from: sidecarURL)
 
         #expect(loaded == textObjects)
+        #expect(loaded.first?.backgroundColorComponents?.alpha == 0.6)
     }
 
     @Test func missingTextObjectSidecarLoadsAsEmptyArray() {
@@ -57,6 +63,172 @@ struct MathBoardTests {
             .appendingPathComponent("missing-\(UUID().uuidString).textobjects.json")
 
         #expect(PresentationCanvasTextObject.load(from: missingURL).isEmpty)
+    }
+
+    @Test func textEditorOffersTenCuratedFonts() {
+        #expect(TextEditorViewModel.availableFonts.count == 10)
+        #expect(TextEditorViewModel.availableFonts.contains("Avenir Next"))
+        #expect(TextEditorViewModel.availableFonts.contains("Marker Felt"))
+    }
+
+    @Test func textEditorResultCarriesTextAndBackgroundColors() {
+        let viewModel = TextEditorViewModel(
+            text: "Colored text",
+            fontSize: 32,
+            textColor: TextEditorColor(red: 0.2, green: 0.3, blue: 0.4, alpha: 0.9),
+            backgroundColor: TextEditorColor(red: 1, green: 0.9, blue: 0.2, alpha: 0.5)
+        )
+
+        let result = viewModel.result
+
+        #expect(result.textColor.red == 0.2)
+        #expect(result.textColor.alpha == 0.9)
+        #expect(result.backgroundColor?.green == 0.9)
+        #expect(result.backgroundColor?.alpha == 0.5)
+    }
+
+    @Test func animationSidecarURLUsesDrawingBaseName() {
+        let drawingURL = URL(fileURLWithPath: "/tmp/slide-123.drawing")
+        let sidecarURL = CanvasAnimationState.sidecarURL(forDrawingURL: drawingURL)
+
+        #expect(sidecarURL.lastPathComponent == "slide-123.animations.json")
+        #expect(sidecarURL.deletingLastPathComponent() == drawingURL.deletingLastPathComponent())
+    }
+
+    @Test func animationStateUsesExplicitObjectKindIdentity() {
+        let sharedID = UUID()
+        let textTarget = CanvasAnimatedObjectRef(kind: .text, id: sharedID)
+        let imageTarget = CanvasAnimatedObjectRef(kind: .image, id: sharedID)
+        var state = CanvasAnimationState()
+
+        state.setPreset(.fade, for: textTarget)
+        state.setPreset(.slide, for: imageTarget)
+
+        #expect(state.animation(for: textTarget)?.preset == .fade)
+        #expect(state.animation(for: imageTarget)?.preset == .slide)
+        #expect(state.animations.count == 2)
+    }
+
+    @Test func animationStateIgnoresAndCanCleanMissingTargets() {
+        let validTarget = CanvasAnimatedObjectRef(kind: .text, id: UUID())
+        let missingTarget = CanvasAnimatedObjectRef(kind: .geometry, id: UUID())
+        var state = CanvasAnimationState(animations: [
+            CanvasObjectAnimation(target: validTarget, preset: .fade, order: 1),
+            CanvasObjectAnimation(target: missingTarget, preset: .scale, order: 2)
+        ])
+
+        state.removeMissingTargets(validTargets: [validTarget])
+
+        #expect(state.animation(for: validTarget) != nil)
+        #expect(state.animation(for: missingTarget) == nil)
+    }
+
+    @Test func animationRenderEffectHidesFutureOrderedObjects() {
+        let target = CanvasAnimatedObjectRef(kind: .image, id: UUID())
+        let state = CanvasAnimationState(animations: [
+            CanvasObjectAnimation(target: target, preset: .fade, order: 2, duration: 1)
+        ])
+
+        let effect = state.renderEffect(
+            for: target,
+            playback: CanvasAnimationPlaybackState(currentStep: 1, isPresenting: true)
+        )
+
+        #expect(effect.isVisible == false)
+        #expect(effect.opacity == 0)
+    }
+
+    @Test func animationRenderEffectReturnsVisibleAfterStepCompletes() {
+        let target = CanvasAnimatedObjectRef(kind: .geometry, id: UUID())
+        let state = CanvasAnimationState(animations: [
+            CanvasObjectAnimation(target: target, preset: .scale, order: 1, duration: 1)
+        ])
+
+        let effect = state.renderEffect(
+            for: target,
+            playback: CanvasAnimationPlaybackState(currentStep: 2, isPresenting: true)
+        )
+
+        #expect(effect == .visible)
+    }
+
+    @Test func animationNeedsRenderTicksOnlyDuringActiveWindow() {
+        let target = CanvasAnimatedObjectRef(kind: .text, id: UUID())
+        let state = CanvasAnimationState(animations: [
+            CanvasObjectAnimation(target: target, preset: .slide, order: 1, duration: 0.5)
+        ])
+
+        let activePlayback = CanvasAnimationPlaybackState(
+            currentStep: 1,
+            isPresenting: true,
+            stepStartedAt: Date()
+        )
+        let completedPlayback = CanvasAnimationPlaybackState(
+            currentStep: 1,
+            isPresenting: true,
+            stepStartedAt: Date(timeIntervalSinceNow: -2)
+        )
+
+        #expect(state.needsRenderTicks(for: .text, playback: activePlayback))
+        #expect(!state.needsRenderTicks(for: .text, playback: completedPlayback))
+    }
+
+    @Test func textEffectPresetsExposeTeacherFocusedChoices() {
+        #expect(CanvasAnimationPreset.textEffectPresets == [
+            .typewriter,
+            .scrolling,
+            .popIn,
+            .glowPulse,
+            .highlightSweep,
+            .fancyTitle
+        ])
+    }
+
+    @Test func textEffectHiddenOverridesRenderEffect() {
+        let textID = UUID()
+        let target = CanvasAnimatedObjectRef(kind: .text, id: textID)
+        var state = CanvasAnimationState()
+
+        state.setTextEffect(.typewriter, forTextObjectID: textID)
+        state.toggleHidden(for: target)
+
+        let effect = state.renderEffect(for: target, playback: CanvasAnimationPlaybackState())
+        #expect(effect == .hidden)
+    }
+
+    @Test func typewriterEffectReportsTextRevealFractionDuringManualPlayback() {
+        let textID = UUID()
+        let target = CanvasAnimatedObjectRef(kind: .text, id: textID)
+        let startedAt = Date(timeIntervalSince1970: 100)
+        var state = CanvasAnimationState(animations: [
+            CanvasObjectAnimation(target: target, preset: .typewriter, order: 1, duration: 2)
+        ])
+
+        state.playEffect(for: target, now: startedAt)
+        let effect = state.renderEffect(
+            for: target,
+            playback: CanvasAnimationPlaybackState(),
+            now: startedAt.addingTimeInterval(1)
+        )
+
+        #expect(effect.textRevealFraction == 0.5)
+    }
+
+    @Test func loopingTextEffectNeedsTicksOutsidePresentationMode() {
+        let textID = UUID()
+        let target = CanvasAnimatedObjectRef(kind: .text, id: textID)
+        var state = CanvasAnimationState(animations: [
+            CanvasObjectAnimation(target: target, preset: .glowPulse, order: 1, duration: 0.5)
+        ])
+
+        state.setRepeatMode(.loop, for: target)
+        state.playEffect(for: target, now: Date(timeIntervalSince1970: 100))
+
+        #expect(state.needsRenderTicks(
+            for: .text,
+            playback: CanvasAnimationPlaybackState(),
+            now: Date(timeIntervalSince1970: 105)
+        ))
     }
 
     @Test func latexObjectSidecarURLUsesDrawingBaseName() throws {
@@ -263,6 +435,7 @@ struct MathBoardTests {
         #expect(object.green == 0)
         #expect(object.blue == 0)
         #expect(object.alpha == 1)
+        #expect(object.backgroundColorComponents == nil)
     }
 
     @Test func contentBoundsUsesPDFWhenThereIsNoInk() {

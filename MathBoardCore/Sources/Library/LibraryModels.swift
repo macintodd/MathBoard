@@ -221,6 +221,10 @@ public struct LibraryTextPayload: Codable, Sendable, Equatable, Hashable {
     public var green: CGFloat
     public var blue: CGFloat
     public var alpha: CGFloat
+    public var backgroundRed: CGFloat?
+    public var backgroundGreen: CGFloat?
+    public var backgroundBlue: CGFloat?
+    public var backgroundAlpha: CGFloat?
     public var isBold: Bool
     public var isItalic: Bool
     public var isUnderlined: Bool
@@ -235,6 +239,10 @@ public struct LibraryTextPayload: Codable, Sendable, Equatable, Hashable {
         green: CGFloat = 0,
         blue: CGFloat = 0,
         alpha: CGFloat = 1,
+        backgroundRed: CGFloat? = nil,
+        backgroundGreen: CGFloat? = nil,
+        backgroundBlue: CGFloat? = nil,
+        backgroundAlpha: CGFloat? = nil,
         isBold: Bool = false,
         isItalic: Bool = false,
         isUnderlined: Bool = false,
@@ -248,6 +256,10 @@ public struct LibraryTextPayload: Codable, Sendable, Equatable, Hashable {
         self.green = green
         self.blue = blue
         self.alpha = alpha
+        self.backgroundRed = backgroundRed
+        self.backgroundGreen = backgroundGreen
+        self.backgroundBlue = backgroundBlue
+        self.backgroundAlpha = backgroundAlpha
         self.isBold = isBold
         self.isItalic = isItalic
         self.isUnderlined = isUnderlined

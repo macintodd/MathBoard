@@ -26,8 +26,8 @@ items remain in the teacher's Library. Bundled catalog records provide offline
 defaults, and the Firebase-backed catalog service can authenticate anonymously
 before reading remote catalog/storage data while falling back to bundled records
 when Firebase is unavailable. Built-in interactives, including **Inequality
-Explorer**, **Countdown Timer**, **Random Number Generator**, and **Coordinate
-Grid Generator**, insert through the same widget canvas shell using reserved
+Explorer**, **Countdown Timer**, **Random Number Generator**, **Coordinate
+Grid Generator**, and **Function Transformation Explorer**, insert through the same widget canvas shell using reserved
 markers instead of widget JSON. It remains previewable via the **Library** scheme
 and has been confirmed rendering on device (iPad, landscape).
 
@@ -71,7 +71,7 @@ Supported in the prototype:
 | `MathBoardCore/Sources/Library/MathtivityCatalogModels.swift` | Catalog-facing item/source models for Widget Types, Built-In Interactives, and Premade Mathtivities, plus the bundled catalog registry. |
 | `MathBoardCore/Sources/Library/MathtivityCatalogSheet.swift` | SwiftUI catalog browser sheet grouped into Widget Types, Built-In Interactives, and Premade Mathtivities, with filters for content kind, topic, activity type, difficulty, and question count. |
 | `MathBoardCore/Sources/Library/FirebaseMathtivityCatalogService.swift` | Firebase-backed catalog service that authenticates anonymously when needed, reads online catalog/storage data, and merges it with bundled catalog records when remote loading succeeds. |
-| `MathBoardCore/Sources/WidgetEngine/BuiltInInteractives/CatalogUtilityInteractivesView.swift` | Native built-in utility views for the Countdown Timer, Random Number Generator, and Coordinate Grid Generator catalog records. |
+| `MathBoardCore/Sources/WidgetEngine/BuiltInInteractives/CatalogUtilityInteractivesView.swift` | Native built-in utility/applet views for the Countdown Timer, Random Number Generator, Coordinate Grid Generator, and Function Transformation Explorer catalog records. |
 | `MathBoardCore/Sources/WidgetEngine/JSONMathtivities/` | Bundled resource-backed JSON Mathtivity files used by the catalog and tests. |
 | `MathtivityCatalogSchema.md` | Firestore/Storage authoring contract for online catalog records. |
 | `MathBoard/LibraryDrawer_status.md` | This document. |

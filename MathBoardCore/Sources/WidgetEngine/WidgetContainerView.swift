@@ -257,6 +257,10 @@ public struct WidgetContainerView: View {
                 onMathInputRequested: onMathInputRequested,
                 onImageInsertionRequested: onImageInsertionRequested
             )
+        case .functionTransformationExplorer:
+            FunctionTransformationExplorerInteractiveView(
+                state: FunctionTransformationExplorerStateRegistry.state(for: widget.id)
+            )
         }
     }
 

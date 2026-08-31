@@ -619,7 +619,18 @@ private struct TextFontChooserView: View {
     var selectedFontName: String
     var onSelect: (String) -> Void
 
-    private let fontNames = ["System", "Serif", "Rounded", "Monospaced"]
+    private let fontNames = [
+        "System",
+        "Serif",
+        "Rounded",
+        "Monospaced",
+        "Avenir Next",
+        "Futura",
+        "Helvetica Neue",
+        "Georgia",
+        "Chalkboard SE",
+        "Marker Felt"
+    ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {

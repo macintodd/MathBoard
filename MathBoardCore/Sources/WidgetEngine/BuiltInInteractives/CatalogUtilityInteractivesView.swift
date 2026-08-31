@@ -221,6 +221,186 @@ struct RandomNumberGeneratorInteractiveView: View {
 
 @MainActor
 @Observable
+final class FunctionTransformationExplorerState {
+    var a: Double = 1
+    var h: Double = 0
+    var k: Double = 0
+
+    var equationDisplay: String {
+        let aText = Self.formatted(a)
+        let hText = Self.formatted(abs(h))
+        let kText = Self.formatted(abs(k))
+        let hSign = h >= 0 ? "-" : "+"
+        let kSign = k >= 0 ? "+" : "-"
+        return "y = \(aText)(x \(hSign) \(hText))² \(kSign) \(kText)"
+    }
+
+    func reset() {
+        a = 1
+        h = 0
+        k = 0
+    }
+
+    private static func formatted(_ value: Double) -> String {
+        let rounded = (value * 10).rounded() / 10
+        if rounded == rounded.rounded() {
+            return "\(Int(rounded))"
+        }
+        return String(format: "%.1f", rounded)
+    }
+}
+
+@MainActor
+enum FunctionTransformationExplorerStateRegistry {
+    private static var statesByWidgetID: [WidgetObject.ID: FunctionTransformationExplorerState] = [:]
+
+    static func state(for widgetID: WidgetObject.ID) -> FunctionTransformationExplorerState {
+        if let state = statesByWidgetID[widgetID] {
+            return state
+        }
+        let state = FunctionTransformationExplorerState()
+        statesByWidgetID[widgetID] = state
+        return state
+    }
+
+    static func removeState(for widgetID: WidgetObject.ID) {
+        statesByWidgetID.removeValue(forKey: widgetID)
+    }
+}
+
+struct FunctionTransformationExplorerInteractiveView: View {
+    @Bindable var state: FunctionTransformationExplorerState
+
+    var body: some View {
+        VStack(spacing: 14) {
+            FunctionTransformationGraphView(a: state.a, h: state.h, k: state.k)
+                .aspectRatio(1.35, contentMode: .fit)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.white)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                )
+
+            VStack(spacing: 10) {
+                Text(state.equationDisplay)
+                    .font(.system(size: 21, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .minimumScaleFactor(0.7)
+                    .lineLimit(1)
+
+                parameterSlider("a", value: $state.a, range: -3...3, step: 0.1)
+                parameterSlider("h", value: $state.h, range: -6...6, step: 0.5)
+                parameterSlider("k", value: $state.k, range: -6...6, step: 0.5)
+
+                Button {
+                    state.reset()
+                } label: {
+                    Label("Reset", systemImage: "arrow.counterclockwise")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemBackground))
+    }
+
+    private func parameterSlider(
+        _ label: String,
+        value: Binding<Double>,
+        range: ClosedRange<Double>,
+        step: Double
+    ) -> some View {
+        HStack(spacing: 10) {
+            Text(label)
+                .font(.system(size: 15, weight: .bold, design: .rounded))
+                .frame(width: 18)
+            Slider(value: value, in: range, step: step)
+            Text(String(format: "%.1f", value.wrappedValue))
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .frame(width: 46, alignment: .trailing)
+        }
+    }
+}
+
+private struct FunctionTransformationGraphView: View {
+    var a: Double
+    var h: Double
+    var k: Double
+
+    var body: some View {
+        Canvas { context, size in
+            let bounds = CoordinateBounds(xMinimum: -8, xMaximum: 8, yMinimum: -8, yMaximum: 8)
+            let mapper = CoordinateGridMapper(size: size, bounds: bounds)
+            drawGrid(in: &context, mapper: mapper, bounds: bounds)
+            drawParabola(in: &context, mapper: mapper, bounds: bounds)
+            drawVertex(in: &context, mapper: mapper)
+        }
+    }
+
+    private func drawGrid(
+        in context: inout GraphicsContext,
+        mapper: CoordinateGridMapper,
+        bounds: CoordinateBounds
+    ) {
+        for x in bounds.xMinimum...bounds.xMaximum {
+            var path = Path()
+            path.move(to: mapper.point(x: x, y: bounds.yMinimum))
+            path.addLine(to: mapper.point(x: x, y: bounds.yMaximum))
+            context.stroke(path, with: .color(x == 0 ? .black.opacity(0.75) : .gray.opacity(0.22)), lineWidth: x == 0 ? 1.6 : 0.6)
+        }
+
+        for y in bounds.yMinimum...bounds.yMaximum {
+            var path = Path()
+            path.move(to: mapper.point(x: bounds.xMinimum, y: y))
+            path.addLine(to: mapper.point(x: bounds.xMaximum, y: y))
+            context.stroke(path, with: .color(y == 0 ? .black.opacity(0.75) : .gray.opacity(0.22)), lineWidth: y == 0 ? 1.6 : 0.6)
+        }
+    }
+
+    private func drawParabola(
+        in context: inout GraphicsContext,
+        mapper: CoordinateGridMapper,
+        bounds: CoordinateBounds
+    ) {
+        var path = Path()
+        var didMove = false
+        let sampleCount = 240
+        for index in 0...sampleCount {
+            let ratio = Double(index) / Double(sampleCount)
+            let x = Double(bounds.xMinimum) + (Double(bounds.xMaximum - bounds.xMinimum) * ratio)
+            let y = a * pow(x - h, 2) + k
+            guard y.isFinite,
+                  y >= Double(bounds.yMinimum) - 2,
+                  y <= Double(bounds.yMaximum) + 2 else {
+                didMove = false
+                continue
+            }
+            let point = mapper.point(x: x, y: y)
+            if didMove {
+                path.addLine(to: point)
+            } else {
+                path.move(to: point)
+                didMove = true
+            }
+        }
+        context.stroke(path, with: .color(.blue), style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+    }
+
+    private func drawVertex(in context: inout GraphicsContext, mapper: CoordinateGridMapper) {
+        let point = mapper.point(x: h, y: k)
+        let rect = CGRect(x: point.x - 5, y: point.y - 5, width: 10, height: 10)
+        context.fill(Path(ellipseIn: rect), with: .color(.red))
+        context.stroke(Path(ellipseIn: rect.insetBy(dx: -2, dy: -2)), with: .color(.white), lineWidth: 2)
+    }
+}
+
+@MainActor
+@Observable
 final class CoordinateGridGeneratorState {
     var xMinimum = 0
     var xMaximum = 10
@@ -783,10 +963,14 @@ private struct CoordinateGridMapper {
     var bounds: CoordinateBounds
 
     func point(x: Int, y: Int) -> CGPoint {
+        point(x: Double(x), y: Double(y))
+    }
+
+    func point(x: Double, y: Double) -> CGPoint {
         let xRange = CGFloat(bounds.xMaximum - bounds.xMinimum)
         let yRange = CGFloat(bounds.yMaximum - bounds.yMinimum)
-        let xPosition = CGFloat(x - bounds.xMinimum) / xRange * size.width
-        let yPosition = size.height - CGFloat(y - bounds.yMinimum) / yRange * size.height
+        let xPosition = CGFloat(x - Double(bounds.xMinimum)) / xRange * size.width
+        let yPosition = size.height - CGFloat(y - Double(bounds.yMinimum)) / yRange * size.height
         return CGPoint(x: xPosition, y: yPosition)
     }
 }

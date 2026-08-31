@@ -13,6 +13,23 @@
 import Foundation
 import CoreGraphics
 
+public struct TextEditorColor: Codable, Hashable, Sendable {
+    public var red: CGFloat
+    public var green: CGFloat
+    public var blue: CGFloat
+    public var alpha: CGFloat
+
+    public init(red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat = 1) {
+        self.red = min(max(red, 0), 1)
+        self.green = min(max(green, 0), 1)
+        self.blue = min(max(blue, 0), 1)
+        self.alpha = min(max(alpha, 0), 1)
+    }
+
+    public static let black = TextEditorColor(red: 0, green: 0, blue: 0, alpha: 1)
+    public static let yellowHighlight = TextEditorColor(red: 1, green: 0.91, blue: 0.32, alpha: 0.55)
+}
+
 /// Describes how inline formatting is encoded inside `TextEditorResult.sourceText`.
 ///
 /// TextEngine stores formatting as lightweight in-text markup rather than a rich
@@ -107,6 +124,12 @@ public struct TextEditorResult: Identifiable, Hashable, Sendable, Codable {
     /// a concrete `UIFont`/`NSFont` at integration time.
     public var fontName: String?
 
+    /// Text color selected in the editor.
+    public var textColor: TextEditorColor
+
+    /// Optional fill drawn behind the text object's frame.
+    public var backgroundColor: TextEditorColor?
+
     /// Block-level formatting intent, mirrored from the editor's toolbar toggles.
     /// Inline spans are additionally encoded in `sourceText` per `markupConvention`.
     public var isBold: Bool
@@ -124,6 +147,8 @@ public struct TextEditorResult: Identifiable, Hashable, Sendable, Codable {
         sourceText: String,
         fontSize: CGFloat,
         fontName: String? = nil,
+        textColor: TextEditorColor = .black,
+        backgroundColor: TextEditorColor? = nil,
         isBold: Bool = false,
         isItalic: Bool = false,
         isUnderline: Bool = false,
@@ -134,6 +159,8 @@ public struct TextEditorResult: Identifiable, Hashable, Sendable, Codable {
         self.sourceText = sourceText
         self.fontSize = fontSize
         self.fontName = fontName
+        self.textColor = textColor
+        self.backgroundColor = backgroundColor
         self.isBold = isBold
         self.isItalic = isItalic
         self.isUnderline = isUnderline
@@ -143,4 +170,39 @@ public struct TextEditorResult: Identifiable, Hashable, Sendable, Codable {
 
     /// `true` when the text contains at least one detected LaTeX region.
     public var containsLaTeX: Bool { !detectedLaTeXRegions.isEmpty }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case sourceText
+        case fontSize
+        case fontName
+        case textColor
+        case backgroundColor
+        case isBold
+        case isItalic
+        case isUnderline
+        case markupConvention
+        case detectedLaTeXRegions
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        sourceText = try container.decode(String.self, forKey: .sourceText)
+        fontSize = try container.decode(CGFloat.self, forKey: .fontSize)
+        fontName = try container.decodeIfPresent(String.self, forKey: .fontName)
+        textColor = try container.decodeIfPresent(TextEditorColor.self, forKey: .textColor) ?? .black
+        backgroundColor = try container.decodeIfPresent(TextEditorColor.self, forKey: .backgroundColor)
+        isBold = try container.decodeIfPresent(Bool.self, forKey: .isBold) ?? false
+        isItalic = try container.decodeIfPresent(Bool.self, forKey: .isItalic) ?? false
+        isUnderline = try container.decodeIfPresent(Bool.self, forKey: .isUnderline) ?? false
+        markupConvention = try container.decodeIfPresent(
+            TextMarkupConvention.self,
+            forKey: .markupConvention
+        ) ?? .markdownWithHTMLUnderlineAndDollarMath
+        detectedLaTeXRegions = try container.decodeIfPresent(
+            [DetectedLaTeXRegion].self,
+            forKey: .detectedLaTeXRegions
+        ) ?? []
+    }
 }

@@ -320,6 +320,15 @@ enum SlideThumbnailRenderer {
                 width: object.width * scaleX,
                 height: object.height * scaleY
             )
+            if let background = object.backgroundColorComponents {
+                context.setFillColor(CGColor(
+                    red: background.red,
+                    green: background.green,
+                    blue: background.blue,
+                    alpha: background.alpha
+                ))
+                context.fill(textRect)
+            }
             let path = CGMutablePath()
             path.addRect(textRect)
             let attributes: [NSAttributedString.Key: Any] = [
