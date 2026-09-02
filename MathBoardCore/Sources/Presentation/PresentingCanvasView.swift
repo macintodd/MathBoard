@@ -58,6 +58,7 @@ public struct PresentingCanvasView: View {
     private let onLiveStrokeUpdate: (@MainActor (CanvasLiveStroke?) -> Void)?
     private let onDrawingDataChange: (@MainActor (Data) -> Void)?
     private let onCanvasObjectStateChange: (@MainActor () -> Void)?
+    private let onLibraryDrawerOpenChange: (@MainActor (Bool) -> Void)?
     private let objectStateReloadCommand: CanvasObjectCommand?
     private let allowsWidgetAuthoring: Bool
     private static let importedPhotoMaxPixelSide: CGFloat = 1800
@@ -117,6 +118,7 @@ public struct PresentingCanvasView: View {
         onLiveStrokeUpdate: (@MainActor (CanvasLiveStroke?) -> Void)? = nil,
         onDrawingDataChange: (@MainActor (Data) -> Void)? = nil,
         onCanvasObjectStateChange: (@MainActor () -> Void)? = nil,
+        onLibraryDrawerOpenChange: (@MainActor (Bool) -> Void)? = nil,
         objectStateReloadCommand: CanvasObjectCommand? = nil,
         allowsWidgetAuthoring: Bool = true
     ) {
@@ -135,6 +137,7 @@ public struct PresentingCanvasView: View {
         self.onLiveStrokeUpdate = onLiveStrokeUpdate
         self.onDrawingDataChange = onDrawingDataChange
         self.onCanvasObjectStateChange = onCanvasObjectStateChange
+        self.onLibraryDrawerOpenChange = onLibraryDrawerOpenChange
         self.objectStateReloadCommand = objectStateReloadCommand
         self.allowsWidgetAuthoring = allowsWidgetAuthoring
     }
@@ -292,8 +295,13 @@ public struct PresentingCanvasView: View {
                 startOpen: false,
                 recentLessonURL: LibraryRecentStore.lessonURL(forDrawingURL: drawingURL),
                 recentRefreshID: libraryRecentRefreshID,
-                onInsertItem: placeLibraryItemAtViewportCenter,
-                onPreviewCatalogMathtivity: presentCatalogWidgetPreview
+                onInsertItem: { payload in
+                    placeLibraryItemAtViewportCenter(payload)
+                },
+                onPreviewCatalogMathtivity: presentCatalogWidgetPreview,
+                onOpenStateChange: { isOpen in
+                    onLibraryDrawerOpenChange?(isOpen)
+                }
             )
             floatingToolBar
                 .padding(.top, 8)
@@ -476,8 +484,12 @@ public struct PresentingCanvasView: View {
         .alert("External Display Not Available", isPresented: $isExternalDisplayUnavailableAlertPresented) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("MathBoard is not receiving a custom external-display route from iPadOS. The monitor will continue to mirror this iPad until iPadOS provides either the external scene path or the legacy external screen path.")
+            externalDisplayUnavailableAlertMessage
         }
+    }
+
+    private var externalDisplayUnavailableAlertMessage: some View {
+        Text("MathBoard is not receiving a custom external-display route from iPadOS. The monitor will continue to mirror this iPad until iPadOS provides either the external scene path or the legacy external screen path.")
     }
 
     // Icon-only toolbar at top-center — promoted actions as icon buttons,
@@ -1120,13 +1132,17 @@ public struct PresentingCanvasView: View {
 
     private func presentCatalogWidgetPreview(_ downloadedItem: DownloadedMathtivityCatalogItem) {
         if downloadedItem.item.catalogKind == .builtInInteractive {
-            let displaySize = downloadedItem.item.builtInKind?.defaultSize ?? CGSize(width: 820, height: 420)
-            placeLibraryItemAtViewportCenter(LibraryCanvasDragPayload(
-                title: downloadedItem.item.title,
-                kind: .widget,
-                displaySize: displaySize,
-                widgetCodeString: downloadedItem.jsonSource
-            ))
+            let builtInKind = downloadedItem.item.builtInKind
+            let displaySize = catalogBuiltInDisplaySize(for: builtInKind)
+            placeLibraryItemAtViewportCenter(
+                LibraryCanvasDragPayload(
+                    title: downloadedItem.item.title,
+                    kind: .widget,
+                    displaySize: displaySize,
+                    widgetCodeString: downloadedItem.jsonSource
+                ),
+                pinsWidgetToCanvas: builtInKind == .matchGrid
+            )
             recordLibraryRecent(
                 title: downloadedItem.item.title,
                 kind: .widget,
@@ -1139,6 +1155,19 @@ public struct PresentingCanvasView: View {
             await Task.yield()
             pendingCatalogWidgetPreview = PendingCatalogWidgetPreview(downloadedItem: downloadedItem)
         }
+    }
+
+    private func catalogBuiltInDisplaySize(for kind: BuiltInInteractiveKind?) -> CGSize {
+        let defaultSize = kind?.defaultSize ?? CGSize(width: 820, height: 420)
+        guard kind == .matchGrid else { return defaultSize }
+        let referenceSize = broker.toolPaletteReferenceSize
+            ?? broker.calculatorReferenceSize
+            ?? CGSize(width: 1194, height: 744)
+        let margin: CGFloat = 24
+        let availableWidth = max(referenceSize.width - margin * 2, 1)
+        let availableHeight = max(referenceSize.height - margin * 2, 1)
+        let scale = min(1, availableWidth / defaultSize.width, availableHeight / defaultSize.height)
+        return CGSize(width: defaultSize.width * scale, height: defaultSize.height * scale)
     }
 
     private static func isGeometryEditCommand(_ command: ToolPaletteCommand) -> Bool {
@@ -1337,7 +1366,11 @@ public struct PresentingCanvasView: View {
     }
 
     @MainActor
-    private func placeLibraryItem(_ payload: LibraryCanvasDragPayload, at canvasPoint: CGPoint) {
+    private func placeLibraryItem(
+        _ payload: LibraryCanvasDragPayload,
+        at canvasPoint: CGPoint,
+        pinsWidgetToCanvas: Bool = false
+    ) {
         if payload.kind == .widget,
            let widgetCodeString = payload.widgetCodeString {
             objectCommand = CanvasObjectCommand(.insertWidget(CanvasWidgetInsertion(
@@ -1345,7 +1378,8 @@ public struct PresentingCanvasView: View {
                 codeString: widgetCodeString,
                 displaySize: payload.displaySize,
                 canvasPoint: canvasPoint,
-                librarySourceCodeString: widgetCodeString
+                librarySourceCodeString: widgetCodeString,
+                isPinnedToCanvas: pinsWidgetToCanvas
             )))
             activateSelectTool()
             return
@@ -1413,13 +1447,17 @@ public struct PresentingCanvasView: View {
     }
 
     @MainActor
-    private func placeLibraryItemAtViewportCenter(_ payload: LibraryCanvasDragPayload) {
+    private func placeLibraryItemAtViewportCenter(
+        _ payload: LibraryCanvasDragPayload,
+        pinsWidgetToCanvas: Bool = false
+    ) {
         let referenceSize = broker.toolPaletteReferenceSize
             ?? broker.calculatorReferenceSize
             ?? CGSize(width: 1194, height: 744)
         placeLibraryItem(
             payload,
-            at: CGPoint(x: referenceSize.width / 2, y: referenceSize.height / 2)
+            at: CGPoint(x: referenceSize.width / 2, y: referenceSize.height / 2),
+            pinsWidgetToCanvas: pinsWidgetToCanvas
         )
     }
 

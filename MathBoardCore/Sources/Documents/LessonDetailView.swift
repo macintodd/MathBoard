@@ -28,9 +28,11 @@ struct LessonDetailView: View {
     @State private var selectedLiveProgressAssignmentID: UUID?
     @State private var selectedLiveProgressWidgetID: UUID?
     @State private var liveProgressRows: [StudentWidgetLiveProgress] = []
+    @State private var localLiveProgressPointValue = 100
     @State private var isRefreshingLiveProgress = false
     @State private var liveProgressErrorMessage: String?
     @State private var isLiveTeacherInkSettingsPresented = false
+    @State private var isLibraryDrawerOpen = false
 
     #if canImport(UIKit)
     @Environment(\.dismiss) private var dismiss
@@ -45,14 +47,19 @@ struct LessonDetailView: View {
             onTeacherInkChunkPublished: persistTeacherInkChunk,
             onTeacherInkDrawingSnapshotPublished: persistTeacherInkDrawingSnapshot,
             onTeacherObjectSnapshotPublished: persistTeacherObjectSnapshot,
-            onTeacherSlideManifestSnapshotPublished: persistTeacherSlideManifestSnapshot
+            onTeacherSlideManifestSnapshotPublished: persistTeacherSlideManifestSnapshot,
+            onLibraryDrawerOpenChange: { isOpen in
+                isLibraryDrawerOpen = isOpen
+            }
         )
             .onAppear { DisplayBroker.shared.lessonURL = lesson.url }
             .overlay(alignment: .trailing) {
                 liveProgressOverlay
             }
             .overlay(alignment: .topTrailing) {
-                teachingSessionMenu
+                if !isLibraryDrawerOpen && !isLiveProgressDrawerOpen {
+                    teachingSessionMenu
+                }
             }
             .overlay {
                 let broker = DisplayBroker.shared
@@ -112,11 +119,7 @@ struct LessonDetailView: View {
     }
 
     private var selectedLiveProgressAssignment: ClassroomAssignment? {
-        if let selectedLiveProgressAssignmentID,
-           let assignment = lessonAssignments.first(where: { $0.id == selectedLiveProgressAssignmentID }) {
-            return assignment
-        }
-        return lessonAssignments.first
+        selectedTeachingAssignment
     }
 
     private var selectedLiveProgressClassroom: Classroom? {
@@ -131,6 +134,12 @@ struct LessonDetailView: View {
             return widget
         }
         return assignment.widgetSummaries.first
+    }
+
+    private var isSelectedWidgetTeacherScored: Bool {
+        guard let selectedLiveProgressWidget else { return false }
+        return selectedLiveProgressWidget.builtInKind == .matchGrid
+            || selectedLiveProgressWidget.title == BuiltInInteractiveKind.matchGrid.displayName
     }
 
     private var liveProgressTaskKey: String {
@@ -236,7 +245,7 @@ struct LessonDetailView: View {
 
     @ViewBuilder
     private var liveProgressOverlay: some View {
-        if !lessonAssignments.isEmpty {
+        if selectedTeachingAssignment != nil {
             HStack(alignment: .top, spacing: 0) {
                 liveProgressTab
                     .padding(.top, LiveProgressDrawerTheme.tabTopInset)
@@ -261,19 +270,25 @@ struct LessonDetailView: View {
 
     private func liveProgressPanel(_ assignment: ClassroomAssignment) -> some View {
         LiveProgressDrawerView(
-            assignments: lessonAssignments,
-            selectedAssignmentID: liveProgressAssignmentBinding,
             selectedWidgetID: liveProgressWidgetBinding(for: assignment),
             classroom: selectedLiveProgressClassroom,
             assignment: assignment,
             selectedWidget: selectedLiveProgressWidget,
             progressRows: liveProgressRows,
+            localScoresByStudentID: localScoresByStudentID(for: assignment),
+            localPointValue: $localLiveProgressPointValue,
+            isLocalScoringEnabled: isSelectedWidgetTeacherScored,
             isRefreshing: isRefreshingLiveProgress,
-            classroomName: classroomName(for:),
             onRefresh: {
                 Task {
                     await refreshLiveProgress()
                 }
+            },
+            onAddLocalPoints: { student in
+                updateLocalScore(for: student, assignment: assignment, delta: localLiveProgressPointValue)
+            },
+            onSubtractLocalPoints: { student in
+                updateLocalScore(for: student, assignment: assignment, delta: -localLiveProgressPointValue)
             }
         )
     }
@@ -318,15 +333,6 @@ struct LessonDetailView: View {
         .accessibilityLabel(isLiveProgressDrawerOpen ? "Close live progress" : "Open live progress")
     }
 
-    private var liveProgressAssignmentBinding: Binding<UUID?> {
-        Binding(
-            get: { selectedLiveProgressAssignment?.id },
-            set: { newAssignmentID in
-                selectedLiveProgressAssignmentID = newAssignmentID
-            }
-        )
-    }
-
     private func liveProgressWidgetBinding(for assignment: ClassroomAssignment) -> Binding<UUID?> {
         Binding(
             get: {
@@ -355,6 +361,10 @@ struct LessonDetailView: View {
 
     private func refreshLiveProgress() async {
         guard let assignment = selectedLiveProgressAssignment else { return }
+        guard !isSelectedWidgetTeacherScored else {
+            liveProgressRows = []
+            return
+        }
         isRefreshingLiveProgress = true
         defer { isRefreshingLiveProgress = false }
 
@@ -365,6 +375,37 @@ struct LessonDetailView: View {
                 row.assignmentID == assignment.id &&
                 row.classroomID == assignment.classroomID
             }
+        } catch {
+            liveProgressErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    private func localScoresByStudentID(for assignment: ClassroomAssignment) -> [UUID: Int] {
+        guard let widget = selectedLiveProgressWidget else { return [:] }
+        return assignmentStore.localWidgetScores(
+            assignmentID: assignment.id,
+            widgetID: widget.widgetID
+        ).reduce(into: [:]) { result, score in
+            result[score.studentID] = score.points
+        }
+    }
+
+    private func updateLocalScore(
+        for student: RosterStudent,
+        assignment: ClassroomAssignment,
+        delta: Int
+    ) {
+        guard isSelectedWidgetTeacherScored,
+              let widget = selectedLiveProgressWidget,
+              let classroom = selectedLiveProgressClassroom else { return }
+        do {
+            try assignmentStore.updateLocalWidgetScore(
+                assignment: assignment,
+                classroom: classroom,
+                widgetID: widget.widgetID,
+                studentID: student.id,
+                delta: delta
+            )
         } catch {
             liveProgressErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
@@ -569,16 +610,18 @@ private struct LiveTeacherInkSettingsView: View {
 }
 
 private struct LiveProgressDrawerView: View {
-    let assignments: [ClassroomAssignment]
-    @Binding var selectedAssignmentID: UUID?
     @Binding var selectedWidgetID: UUID?
     let classroom: Classroom?
     let assignment: ClassroomAssignment
     let selectedWidget: AssignedWidgetSummary?
     let progressRows: [StudentWidgetLiveProgress]
+    let localScoresByStudentID: [UUID: Int]
+    @Binding var localPointValue: Int
+    let isLocalScoringEnabled: Bool
     let isRefreshing: Bool
-    let classroomName: (ClassroomAssignment) -> String
     let onRefresh: () -> Void
+    let onAddLocalPoints: (RosterStudent) -> Void
+    let onSubtractLocalPoints: (RosterStudent) -> Void
 
     // Ticked every 2 seconds so indicatorState(now:) re-evaluates without waiting for
     // a data change. This makes stale records (student left the lesson) turn red/gray
@@ -650,16 +693,6 @@ private struct LiveProgressDrawerView: View {
 
     private var controls: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if assignments.count > 1 {
-                Picker("Class", selection: $selectedAssignmentID) {
-                    ForEach(assignments) { assignment in
-                        Text("\(classroomName(assignment))\n\(assignment.classLessonCode)")
-                            .tag(Optional(assignment.id))
-                    }
-                }
-                .pickerStyle(.menu)
-            }
-
             if assignment.widgetSummaries.isEmpty {
                 Text("No widgets in this lesson")
                     .font(.caption)
@@ -672,6 +705,11 @@ private struct LiveProgressDrawerView: View {
                     }
                 }
                 .pickerStyle(.menu)
+            }
+
+            if isLocalScoringEnabled {
+                Stepper("Points per tap: \(localPointValue)", value: $localPointValue, in: 25...500, step: 25)
+                    .font(.caption.weight(.semibold))
             }
         }
     }
@@ -687,7 +725,10 @@ private struct LiveProgressDrawerView: View {
                             preferredFirstName: studentProgress?.studentPreferredFirstName,
                             progress: studentProgress,
                             lessonPresence: lessonPresence(for: student),
-                            now: now
+                            now: now,
+                            localScore: isLocalScoringEnabled ? localScoresByStudentID[student.id, default: 0] : nil,
+                            onAddLocalPoints: isLocalScoringEnabled ? { onAddLocalPoints(student) } : nil,
+                            onSubtractLocalPoints: isLocalScoringEnabled ? { onSubtractLocalPoints(student) } : nil
                         )
                     }
                 } else {
@@ -753,6 +794,9 @@ private struct LiveProgressStudentRow: View {
     let progress: StudentWidgetLiveProgress?
     var lessonPresence: StudentWidgetLiveProgress? = nil
     var now: Date = Date()
+    var localScore: Int? = nil
+    var onAddLocalPoints: (() -> Void)? = nil
+    var onSubtractLocalPoints: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 10) {
@@ -781,12 +825,45 @@ private struct LiveProgressStudentRow: View {
 
             Spacer(minLength: 8)
 
-            VStack(alignment: .trailing, spacing: 2) {
-                Text(scoreText)
-                    .font(.subheadline.monospacedDigit().weight(.semibold))
-                Text(updatedText)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+            if let localScore {
+                HStack(spacing: 7) {
+                    Button {
+                        onAddLocalPoints?()
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 24, weight: .semibold))
+                            .foregroundStyle(.green)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Add local points for \(studentName)")
+
+                    VStack(alignment: .trailing, spacing: 1) {
+                        Text("\(localScore)")
+                            .font(.title3.monospacedDigit().weight(.bold))
+                        Text("pts")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(minWidth: 42, alignment: .trailing)
+
+                    Button {
+                        onSubtractLocalPoints?()
+                    } label: {
+                        Image(systemName: "minus.circle.fill")
+                            .font(.system(size: 24, weight: .semibold))
+                            .foregroundStyle(.red)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Subtract local points for \(studentName)")
+                }
+            } else {
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(scoreText)
+                        .font(.subheadline.monospacedDigit().weight(.semibold))
+                    Text(updatedText)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding(.horizontal, 10)
@@ -812,6 +889,7 @@ private struct LiveProgressStudentRow: View {
     }
 
     private var statusText: String {
+        if localScore != nil { return "Local score" }
         // Show "Submitted" even after reset so the teacher can see the student's prior submission.
         if progress?.hasEverBeenSubmitted == true { return "Submitted" }
         return currentIndicatorState.displayName
@@ -832,6 +910,7 @@ private struct LiveProgressStudentRow: View {
     }
 
     private var dotColor: Color {
+        if localScore != nil { return .green }
         switch currentIndicatorState {
         case .notStarted, .offline:
             return .red

@@ -65,6 +65,7 @@ public struct LibraryDrawerPrototypeView: View {
     private let recentRefreshID: UUID
     private let onInsertItem: (@MainActor (LibraryCanvasDragPayload) -> Void)?
     private let onPreviewCatalogMathtivity: (@MainActor (DownloadedMathtivityCatalogItem) -> Void)?
+    private let onOpenStateChange: (@MainActor (Bool) -> Void)?
 
     /// - Parameters:
     ///   - startOpen: whether the drawer begins open (handy for previews).
@@ -76,12 +77,14 @@ public struct LibraryDrawerPrototypeView: View {
         recentLessonURL: URL? = nil,
         recentRefreshID: UUID = UUID(),
         onInsertItem: (@MainActor (LibraryCanvasDragPayload) -> Void)? = nil,
-        onPreviewCatalogMathtivity: (@MainActor (DownloadedMathtivityCatalogItem) -> Void)? = nil
+        onPreviewCatalogMathtivity: (@MainActor (DownloadedMathtivityCatalogItem) -> Void)? = nil,
+        onOpenStateChange: (@MainActor (Bool) -> Void)? = nil
     ) {
         self.recentLessonURL = recentLessonURL
         self.recentRefreshID = recentRefreshID
         self.onInsertItem = onInsertItem
         self.onPreviewCatalogMathtivity = onPreviewCatalogMathtivity
+        self.onOpenStateChange = onOpenStateChange
         _isOpen = State(initialValue: startOpen)
     }
 
@@ -91,6 +94,12 @@ public struct LibraryDrawerPrototypeView: View {
                 .offset(x: isOpen ? 0 : LibraryTheme.openWidth)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        .onAppear {
+            onOpenStateChange?(isOpen)
+        }
+        .onChange(of: isOpen) { _, newValue in
+            onOpenStateChange?(newValue)
+        }
         .task(id: feedback) {
             guard feedback != nil else { return }
             try? await Task.sleep(for: .seconds(1.8))
@@ -1068,7 +1077,7 @@ public struct LibraryDrawerPrototypeView: View {
                 id: item.id.uuidString,
                 title: item.title,
                 badge: item.kind.libraryBadge,
-                thumbnail: item.kind.fallbackThumbnail,
+                thumbnail: item.kind.fallbackThumbnail(widgetCodeString: item.widgetCodeString),
                 recentKind: item.kind,
                 recentID: item.recentID,
                 thumbnailURL: item.thumbnailPNGFileName.map {
@@ -1239,7 +1248,7 @@ public struct LibraryDrawerPrototypeView: View {
                 id: item.id.uuidString,
                 title: item.title,
                 badge: item.kind.libraryBadge,
-                thumbnail: item.kind.fallbackThumbnail,
+                thumbnail: item.kind.fallbackThumbnail(widgetCodeString: item.widgetCodeString),
                 recentKind: item.kind,
                 thumbnailURL: item.thumbnailPNGFileName.map {
                     LibraryRecentStore.thumbnailURL(fileName: $0, forLessonURL: recentLessonURL)
@@ -1301,22 +1310,47 @@ private extension LibraryRecentKind {
         }
     }
 
-    var fallbackThumbnail: LibraryThumbnailStyle {
+    func fallbackThumbnail(widgetCodeString: String? = nil) -> LibraryThumbnailStyle {
         switch self {
         case .extractedInk:
             return .inkSquare
-        case .sticker, .image:
+        case .sticker:
             return .goldStarSticker
+        case .image:
+            return .imageObject
         case .gif:
             return .gifCard
         case .text:
-            return .genericGraph
+            return .textObject
         case .latex:
             return .genericGraph
         case .widget:
-            return .timerWidget
+            return Self.widgetThumbnailStyle(for: widgetCodeString)
         case .graphSnapshot:
             return .genericGraph
+        }
+    }
+
+    private static func widgetThumbnailStyle(for codeString: String?) -> LibraryThumbnailStyle {
+        guard let codeString else { return .widgetTemplate }
+        if let builtInKind = BuiltInInteractiveKind.kind(for: codeString) {
+            return builtInKind == .countdownTimer ? .timerWidget : .builtInInteractive(builtInKind)
+        }
+        if codeString.localizedCaseInsensitiveContains("template") {
+            return .widgetTemplate
+        }
+        let activityKind = WidgetObject(
+            name: "Library widget",
+            codeString: codeString,
+            frame: CGRect(origin: .zero, size: CGSize(width: 1, height: 1))
+        ).activityKind
+        switch activityKind {
+        case .multipleChoice, .fillInTheBlank:
+            return .premadeMathtivity
+        case .builtInInteractive:
+            return .builtInInteractive(nil)
+        case .unknown:
+            return .widgetTemplate
         }
     }
 }
@@ -1350,9 +1384,15 @@ private struct LibraryObjectThumbnail: View {
                 .padding(8)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(red: 0.97, green: 0.98, blue: 0.99))
+                .overlay(thumbnailOutline)
         } else {
             LibraryThumbnail(style: item.thumbnail)
         }
+    }
+
+    private var thumbnailOutline: some View {
+        RoundedRectangle(cornerRadius: LibraryTheme.cardCornerRadius, style: .continuous)
+            .strokeBorder(item.thumbnail.outlineColor, lineWidth: 2)
     }
 }
 
@@ -1382,6 +1422,10 @@ struct LibraryThumbnail: View {
             backdrop
             content.padding(14)
         }
+        .overlay(
+            RoundedRectangle(cornerRadius: LibraryTheme.cardCornerRadius, style: .continuous)
+                .strokeBorder(style.outlineColor, lineWidth: 2)
+        )
     }
 
     @ViewBuilder
@@ -1391,8 +1435,16 @@ struct LibraryThumbnail: View {
             CheckerboardBackdrop()
         case .gifCard:
             Color(red: 0.08, green: 0.09, blue: 0.11)
-        case .timerWidget:
+        case .timerWidget, .builtInInteractive:
             Color(red: 0.93, green: 0.96, blue: 1.0)
+        case .widgetTemplate:
+            Color(red: 0.92, green: 0.97, blue: 0.96)
+        case .premadeMathtivity:
+            Color(red: 0.92, green: 0.95, blue: 1.0)
+        case .textObject:
+            Color(red: 0.97, green: 0.94, blue: 1.0)
+        case .imageObject:
+            Color(red: 1.0, green: 0.94, blue: 0.99)
         default:
             Color(red: 0.97, green: 0.98, blue: 0.99)
         }
@@ -1409,6 +1461,11 @@ struct LibraryThumbnail: View {
         case .arrowUp: ArrowUpGlyph()
         case .goldStarSticker: GoldStarStickerGlyph()
         case .timerWidget: TimerWidgetGlyph()
+        case .widgetTemplate: WidgetTemplateGlyph()
+        case .builtInInteractive(let kind): BuiltInInteractiveGlyph(kind: kind)
+        case .premadeMathtivity: PremadeMathtivityGlyph()
+        case .textObject: TextObjectGlyph()
+        case .imageObject: ImageObjectGlyph()
         case .gifCard: GifGlyph()
         case .inkSquare: InkSquareGlyph()
         case .genericGraph: GenericGraphGlyph()
@@ -1575,6 +1632,129 @@ private struct TimerWidgetGlyph: View {
                 .tracking(1)
                 .foregroundStyle(LibraryTheme.accent)
         }
+    }
+}
+
+private struct WidgetTemplateGlyph: View {
+    var body: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 5) {
+                ForEach(0..<4, id: \.self) { index in
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(index == 1 ? Color(red: 0.35, green: 0.66, blue: 0.68) : .white)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .strokeBorder(Color(red: 0.35, green: 0.66, blue: 0.68).opacity(0.55), lineWidth: 1)
+                        )
+                        .frame(width: 22, height: 18)
+                }
+            }
+            Text("WIDGET TYPE")
+                .font(.system(size: 9, weight: .heavy))
+                .foregroundStyle(Color(red: 0.35, green: 0.66, blue: 0.68))
+        }
+    }
+}
+
+private struct BuiltInInteractiveGlyph: View {
+    let kind: BuiltInInteractiveKind?
+
+    var body: some View {
+        VStack(spacing: 7) {
+            Image(systemName: symbolName)
+                .font(.system(size: 30, weight: .semibold))
+                .foregroundStyle(Color(red: 0.35, green: 0.70, blue: 0.48))
+                .frame(width: 48, height: 42)
+                .background(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(.white.opacity(0.86))
+                )
+            Text(shortLabel)
+                .font(.system(size: 9, weight: .heavy))
+                .foregroundStyle(Color(red: 0.35, green: 0.70, blue: 0.48))
+        }
+    }
+
+    private var symbolName: String {
+        switch kind {
+        case .countdownTimer:
+            return "timer"
+        case .randomNumberGenerator:
+            return "number.square"
+        case .coordinateGridGenerator:
+            return "grid"
+        case .functionTransformationExplorer:
+            return "function"
+        case .matchGrid:
+            return "rectangle.grid.3x2.fill"
+        case .inequalitiesExplorer:
+            return "number.line"
+        case .none:
+            return "hand.point.up.left"
+        }
+    }
+
+    private var shortLabel: String {
+        switch kind {
+        case .coordinateGridGenerator:
+            return "GRID"
+        case .functionTransformationExplorer:
+            return "FUNCTION"
+        case .matchGrid:
+            return "MATCHGRID"
+        case .randomNumberGenerator:
+            return "RANDOM"
+        case .countdownTimer:
+            return "TIMER"
+        case .inequalitiesExplorer:
+            return "INEQUALITY"
+        case .none:
+            return "INTERACTIVE"
+        }
+    }
+}
+
+private struct PremadeMathtivityGlyph: View {
+    var body: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "checklist")
+                .font(.system(size: 28, weight: .semibold))
+                .foregroundStyle(Color(red: 0.29, green: 0.53, blue: 0.86))
+                .frame(width: 48, height: 40)
+                .background(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(.white.opacity(0.88))
+                )
+            Text("MATHTIVITY")
+                .font(.system(size: 9, weight: .heavy))
+                .foregroundStyle(Color(red: 0.29, green: 0.53, blue: 0.86))
+        }
+    }
+}
+
+private struct TextObjectGlyph: View {
+    var body: some View {
+        VStack(spacing: 4) {
+            Text("Aa")
+                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(red: 0.62, green: 0.44, blue: 0.82))
+            Text("TEXT")
+                .font(.system(size: 9, weight: .heavy))
+                .foregroundStyle(Color(red: 0.62, green: 0.44, blue: 0.82))
+        }
+    }
+}
+
+private struct ImageObjectGlyph: View {
+    var body: some View {
+        Image(systemName: "photo")
+            .font(.system(size: 34, weight: .semibold))
+            .foregroundStyle(Color(red: 0.72, green: 0.32, blue: 0.80))
+            .frame(width: 58, height: 46)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(.white.opacity(0.86))
+            )
     }
 }
 

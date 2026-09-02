@@ -15,6 +15,8 @@ import AppKit
 #endif
 
 struct SlidePDFExporter {
+    private static let letterPortraitPageRect = CGRect(origin: .zero, size: CGSize(width: 612, height: 792))
+
     @MainActor
     static func export(
         slides: [SlideMetadata],
@@ -33,7 +35,7 @@ struct SlidePDFExporter {
             throw SlidePDFExportError.couldNotCreatePDF
         }
 
-        var defaultMediaBox = CGRect(origin: .zero, size: CGSize(width: 1920, height: 1080))
+        var defaultMediaBox = letterPortraitPageRect
         guard let context = CGContext(consumer: consumer, mediaBox: &defaultMediaBox, nil) else {
             throw SlidePDFExportError.couldNotCreatePDF
         }
@@ -46,10 +48,6 @@ struct SlidePDFExporter {
             let geometryObjects = loadGeometryObjects(forDrawingURL: slideDrawingURL)
             let pageInfo = pageInfo(
                 for: slide,
-                drawing: drawing,
-                textObjects: textObjects,
-                imageObjects: imageObjects,
-                geometryObjects: geometryObjects,
                 backgroundURL: backgroundURL
             )
             drawPage(
@@ -103,76 +101,40 @@ struct SlidePDFExporter {
 
     private static func pageInfo(
         for slide: SlideMetadata,
-        drawing: PKDrawing,
-        textObjects: [PresentationCanvasTextObject],
-        imageObjects: [PresentationCanvasImageObject],
-        geometryObjects: [PresentationCanvasGeometryObject],
         backgroundURL: (SlideBackground) -> URL
     ) -> SlidePDFPageInfo {
         if let background = slide.background,
            let document = CGPDFDocument(backgroundURL(background) as CFURL),
            let page = document.page(at: background.pageIndex + 1) {
             let pageBounds = page.getBoxRect(.mediaBox)
+            let destinationRect = aspectFitRect(for: pageBounds.size, in: letterPortraitPageRect)
             return SlidePDFPageInfo(
-                pageRect: CGRect(origin: .zero, size: pageBounds.size),
+                pageRect: letterPortraitPageRect,
+                destinationRect: destinationRect,
                 sourceRect: pageBounds,
                 pdfPage: page
             )
         }
 
-        let contentBounds = combinedContentBounds(
-            drawing: drawing,
-            textObjects: textObjects,
-            imageObjects: imageObjects,
-            geometryObjects: geometryObjects
-        )
-        if !contentBounds.isEmpty {
-            let paddedBounds = contentBounds.insetBy(dx: -48, dy: -48)
-            return SlidePDFPageInfo(
-                pageRect: CGRect(origin: .zero, size: paddedBounds.size),
-                sourceRect: paddedBounds,
-                pdfPage: nil
-            )
-        }
-
-        let fallbackRect = CGRect(origin: .zero, size: CGSize(width: 1920, height: 1080))
+        let sourceRect = CGRect(origin: .zero, size: PresentationCanvasBoardMetrics.defaultUsableSize)
         return SlidePDFPageInfo(
-            pageRect: fallbackRect,
-            sourceRect: fallbackRect,
+            pageRect: letterPortraitPageRect,
+            destinationRect: letterPortraitPageRect,
+            sourceRect: sourceRect,
             pdfPage: nil
         )
     }
 
-    private static func combinedContentBounds(
-        drawing: PKDrawing,
-        textObjects: [PresentationCanvasTextObject],
-        imageObjects: [PresentationCanvasImageObject],
-        geometryObjects: [PresentationCanvasGeometryObject]
-    ) -> CGRect {
-        var bounds = drawing.bounds
-        for object in textObjects where !object.text.isEmpty {
-            if bounds.isEmpty || bounds.isNull {
-                bounds = object.frame
-            } else {
-                bounds = bounds.union(object.frame)
-            }
-        }
-        for object in imageObjects {
-            if bounds.isEmpty || bounds.isNull {
-                bounds = object.renderedBounds
-            } else {
-                bounds = bounds.union(object.renderedBounds)
-            }
-        }
-        for object in geometryObjects {
-            let frame = object.renderedBounds
-            if bounds.isEmpty || bounds.isNull {
-                bounds = frame
-            } else {
-                bounds = bounds.union(frame)
-            }
-        }
-        return bounds
+    private static func aspectFitRect(for sourceSize: CGSize, in container: CGRect) -> CGRect {
+        guard sourceSize.width > 0, sourceSize.height > 0 else { return container }
+        let scale = min(container.width / sourceSize.width, container.height / sourceSize.height)
+        let size = CGSize(width: sourceSize.width * scale, height: sourceSize.height * scale)
+        return CGRect(
+            x: container.midX - size.width / 2,
+            y: container.midY - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
     }
 
     private static func drawPage(
@@ -185,7 +147,8 @@ struct SlidePDFExporter {
         in context: CGContext
     ) {
         let mediaBox = pageInfo.pageRect
-        context.beginPDFPage([kCGPDFContextMediaBox as String: mediaBox] as CFDictionary)
+        let destinationRect = pageInfo.destinationRect
+        context.beginPDFPage(nil)
 
         context.saveGState()
         context.setFillColor(CGColor(gray: 1, alpha: 1))
@@ -197,7 +160,7 @@ struct SlidePDFExporter {
             context.concatenate(
                 pdfPage.getDrawingTransform(
                     .mediaBox,
-                    rect: pageInfo.pageRect,
+                    rect: destinationRect,
                     rotate: 0,
                     preserveAspectRatio: true
                 )
@@ -212,22 +175,22 @@ struct SlidePDFExporter {
             imageObjects,
             assetDirectoryURL: PresentationCanvasImageObject.assetDirectoryURL(forDrawingURL: drawingURL),
             from: pageInfo.sourceRect,
-            into: pageInfo.pageRect,
+            into: destinationRect,
             in: context
         )
         drawGeometryObjects(
             geometryObjects,
             from: pageInfo.sourceRect,
-            into: pageInfo.pageRect,
+            into: destinationRect,
             in: context
         )
         drawTextObjects(
             textObjects,
             from: pageInfo.sourceRect,
-            into: pageInfo.pageRect,
+            into: destinationRect,
             in: context
         )
-        drawInk(drawing, from: pageInfo.sourceRect, into: pageInfo.pageRect, in: context)
+        drawInk(drawing, from: pageInfo.sourceRect, into: destinationRect, in: context)
 
         context.endPDFPage()
     }
@@ -511,6 +474,7 @@ struct SlidePDFExporter {
 
     private struct SlidePDFPageInfo {
         let pageRect: CGRect
+        let destinationRect: CGRect
         let sourceRect: CGRect
         let pdfPage: CGPDFPage?
     }

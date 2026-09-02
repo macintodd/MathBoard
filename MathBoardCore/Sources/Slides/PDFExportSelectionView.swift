@@ -210,9 +210,6 @@ struct PDFExportSelectionView: View {
                 exportErrorMessage = error.localizedDescription
             }
         }
-        .task(id: selectedIndices) {
-            await prepareExportCache()
-        }
         .overlay {
             if isShowingPreparationOverlay {
                 CreatingPDFOverlay(title: exportAction?.overlayTitle ?? "Creating PDF...")
@@ -306,33 +303,6 @@ struct PDFExportSelectionView: View {
                     exportAction = nil
                 }
             }
-        }
-    }
-
-    private func prepareExportCache() async {
-        let indices = selectedIndices.sorted()
-        guard !indices.isEmpty else {
-            await MainActor.run {
-                exportedPDFURL = nil
-                exportedPDFIndices = nil
-            }
-            return
-        }
-
-        if exportedPDFURL != nil, exportedPDFIndices == indices {
-            return
-        }
-
-        do {
-            let url = try await onExport(indices)
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                guard selectedIndices.sorted() == indices, !isExporting else { return }
-                exportedPDFURL = url
-                exportedPDFIndices = indices
-            }
-        } catch {
-            guard !Task.isCancelled else { return }
         }
     }
 

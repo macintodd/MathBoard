@@ -23,6 +23,7 @@
 
 import Foundation
 import SwiftUI
+import WidgetEngine
 
 // MARK: - Design tokens
 
@@ -141,9 +142,37 @@ enum LibraryThumbnailStyle: Hashable {
     case arrowUp
     case goldStarSticker
     case timerWidget
+    case widgetTemplate
+    case builtInInteractive(BuiltInInteractiveKind?)
+    case premadeMathtivity
+    case textObject
+    case imageObject
     case gifCard
     case inkSquare
     case genericGraph
+
+    var outlineColor: Color {
+        switch self {
+        case .widgetTemplate:
+            return Color(red: 0.35, green: 0.66, blue: 0.68)
+        case .builtInInteractive:
+            return Color(red: 0.35, green: 0.70, blue: 0.48)
+        case .premadeMathtivity:
+            return Color(red: 0.29, green: 0.53, blue: 0.86)
+        case .textObject:
+            return Color(red: 0.62, green: 0.44, blue: 0.82)
+        case .imageObject, .goldStarSticker:
+            return Color(red: 0.72, green: 0.32, blue: 0.80)
+        case .gifCard:
+            return Color(red: 0.20, green: 0.78, blue: 0.45)
+        case .timerWidget:
+            return Color(red: 0.35, green: 0.70, blue: 0.48)
+        case .genericGraph, .parabola, .sine, .circleRadius, .barChart, .rightTriangle, .arrowUp:
+            return Color(red: 0.18, green: 0.45, blue: 0.82)
+        case .inkSquare:
+            return Color(red: 0.30, green: 0.36, blue: 0.46)
+        }
+    }
 }
 
 // MARK: - Objects

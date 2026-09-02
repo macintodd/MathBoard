@@ -165,6 +165,7 @@ public struct CanvasWidgetInsertion: Sendable, Equatable {
     public var margin: CGFloat
     public var librarySourceCodeString: String?
     public var hasRecordedLibraryDerivative: Bool
+    public var isPinnedToCanvas: Bool
 
     public init(
         name: String,
@@ -175,7 +176,8 @@ public struct CanvasWidgetInsertion: Sendable, Equatable {
         canvasPoint: CGPoint? = nil,
         margin: CGFloat = 24,
         librarySourceCodeString: String? = nil,
-        hasRecordedLibraryDerivative: Bool = false
+        hasRecordedLibraryDerivative: Bool = false,
+        isPinnedToCanvas: Bool = false
     ) {
         self.name = name
         self.codeString = codeString
@@ -186,6 +188,7 @@ public struct CanvasWidgetInsertion: Sendable, Equatable {
         self.margin = margin
         self.librarySourceCodeString = librarySourceCodeString
         self.hasRecordedLibraryDerivative = hasRecordedLibraryDerivative
+        self.isPinnedToCanvas = isPinnedToCanvas
     }
 
     public var widgetObject: WidgetObject {
@@ -193,6 +196,7 @@ public struct CanvasWidgetInsertion: Sendable, Equatable {
             name: name,
             codeString: codeString,
             frame: CGRect(origin: .zero, size: displaySize),
+            isPinnedToCanvas: isPinnedToCanvas,
             librarySourceCodeString: librarySourceCodeString,
             hasRecordedLibraryDerivative: hasRecordedLibraryDerivative
         )

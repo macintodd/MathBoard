@@ -9,19 +9,22 @@ public struct AssignedWidgetSummary: Identifiable, Codable, Hashable {
     public var title: String
     public var maxScore: Double
     public var scoreMode: WidgetScoreMode
+    public var builtInKind: BuiltInInteractiveKind?
 
     public init(
         id: UUID = UUID(),
         widgetID: UUID,
         title: String,
         maxScore: Double,
-        scoreMode: WidgetScoreMode = .percentAverage
+        scoreMode: WidgetScoreMode = .percentAverage,
+        builtInKind: BuiltInInteractiveKind? = nil
     ) {
         self.id = id
         self.widgetID = widgetID
         self.title = title
         self.maxScore = max(0, maxScore)
         self.scoreMode = scoreMode
+        self.builtInKind = builtInKind
     }
 }
 
@@ -152,6 +155,46 @@ public struct StudentWidgetResult: Identifiable, Codable, Hashable {
     }
 }
 
+public struct TeacherLocalWidgetScore: Identifiable, Codable, Hashable {
+    public var id: UUID
+    public var assignmentID: UUID
+    public var classroomID: UUID
+    public var studentID: UUID
+    public var widgetID: UUID
+    public var points: Int
+    public var updatedAt: Date
+
+    public init(
+        id: UUID = UUID(),
+        assignmentID: UUID,
+        classroomID: UUID,
+        studentID: UUID,
+        widgetID: UUID,
+        points: Int,
+        updatedAt: Date = Date()
+    ) {
+        self.id = id
+        self.assignmentID = assignmentID
+        self.classroomID = classroomID
+        self.studentID = studentID
+        self.widgetID = widgetID
+        self.points = max(0, points)
+        self.updatedAt = updatedAt
+    }
+
+    fileprivate func replacing(id: UUID, points: Int, updatedAt: Date = Date()) -> TeacherLocalWidgetScore {
+        TeacherLocalWidgetScore(
+            id: id,
+            assignmentID: assignmentID,
+            classroomID: classroomID,
+            studentID: studentID,
+            widgetID: widgetID,
+            points: points,
+            updatedAt: updatedAt
+        )
+    }
+}
+
 public struct StudentLessonReport: Identifiable, Hashable {
     public var id: UUID { studentID }
     public var studentID: UUID
@@ -233,6 +276,7 @@ public enum ClassroomAssignmentStoreError: LocalizedError, Equatable {
 public final class ClassroomAssignmentStore {
     public private(set) var assignments: [ClassroomAssignment] = []
     public private(set) var widgetResults: [StudentWidgetResult] = []
+    public private(set) var localWidgetScores: [TeacherLocalWidgetScore] = []
 
     private let rootURL: URL?
     private let fileManager: FileManager
@@ -350,6 +394,7 @@ public final class ClassroomAssignmentStore {
 
     func assignmentHasLocalActivity(_ assignment: ClassroomAssignment) -> Bool {
         widgetResults.contains { $0.assignmentID == assignment.id }
+            || localWidgetScores.contains { $0.assignmentID == assignment.id }
     }
 
     @discardableResult
@@ -388,7 +433,8 @@ public final class ClassroomAssignmentStore {
                     return AssignedWidgetSummary(
                         widgetID: widget.id,
                         title: scoreRecord?.title ?? widget.displayTitle,
-                        maxScore: Double(scoreRecord?.pointsPossible ?? 0)
+                        maxScore: Double(scoreRecord?.pointsPossible ?? 0),
+                        builtInKind: widget.builtInInteractiveKind
                     )
                 }
         }
@@ -399,6 +445,69 @@ public final class ClassroomAssignmentStore {
             throw ClassroomAssignmentStoreError.assignmentNotFound
         }
         try recordWidgetResult(result, for: assignment)
+    }
+
+    func localWidgetScore(
+        assignmentID: UUID,
+        widgetID: UUID,
+        studentID: UUID
+    ) -> TeacherLocalWidgetScore? {
+        localWidgetScores.first {
+            $0.assignmentID == assignmentID &&
+            $0.widgetID == widgetID &&
+            $0.studentID == studentID
+        }
+    }
+
+    func localWidgetScores(
+        assignmentID: UUID,
+        widgetID: UUID
+    ) -> [TeacherLocalWidgetScore] {
+        localWidgetScores.filter {
+            $0.assignmentID == assignmentID &&
+            $0.widgetID == widgetID
+        }
+    }
+
+    func updateLocalWidgetScore(
+        assignment: ClassroomAssignment,
+        classroom: Classroom,
+        widgetID: UUID,
+        studentID: UUID,
+        delta: Int
+    ) throws {
+        guard assignment.classroomID == classroom.id else {
+            throw ClassroomAssignmentStoreError.classroomMismatch
+        }
+        guard classroom.students.contains(where: { $0.id == studentID }) else {
+            throw ClassroomAssignmentStoreError.studentNotFound
+        }
+        guard assignment.widgetSummaries.contains(where: { $0.widgetID == widgetID }) else {
+            throw ClassroomAssignmentStoreError.widgetNotAssigned
+        }
+
+        if let existingIndex = localWidgetScores.firstIndex(where: {
+            $0.assignmentID == assignment.id &&
+            $0.widgetID == widgetID &&
+            $0.studentID == studentID
+        }) {
+            let existing = localWidgetScores[existingIndex]
+            localWidgetScores[existingIndex] = existing.replacing(
+                id: existing.id,
+                points: max(0, existing.points + delta)
+            )
+        } else {
+            localWidgetScores.append(
+                TeacherLocalWidgetScore(
+                    assignmentID: assignment.id,
+                    classroomID: classroom.id,
+                    studentID: studentID,
+                    widgetID: widgetID,
+                    points: max(0, delta)
+                )
+            )
+        }
+        save()
     }
 
     @discardableResult
@@ -489,6 +598,7 @@ public final class ClassroomAssignmentStore {
         guard let storeURL, fileManager.fileExists(atPath: storeURL.path) else {
             assignments = []
             widgetResults = []
+            localWidgetScores = []
             return
         }
 
@@ -497,9 +607,11 @@ public final class ClassroomAssignmentStore {
             let snapshot = try Self.jsonDecoder.decode(ClassroomAssignmentStoreSnapshot.self, from: data)
             assignments = snapshot.assignments
             widgetResults = snapshot.widgetResults
+            localWidgetScores = snapshot.localWidgetScores
         } catch {
             assignments = []
             widgetResults = []
+            localWidgetScores = []
         }
     }
 
@@ -547,7 +659,11 @@ public final class ClassroomAssignmentStore {
 
         do {
             try fileManager.createDirectory(at: storeDirectoryURL, withIntermediateDirectories: true)
-            let snapshot = ClassroomAssignmentStoreSnapshot(assignments: assignments, widgetResults: widgetResults)
+            let snapshot = ClassroomAssignmentStoreSnapshot(
+                assignments: assignments,
+                widgetResults: widgetResults,
+                localWidgetScores: localWidgetScores
+            )
             let data = try Self.jsonEncoder.encode(snapshot)
             try data.write(to: storeURL, options: [.atomic])
         } catch {
@@ -600,6 +716,33 @@ public final class ClassroomAssignmentStore {
 private struct ClassroomAssignmentStoreSnapshot: Codable {
     var assignments: [ClassroomAssignment]
     var widgetResults: [StudentWidgetResult]
+    var localWidgetScores: [TeacherLocalWidgetScore]
+
+    init(
+        assignments: [ClassroomAssignment],
+        widgetResults: [StudentWidgetResult],
+        localWidgetScores: [TeacherLocalWidgetScore] = []
+    ) {
+        self.assignments = assignments
+        self.widgetResults = widgetResults
+        self.localWidgetScores = localWidgetScores
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case assignments
+        case widgetResults
+        case localWidgetScores
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        assignments = try container.decode([ClassroomAssignment].self, forKey: .assignments)
+        widgetResults = try container.decode([StudentWidgetResult].self, forKey: .widgetResults)
+        localWidgetScores = try container.decodeIfPresent(
+            [TeacherLocalWidgetScore].self,
+            forKey: .localWidgetScores
+        ) ?? []
+    }
 }
 
 private extension WidgetObject {

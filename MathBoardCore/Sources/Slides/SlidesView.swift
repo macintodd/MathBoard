@@ -68,6 +68,7 @@ public struct SlidesView: View {
     private let onTeacherObjectSnapshotPublished: ((TeacherObjectSnapshot) -> Void)?
     private let onTeacherSlideManifestSnapshotPublished: ((TeacherSlideManifestSnapshot) async throws -> Void)?
     private let onLiveTeacherSlideManifestRefreshRequested: ((TeacherSlideManifestSnapshot) async -> TeacherSlideManifestSnapshot?)?
+    private let onLibraryDrawerOpenChange: (@MainActor (Bool) -> Void)?
 
     @State private var store: SlideStore
     @Binding private var classroomMode: MathBoardClassroomMode
@@ -113,7 +114,8 @@ public struct SlidesView: View {
         onTeacherInkDrawingSnapshotPublished: ((TeacherInkDrawingSnapshot) -> Void)? = nil,
         onTeacherObjectSnapshotPublished: ((TeacherObjectSnapshot) -> Void)? = nil,
         onTeacherSlideManifestSnapshotPublished: ((TeacherSlideManifestSnapshot) async throws -> Void)? = nil,
-        onLiveTeacherSlideManifestRefreshRequested: ((TeacherSlideManifestSnapshot) async -> TeacherSlideManifestSnapshot?)? = nil
+        onLiveTeacherSlideManifestRefreshRequested: ((TeacherSlideManifestSnapshot) async -> TeacherSlideManifestSnapshot?)? = nil,
+        onLibraryDrawerOpenChange: (@MainActor (Bool) -> Void)? = nil
     ) {
         self.lessonURL = lessonURL
         self.classroomSessionCode = classroomSessionCode
@@ -128,6 +130,7 @@ public struct SlidesView: View {
         self.onTeacherObjectSnapshotPublished = onTeacherObjectSnapshotPublished
         self.onTeacherSlideManifestSnapshotPublished = onTeacherSlideManifestSnapshotPublished
         self.onLiveTeacherSlideManifestRefreshRequested = onLiveTeacherSlideManifestRefreshRequested
+        self.onLibraryDrawerOpenChange = onLibraryDrawerOpenChange
         let initialStore = SlideStore(
             lessonURL: lessonURL,
             classroomSessionCode: classroomMode.wrappedValue == .teacher ? classroomSessionCode : nil
@@ -186,6 +189,9 @@ public struct SlidesView: View {
                     },
                     onCanvasObjectStateChange: {
                         scheduleTeacherObjectSnapshotPublish(for: slide)
+                    },
+                    onLibraryDrawerOpenChange: { isOpen in
+                        onLibraryDrawerOpenChange?(isOpen)
                     },
                     objectStateReloadCommand: objectStateReloadCommand,
                     allowsWidgetAuthoring: classroomMode.allowsWidgetAuthoring

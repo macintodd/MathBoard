@@ -86,6 +86,7 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
     case randomNumberGenerator
     case coordinateGridGenerator
     case functionTransformationExplorer
+    case matchGrid
 
     public var id: String { rawValue }
 
@@ -96,6 +97,7 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
         case .randomNumberGenerator: return "Random Number Generator"
         case .coordinateGridGenerator: return "Coordinate Grid Generator"
         case .functionTransformationExplorer: return "Function Transformation Explorer"
+        case .matchGrid: return "MatchGrid"
         }
     }
 
@@ -111,6 +113,8 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
             return "Configurable Cartesian coordinate grid generator for canvas work."
         case .functionTransformationExplorer:
             return "Native applet for exploring y = a(x - h)^2 + k with live parameter sliders."
+        case .matchGrid:
+            return "Teacher-led 6 x 6 classroom matching game with equations, formulas, All Play prompts, and local scoring."
         }
     }
 
@@ -126,6 +130,8 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
             return ["built-in", "interactive", "coordinate grid", "graphing"]
         case .functionTransformationExplorer:
             return ["built-in", "interactive", "function transformations", "quadratics", "graphing"]
+        case .matchGrid:
+            return ["built-in", "interactive", "matching game", "linear equations", "formulas", "local scoring"]
         }
     }
 
@@ -136,20 +142,21 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
         case .randomNumberGenerator: return CGSize(width: 460, height: 320)
         case .coordinateGridGenerator: return CGSize(width: 720, height: 560)
         case .functionTransformationExplorer: return CGSize(width: 640, height: 520)
+        case .matchGrid: return CGSize(width: 940, height: 680)
         }
     }
 
     public var scoreableTaskCount: Int {
         switch self {
         case .inequalitiesExplorer: return 50
-        case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator, .functionTransformationExplorer: return 0
+        case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator, .functionTransformationExplorer, .matchGrid: return 0
         }
     }
 
     public var pointsPerTask: Int {
         switch self {
         case .inequalitiesExplorer: return 10
-        case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator, .functionTransformationExplorer: return 0
+        case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator, .functionTransformationExplorer, .matchGrid: return 0
         }
     }
 
@@ -256,7 +263,7 @@ extension WidgetObject {
             switch builtInInteractiveKind {
             case .inequalitiesExplorer:
                 return InequalityExplorerStateRegistry.scoreRecord(for: id, title: name)
-            case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator, .functionTransformationExplorer:
+            case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator, .functionTransformationExplorer, .matchGrid:
                 return nil
             }
         }
@@ -277,6 +284,8 @@ extension WidgetObject {
                 CoordinateGridGeneratorStateRegistry.removeState(for: widget.id)
             case .functionTransformationExplorer:
                 FunctionTransformationExplorerStateRegistry.removeState(for: widget.id)
+            case .matchGrid:
+                MatchGridStateRegistry.removeState(for: widget.id)
             case .none:
                 continue
             }

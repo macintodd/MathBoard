@@ -9,6 +9,9 @@
 
 import SwiftUI
 import WebKit
+#if os(iOS)
+import UIKit
+#endif
 
 // MARK: - WidgetWebView (cross-platform WKWebView wrapper)
 
@@ -102,6 +105,8 @@ public struct WidgetContainerView: View {
     @State private var isResizing = false
     @State private var dragStartOrigin: CGPoint?
     @State private var resizeStartSize: CGSize?
+    @GestureState private var isHeaderGestureActive = false
+    @GestureState private var isResizeGestureActive = false
 
     private let headerHeight: CGFloat = 34
     private let handleSize: CGFloat = 22
@@ -153,11 +158,16 @@ public struct WidgetContainerView: View {
     public var body: some View {
         VStack(spacing: 0) {
             header
+                .zIndex(2)
             renderedContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .clipped()
+                .zIndex(1)
         }
         .background(.background)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
@@ -165,6 +175,7 @@ public struct WidgetContainerView: View {
         .overlay(alignment: .bottomTrailing) {
             if !widget.isPinnedToCanvas {
                 resizeHandle
+                    .zIndex(3)
             }
         }
         .shadow(color: .black.opacity(0.18), radius: 12, x: 0, y: 6)
@@ -187,8 +198,17 @@ public struct WidgetContainerView: View {
             onDisplayFrameChanged?(nil)
         }
         .onDisappear {
-            onInteractionChanged?(false)
-            onDisplayFrameChanged?(nil)
+            releaseInteractionLock()
+        }
+        .onChange(of: isHeaderGestureActive) { _, isActive in
+            if !isActive, isDraggingHeader {
+                finishHeaderDrag()
+            }
+        }
+        .onChange(of: isResizeGestureActive) { _, isActive in
+            if !isActive, isResizing {
+                finishResize()
+            }
         }
     }
 
@@ -261,6 +281,10 @@ public struct WidgetContainerView: View {
             FunctionTransformationExplorerInteractiveView(
                 state: FunctionTransformationExplorerStateRegistry.state(for: widget.id)
             )
+        case .matchGrid:
+            MatchGridInteractiveView(
+                state: MatchGridStateRegistry.state(for: widget.id)
+            )
         }
     }
 
@@ -277,6 +301,37 @@ public struct WidgetContainerView: View {
     // MARK: Header (drag to move)
 
     private var header: some View {
+        headerContent
+            .padding(.horizontal, 12)
+            .frame(height: headerHeight)
+            .frame(maxWidth: .infinity)
+            .background(.thinMaterial)
+            .contentShape(Rectangle())
+            #if os(iOS)
+            .overlay(alignment: .leading) {
+                if !widget.isPinnedToCanvas {
+                    WidgetPanGestureCaptureView(
+                        cancelsTouchesInView: false,
+                        onChanged: handleHeaderDragChanged,
+                        onEnded: finishHeaderDrag
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    .padding(.trailing, headerControlExclusionWidth)
+                }
+            }
+            #else
+            .highPriorityGesture(headerDragGesture)
+            #endif
+    }
+
+    private var headerControlExclusionWidth: CGFloat {
+        var width: CGFloat = 28
+        if allowsPinning { width += 32 }
+        if onDeleteWidget != nil { width += 32 }
+        return width
+    }
+
+    private var headerContent: some View {
         HStack(spacing: 8) {
             Image(systemName: "circle.grid.2x2.fill")
                 .font(.system(size: 11))
@@ -313,43 +368,58 @@ public struct WidgetContainerView: View {
                 .accessibilityLabel("Delete widget")
             }
         }
-        .padding(.horizontal, 12)
-        .frame(height: headerHeight)
-        .frame(maxWidth: .infinity)
-        .background(.thinMaterial)
-        .contentShape(Rectangle())
-        .gesture(headerDragGesture)
     }
 
     private var headerDragGesture: some Gesture {
         DragGesture(minimumDistance: 1, coordinateSpace: .global)
+            .updating($isHeaderGestureActive) { _, isActive, _ in
+                isActive = true
+            }
             .onChanged { value in
-                guard !widget.isPinnedToCanvas else { return }
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) {
-                    let base = dragStartOrigin ?? committedOrigin
-                    if dragStartOrigin == nil {
-                        dragStartOrigin = base
-                        onInteractionChanged?(true)
-                    }
-                    isDraggingHeader = true
-                    frame.origin = CGPoint(
-                        x: base.x + value.translation.width,
-                        y: base.y + value.translation.height
-                    )
-                    onDisplayFrameChanged?(frame)
-                }
+                handleHeaderDragChanged(value.translation)
             }
             .onEnded { _ in
-                guard !widget.isPinnedToCanvas else { return }
-                committedOrigin = frame.origin
-                widget.frame = frame
-                onDisplayFrameChanged?(frame)
-                dragStartOrigin = nil
-                isDraggingHeader = false
-                onInteractionChanged?(false)
+                finishHeaderDrag()
             }
+    }
+
+    private func handleHeaderDragChanged(_ translation: CGSize) {
+        guard !widget.isPinnedToCanvas else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            let base = dragStartOrigin ?? committedOrigin
+            if dragStartOrigin == nil {
+                dragStartOrigin = base
+                onInteractionChanged?(true)
+            }
+            isDraggingHeader = true
+            frame.origin = CGPoint(
+                x: base.x + translation.width,
+                y: base.y + translation.height
+            )
+            onDisplayFrameChanged?(frame)
+        }
+    }
+
+    private func finishHeaderDrag() {
+        guard isDraggingHeader else { return }
+        let finalFrame = frame
+        committedOrigin = finalFrame.origin
+        dragStartOrigin = nil
+        isDraggingHeader = false
+        onInteractionChanged?(false)
+        onDisplayFrameChanged?(nil)
+        widget.frame = finalFrame
+    }
+
+    private func releaseInteractionLock() {
+        dragStartOrigin = nil
+        resizeStartSize = nil
+        isDraggingHeader = false
+        isResizing = false
+        onDisplayFrameChanged?(nil)
+        onInteractionChanged?(false)
     }
 
     // MARK: Resize handle (bottom-right)
@@ -369,43 +439,134 @@ public struct WidgetContainerView: View {
         )
         .padding(6)
         .contentShape(Rectangle())
+        #if os(iOS)
+        .overlay {
+            WidgetPanGestureCaptureView(
+                cancelsTouchesInView: true,
+                onChanged: handleResizeChanged,
+                onEnded: finishResize
+            )
+        }
+        #else
         .highPriorityGesture(resizeGesture)
+        #endif
     }
 
     private var resizeGesture: some Gesture {
         DragGesture(minimumDistance: 1, coordinateSpace: .global)
+            .updating($isResizeGestureActive) { _, isActive, _ in
+                isActive = true
+            }
             .onChanged { value in
-                guard !widget.isPinnedToCanvas else { return }
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) {
-                    let base = resizeStartSize ?? committedSize
-                    if resizeStartSize == nil {
-                        resizeStartSize = base
-                        onInteractionChanged?(true)
-                    }
-                    isResizing = true
-                    // Origin stays fixed; growing the size while `.position` tracks
-                    // `midX/midY` keeps the top-left anchored, so the box expands
-                    // toward the bottom-right handle.
-                    frame.size = CGSize(
-                        width: max(minSize.width, base.width + value.translation.width),
-                        height: max(minSize.height, base.height + value.translation.height)
-                    )
-                    onDisplayFrameChanged?(frame)
-                }
+                handleResizeChanged(value.translation)
             }
             .onEnded { _ in
-                guard !widget.isPinnedToCanvas else { return }
-                committedSize = frame.size
-                widget.frame = frame
-                onDisplayFrameChanged?(frame)
-                resizeStartSize = nil
-                isResizing = false
-                onInteractionChanged?(false)
+                finishResize()
             }
     }
+
+    private func handleResizeChanged(_ translation: CGSize) {
+        guard !widget.isPinnedToCanvas else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            let base = resizeStartSize ?? committedSize
+            if resizeStartSize == nil {
+                resizeStartSize = base
+                onInteractionChanged?(true)
+            }
+            isResizing = true
+            // Origin stays fixed; growing the size while `.position` tracks
+            // `midX/midY` keeps the top-left anchored, so the box expands
+            // toward the bottom-right handle.
+            frame.size = CGSize(
+                width: max(minSize.width, base.width + translation.width),
+                height: max(minSize.height, base.height + translation.height)
+            )
+            onDisplayFrameChanged?(frame)
+        }
+    }
+
+    private func finishResize() {
+        guard isResizing else { return }
+        let finalFrame = frame
+        committedSize = finalFrame.size
+        resizeStartSize = nil
+        isResizing = false
+        onInteractionChanged?(false)
+        onDisplayFrameChanged?(nil)
+        widget.frame = finalFrame
+    }
 }
+
+#if os(iOS)
+@MainActor
+private struct WidgetPanGestureCaptureView: UIViewRepresentable {
+    var cancelsTouchesInView: Bool
+    var onChanged: (CGSize) -> Void
+    var onEnded: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onChanged: onChanged, onEnded: onEnded)
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = WidgetPanGestureCaptureUIView()
+        view.backgroundColor = .clear
+        view.isOpaque = false
+        let recognizer = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePan(_:)))
+        recognizer.minimumNumberOfTouches = 1
+        recognizer.maximumNumberOfTouches = 1
+        recognizer.cancelsTouchesInView = cancelsTouchesInView
+        view.addGestureRecognizer(recognizer)
+        return view
+    }
+
+    func updateUIView(_ view: UIView, context: Context) {
+        context.coordinator.onChanged = onChanged
+        context.coordinator.onEnded = onEnded
+        view.gestureRecognizers?.compactMap { $0 as? UIPanGestureRecognizer }.forEach { recognizer in
+            recognizer.cancelsTouchesInView = cancelsTouchesInView
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var onChanged: (CGSize) -> Void
+        var onEnded: () -> Void
+
+        init(onChanged: @escaping (CGSize) -> Void, onEnded: @escaping () -> Void) {
+            self.onChanged = onChanged
+            self.onEnded = onEnded
+        }
+
+        @objc func handlePan(_ recognizer: UIPanGestureRecognizer) {
+            switch recognizer.state {
+            case .began, .changed:
+                let translation = recognizer.translation(in: recognizer.view)
+                onChanged(CGSize(width: translation.x, height: translation.y))
+            case .ended, .cancelled, .failed:
+                onEnded()
+                recognizer.setTranslation(.zero, in: recognizer.view)
+            default:
+                break
+            }
+        }
+    }
+}
+
+private final class WidgetPanGestureCaptureUIView: UIView {
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        if let touches = event?.allTouches, touches.count > 1 {
+            return false
+        }
+        if event?.allTouches?.contains(where: { $0.type == .pencil }) == true {
+            return false
+        }
+        return bounds.contains(point)
+    }
+}
+#endif
 
 // MARK: - Preview
 

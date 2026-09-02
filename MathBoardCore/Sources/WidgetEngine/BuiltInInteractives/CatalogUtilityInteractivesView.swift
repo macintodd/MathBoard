@@ -413,6 +413,7 @@ final class CoordinateGridGeneratorState {
     var showAxisNumbers = true
     var showAxisLabels = false
     var showAxisArrows = true
+    var usesSquareUnits = false
     var xAxisLabel = ""
     var yAxisLabel = ""
     var minorGridDarkness = 0.38
@@ -484,6 +485,13 @@ struct CoordinateGridGeneratorInteractiveView: View {
                 Toggle("Number axes", isOn: $state.showAxisNumbers)
                 Toggle("Full gridlines", isOn: $state.showFullGridlines)
                 Toggle("Axis arrows", isOn: $state.showAxisArrows)
+                Button {
+                    state.usesSquareUnits.toggle()
+                } label: {
+                    Label("Square", systemImage: state.usesSquareUnits ? "square.fill" : "square")
+                }
+                .buttonStyle(.bordered)
+                .tint(state.usesSquareUnits ? .green : .secondary)
             }
             .font(.system(size: 13))
 
@@ -518,14 +526,11 @@ struct CoordinateGridGeneratorInteractiveView: View {
                 }
             }
 
-            DisclosureGroup("Axis labels") {
-                HStack(spacing: 10) {
-                    textControl("x-axis", text: $state.xAxisLabel, field: .xAxisLabel)
-                    textControl("y-axis", text: $state.yAxisLabel, field: .yAxisLabel)
-                    Toggle("Show", isOn: $state.showAxisLabels)
-                        .fixedSize()
-                }
-                .font(.system(size: 13))
+            HStack(spacing: 10) {
+                Toggle("Axis labels", isOn: $state.showAxisLabels)
+                    .fixedSize()
+                textControl("x-axis", text: $state.xAxisLabel, field: .xAxisLabel)
+                textControl("y-axis", text: $state.yAxisLabel, field: .yAxisLabel)
             }
             .font(.system(size: 13, weight: .semibold))
         }
@@ -736,7 +741,11 @@ private struct CoordinateGridPreview: View {
                 yMinimum: state.yMinimum,
                 yMaximum: max(state.yMinimum + 1, state.yMaximum)
             )
-            let mapper = CoordinateGridMapper(size: size, bounds: bounds)
+            let mapper = CoordinateGridMapper(
+                size: size,
+                bounds: bounds,
+                usesSquareUnits: state.usesSquareUnits
+            )
             let gridStep = max(1, state.gridStep)
             let majorStep = max(gridStep, state.majorStep)
             let labelStep = max(gridStep, state.labelStep)
@@ -829,6 +838,7 @@ private struct CoordinateGridPreview: View {
 
             if state.showAxisArrows {
                 drawArrowhead(at: mapper.point(x: bounds.xMaximum, y: 0), angle: 0, in: &context)
+                drawArrowhead(at: mapper.point(x: bounds.xMinimum, y: 0), angle: .pi, in: &context)
             }
         }
 
@@ -840,6 +850,7 @@ private struct CoordinateGridPreview: View {
 
             if state.showAxisArrows {
                 drawArrowhead(at: mapper.point(x: 0, y: bounds.yMaximum), angle: -.pi / 2, in: &context)
+                drawArrowhead(at: mapper.point(x: 0, y: bounds.yMinimum), angle: .pi / 2, in: &context)
             }
         }
     }
@@ -961,6 +972,7 @@ private struct CoordinateBounds {
 private struct CoordinateGridMapper {
     var size: CGSize
     var bounds: CoordinateBounds
+    var usesSquareUnits: Bool = false
 
     func point(x: Int, y: Int) -> CGPoint {
         point(x: Double(x), y: Double(y))
@@ -969,6 +981,18 @@ private struct CoordinateGridMapper {
     func point(x: Double, y: Double) -> CGPoint {
         let xRange = CGFloat(bounds.xMaximum - bounds.xMinimum)
         let yRange = CGFloat(bounds.yMaximum - bounds.yMinimum)
+
+        if usesSquareUnits {
+            let unit = min(size.width / max(xRange, 0.001), size.height / max(yRange, 0.001))
+            let plotWidth = xRange * unit
+            let plotHeight = yRange * unit
+            let xInset = (size.width - plotWidth) / 2
+            let yInset = (size.height - plotHeight) / 2
+            let xPosition = xInset + CGFloat(x - Double(bounds.xMinimum)) * unit
+            let yPosition = yInset + plotHeight - CGFloat(y - Double(bounds.yMinimum)) * unit
+            return CGPoint(x: xPosition, y: yPosition)
+        }
+
         let xPosition = CGFloat(x - Double(bounds.xMinimum)) / xRange * size.width
         let yPosition = size.height - CGFloat(y - Double(bounds.yMinimum)) / yRange * size.height
         return CGPoint(x: xPosition, y: yPosition)

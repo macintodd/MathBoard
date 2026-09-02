@@ -1,6 +1,6 @@
 # Library Drawer — Status
 
-Status: **Prototype (live insertions + organized Catalog utilities)** · Live canvas overlay · Last updated 2026-08-29
+Status: **Prototype (live insertions + organized Catalog utilities)** · Live canvas overlay · Last updated 2026-08-30
 
 ## Purpose
 
@@ -56,7 +56,10 @@ Supported in the prototype:
   is opened.
 - Code-generated **thumbnails** (no image assets): parabola, sine, circle+radius,
   bar chart, right triangle, up-arrow, gold-star sticker (on a checkerboard
-  cut-out), timer widget, GIF card, ink square, generic graph.
+  cut-out), timer widget, built-in interactive glyphs, widget-template glyphs,
+  premade Mathtivity glyphs, text-object glyphs, image-object glyphs, GIF card,
+  ink square, generic graph. Persisted PNG thumbnails now also get the same
+  type-color outline treatment as schematic thumbnails.
 - Three landscape `#Preview`s (Recent open, closed folder tab, panel only) over a
   dotted mock board.
 
@@ -109,7 +112,10 @@ Sticker, and Axis (`AddItemKind` + `.addItem`).
   Recents.
 - **Preview-safe thumbnails.** Mock content still uses code-drawn thumbnails;
   persisted Recents use saved PNG thumbnails when available and fall back to the
-  schematic thumbnail styles.
+  schematic thumbnail styles. Widget fallbacks are classified from their payload
+  so timers no longer stand in for every widget; built-in interactives use green,
+  widget templates use sage, premade Mathtivities use blue, and text/image items
+  have their own outline colors.
 - **Canvas insertion.** PNG-backed objects in Recent and inside persisted
   Libraries can be dragged onto the canvas for precise placement or tapped to
   insert near the visible viewport center. Widget-backed entries store the

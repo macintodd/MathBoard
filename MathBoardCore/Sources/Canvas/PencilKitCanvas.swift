@@ -200,6 +200,29 @@ private extension PKStroke {
         )
     }
 
+    func translatedInCanvasSpaceBy(x: CGFloat, y: CGFloat) -> PKStroke {
+        var translatedTransform = transform
+        translatedTransform.tx += x
+        translatedTransform.ty += y
+        return PKStroke(
+            ink: ink,
+            path: path,
+            transform: translatedTransform,
+            mask: mask,
+            randomSeed: randomSeed
+        )
+    }
+
+    func applyingCanvasTransform(_ canvasTransform: CGAffineTransform) -> PKStroke {
+        PKStroke(
+            ink: ink,
+            path: path,
+            transform: transform.concatenating(canvasTransform),
+            mask: mask,
+            randomSeed: randomSeed
+        )
+    }
+
 }
 
 struct PencilKitCanvasContainer: View {
@@ -263,8 +286,8 @@ struct PencilKitCanvasContainer: View {
     @State private var hasPendingWidgetObjectSave = false
     @State private var hasPendingObjectLayerSave = false
     @State private var hasPendingAnimationSave = false
-    @State private var undoStack: [PKDrawing] = []
-    @State private var redoStack: [PKDrawing] = []
+    @State private var undoStack: [CanvasUndoSnapshot] = []
+    @State private var redoStack: [CanvasUndoSnapshot] = []
     @State private var isApplyingEditCommand = false
     @State private var appliedEditCommandID: CanvasEditCommand.ID?
 
@@ -278,17 +301,17 @@ struct PencilKitCanvasContainer: View {
 
     private var persistenceObservedRepresentable: some View {
         sidecarObservedRepresentable
-            .onChange(of: coverObjects) { _, newCoverObjects in
-                handleCoverObjectsChange(newCoverObjects)
+            .onChange(of: coverObjects) { oldCoverObjects, newCoverObjects in
+                handleCoverObjectsChange(from: oldCoverObjects, to: newCoverObjects)
             }
-            .onChange(of: widgetObjects) { _, newWidgetObjects in
-                handleWidgetObjectsChange(newWidgetObjects)
+            .onChange(of: widgetObjects) { oldWidgetObjects, newWidgetObjects in
+                handleWidgetObjectsChange(from: oldWidgetObjects, to: newWidgetObjects)
             }
-            .onChange(of: objectLayerState) { _, newObjectLayerState in
-                handleObjectLayerStateChange(newObjectLayerState)
+            .onChange(of: objectLayerState) { oldObjectLayerState, newObjectLayerState in
+                handleObjectLayerStateChange(from: oldObjectLayerState, to: newObjectLayerState)
             }
-            .onChange(of: animationState) { _, newAnimationState in
-                handleAnimationStateChange(newAnimationState)
+            .onChange(of: animationState) { oldAnimationState, newAnimationState in
+                handleAnimationStateChange(from: oldAnimationState, to: newAnimationState)
             }
             .onChange(of: editCommand) { _, command in
                 applyEditCommandIfNeeded(command)
@@ -300,17 +323,17 @@ struct PencilKitCanvasContainer: View {
 
     private var sidecarObservedRepresentable: some View {
         baseObservedRepresentable
-            .onChange(of: textObjects) { _, newTextObjects in
-                handleTextObjectsChange(newTextObjects)
+            .onChange(of: textObjects) { oldTextObjects, newTextObjects in
+                handleTextObjectsChange(from: oldTextObjects, to: newTextObjects)
             }
-            .onChange(of: imageObjects) { _, newImageObjects in
-                handleImageObjectsChange(newImageObjects)
+            .onChange(of: imageObjects) { oldImageObjects, newImageObjects in
+                handleImageObjectsChange(from: oldImageObjects, to: newImageObjects)
             }
-            .onChange(of: latexObjects) { _, newLaTeXObjects in
-                handleLaTeXObjectsChange(newLaTeXObjects)
+            .onChange(of: latexObjects) { oldLaTeXObjects, newLaTeXObjects in
+                handleLaTeXObjectsChange(from: oldLaTeXObjects, to: newLaTeXObjects)
             }
-            .onChange(of: geometryObjects) { _, newGeometryObjects in
-                handleGeometryObjectsChange(newGeometryObjects)
+            .onChange(of: geometryObjects) { oldGeometryObjects, newGeometryObjects in
+                handleGeometryObjectsChange(from: oldGeometryObjects, to: newGeometryObjects)
             }
     }
 
@@ -427,57 +450,75 @@ struct PencilKitCanvasContainer: View {
 
     private func handleDrawingChange(from oldDrawing: PKDrawing, to newDrawing: PKDrawing) {
         guard didLoad else { return }
-        if isApplyingEditCommand {
-            isApplyingEditCommand = false
-        } else if oldDrawing != newDrawing {
-            undoStack.append(oldDrawing)
-            if undoStack.count > Self.maximumUndoDepth {
-                undoStack.removeFirst(undoStack.count - Self.maximumUndoDepth)
-            }
-            redoStack = []
+        if !isApplyingEditCommand, oldDrawing != newDrawing {
+            pushUndoSnapshot(snapshot(drawing: oldDrawing))
         }
         publishEditState()
         scheduleSave(of: newDrawing)
         onDrawingDataChange?(newDrawing.dataRepresentation())
     }
 
-    private func handleTextObjectsChange(_ newTextObjects: [CanvasTextObject]) {
+    private func handleTextObjectsChange(from oldTextObjects: [CanvasTextObject], to newTextObjects: [CanvasTextObject]) {
         guard didLoad else { return }
+        if !isApplyingEditCommand, oldTextObjects != newTextObjects {
+            pushUndoSnapshot(snapshot(textObjects: oldTextObjects))
+        }
         scheduleTextSave(of: newTextObjects)
     }
 
-    private func handleImageObjectsChange(_ newImageObjects: [CanvasImageObject]) {
+    private func handleImageObjectsChange(from oldImageObjects: [CanvasImageObject], to newImageObjects: [CanvasImageObject]) {
         guard didLoad else { return }
+        if !isApplyingEditCommand, oldImageObjects != newImageObjects {
+            pushUndoSnapshot(snapshot(imageObjects: oldImageObjects))
+        }
         scheduleImageObjectSave(of: newImageObjects)
     }
 
-    private func handleLaTeXObjectsChange(_ newLaTeXObjects: [CanvasLaTeXObject]) {
+    private func handleLaTeXObjectsChange(from oldLaTeXObjects: [CanvasLaTeXObject], to newLaTeXObjects: [CanvasLaTeXObject]) {
         guard didLoad else { return }
+        if !isApplyingEditCommand, oldLaTeXObjects != newLaTeXObjects {
+            pushUndoSnapshot(snapshot(latexObjects: oldLaTeXObjects))
+        }
         scheduleLaTeXObjectSave(of: newLaTeXObjects)
     }
 
-    private func handleGeometryObjectsChange(_ newGeometryObjects: [CanvasGeometryObject]) {
+    private func handleGeometryObjectsChange(from oldGeometryObjects: [CanvasGeometryObject], to newGeometryObjects: [CanvasGeometryObject]) {
         guard didLoad else { return }
+        if !isApplyingEditCommand, oldGeometryObjects != newGeometryObjects {
+            pushUndoSnapshot(snapshot(geometryObjects: oldGeometryObjects))
+        }
         scheduleGeometryObjectSave(of: newGeometryObjects)
     }
 
-    private func handleCoverObjectsChange(_ newCoverObjects: [CanvasCoverObject]) {
+    private func handleCoverObjectsChange(from oldCoverObjects: [CanvasCoverObject], to newCoverObjects: [CanvasCoverObject]) {
         guard didLoad else { return }
+        if !isApplyingEditCommand, oldCoverObjects != newCoverObjects {
+            pushUndoSnapshot(snapshot(coverObjects: oldCoverObjects))
+        }
         scheduleCoverObjectSave(of: newCoverObjects)
     }
 
-    private func handleWidgetObjectsChange(_ newWidgetObjects: [WidgetObject]) {
+    private func handleWidgetObjectsChange(from oldWidgetObjects: [WidgetObject], to newWidgetObjects: [WidgetObject]) {
         guard didLoad else { return }
+        if !isApplyingEditCommand, oldWidgetObjects != newWidgetObjects {
+            pushUndoSnapshot(snapshot(widgetObjects: oldWidgetObjects))
+        }
         scheduleWidgetObjectSave(of: newWidgetObjects)
     }
 
-    private func handleObjectLayerStateChange(_ newObjectLayerState: CanvasObjectLayerState) {
+    private func handleObjectLayerStateChange(from oldObjectLayerState: CanvasObjectLayerState, to newObjectLayerState: CanvasObjectLayerState) {
         guard didLoad else { return }
+        if !isApplyingEditCommand, oldObjectLayerState != newObjectLayerState {
+            pushUndoSnapshot(snapshot(objectLayerState: oldObjectLayerState))
+        }
         scheduleObjectLayerSave(of: newObjectLayerState)
     }
 
-    private func handleAnimationStateChange(_ newAnimationState: CanvasAnimationState) {
+    private func handleAnimationStateChange(from oldAnimationState: CanvasAnimationState, to newAnimationState: CanvasAnimationState) {
         guard didLoad else { return }
+        if !isApplyingEditCommand, oldAnimationState != newAnimationState {
+            pushUndoSnapshot(snapshot(animationState: oldAnimationState))
+        }
         scheduleAnimationSave(of: newAnimationState)
     }
 
@@ -502,6 +543,38 @@ struct PencilKitCanvasContainer: View {
             .union(widgetObjects.map { CanvasAnimatedObjectRef(kind: .widget, id: $0.id) })
     }
 
+    private func snapshot(
+        drawing: PKDrawing? = nil,
+        textObjects: [CanvasTextObject]? = nil,
+        imageObjects: [CanvasImageObject]? = nil,
+        latexObjects: [CanvasLaTeXObject]? = nil,
+        geometryObjects: [CanvasGeometryObject]? = nil,
+        coverObjects: [CanvasCoverObject]? = nil,
+        widgetObjects: [WidgetObject]? = nil,
+        objectLayerState: CanvasObjectLayerState? = nil,
+        animationState: CanvasAnimationState? = nil
+    ) -> CanvasUndoSnapshot {
+        CanvasUndoSnapshot(
+            drawing: drawing ?? self.drawing,
+            textObjects: textObjects ?? self.textObjects,
+            imageObjects: imageObjects ?? self.imageObjects,
+            latexObjects: latexObjects ?? self.latexObjects,
+            geometryObjects: geometryObjects ?? self.geometryObjects,
+            coverObjects: coverObjects ?? self.coverObjects,
+            widgetObjects: widgetObjects ?? self.widgetObjects,
+            objectLayerState: objectLayerState ?? self.objectLayerState,
+            animationState: animationState ?? self.animationState
+        )
+    }
+
+    private func pushUndoSnapshot(_ snapshot: CanvasUndoSnapshot) {
+        undoStack.append(snapshot)
+        if undoStack.count > Self.maximumUndoDepth {
+            undoStack.removeFirst(undoStack.count - Self.maximumUndoDepth)
+        }
+        redoStack = []
+    }
+
     private func applyEditCommandIfNeeded(_ command: CanvasEditCommand?) {
         guard let command, appliedEditCommandID != command.id else { return }
         appliedEditCommandID = command.id
@@ -515,28 +588,53 @@ struct PencilKitCanvasContainer: View {
     }
 
     private func undoLastDrawingChange() {
-        guard let previousDrawing = undoStack.popLast() else {
+        guard let previousSnapshot = undoStack.popLast() else {
             publishEditState()
             return
         }
-        redoStack.append(drawing)
-        isApplyingEditCommand = true
-        drawing = previousDrawing
-        publishEditState()
+        redoStack.append(snapshot())
+        applyUndoSnapshot(previousSnapshot)
     }
 
     private func redoLastDrawingChange() {
-        guard let nextDrawing = redoStack.popLast() else {
+        guard let nextSnapshot = redoStack.popLast() else {
             publishEditState()
             return
         }
-        undoStack.append(drawing)
+        undoStack.append(snapshot())
         if undoStack.count > Self.maximumUndoDepth {
             undoStack.removeFirst(undoStack.count - Self.maximumUndoDepth)
         }
+        applyUndoSnapshot(nextSnapshot)
+    }
+
+    private func applyUndoSnapshot(_ snapshot: CanvasUndoSnapshot) {
         isApplyingEditCommand = true
-        drawing = nextDrawing
+        drawing = snapshot.drawing
+        textObjects = snapshot.textObjects
+        imageObjects = snapshot.imageObjects
+        latexObjects = snapshot.latexObjects
+        geometryObjects = snapshot.geometryObjects
+        coverObjects = snapshot.coverObjects
+        widgetObjects = snapshot.widgetObjects
+        objectLayerState = snapshot.objectLayerState
+        animationState = snapshot.animationState
+        scheduleSave(of: snapshot.drawing)
+        scheduleTextSave(of: snapshot.textObjects)
+        scheduleImageObjectSave(of: snapshot.imageObjects)
+        scheduleLaTeXObjectSave(of: snapshot.latexObjects)
+        scheduleGeometryObjectSave(of: snapshot.geometryObjects)
+        scheduleCoverObjectSave(of: snapshot.coverObjects)
+        scheduleWidgetObjectSave(of: snapshot.widgetObjects)
+        scheduleObjectLayerSave(of: snapshot.objectLayerState)
+        scheduleAnimationSave(of: snapshot.animationState)
+        onDrawingDataChange?(snapshot.drawing.dataRepresentation())
+        onCanvasObjectStateChange?()
         publishEditState()
+        Task { @MainActor in
+            await Task.yield()
+            isApplyingEditCommand = false
+        }
     }
 
     private func publishEditState() {
@@ -867,6 +965,18 @@ struct PencilKitCanvasContainer: View {
     }
 }
 
+private struct CanvasUndoSnapshot {
+    var drawing: PKDrawing
+    var textObjects: [CanvasTextObject]
+    var imageObjects: [CanvasImageObject]
+    var latexObjects: [CanvasLaTeXObject]
+    var geometryObjects: [CanvasGeometryObject]
+    var coverObjects: [CanvasCoverObject]
+    var widgetObjects: [WidgetObject]
+    var objectLayerState: CanvasObjectLayerState
+    var animationState: CanvasAnimationState
+}
+
 private final class CanvasWidgetObjectsView: UIView {
     var interactiveFrames: [CGRect] = []
     var resizeHandleFrames: [CGRect] = []
@@ -893,6 +1003,82 @@ private final class CanvasWidgetObjectsView: UIView {
     }
 }
 
+private final class CanvasStrokeTransformPreviewView: UIView {
+    private let frozenInkImageView = UIImageView()
+    private let imageView = UIImageView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        isOpaque = false
+        isHidden = true
+        frozenInkImageView.backgroundColor = .clear
+        frozenInkImageView.isOpaque = false
+        frozenInkImageView.contentMode = .scaleToFill
+        imageView.backgroundColor = .clear
+        imageView.isOpaque = false
+        imageView.contentMode = .scaleToFill
+        addSubview(frozenInkImageView)
+        addSubview(imageView)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func updateFrozenInk(image: UIImage?, frame: CGRect) {
+        UIView.performWithoutAnimation {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            isHidden = false
+            frozenInkImageView.image = image
+            frozenInkImageView.frame = image == nil ? .zero : frame
+            CATransaction.commit()
+        }
+    }
+
+    func updateSelectedInk(image: UIImage?, frame: CGRect) {
+        guard let image, !frame.isNull, frame.width > 0, frame.height > 0 else {
+            clearSelectedInk()
+            return
+        }
+        UIView.performWithoutAnimation {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            isHidden = false
+            imageView.image = image
+            imageView.frame = frame
+            CATransaction.commit()
+        }
+    }
+
+    func clearSelectedInk() {
+        UIView.performWithoutAnimation {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            imageView.image = nil
+            imageView.frame = .zero
+            if frozenInkImageView.image == nil {
+                isHidden = true
+            }
+            CATransaction.commit()
+        }
+    }
+
+    func clear() {
+        UIView.performWithoutAnimation {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            isHidden = true
+            frozenInkImageView.image = nil
+            frozenInkImageView.frame = .zero
+            imageView.image = nil
+            imageView.frame = .zero
+            CATransaction.commit()
+        }
+    }
+}
+
 private final class PencilKitCanvasHostView: UIView {
     let backgroundView = PDFCanvasBackgroundView()
     let canvasEdgeView = CanvasEdgeBoundaryView()
@@ -900,6 +1086,7 @@ private final class PencilKitCanvasHostView: UIView {
     let imageObjectsView = CanvasImageObjectsView()
     let geometryObjectsView = CanvasGeometryObjectsView()
     let textObjectsView = CanvasTextObjectsView()
+    let strokeTransformPreviewView = CanvasStrokeTransformPreviewView()
     let widgetObjectsView = CanvasWidgetObjectsView()
     let coverObjectsView = CanvasCoverObjectsView()
     let regionSelectionOverlayView = CanvasRegionSelectionOverlayView()
@@ -918,6 +1105,10 @@ private final class PencilKitCanvasHostView: UIView {
     private var onWidgetMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)?
     private var onWidgetImageInsertionRequested: (@MainActor (WidgetCanvasImageInsertionRequest) -> Void)?
     private var allowsWidgetAuthoring = true
+    // Tracks whether any widget gesture is active so the deferred scroll
+    // re-enable (in onWidgetInteractionChanged) can abort if a new
+    // interaction started before the Task had a chance to fire.
+    fileprivate var widgetIsInteracting = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -930,6 +1121,7 @@ private final class PencilKitCanvasHostView: UIView {
         imageObjectsView.isUserInteractionEnabled = false
         geometryObjectsView.isUserInteractionEnabled = false
         textObjectsView.isUserInteractionEnabled = false
+        strokeTransformPreviewView.isUserInteractionEnabled = false
         widgetObjectsView.backgroundColor = .clear
         coverObjectsView.isUserInteractionEnabled = true
         regionSelectionOverlayView.acceptsRegionSelectionInput = false
@@ -944,6 +1136,7 @@ private final class PencilKitCanvasHostView: UIView {
         addSubview(geometryObjectsView)
         addSubview(textObjectsView)
         addSubview(canvas)
+        addSubview(strokeTransformPreviewView)
         addSubview(widgetObjectsView)
         // Tape covers paint above the ink/content so they can hide anything,
         // but below the transient overlays so the laser stays topmost.
@@ -965,6 +1158,7 @@ private final class PencilKitCanvasHostView: UIView {
         imageObjectsView.frame = bounds
         geometryObjectsView.frame = bounds
         textObjectsView.frame = bounds
+        strokeTransformPreviewView.frame = bounds
         widgetObjectsView.frame = bounds
         widgetOverlayController?.view.frame = widgetObjectsView.bounds
         coverObjectsView.frame = bounds
@@ -1045,6 +1239,7 @@ private final class PencilKitCanvasHostView: UIView {
         geometryObjectsView.layer.zPosition = 20
         textObjectsView.layer.zPosition = 40
         canvas.layer.zPosition = 60
+        strokeTransformPreviewView.layer.zPosition = 65
         widgetObjectsView.layer.zPosition = 95
         coverObjectsView.layer.zPosition = 70
         regionSelectionOverlayView.layer.zPosition = 80
@@ -3199,8 +3394,20 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             canvasIdentity: drawingURL.path,
             onEditWidget: onWidgetEditRequested,
             allowsWidgetAuthoring: allowsWidgetAuthoring,
-            onWidgetInteractionChanged: { [weak canvas] isInteracting in
-                canvas?.isScrollEnabled = !isInteracting
+            onWidgetInteractionChanged: { [weak hostView, weak canvas] isInteracting in
+                if isInteracting {
+                    hostView?.widgetIsInteracting = true
+                    canvas?.isScrollEnabled = false
+                } else {
+                    hostView?.widgetIsInteracting = false
+                    // Defer re-enabling scroll to the next run-loop cycle so UIKit's
+                    // gesture recogniser state machine can fully settle after the
+                    // gesture ends before PKCanvasView's pan recogniser goes live again.
+                    Task { @MainActor [weak hostView, weak canvas] in
+                        guard hostView?.widgetIsInteracting == false else { return }
+                        canvas?.isScrollEnabled = true
+                    }
+                }
             },
             onWidgetMathInputRequested: onWidgetMathInputRequested,
             onWidgetImageInsertionRequested: onWidgetImageInsertionRequested
@@ -3246,8 +3453,19 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 canvasIdentity: self.drawingURL.path,
                 onEditWidget: self.onWidgetEditRequested,
                 allowsWidgetAuthoring: self.allowsWidgetAuthoring,
-                onWidgetInteractionChanged: { [weak canvas] isInteracting in
-                    canvas?.isScrollEnabled = !isInteracting
+                onWidgetInteractionChanged: { isInteracting in
+                    // hostView and canvas are already strongly captured by the
+                    // enclosing DispatchQueue.main.async block — no capture list needed.
+                    if isInteracting {
+                        hostView.widgetIsInteracting = true
+                        canvas.isScrollEnabled = false
+                    } else {
+                        hostView.widgetIsInteracting = false
+                        Task { @MainActor in
+                            guard !hostView.widgetIsInteracting else { return }
+                            canvas.isScrollEnabled = true
+                        }
+                    }
                 },
                 onWidgetMathInputRequested: self.onWidgetMathInputRequested,
                 onWidgetImageInsertionRequested: self.onWidgetImageInsertionRequested
@@ -3306,8 +3524,17 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             canvasIdentity: drawingURL.path,
             onEditWidget: onWidgetEditRequested,
             allowsWidgetAuthoring: allowsWidgetAuthoring,
-            onWidgetInteractionChanged: { [weak canvas] isInteracting in
-                canvas?.isScrollEnabled = !isInteracting
+            onWidgetInteractionChanged: { [weak hostView, weak canvas] isInteracting in
+                if isInteracting {
+                    hostView?.widgetIsInteracting = true
+                    canvas?.isScrollEnabled = false
+                } else {
+                    hostView?.widgetIsInteracting = false
+                    Task { @MainActor [weak hostView, weak canvas] in
+                        guard hostView?.widgetIsInteracting == false else { return }
+                        canvas?.isScrollEnabled = true
+                    }
+                }
             },
             onWidgetMathInputRequested: onWidgetMathInputRequested,
             onWidgetImageInsertionRequested: onWidgetImageInsertionRequested
@@ -3347,7 +3574,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             }
         }
 
-        if canvas.drawing != drawing {
+        if !coordinator.hasActiveStrokeTransformPreview, canvas.drawing != drawing {
             canvas.drawing = drawing
             // Belt and suspenders: if PencilKit doesn't fire
             // canvasViewDrawingDidChange for this programmatic assignment,
@@ -3462,6 +3689,13 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private var activeGroupStartTextObjects: [CanvasTextObject] = []
         private var activeGroupStartImageObjects: [CanvasImageObject] = []
         private var activeGroupStartGeometryObjects: [CanvasGeometryObject] = []
+        private var activeGroupStartDrawing = PKDrawing()
+        private var activeGroupStartStrokes: [(index: Int, stroke: PKStroke)] = []
+        private var pendingGroupTransformedDrawing: PKDrawing?
+        private var isApplyingLiveStrokeTransform = false
+        var hasActiveStrokeTransformPreview: Bool {
+            !activeGroupStartStrokes.isEmpty
+        }
         private var selectedTextObjectID: UUID?
         private var lastSelectedTextObjectID: UUID?
         private var selectedImageObjectID: UUID?
@@ -5572,6 +5806,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     flagObjectDragPublish()
                 }
             case .ended, .cancelled, .failed:
+                commitPendingGroupStrokeTransform(on: canvas)
                 clearObjectDragState()
                 stopObjectDragPublishLink()
                 // Refresh geometry overlay so the transient resize guide (the
@@ -5655,6 +5890,18 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             activeGroupStartTextObjects = parent.textObjects.filter { activeRegionSelectedTextObjectIDs.contains($0.id) }
             activeGroupStartImageObjects = parent.imageObjects.filter { activeRegionSelectedImageObjectIDs.contains($0.id) }
             activeGroupStartGeometryObjects = parent.geometryObjects.filter { activeRegionSelectedGeometryObjectIDs.contains($0.id) }
+            activeGroupStartDrawing = parent.drawing
+            pendingGroupTransformedDrawing = nil
+            activeGroupStartStrokes = activeGroupStartDrawing.strokes.enumerated().compactMap { index, stroke in
+                activeRegionSelectedStrokeIndexes.contains(index) ? (index, stroke) : nil
+            }
+            if !activeGroupStartStrokes.isEmpty {
+                let unselectedDrawing = drawingExcludingActiveGroupStrokes()
+                renderFrozenStrokePreview(on: canvas, drawing: unselectedDrawing)
+                setCanvasDrawingForLiveStrokeTransform(unselectedDrawing, on: canvas)
+                setCanvasHiddenForLiveStrokeTransform(true, on: canvas)
+                renderActiveGroupStrokePreview(on: canvas, strokes: activeGroupStartStrokes.map(\.stroke))
+            }
         }
 
         private func updateGroupTransform(_ kind: GroupTransformKind, at canvasPoint: CGPoint, on canvas: PKCanvasView) {
@@ -5665,7 +5912,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     x: currentSource.x - activeGroupStartSourcePoint.x,
                     y: currentSource.y - activeGroupStartSourcePoint.y
                 )
-                applyGroupMove(delta: delta)
+                applyGroupMove(delta: delta, on: canvas)
             case .resize:
                 let startWidth = max(activeGroupStartBounds.width, 1)
                 let startHeight = max(activeGroupStartBounds.height, 1)
@@ -5680,10 +5927,10 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 let startDistance = max(hypot(startVector.dx / startWidth, startVector.dy / startHeight), 0.001)
                 let currentDistance = hypot(currentVector.dx / startWidth, currentVector.dy / startHeight)
                 let scale = max(currentDistance / startDistance, 0.05)
-                applyGroupScale(scale)
+                applyGroupScale(scale, on: canvas)
             case .rotate:
                 let currentAngle = atan2(currentSource.y - activeGroupStartCenter.y, currentSource.x - activeGroupStartCenter.x)
-                applyGroupRotation(currentAngle - activeGroupStartAngle)
+                applyGroupRotation(currentAngle - activeGroupStartAngle, on: canvas)
             }
             updateRegionSelectionHighlight(on: canvas)
             updateHostTextObjects(using: canvas)
@@ -5692,7 +5939,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             flagObjectDragPublish()
         }
 
-        private func applyGroupMove(delta: CGPoint) {
+        private func applyGroupMove(delta: CGPoint, on canvas: PKCanvasView) {
             var textObjects = parent.textObjects
             for start in activeGroupStartTextObjects {
                 guard let index = textObjects.firstIndex(where: { $0.id == start.id }) else { continue }
@@ -5721,9 +5968,13 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 }
             }
             parent.geometryObjects = geometryObjects
+
+            transformActiveGroupStrokes(on: canvas) { stroke in
+                stroke.translatedInCanvasSpaceBy(x: delta.x, y: delta.y)
+            }
         }
 
-        private func applyGroupScale(_ scale: CGFloat) {
+        private func applyGroupScale(_ scale: CGFloat, on canvas: PKCanvasView) {
             func scaledPoint(_ point: CGPoint) -> CGPoint {
                 CGPoint(
                     x: activeGroupStartBounds.minX + (point.x - activeGroupStartBounds.minX) * scale,
@@ -5770,9 +6021,21 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 }
             }
             parent.geometryObjects = geometryObjects
+
+            let pivot = CGPoint(x: activeGroupStartBounds.minX, y: activeGroupStartBounds.minY)
+            let canvasPivot = CGPoint(
+                x: pivot.x + PencilKitCanvasGeometry.drawingOriginOffset.x,
+                y: pivot.y + PencilKitCanvasGeometry.drawingOriginOffset.y
+            )
+            let transform = CGAffineTransform(translationX: canvasPivot.x, y: canvasPivot.y)
+                .scaledBy(x: scale, y: scale)
+                .translatedBy(x: -canvasPivot.x, y: -canvasPivot.y)
+            transformActiveGroupStrokes(on: canvas) { stroke in
+                stroke.applyingCanvasTransform(transform)
+            }
         }
 
-        private func applyGroupRotation(_ rotationDelta: CGFloat) {
+        private func applyGroupRotation(_ rotationDelta: CGFloat, on canvas: PKCanvasView) {
             var textObjects = parent.textObjects
             for start in activeGroupStartTextObjects {
                 guard let index = textObjects.firstIndex(where: { $0.id == start.id }) else { continue }
@@ -5811,6 +6074,124 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 geometryObjects[index].pivotY = pivot.y
             }
             parent.geometryObjects = geometryObjects
+
+            let canvasCenter = CGPoint(
+                x: activeGroupStartCenter.x + PencilKitCanvasGeometry.drawingOriginOffset.x,
+                y: activeGroupStartCenter.y + PencilKitCanvasGeometry.drawingOriginOffset.y
+            )
+            let transform = CGAffineTransform(translationX: canvasCenter.x, y: canvasCenter.y)
+                .rotated(by: rotationDelta)
+                .translatedBy(x: -canvasCenter.x, y: -canvasCenter.y)
+            transformActiveGroupStrokes(on: canvas) { stroke in
+                stroke.applyingCanvasTransform(transform)
+            }
+        }
+
+        private func transformActiveGroupStrokes(on canvas: PKCanvasView, _ transform: (PKStroke) -> PKStroke) {
+            guard !activeGroupStartStrokes.isEmpty else { return }
+            var strokes = activeGroupStartDrawing.strokes
+            var transformedSelectedStrokes: [PKStroke] = []
+            for start in activeGroupStartStrokes where strokes.indices.contains(start.index) {
+                let transformedStroke = transform(start.stroke)
+                strokes[start.index] = transformedStroke
+                transformedSelectedStrokes.append(transformedStroke)
+            }
+            let transformedDrawing = PKDrawing(strokes: strokes)
+            pendingGroupTransformedDrawing = transformedDrawing
+            renderActiveGroupStrokePreview(on: canvas, strokes: transformedSelectedStrokes)
+        }
+
+        private func drawingExcludingActiveGroupStrokes() -> PKDrawing {
+            guard !activeGroupStartStrokes.isEmpty else { return activeGroupStartDrawing }
+            let selectedIndexes = Set(activeGroupStartStrokes.map(\.index))
+            let strokes = activeGroupStartDrawing.strokes.enumerated().compactMap { index, stroke in
+                selectedIndexes.contains(index) ? nil : stroke
+            }
+            return PKDrawing(strokes: strokes)
+        }
+
+        private func renderActiveGroupStrokePreview(on canvas: PKCanvasView, strokes: [PKStroke]) {
+            guard !strokes.isEmpty, let hostView else {
+                hostView?.strokeTransformPreviewView.clearSelectedInk()
+                return
+            }
+            let sourceRect = strokes
+                .map { sourceBounds(for: $0) }
+                .reduce(CGRect.null) { $0.union($1) }
+            guard !sourceRect.isNull, sourceRect.width > 0, sourceRect.height > 0 else {
+                hostView.strokeTransformPreviewView.clearSelectedInk()
+                return
+            }
+            let imageRect = canvasImageRect(forSourceRect: sourceRect)
+            let scale = canvas.window?.screen.scale ?? UIScreen.main.scale
+            let image = PKDrawing(strokes: strokes).image(from: imageRect, scale: scale)
+            hostView.strokeTransformPreviewView.updateSelectedInk(
+                image: image,
+                frame: overlayRect(forSourceRect: sourceRect, on: canvas)
+            )
+        }
+
+        private func renderFrozenStrokePreview(on canvas: PKCanvasView, drawing: PKDrawing) {
+            guard let hostView else { return }
+            let zoomScale = max(canvas.zoomScale, 0.001)
+            let visibleDrawingRect = CGRect(
+                x: canvas.contentOffset.x / zoomScale,
+                y: canvas.contentOffset.y / zoomScale,
+                width: canvas.bounds.width / zoomScale,
+                height: canvas.bounds.height / zoomScale
+            )
+            let scale = (canvas.window?.screen.scale ?? UIScreen.main.scale) * zoomScale
+            let image = drawing.image(from: visibleDrawingRect, scale: scale)
+            hostView.strokeTransformPreviewView.updateFrozenInk(
+                image: image,
+                frame: canvas.frame
+            )
+        }
+
+        private func canvasImageRect(forSourceRect sourceRect: CGRect) -> CGRect {
+            let origin = PencilKitCanvasGeometry.drawingOriginOffset
+            return CGRect(
+                x: sourceRect.minX + origin.x,
+                y: sourceRect.minY + origin.y,
+                width: sourceRect.width,
+                height: sourceRect.height
+            )
+        }
+
+        private func setCanvasDrawingForLiveStrokeTransform(_ drawing: PKDrawing, on canvas: PKCanvasView) {
+            isApplyingLiveStrokeTransform = true
+            UIView.performWithoutAnimation {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                canvas.drawing = drawing
+                canvas.setNeedsDisplay()
+                canvas.layoutIfNeeded()
+                CATransaction.commit()
+            }
+            DispatchQueue.main.async { [weak self] in
+                self?.isApplyingLiveStrokeTransform = false
+            }
+        }
+
+        private func setCanvasHiddenForLiveStrokeTransform(_ isHidden: Bool, on canvas: PKCanvasView) {
+            UIView.performWithoutAnimation {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                canvas.layer.opacity = isHidden ? 0 : 1
+                CATransaction.commit()
+            }
+        }
+
+        private func commitPendingGroupStrokeTransform(on canvas: PKCanvasView) {
+            hostView?.strokeTransformPreviewView.clear()
+            setCanvasHiddenForLiveStrokeTransform(false, on: canvas)
+            if let pendingGroupTransformedDrawing {
+                parent.drawing = pendingGroupTransformedDrawing
+                setCanvasDrawingForLiveStrokeTransform(pendingGroupTransformedDrawing, on: canvas)
+                self.pendingGroupTransformedDrawing = nil
+            } else if !activeGroupStartStrokes.isEmpty {
+                setCanvasDrawingForLiveStrokeTransform(parent.drawing, on: canvas)
+            }
         }
 
         private func clearObjectDragState() {
@@ -5818,6 +6199,14 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             activeGroupStartTextObjects = []
             activeGroupStartImageObjects = []
             activeGroupStartGeometryObjects = []
+            activeGroupStartDrawing = PKDrawing()
+            activeGroupStartStrokes = []
+            pendingGroupTransformedDrawing = nil
+            isApplyingLiveStrokeTransform = false
+            hostView?.strokeTransformPreviewView.clear()
+            if let canvas {
+                setCanvasHiddenForLiveStrokeTransform(false, on: canvas)
+            }
             movingTextObjectID = nil
             movingImageObjectID = nil
             movingGeometryObjectID = nil
@@ -5979,9 +6368,17 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             !activeRegionSelectedTextObjectIDs.isEmpty
                 || !activeRegionSelectedImageObjectIDs.isEmpty
                 || !activeRegionSelectedGeometryObjectIDs.isEmpty
+                || !activeRegionSelectedStrokeIndexes.isEmpty
         }
 
         private var activeObjectRegionSelectionCount: Int {
+            activeRegionSelectedTextObjectIDs.count
+                + activeRegionSelectedImageObjectIDs.count
+                + activeRegionSelectedGeometryObjectIDs.count
+                + activeRegionSelectedStrokeIndexes.count
+        }
+
+        private var activePersistableObjectRegionSelectionCount: Int {
             activeRegionSelectedTextObjectIDs.count
                 + activeRegionSelectedImageObjectIDs.count
                 + activeRegionSelectedGeometryObjectIDs.count
@@ -6023,7 +6420,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         }
 
         private func activeObjectGroup() -> CanvasObjectGroup? {
-            guard activeObjectRegionSelectionCount > 1 else { return nil }
+            guard activePersistableObjectRegionSelectionCount > 1 else { return nil }
             return CanvasObjectGroup(
                 textObjectIDs: activeRegionSelectedTextObjectIDs,
                 imageObjectIDs: activeRegionSelectedImageObjectIDs,
@@ -6136,7 +6533,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             activeRegionSelectedGeometryObjectIDs = Set(parent.geometryObjects.compactMap { object in
                 object.isLocked == true ? nil : (activeRegionSelection.intersects(object.renderedBounds) ? object.id : nil)
             })
-            activeRegionSelectedStrokeIndexes = []
+            activeRegionSelectedStrokeIndexes = Set(selectedStrokeIndexes(in: activeRegionSelection))
             updateRegionSelectionHighlight(on: canvas)
             updateSharedSelectionState()
         }
@@ -6499,7 +6896,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         }
 
         private func groupTransformHit(at canvasPoint: CGPoint, on canvas: PKCanvasView) -> GroupTransformKind? {
-            guard activeObjectRegionSelectionCount > 1,
+            guard activeObjectRegionSelectionCount > 0,
                   let groupRect = selectedObjectGroupScreenRect(on: canvas) else { return nil }
             let pointCandidates = [
                 canvasPoint,
@@ -6526,8 +6923,8 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
 
         private func selectedObjectGroupScreenRect(on canvas: PKCanvasView) -> CGRect? {
             let rects = selectedObjectRegionScreenRects(on: canvas)
-            guard rects.count > 1 else { return nil }
-            return rects.dropFirst().reduce(rects[0]) { $0.union($1) }.insetBy(dx: -10, dy: -10)
+            guard let first = rects.first else { return nil }
+            return rects.dropFirst().reduce(first) { $0.union($1) }.insetBy(dx: -10, dy: -10)
         }
 
         enum GeometryHandleKind {
@@ -6822,10 +7219,10 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private func activeObjectGroupSelectionState() -> CanvasSelectionState? {
             guard let canvas else { return nil }
             let screenRects = selectedObjectRegionScreenRects(on: canvas)
-            guard screenRects.count > 1 else { return nil }
+            guard let first = screenRects.first else { return nil }
             let groupScreenRect = screenRects
                 .dropFirst()
-                .reduce(screenRects[0]) { $0.union($1) }
+                .reduce(first) { $0.union($1) }
             return CanvasSelectionState(
                 viewportFrame: groupScreenRect,
                 selectedGroupObjectCount: screenRects.count,
@@ -6846,7 +7243,12 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 guard activeRegionSelectedGeometryObjectIDs.contains(object.id) else { return nil }
                 return screenBoundingRect(for: geometrySelectionScreenPoints(for: object, on: canvas))
             }
-            return textRects + imageRects + geometryRects
+            let selectionDrawing = pendingGroupTransformedDrawing ?? parent.drawing
+            let strokeRects = selectionDrawing.strokes.enumerated().compactMap { index, stroke -> CGRect? in
+                guard activeRegionSelectedStrokeIndexes.contains(index) else { return nil }
+                return overlayRect(forSourceRect: sourceBounds(for: stroke), on: canvas)
+            }
+            return textRects + imageRects + geometryRects + strokeRects
         }
 
         private func textSelectionScreenPoints(for object: CanvasTextObject, on canvas: PKCanvasView) -> [CGPoint] {
@@ -8840,8 +9242,17 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 canvasIdentity: parent.drawingURL.path,
                 onEditWidget: parent.onWidgetEditRequested,
                 allowsWidgetAuthoring: parent.allowsWidgetAuthoring,
-                onWidgetInteractionChanged: { [weak canvas] isInteracting in
-                    canvas?.isScrollEnabled = !isInteracting
+                onWidgetInteractionChanged: { [weak self, weak canvas] isInteracting in
+                    if isInteracting {
+                        self?.hostView?.widgetIsInteracting = true
+                        canvas?.isScrollEnabled = false
+                    } else {
+                        self?.hostView?.widgetIsInteracting = false
+                        Task { @MainActor [weak self, weak canvas] in
+                            guard self?.hostView?.widgetIsInteracting == false else { return }
+                            canvas?.isScrollEnabled = true
+                        }
+                    }
                 },
                 onWidgetMathInputRequested: parent.onWidgetMathInputRequested,
                 onWidgetImageInsertionRequested: parent.onWidgetImageInsertionRequested
@@ -9388,6 +9799,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         // MARK: - PKCanvasViewDelegate
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+            guard !isApplyingLiveStrokeTransform else { return }
             parent.drawing = canvasView.drawing
             if canvasView.tool is PKInkingTool {
                 needsCommittedInkFrameRefresh = true
