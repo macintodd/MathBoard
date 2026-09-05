@@ -139,16 +139,20 @@ public struct GraphCalculatorView: View {
                 } else {
                     if state.graphSectionPlacement != .hidden {
                         detachedGraphPanel(in: proxy.size)
+                            .zIndex(30)
                     }
                     if shouldRenderDetachedControlPanel {
                         detachedControlPanel(in: proxy.size)
+                            .zIndex(20)
                     } else if state.equationSectionPlacement != .hidden {
                         detachedEquationPanel(in: proxy.size)
+                            .zIndex(20)
                     }
                 }
 
                 if shouldRenderDetachedKeyboard {
                     detachedKeyboardPanel(in: proxy.size)
+                        .zIndex(10)
                 }
 
                 tableWindow(in: proxy.size)
@@ -2808,12 +2812,17 @@ public struct GraphCalculatorView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button {
+            state.highlightedKeyLabel = label
             recordKeyStroke(label: label, style: style, wide: wide, emphasized: emphasized)
             action()
         } label: {
             keyLabel(label, wide: wide, emphasized: emphasized, metrics: metrics)
         }
-        .buttonStyle(GraphKeyButtonStyle(fill: keyFill(style: style, emphasized: emphasized), emphasized: emphasized))
+        .buttonStyle(GraphKeyButtonStyle(
+            fill: keyFill(style: style, emphasized: emphasized),
+            emphasized: emphasized,
+            isHighlighted: isExternalDisplay && state.highlightedKeyLabel == label
+        ))
     }
 
     private func keyLabel(_ label: String, wide: Bool = false, emphasized: Bool = false, metrics: KeypadMetrics) -> some View {
@@ -2836,6 +2845,7 @@ public struct GraphCalculatorView: View {
 
     private func fractionKey(metrics: KeypadMetrics, action: @escaping () -> Void) -> some View {
         Button {
+            state.highlightedKeyLabel = "a/b"
             recordKeyStroke(label: "a⁄b", style: .plain, wide: false, emphasized: false)
             action()
         } label: {
@@ -2850,7 +2860,11 @@ public struct GraphCalculatorView: View {
             .foregroundStyle(.black.opacity(0.88))
             .frame(width: keyWidth(wide: false, metrics: metrics), height: metrics.rowHeight)
         }
-        .buttonStyle(GraphKeyButtonStyle(fill: keyFill(style: .plain, emphasized: false), emphasized: false))
+        .buttonStyle(GraphKeyButtonStyle(
+            fill: keyFill(style: .plain, emphasized: false),
+            emphasized: false,
+            isHighlighted: isExternalDisplay && state.highlightedKeyLabel == "a/b"
+        ))
     }
 
     private func keyWidth(wide: Bool, metrics: KeypadMetrics) -> CGFloat {
@@ -2882,8 +2896,10 @@ public struct GraphCalculatorView: View {
     private struct GraphKeyButtonStyle: ButtonStyle {
         let fill: Color
         let emphasized: Bool
+        var isHighlighted = false
 
         func makeBody(configuration: Configuration) -> some View {
+            let effectiveFill = isHighlighted ? Color.pink.opacity(0.92) : fill
             configuration.label
                 .background(
                     ZStack {
@@ -2895,8 +2911,8 @@ public struct GraphCalculatorView: View {
                             .fill(
                                 LinearGradient(
                                     colors: [
-                                        fill.opacity(configuration.isPressed ? 0.82 : 1.0),
-                                        fill.opacity(configuration.isPressed ? 0.98 : 0.84)
+                                        effectiveFill.opacity(configuration.isPressed ? 0.82 : 1.0),
+                                        effectiveFill.opacity(configuration.isPressed ? 0.98 : 0.84)
                                     ],
                                     startPoint: .top,
                                     endPoint: .bottom
@@ -3018,8 +3034,7 @@ public struct GraphCalculatorView: View {
 
         return VStack(alignment: .leading, spacing: 6) {
             ForEach(rows.prefix(6), id: \.index) { row in
-                GraphCalculatorMathDisplay(source: row.source, fallback: row.fallback, fontSize: 18)
-                    .foregroundStyle(graphColor(for: row.index))
+                detachedGraphEquationOverlayRow(row)
             }
         }
         .padding(.horizontal, 10)
@@ -3029,6 +3044,23 @@ public struct GraphCalculatorView: View {
         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.black.opacity(0.14), lineWidth: 0.5))
         .padding(10)
         .allowsHitTesting(false)
+    }
+
+    @ViewBuilder
+    private func detachedGraphEquationOverlayRow(
+        _ row: (index: Int, source: String, fallback: String)
+    ) -> some View {
+        if isExternalDisplay {
+            Text(row.fallback)
+                .font(.system(size: 18, weight: .regular, design: .serif))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .foregroundStyle(graphColor(for: row.index))
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            GraphCalculatorMathDisplay(source: row.source, fallback: row.fallback, fontSize: 18)
+                .foregroundStyle(graphColor(for: row.index))
+        }
     }
 
     private func detachedControlPanel(in containerSize: CGSize) -> some View {
@@ -5926,9 +5958,7 @@ public struct GraphCalculatorView: View {
             .onChanged { value in
                 let base = dragStartCenter ?? currentCenter
                 if dragStartCenter == nil { dragStartCenter = base }
-                // Keep x locked to the home edge; only slide vertically.
-                let homeX = homeBaseCenter(size: size, in: containerSize).x
-                let proposed = CGPoint(x: homeX, y: base.y + value.translation.height)
+                let proposed = CGPoint(x: base.x + value.translation.width, y: base.y + value.translation.height)
                 let clamped = clamp(center: proposed, size: size, in: containerSize)
                 let snapshotImage = dragProxy?.snapshotImage ?? dockedCalculatorDragSnapshot(size: size, in: containerSize)
                 let presentation = GraphCalculatorDragPresentation(
@@ -5950,8 +5980,7 @@ public struct GraphCalculatorView: View {
             }
             .onEnded { value in
                 let base = dragStartCenter ?? currentCenter
-                let homeX = homeBaseCenter(size: size, in: containerSize).x
-                let proposed = CGPoint(x: homeX, y: base.y + value.translation.height)
+                let proposed = CGPoint(x: base.x + value.translation.width, y: base.y + value.translation.height)
                 let clamped = clamp(center: proposed, size: size, in: containerSize)
                 state.calculatorPosition = state.isDockedHeaderCollapsed
                     ? expandedCenterPreservingTop(collapsedCenter: clamped, expandedSize: expandedSize, collapsedSize: size, in: containerSize)
@@ -6237,24 +6266,11 @@ public struct GraphCalculatorView: View {
     }
 
     private func attemptSectionHomeReconnect(section: GraphCalculatorSection, size: CGSize, in containerSize: CGSize) {
-        guard let rect = sectionRect(section, size: size, in: containerSize) else { return }
-        let homeRect = homeBaseRect(for: CGSize(width: min(containerSize.width - 24, 440), height: min(containerSize.height - 24, detachedControlHeight)), in: containerSize)
-        guard overlapRatio(of: rect, with: homeRect) > 0.5,
-              state.sectionHasLeftHomeBase[section] == true else {
-            return
-        }
-        connectDraggedSectionInHomeBase(section, in: containerSize)
+        state.sectionHasLeftHomeBase[section] = false
     }
 
     private func connectDraggedSectionInHomeBase(_ dragged: GraphCalculatorSection, in containerSize: CGSize) {
-        guard let target = homeBaseConnectionTarget(for: dragged, in: containerSize) else {
-            state.sectionHasLeftHomeBase[dragged] = false
-            return
-        }
-        connectSection(dragged, to: target, in: containerSize)
-        removeLinksToSectionsOutsideHomeBase(except: Set([dragged, target]), in: containerSize)
         state.sectionHasLeftHomeBase[dragged] = false
-        restoreWholeCalculatorIfAllSectionsLinkedInHomeBase(in: containerSize)
     }
 
     private func removeLinksToSectionsOutsideHomeBase(except protectedSections: Set<GraphCalculatorSection>, in containerSize: CGSize) {

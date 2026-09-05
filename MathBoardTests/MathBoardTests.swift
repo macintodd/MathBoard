@@ -1469,6 +1469,7 @@ struct MathBoardTests {
                 "course": "Algebra 1",
                 "activityType": "fillInTheBlank",
                 "mode": "scored",
+                "pedagogicalWorkflow": "assessment",
                 "topicLevel": 1,
                 "difficulty": "easy",
                 "description": "Practice inverse operations.",
@@ -1484,6 +1485,8 @@ struct MathBoardTests {
         #expect(item.title == "Equation Blanks")
         #expect(item.activityType == .fillInTheBlank)
         #expect(item.mode == .scored)
+        #expect(item.pedagogicalWorkflow == .assessment)
+        #expect(item.resolvedPedagogicalWorkflow == .assessment)
         #expect(item.topicLevel == 1)
         #expect(item.catalogLibraryRecentID == "catalog.linear-equation-fill-in-the-blank")
         #expect(item.jsonStoragePath == "jsonMathtivities/linear-equation-fill-in-the-blank.json")
@@ -1496,6 +1499,18 @@ struct MathBoardTests {
         #expect(catalog.contains { $0.catalogKind == .widgetTemplate })
         #expect(catalog.contains { $0.catalogKind == .builtInInteractive })
         #expect(catalog.contains { $0.catalogKind == .premadeMathtivity })
+        #expect(catalog.contains { $0.resolvedPedagogicalWorkflow == .bellRingerExitTicket })
+        #expect(catalog.contains { $0.resolvedPedagogicalWorkflow == .conceptualInteractive })
+        #expect(catalog.contains { $0.resolvedPedagogicalWorkflow == .assessment })
+        #expect(catalog.contains { $0.resolvedPedagogicalWorkflow == .tools })
+        #expect(catalog.contains { $0.resolvedPedagogicalWorkflow == .classPlay })
+        #expect(MathtivityCatalogLocalRegistry.builtInInteractives.first { $0.builtInKind == .actDailyPractice }?.resolvedPedagogicalWorkflow == .bellRingerExitTicket)
+        #expect(MathtivityCatalogLocalRegistry.builtInInteractives.first { $0.builtInKind == .inequalitiesExplorer }?.resolvedPedagogicalWorkflow == .assessment)
+        #expect(MathtivityCatalogLocalRegistry.builtInInteractives.first { $0.builtInKind == .functionTransformationExplorer }?.resolvedPedagogicalWorkflow == .conceptualInteractive)
+        #expect(MathtivityCatalogLocalRegistry.builtInInteractives.first { $0.builtInKind == .coordinateGridGenerator }?.resolvedPedagogicalWorkflow == .tools)
+        #expect(MathtivityCatalogLocalRegistry.builtInInteractives.first { $0.builtInKind == .countdownTimer }?.resolvedPedagogicalWorkflow == .tools)
+        #expect(MathtivityCatalogLocalRegistry.builtInInteractives.first { $0.builtInKind == .randomNumberGenerator }?.resolvedPedagogicalWorkflow == .tools)
+        #expect(MathtivityCatalogLocalRegistry.builtInInteractives.first { $0.builtInKind == .matchGrid }?.resolvedPedagogicalWorkflow == .classPlay)
         #expect(catalog.allSatisfy { $0.source == .bundled })
         #expect(MathtivityCatalogLocalRegistry.bundledPremadeMathtivities.count == JSONMathtivityCatalog.bundledEntries.count)
     }
@@ -1520,6 +1535,7 @@ struct MathBoardTests {
         #expect(items.map(\.builtInKind).contains(.countdownTimer))
         #expect(items.map(\.builtInKind).contains(.randomNumberGenerator))
         #expect(items.map(\.builtInKind).contains(.coordinateGridGenerator))
+        #expect(items.map(\.builtInKind).contains(.actDailyPractice))
 
         for item in items {
             let source = try #require(MathtivityCatalogLocalRegistry.source(for: item))
@@ -1534,7 +1550,9 @@ struct MathBoardTests {
         for kind in [
             BuiltInInteractiveKind.countdownTimer,
             BuiltInInteractiveKind.randomNumberGenerator,
-            BuiltInInteractiveKind.coordinateGridGenerator
+            BuiltInInteractiveKind.coordinateGridGenerator,
+            BuiltInInteractiveKind.functionTransformationExplorer,
+            BuiltInInteractiveKind.matchGrid
         ] {
             let widget = WidgetObject(
                 name: kind.displayName,
@@ -1545,6 +1563,149 @@ struct MathBoardTests {
             #expect(!kind.isScoreable)
             #expect(widget.activityScoreRecord == nil)
         }
+    }
+
+    @Test func conceptualJSONActivitiesDoNotPublishScoreRecords() throws {
+        let source = #"""
+        {
+          "schemaVersion": 1,
+          "widgetId": "conceptual-number-line",
+          "activity": "multipleChoice",
+          "title": "Explore the Number Line",
+          "learningObjective": "Students explore equivalent locations without submitting a score.",
+          "pedagogicalWorkflow": "conceptualInteractive",
+          "rules": {
+            "scoreMode": "correctOutOfAttempted",
+            "advanceMode": "manual"
+          },
+          "questions": [
+            {
+              "id": "q1",
+              "prompt": "Move points to compare values.",
+              "choices": [
+                { "id": "a", "label": "Ready", "isCorrect": true },
+                { "id": "b", "label": "Not ready", "isCorrect": false }
+              ]
+            }
+          ]
+        }
+        """#
+        let document = try #require(WidgetActivityJSONCodec.decode(source).document)
+        let widget = WidgetObject(
+            name: document.title,
+            codeString: source,
+            frame: .zero
+        )
+
+        #expect(document.pedagogicalWorkflow == .conceptualInteractive)
+        #expect(widget.activityScoreRecord == nil)
+        #expect(WidgetActivityScoreSheet(widgets: [widget]).records.isEmpty)
+    }
+
+    @Test func bundledACTDailyPracticeBankPassesValidation() throws {
+        let bank = ACTDailyPracticeQuestionBank.bundled
+        let errors = ACTDailyPracticeQuestionBank.validationErrors(for: bank)
+
+        #expect(bank.questions.count == 180)
+        #expect(errors.isEmpty, "ACT Daily Practice bank validation failures: \(errors)")
+        #expect(Set(bank.questions.map(\.day)) == Set(1...180))
+        #expect(bank.questions.allSatisfy { $0.choices.map(\.id) == ["A", "B", "C", "D"] })
+    }
+
+    @MainActor
+    @Test func actDailyPracticeStateFiltersAndAdvancesToUnusedQuestion() throws {
+        let testRunID = UUID().uuidString
+        let firstQuestionID = "act-test-\(testRunID)-001"
+        let secondQuestionID = "act-test-\(testRunID)-002"
+        let bank = ACTDailyPracticeBank(
+            title: "ACT Math Daily Practice",
+            version: 1,
+            subject: "ACT Math",
+            questions: [
+                ACTDailyPracticeQuestion(
+                    id: firstQuestionID,
+                    day: 1,
+                    domain: "Algebra",
+                    skill: "linear equations",
+                    difficulty: "easy",
+                    prompt: "Solve x + 1 = 3.",
+                    choices: [
+                        ACTDailyPracticeChoice(id: "A", text: "1"),
+                        ACTDailyPracticeChoice(id: "B", text: "2"),
+                        ACTDailyPracticeChoice(id: "C", text: "3"),
+                        ACTDailyPracticeChoice(id: "D", text: "4")
+                    ],
+                    correctChoiceID: "B",
+                    explanation: "Subtract 1 from both sides."
+                ),
+                ACTDailyPracticeQuestion(
+                    id: secondQuestionID,
+                    day: 2,
+                    domain: "Geometry",
+                    skill: "area",
+                    difficulty: "easy",
+                    prompt: "Find the area of a 3 by 4 rectangle.",
+                    choices: [
+                        ACTDailyPracticeChoice(id: "A", text: "7"),
+                        ACTDailyPracticeChoice(id: "B", text: "10"),
+                        ACTDailyPracticeChoice(id: "C", text: "12"),
+                        ACTDailyPracticeChoice(id: "D", text: "14")
+                    ],
+                    correctChoiceID: "C",
+                    explanation: "Area is length times width."
+                )
+            ]
+        )
+        let state = ACTDailyPracticeState(bank: bank)
+
+        #expect(state.selectedQuestion?.id == firstQuestionID)
+        state.nextUnusedQuestion()
+        #expect(state.selectedQuestion?.id == secondQuestionID)
+
+        state.searchText = "linear"
+        state.selectedDomain = "Algebra"
+        #expect(state.filteredQuestions.map(\.id) == [firstQuestionID])
+    }
+
+    @MainActor
+    @Test func actDailyPracticeScoreRecordReportsCurrentQuestionProgress() throws {
+        let widgetID = try #require(UUID(uuidString: "55555555-5555-5555-5555-555555555555"))
+        let question = ACTDailyPracticeQuestion(
+            id: "act-score-unique-001",
+            day: 1,
+            domain: "Algebra",
+            skill: "linear equations",
+            difficulty: "easy",
+            prompt: "Solve x + 1 = 3.",
+            choices: [
+                ACTDailyPracticeChoice(id: "A", text: "1"),
+                ACTDailyPracticeChoice(id: "B", text: "2"),
+                ACTDailyPracticeChoice(id: "C", text: "3"),
+                ACTDailyPracticeChoice(id: "D", text: "4")
+            ],
+            correctChoiceID: "B",
+            explanation: "Subtract 1 from both sides."
+        )
+        let state = ACTDailyPracticeState(
+            bank: ACTDailyPracticeBank(
+                title: "ACT Math Daily Practice",
+                version: 1,
+                subject: "ACT Math",
+                questions: [question]
+            )
+        )
+
+        #expect(BuiltInInteractiveKind.actDailyPractice.isScoreable)
+        #expect(BuiltInInteractiveKind.actDailyPractice.pointsPossible == 1)
+        #expect(state.scoreRecord(widgetID: widgetID, title: "").status == .notStarted)
+
+        state.selectChoice("B")
+        let record = state.scoreRecord(widgetID: widgetID, title: "")
+        #expect(record.status == .complete)
+        #expect(record.score == 1)
+        #expect(record.points == 1)
+        #expect(record.pointsPossible == 1)
+        #expect(record.numberCorrectFirstTry == 1)
     }
 
     @Test func mathtivityCatalogItemParsesFirestoreBuiltInShape() throws {
@@ -1667,13 +1828,16 @@ struct MathBoardTests {
             intent: .create
         )
 
-        #expect(prompt.contains("MathBoard Multiple Choice JSON mathtivity"))
+        #expect(prompt.contains("MathBoard Multiple Choice JSON bell ringer or exit ticket"))
         #expect(prompt.contains(#"activity as "multipleChoice""#))
         #expect(prompt.contains("Mark exactly one choice per question with isCorrect: true."))
         #expect(prompt.contains("Use plain ASCII straight double quotes"))
         #expect(prompt.contains(#"Write \\frac, \\quad, and \\_ in JSON"#))
         #expect(prompt.contains("Do not add teacher-facing theme, experience, CSS, scoring visual"))
-        #expect(prompt.contains("Starter JSON structure for Multiple Choice:"))
+        #expect(prompt.contains("Generate exactly one question"))
+        #expect(prompt.contains(#"pedagogicalWorkflow": "bellRingerExitTicket""#))
+        #expect(prompt.contains("associatedClass"))
+        #expect(prompt.contains("Single-question starter JSON structure for Multiple Choice:"))
     }
 
     @Test func fillInTheBlankPromptAppendsCatalogJSONForRemix() throws {
@@ -3327,10 +3491,11 @@ struct MathBoardTests {
         #expect(staleSubmittedProgress.indicatorState(now: now) == .submitted)
     }
 
-    @Test func studentAssignedLessonLiveProgressBuilderPublishesEveryAssignedWidget() throws {
+    @Test func studentAssignedLessonLiveProgressBuilderPublishesScoreableAssignedWidgets() throws {
         let activeWidgetID = try #require(UUID(uuidString: "11111111-1111-1111-1111-111111111111"))
         let inactiveWidgetID = try #require(UUID(uuidString: "22222222-2222-2222-2222-222222222222"))
         let submittedWidgetID = try #require(UUID(uuidString: "33333333-3333-3333-3333-333333333333"))
+        let matchGridWidgetID = try #require(UUID(uuidString: "44444444-4444-4444-4444-444444444444"))
         let packet = AssignmentSyncPacket(
             id: UUID(),
             teacherID: UUID(),
@@ -3341,7 +3506,8 @@ struct MathBoardTests {
             widgetSummaries: [
                 AssignedWidgetSummary(widgetID: activeWidgetID, title: "Inequality Widget", maxScore: 10),
                 AssignedWidgetSummary(widgetID: inactiveWidgetID, title: "Graph Widget", maxScore: 8),
-                AssignedWidgetSummary(widgetID: submittedWidgetID, title: "Number Line Widget", maxScore: 6)
+                AssignedWidgetSummary(widgetID: submittedWidgetID, title: "Number Line Widget", maxScore: 6),
+                AssignedWidgetSummary(widgetID: matchGridWidgetID, title: "MatchGrid", maxScore: 0, builtInKind: .matchGrid)
             ],
             assignedAt: Date(timeIntervalSince1970: 500)
         )
@@ -3353,7 +3519,7 @@ struct MathBoardTests {
         )
 
         let updates = builder.updates(
-            activeWidgetIDs: [activeWidgetID, submittedWidgetID],
+            activeWidgetIDs: [activeWidgetID, submittedWidgetID, matchGridWidgetID],
             submittedAt: Date(timeIntervalSince1970: 600)
         )
         let updatesByWidgetID = Dictionary(uniqueKeysWithValues: updates.compactMap { update in
@@ -3364,6 +3530,7 @@ struct MathBoardTests {
         let submittedUpdate = try #require(updatesByWidgetID[submittedWidgetID])
 
         #expect(updates.count == 3)
+        #expect(updatesByWidgetID[matchGridWidgetID] == nil)
         #expect(activeUpdate.isActiveOnStudentScreen)
         #expect(activeUpdate.submission.widgetScoreRecord.status == .inProgress)
         #expect(!inactiveUpdate.isActiveOnStudentScreen)

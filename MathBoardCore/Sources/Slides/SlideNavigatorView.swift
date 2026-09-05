@@ -51,11 +51,38 @@ struct SlideNavigatorView: View {
     let onMoveSlides: ([Int], Int) -> Void
     /// Request deletion of the given slide indices (host confirms first).
     let onDeleteSlides: ([Int]) -> Void
+    let allowsEditing: Bool
 
     /// Filmstrip multi-selection, tracked by ID so it survives reorders.
     @State private var selectedIDs: Set<UUID> = []
     /// Scroll target of the thumbnail strip (see `scrollPosition` below).
     @State private var scrolledSlideID: UUID?
+
+    init(
+        slides: [SlideMetadata],
+        currentIndex: Int,
+        isFilmstripOpen: Binding<Bool>,
+        thumbnail: @escaping (SlideMetadata) -> SlideNavigatorThumbnail,
+        onGoTo: @escaping (Int) -> Void,
+        onPrevious: @escaping () -> Void,
+        onNext: @escaping () -> Void,
+        onAdd: @escaping () -> Void,
+        onMoveSlides: @escaping ([Int], Int) -> Void,
+        onDeleteSlides: @escaping ([Int]) -> Void,
+        allowsEditing: Bool = true
+    ) {
+        self.slides = slides
+        self.currentIndex = currentIndex
+        self._isFilmstripOpen = isFilmstripOpen
+        self.thumbnail = thumbnail
+        self.onGoTo = onGoTo
+        self.onPrevious = onPrevious
+        self.onNext = onNext
+        self.onAdd = onAdd
+        self.onMoveSlides = onMoveSlides
+        self.onDeleteSlides = onDeleteSlides
+        self.allowsEditing = allowsEditing
+    }
 
     var body: some View {
         // The filmstrip panel is ALWAYS laid out (hidden via opacity/scale when
@@ -159,7 +186,7 @@ struct SlideNavigatorView: View {
             if canGoNext {
                 navArrowButton(systemName: "chevron.right", enabled: true, label: "Next slide", action: onNext)
             } else {
-                navArrowButton(systemName: "plus", enabled: true, label: "Add slide", action: onAdd)
+                navArrowButton(systemName: "plus", enabled: allowsEditing, label: "Add slide", action: onAdd)
             }
         }
         .padding(.horizontal, 10)
@@ -300,21 +327,21 @@ struct SlideNavigatorView: View {
 
             headerActionButton(
                 systemName: "arrow.left.to.line",
-                enabled: canMoveActionSlidesLeft,
+                enabled: allowsEditing && canMoveActionSlidesLeft,
                 label: hasSelection ? "Move selected slides left" : "Move slide left"
             ) {
                 onMoveSlides(actionIndices, -1)
             }
             headerActionButton(
                 systemName: "arrow.right.to.line",
-                enabled: canMoveActionSlidesRight,
+                enabled: allowsEditing && canMoveActionSlidesRight,
                 label: hasSelection ? "Move selected slides right" : "Move slide right"
             ) {
                 onMoveSlides(actionIndices, 1)
             }
             headerActionButton(
                 systemName: "trash",
-                enabled: canDeleteActionSlides,
+                enabled: allowsEditing && canDeleteActionSlides,
                 label: hasSelection ? "Delete selected slides" : "Delete slide",
                 tint: .red
             ) {
@@ -331,6 +358,8 @@ struct SlideNavigatorView: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
+            .disabled(!allowsEditing)
+            .opacity(allowsEditing ? 1 : 0.35)
             .accessibilityLabel("Add slide")
         }
     }

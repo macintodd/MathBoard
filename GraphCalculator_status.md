@@ -28,6 +28,24 @@ Acceptance standard:
 - Expression rows must preserve what the student typed, even when invalid.
 - Invalid rows should not crash or disappear; they should show row-level feedback.
 
+## 2026-09-02 Graph Snapshot Handler Ownership Repair
+
+Completed:
+
+- Fixed a likely regression where the graph calculator camera button could be enabled but fail to insert a graph photo onto the canvas.
+- Root cause: `LessonDetailView` gives `GraphCalculatorView` a stable forwarding closure, but the underlying shared `DisplayBroker.graphSnapshotHandler` could still be cleared by an older `PresentingCanvasView.onDisappear` during canvas/view churn.
+- `DisplayBroker` now registers the graph snapshot handler with an owner ID and only unregisters it when the same owner disappears.
+- Graph snapshot insertion now activates Select after issuing the image insertion command, matching the normal image insertion path.
+
+## 2026-09-02 External Detached-Graph Equation Overlay Fix
+
+Completed:
+
+- Fixed the second-display detached graph equation overlay clipping math text so expressions such as `y=x^3` could appear as only the exponent on the mirrored/presented screen.
+- The external-display overlay now renders the same expression display string with plain serif `Text`, single-line scaling, and the row color.
+- The iPad overlay and graph-photo export still use the math-rendered version.
+- Full Xcode build passed after the change.
+
 ## 2026-07-14 Sectioned Calculator Layout Pass
 
 Completed:

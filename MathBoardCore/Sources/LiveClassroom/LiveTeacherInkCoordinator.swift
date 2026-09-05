@@ -200,7 +200,8 @@ public final class LiveTeacherInkCoordinator {
     public func publishTeacherSlideManifestSnapshot(
         revision: Int,
         slides: [TeacherSlideMetadata],
-        activeSlideID: UUID? = nil
+        activeSlideID: UUID? = nil,
+        isFollowMeEnabled: Bool = false
     ) {
         guard let configuration,
               configuration.role == .teacher,
@@ -212,7 +213,8 @@ public final class LiveTeacherInkCoordinator {
             lessonCode: configuration.lessonCode,
             revision: revision,
             slides: slides,
-            activeSlideID: activeSlideID
+            activeSlideID: activeSlideID,
+            isFollowMeEnabled: isFollowMeEnabled
         )
         let liveSnapshot = snapshot.withoutEmbeddedBackgroundAssets()
         latestSlideManifestSnapshot = liveSnapshot
@@ -343,6 +345,7 @@ private extension TeacherSlideManifestSnapshot {
                 return strippedSlide
             },
             activeSlideID: activeSlideID,
+            isFollowMeEnabled: isFollowMeEnabled,
             sentAt: sentAt
         )
     }

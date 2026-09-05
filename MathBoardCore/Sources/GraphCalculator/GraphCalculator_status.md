@@ -28,6 +28,25 @@ Acceptance standard:
 - Expression rows must preserve what the student typed, even when invalid.
 - Invalid rows should not crash or disappear; they should show row-level feedback.
 
+## 2026-09-02 Graph Snapshot Handler Ownership Repair
+
+Completed:
+
+- Fixed a likely regression where the graph calculator camera button could be enabled but fail to insert a graph photo onto the canvas.
+- Root cause: `LessonDetailView` intentionally passes `GraphCalculatorView` a stable forwarding closure so the camera button is not greyed out, but the underlying shared `DisplayBroker.graphSnapshotHandler` could still be cleared by an older `PresentingCanvasView.onDisappear` during canvas/view churn.
+- `DisplayBroker` now registers the graph snapshot handler with an owner ID and only unregisters it when the same owner disappears, preventing stale canvas views from clearing the current insertion handler.
+- Graph snapshot insertion now also activates Select after issuing the image insertion command, matching the normal photo/import/widget-image insertion path so the inserted graph photo is immediately selectable.
+- Xcode live diagnostics passed for `DisplayBroker.swift`, `PresentingCanvasView.swift`, and `LessonDetailView.swift`.
+
+## 2026-09-02 External Detached-Graph Equation Overlay Fix
+
+Completed:
+
+- Fixed the second-display detached graph equation overlay clipping math text so expressions such as `y=x^3` could appear as only the exponent on the mirrored/presented screen.
+- Root cause: the iPad overlay used `GraphCalculatorMathDisplay`, which forces SwiftUIMath to its intrinsic horizontal size. That works locally, but the external-display graph calculator is framed, offset, scaled, and crop-aware, making the intrinsic math view vulnerable to clipping inside the small white equation legend.
+- The external-display overlay now renders the same expression display string with plain serif `Text`, single-line scaling, and the row color. The iPad overlay and graph-photo export still use the math-rendered version.
+- Full Xcode build passed after the change.
+
 ## 2026-08-29 Snapshot Handler Repair
 
 Completed:

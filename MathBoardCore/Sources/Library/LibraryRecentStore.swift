@@ -58,9 +58,14 @@ public enum LibraryRecentStore {
     private static let maximumRecentCount = 80
 
     public static func lessonURL(forDrawingURL drawingURL: URL) -> URL? {
-        let strokesURL = drawingURL.deletingLastPathComponent()
-        let lessonURL = strokesURL.deletingLastPathComponent()
-        return lessonURL.pathExtension == "mathboard" ? lessonURL : nil
+        var candidate = drawingURL.deletingLastPathComponent()
+        while candidate.path != candidate.deletingLastPathComponent().path {
+            if candidate.pathExtension == "mathboard" {
+                return candidate
+            }
+            candidate = candidate.deletingLastPathComponent()
+        }
+        return nil
     }
 
     public static func recentFileURL(forLessonURL lessonURL: URL) -> URL {

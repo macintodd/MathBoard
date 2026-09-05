@@ -28,6 +28,8 @@ public struct CanvasStrokeColor: Sendable, Equatable {
     public let blue: CGFloat
     public let alpha: CGFloat
 
+    public static let defaultCanvasDesk = CanvasStrokeColor(red: 0.82, green: 0.90, blue: 0.95, alpha: 1)
+
     public init(red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat) {
         self.red = red
         self.green = green

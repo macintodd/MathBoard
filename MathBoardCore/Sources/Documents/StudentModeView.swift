@@ -1144,7 +1144,7 @@ struct StudentAssignedLessonLiveProgressBuilder {
         activeWidgetIDs: Set<UUID>,
         submittedAt: Date = Date()
     ) -> [StudentAssignedLessonLiveProgressUpdate] {
-        assignmentPacket.widgetSummaries.map { widget in
+        assignmentPacket.widgetSummaries.filter { $0.maxScore > 0 }.map { widget in
             let isActive = activeWidgetIDs.contains(widget.widgetID)
             let fallbackStatus: WidgetActivityScoreStatus = submittedWidgetIDs.contains(widget.widgetID) ? .complete : .inProgress
             let scoreRecord = scoreRecord(for: widget, fallbackStatus: fallbackStatus)

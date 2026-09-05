@@ -49,6 +49,44 @@ public enum MathtivityCatalogActivityType: String, Codable, CaseIterable, Sendab
     }
 }
 
+public enum MathtivityCatalogWorkflow: String, Codable, CaseIterable, Sendable {
+    case bellRingerExitTicket
+    case conceptualInteractive
+    case assessment
+    case tools
+    case classPlay
+
+    public var displayName: String {
+        switch self {
+        case .bellRingerExitTicket:
+            return "Bell Ringers & Exit Tickets"
+        case .conceptualInteractive:
+            return "Conceptual Interactives"
+        case .assessment:
+            return "Assessments"
+        case .tools:
+            return "Tools"
+        case .classPlay:
+            return "Class Play"
+        }
+    }
+
+    public var sectionSubtitle: String {
+        switch self {
+        case .bellRingerExitTicket:
+            return "Single-question warmups and closure checks"
+        case .conceptualInteractive:
+            return "Zero-score canvas tools for exploration and demonstration"
+        case .assessment:
+            return "Scored CFUs and quizzes for reports and live progress"
+        case .tools:
+            return "Canvas utilities for generating lesson materials"
+        case .classPlay:
+            return "Whole-class review games and shared activities"
+        }
+    }
+}
+
 public enum MathtivityCatalogKind: String, Codable, CaseIterable, Sendable {
     case widgetTemplate
     case builtInInteractive
@@ -127,6 +165,7 @@ public struct MathtivityCatalogItem: Identifiable, Codable, Sendable, Equatable 
     public var activityType: MathtivityCatalogActivityType
     public var answerMode: MathtivityCatalogAnswerMode?
     public var mode: MathtivityCatalogMode
+    public var pedagogicalWorkflow: MathtivityCatalogWorkflow?
     public var topicLevel: Int?
     public var questionCount: Int?
     public var difficulty: String?
@@ -152,6 +191,7 @@ public struct MathtivityCatalogItem: Identifiable, Codable, Sendable, Equatable 
         activityType: MathtivityCatalogActivityType,
         answerMode: MathtivityCatalogAnswerMode? = nil,
         mode: MathtivityCatalogMode = .scored,
+        pedagogicalWorkflow: MathtivityCatalogWorkflow? = nil,
         topicLevel: Int? = nil,
         questionCount: Int? = nil,
         difficulty: String? = nil,
@@ -176,6 +216,7 @@ public struct MathtivityCatalogItem: Identifiable, Codable, Sendable, Equatable 
         self.activityType = activityType
         self.answerMode = answerMode
         self.mode = mode
+        self.pedagogicalWorkflow = pedagogicalWorkflow
         self.topicLevel = topicLevel
         self.questionCount = questionCount
         self.difficulty = difficulty
@@ -217,6 +258,7 @@ public struct MathtivityCatalogItem: Identifiable, Codable, Sendable, Equatable 
             activityType: activityType,
             answerMode: Self.answerModeValue(data["answerMode"]),
             mode: Self.modeValue(data["mode"]) ?? .scored,
+            pedagogicalWorkflow: Self.workflowValue(data["pedagogicalWorkflow"]),
             topicLevel: Self.intValue(data["topicLevel"]),
             questionCount: Self.intValue(data["questionCount"]),
             difficulty: Self.stringValue(data["difficulty"]),
@@ -252,18 +294,20 @@ public struct MathtivityCatalogItem: Identifiable, Codable, Sendable, Equatable 
         case .demo:
             mode = .demo
         }
+        let questionCount = Self.questionCount(forBundledResourceName: entry.resourceName)
 
         self.init(
             id: "bundled.\(entry.resourceName)",
             title: entry.title,
             catalogKind: .premadeMathtivity,
             source: .bundled,
-            topic: entry.topic,
+            topic: questionCount == 1 ? "Bell Ringers & Exit Tickets" : entry.topic,
             course: entry.topic,
             activityType: activityType,
             mode: mode,
+            pedagogicalWorkflow: questionCount == 1 ? .bellRingerExitTicket : .assessment,
             topicLevel: entry.topicLevel,
-            questionCount: nil,
+            questionCount: questionCount,
             description: "Bundled starter mathtivity.",
             tags: entry.tags,
             schemaVersion: 1,
@@ -276,6 +320,33 @@ public struct MathtivityCatalogItem: Identifiable, Codable, Sendable, Equatable 
 
     public var catalogLibraryRecentID: String {
         "catalog.\(id)"
+    }
+
+    public var resolvedPedagogicalWorkflow: MathtivityCatalogWorkflow {
+        if let pedagogicalWorkflow {
+            return pedagogicalWorkflow
+        }
+        if let builtInKind {
+            switch builtInKind {
+            case .actDailyPractice:
+                return .bellRingerExitTicket
+            case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator:
+                return .tools
+            case .functionTransformationExplorer:
+                return .conceptualInteractive
+            case .matchGrid:
+                return .classPlay
+            case .inequalitiesExplorer:
+                return .assessment
+            }
+        }
+        if catalogKind == .builtInInteractive || mode == .demo {
+            return .conceptualInteractive
+        }
+        if questionCount == 1 {
+            return .bellRingerExitTicket
+        }
+        return .assessment
     }
 
     private static func stringValue(_ value: Any?) -> String? {
@@ -321,9 +392,28 @@ public struct MathtivityCatalogItem: Identifiable, Codable, Sendable, Equatable 
         return MathtivityCatalogAnswerMode(rawValue: rawValue)
     }
 
+    private static func workflowValue(_ value: Any?) -> MathtivityCatalogWorkflow? {
+        guard let rawValue = stringValue(value) else { return nil }
+        return MathtivityCatalogWorkflow(rawValue: rawValue)
+    }
+
     private static func builtInKindValue(_ value: Any?) -> BuiltInInteractiveKind? {
         guard let rawValue = stringValue(value) else { return nil }
         return BuiltInInteractiveKind(rawValue: rawValue)
+    }
+
+    private static func questionCount(forBundledResourceName resourceName: String) -> Int? {
+        guard let entry = JSONMathtivityCatalog.bundledEntries.first(where: { $0.resourceName == resourceName }),
+              let source = JSONMathtivityCatalog.source(for: entry) else {
+            return nil
+        }
+        let repairedSource = source.replacingOccurrences(of: "\u{feff}", with: "")
+        guard let data = repairedSource.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let questions = root["questions"] as? [Any] else {
+            return nil
+        }
+        return questions.count
     }
 }
 
@@ -337,13 +427,14 @@ public enum MathtivityCatalogLocalRegistry {
             title: "Multiple Choice - Text & Expression Answers",
             catalogKind: .widgetTemplate,
             source: .bundled,
-            topic: "Widget Types",
+            topic: "Bell Ringers & Exit Tickets",
             activityType: .multipleChoice,
             answerMode: .textAndExpression,
             mode: .scored,
+            pedagogicalWorkflow: .bellRingerExitTicket,
             questionCount: 1,
-            description: "Starter multiple-choice widget for typed text or math-expression answer choices.",
-            tags: ["multiple choice", "template", "text answers", "expression answers"],
+            description: "Single-question multiple-choice container for quick warmups or closure checks.",
+            tags: ["bell ringer", "exit ticket", "multiple choice", "template", "text answers", "expression answers"],
             jsonStoragePath: "\(templatePrefix)multiple-choice-text-expression"
         ),
         MathtivityCatalogItem(
@@ -351,13 +442,14 @@ public enum MathtivityCatalogLocalRegistry {
             title: "Multiple Choice - Graphic Answers",
             catalogKind: .widgetTemplate,
             source: .bundled,
-            topic: "Widget Types",
+            topic: "Bell Ringers & Exit Tickets",
             activityType: .multipleChoice,
             answerMode: .graphic,
             mode: .scored,
+            pedagogicalWorkflow: .bellRingerExitTicket,
             questionCount: 1,
-            description: "Starter widget for visual choices such as graphs, number lines, or diagrams.",
-            tags: ["multiple choice", "template", "graphic answers", "visual choices"],
+            description: "Single-question visual-choice container for graph, number-line, or diagram checks.",
+            tags: ["bell ringer", "exit ticket", "multiple choice", "template", "graphic answers", "visual choices"],
             jsonStoragePath: "\(templatePrefix)multiple-choice-graphic"
         ),
         MathtivityCatalogItem(
@@ -365,26 +457,29 @@ public enum MathtivityCatalogLocalRegistry {
             title: "Fill in the Blank",
             catalogKind: .widgetTemplate,
             source: .bundled,
-            topic: "Widget Types",
+            topic: "Bell Ringers & Exit Tickets",
             activityType: .fillInTheBlank,
             answerMode: .textAndExpression,
             mode: .scored,
+            pedagogicalWorkflow: .bellRingerExitTicket,
             questionCount: 1,
-            description: "Starter fill-in-the-blank widget with editable text and numeric blanks.",
-            tags: ["fill in the blank", "template", "numeric answers", "text answers"],
+            description: "Single-question fill-in container for short response warmups or exit tickets.",
+            tags: ["bell ringer", "exit ticket", "fill in the blank", "template", "numeric answers", "text answers"],
             jsonStoragePath: "\(templatePrefix)fill-in-the-blank"
         )
     ]
 
     public static let builtInInteractives: [MathtivityCatalogItem] = BuiltInInteractiveKind.allCases.map { kind in
-        MathtivityCatalogItem(
+        let workflow = workflow(for: kind)
+        return MathtivityCatalogItem(
             id: "builtin.\(kind.rawValue)",
             title: kind.displayName,
             catalogKind: .builtInInteractive,
             source: .bundled,
-            topic: "Built-In Interactives",
+            topic: workflow.displayName,
             activityType: .multipleChoice,
-            mode: .demo,
+            mode: kind.isScoreable ? .scored : .demo,
+            pedagogicalWorkflow: workflow,
             questionCount: kind.isScoreable ? kind.scoreableTaskCount : nil,
             difficulty: "interactive",
             description: kind.catalogDescription,
@@ -392,6 +487,21 @@ public enum MathtivityCatalogLocalRegistry {
             jsonStoragePath: "\(builtInPrefix)\(kind.rawValue)",
             builtInKind: kind
         )
+    }
+
+    private static func workflow(for kind: BuiltInInteractiveKind) -> MathtivityCatalogWorkflow {
+        switch kind {
+        case .actDailyPractice:
+            return .bellRingerExitTicket
+        case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator:
+            return .tools
+        case .functionTransformationExplorer:
+            return .conceptualInteractive
+        case .matchGrid:
+            return .classPlay
+        case .inequalitiesExplorer:
+            return .assessment
+        }
     }
 
     public static var bundledPremadeMathtivities: [MathtivityCatalogItem] {
@@ -431,6 +541,11 @@ public enum MathtivityCatalogLocalRegistry {
               "title": "Multiple Choice",
               "description": "Editable starter multiple-choice widget.",
               "learningObjective": "Students choose the correct answer from text or expression choices.",
+              "pedagogicalWorkflow": "bellRingerExitTicket",
+              "usageTracking": {
+                "lastUsedDate": null,
+                "associatedClass": null
+              },
               "difficulty": "easy",
               "presentation": {
                 "preferredTheme": "cleanClassroom",
@@ -480,6 +595,11 @@ public enum MathtivityCatalogLocalRegistry {
               "title": "Graphic Choice",
               "description": "Editable starter multiple-choice widget for visual answers.",
               "learningObjective": "Students choose the correct visual representation.",
+              "pedagogicalWorkflow": "bellRingerExitTicket",
+              "usageTracking": {
+                "lastUsedDate": null,
+                "associatedClass": null
+              },
               "difficulty": "easy",
               "presentation": {
                 "preferredTheme": "cleanClassroom",
@@ -542,6 +662,11 @@ public enum MathtivityCatalogLocalRegistry {
               "title": "Fill in the Blank",
               "description": "Editable starter fill-in-the-blank widget.",
               "learningObjective": "Students complete missing values or short responses.",
+              "pedagogicalWorkflow": "bellRingerExitTicket",
+              "usageTracking": {
+                "lastUsedDate": null,
+                "associatedClass": null
+              },
               "difficulty": "easy",
               "presentation": {
                 "preferredTheme": "cleanClassroom",

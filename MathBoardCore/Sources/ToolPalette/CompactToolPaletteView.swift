@@ -426,9 +426,10 @@ public struct CompactToolPaletteView: View {
 
     private var toolSections: [[ToolID]] {
         [
+            [.reserved],
             [.selection, .extract],
             [.pen, .marker, .laser, .eraser],
-            [.geometry, .reserved, .cover]
+            [.geometry, .cover]
         ]
     }
 

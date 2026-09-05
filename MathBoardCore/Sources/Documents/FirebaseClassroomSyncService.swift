@@ -1345,6 +1345,7 @@ struct FirebaseClassroomSyncService {
             "teacherUserID": teacherUserID,
             "revision": snapshot.revision,
             "slides": snapshot.slides.map(teacherSlideDocument),
+            "isFollowMeEnabled": snapshot.isFollowMeEnabled,
             "sentAt": Timestamp(date: snapshot.sentAt)
         ]
         if let activeSlideID = snapshot.activeSlideID {
@@ -1412,6 +1413,7 @@ struct FirebaseClassroomSyncService {
             revision: snapshot.revision,
             slides: slides,
             activeSlideID: snapshot.activeSlideID,
+            isFollowMeEnabled: snapshot.isFollowMeEnabled,
             sentAt: snapshot.sentAt
         )
     }
@@ -1439,6 +1441,7 @@ struct FirebaseClassroomSyncService {
             revision: snapshot.revision,
             slides: slides,
             activeSlideID: snapshot.activeSlideID,
+            isFollowMeEnabled: snapshot.isFollowMeEnabled,
             sentAt: snapshot.sentAt
         )
     }
@@ -1471,6 +1474,7 @@ struct FirebaseClassroomSyncService {
             revision: intValue(data["revision"]),
             slides: slides,
             activeSlideID: uuidValue(data["activeSlideID"]),
+            isFollowMeEnabled: (data["isFollowMeEnabled"] as? Bool) ?? (data["isFollowMeEnabled"] as? NSNumber)?.boolValue ?? false,
             sentAt: timestampValue(data["sentAt"])
         )
     }

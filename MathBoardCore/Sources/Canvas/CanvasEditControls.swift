@@ -132,6 +132,7 @@ public struct CanvasObjectCommand: Sendable, Equatable, Identifiable {
         case duplicate(CanvasSelectionState.Object)
         case delete(CanvasSelectionState.Object)
         case reorderImage(UUID, ImageLayerAction)
+        case setTextLocked(UUID, Bool)
         case setImageLocked(UUID, Bool)
         case setGeometryLocked(UUID, Bool)
         case setAnimationPreset(CanvasAnimatedObjectRef, CanvasAnimationPreset)
@@ -144,6 +145,7 @@ public struct CanvasObjectCommand: Sendable, Equatable, Identifiable {
         case reloadObjectState
         case groupSelection
         case ungroupSelection
+        case lockSelection
     }
 
     public let id: UUID

@@ -39,7 +39,7 @@ public struct ExternalCanvasView: View {
                     let fitted = Self.fittedSize(forAspect: aspect, in: proxy.size)
                     ZStack(alignment: .topLeading) {
                         let liveStrokes = broker.completedLiveStrokes + [broker.currentLiveStroke].compactMap { $0 }
-                        let inkStrokes = liveStrokes.filter { !$0.isTransient }
+                        let inkStrokes = liveStrokes.filter { !$0.isTransient } + broker.liveTransformedStrokes
                         let laserStrokes = liveStrokes.filter { $0.isTransient }
 
                         TransformedCanvasFrame(

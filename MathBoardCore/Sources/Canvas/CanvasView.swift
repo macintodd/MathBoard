@@ -19,6 +19,7 @@ import WidgetEngine
 public struct CanvasView: View {
     private let drawingURL: URL
     private let background: CanvasBackground?
+    private let canvasDeskColor: CanvasStrokeColor
     private let presentationMode: CanvasPresentationMode
     private let initialViewportState: CanvasViewportState?
     private let viewportCommand: CanvasViewportCommand?
@@ -31,6 +32,7 @@ public struct CanvasView: View {
     private let onFrameUpdate: (@MainActor (CGImage, CGRect, CGRect) -> Void)?
     private let onViewportSourceRectChange: (@MainActor (CGRect) -> Void)?
     private let onLiveStrokeUpdate: (@MainActor (CanvasLiveStroke?) -> Void)?
+    private let onLiveTransformedStrokesUpdate: (@MainActor ([CanvasLiveStroke]) -> Void)?
     private let onDrawingDataChange: (@MainActor (Data) -> Void)?
     private let onWidgetObjectsChange: (@MainActor ([WidgetObject], WidgetCanvasViewport, CGSize, String) -> Void)?
     private let onCanvasObjectStateChange: (@MainActor () -> Void)?
@@ -52,6 +54,7 @@ public struct CanvasView: View {
     public init(
         drawingURL: URL,
         background: CanvasBackground? = nil,
+        canvasDeskColor: CanvasStrokeColor = .defaultCanvasDesk,
         presentationMode: CanvasPresentationMode = .present,
         initialViewportState: CanvasViewportState? = nil,
         viewportCommand: CanvasViewportCommand? = nil,
@@ -64,6 +67,7 @@ public struct CanvasView: View {
         onFrameUpdate: (@MainActor (CGImage, CGRect, CGRect) -> Void)? = nil,
         onViewportSourceRectChange: (@MainActor (CGRect) -> Void)? = nil,
         onLiveStrokeUpdate: (@MainActor (CanvasLiveStroke?) -> Void)? = nil,
+        onLiveTransformedStrokesUpdate: (@MainActor ([CanvasLiveStroke]) -> Void)? = nil,
         onDrawingDataChange: (@MainActor (Data) -> Void)? = nil,
         onWidgetObjectsChange: (@MainActor ([WidgetObject], WidgetCanvasViewport, CGSize, String) -> Void)? = nil,
         onCanvasObjectStateChange: (@MainActor () -> Void)? = nil,
@@ -84,6 +88,7 @@ public struct CanvasView: View {
     ) {
         self.drawingURL = drawingURL
         self.background = background
+        self.canvasDeskColor = canvasDeskColor
         self.presentationMode = presentationMode
         self.initialViewportState = initialViewportState
         self.viewportCommand = viewportCommand
@@ -96,6 +101,7 @@ public struct CanvasView: View {
         self.onFrameUpdate = onFrameUpdate
         self.onViewportSourceRectChange = onViewportSourceRectChange
         self.onLiveStrokeUpdate = onLiveStrokeUpdate
+        self.onLiveTransformedStrokesUpdate = onLiveTransformedStrokesUpdate
         self.onDrawingDataChange = onDrawingDataChange
         self.onWidgetObjectsChange = onWidgetObjectsChange
         self.onCanvasObjectStateChange = onCanvasObjectStateChange
@@ -120,6 +126,7 @@ public struct CanvasView: View {
         PencilKitCanvasContainer(
             drawingURL: drawingURL,
             background: background,
+            canvasDeskColor: canvasDeskColor,
             presentationMode: presentationMode,
             initialViewportState: initialViewportState,
             viewportCommand: viewportCommand,
@@ -132,6 +139,7 @@ public struct CanvasView: View {
             onFrameUpdate: onFrameUpdate,
             onViewportSourceRectChange: onViewportSourceRectChange,
             onLiveStrokeUpdate: onLiveStrokeUpdate,
+            onLiveTransformedStrokesUpdate: onLiveTransformedStrokesUpdate,
             onDrawingDataChange: onDrawingDataChange,
             onWidgetObjectsChange: onWidgetObjectsChange,
             onCanvasObjectStateChange: onCanvasObjectStateChange,

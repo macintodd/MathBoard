@@ -66,6 +66,10 @@ public final class DisplayBroker {
     /// PencilKit's rasterized committed stroke.
     public var completedLiveStrokes: [CanvasLiveStroke] = []
 
+    /// Temporary vector strokes for selected-handwriting transforms. These are
+    /// presentation overlays only and must not be submitted as newly drawn ink.
+    public var liveTransformedStrokes: [CanvasLiveStroke] = []
+
     private static let maximumCompletedLiveStrokes = 200
 
     /// The latest iPad canvas viewport state for toolbar controls.
@@ -89,7 +93,22 @@ public final class DisplayBroker {
     /// Callback registered by PresentingCanvasView so that a GraphCalculatorView
     /// rendered at a higher z-level (e.g. LessonDetailView) can still insert
     /// graph snapshots onto the canvas.
-    public var graphSnapshotHandler: (@MainActor (GraphCalculatorSnapshot) -> Void)?
+    public private(set) var graphSnapshotHandler: (@MainActor (GraphCalculatorSnapshot) -> Void)?
+    private var graphSnapshotHandlerOwnerID: UUID?
+
+    public func registerGraphSnapshotHandler(
+        ownerID: UUID,
+        handler: @escaping @MainActor (GraphCalculatorSnapshot) -> Void
+    ) {
+        graphSnapshotHandlerOwnerID = ownerID
+        graphSnapshotHandler = handler
+    }
+
+    public func unregisterGraphSnapshotHandler(ownerID: UUID) {
+        guard graphSnapshotHandlerOwnerID == ownerID else { return }
+        graphSnapshotHandlerOwnerID = nil
+        graphSnapshotHandler = nil
+    }
 
     /// Visual state for the custom radial palette while Phase 1 integration is
     /// still display-only. The iPad owns interaction; the external display reads
@@ -132,6 +151,10 @@ public final class DisplayBroker {
             }
         }
         currentLiveStroke = nil
+    }
+
+    public func publishLiveTransformedStrokes(_ strokes: [CanvasLiveStroke]) {
+        liveTransformedStrokes = strokes
     }
 
     public func publishWidgets(

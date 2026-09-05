@@ -15,6 +15,9 @@ struct ActivityWidgetDocument: Codable, Equatable, Sendable {
     var title: String
     var description: String?
     var learningObjective: String
+    var pedagogicalWorkflow: WidgetActivityWorkflow?
+    var usageTracking: WidgetActivityUsageTracking?
+    var assessmentConfiguration: WidgetActivityAssessmentConfiguration?
     var difficulty: WidgetActivityDifficulty?
     var presentation: WidgetActivityPresentation?
     var rules: WidgetActivityRules?
@@ -28,6 +31,9 @@ struct ActivityWidgetDocument: Codable, Equatable, Sendable {
         title: String,
         description: String? = nil,
         learningObjective: String,
+        pedagogicalWorkflow: WidgetActivityWorkflow? = nil,
+        usageTracking: WidgetActivityUsageTracking? = nil,
+        assessmentConfiguration: WidgetActivityAssessmentConfiguration? = nil,
         difficulty: WidgetActivityDifficulty? = nil,
         presentation: WidgetActivityPresentation? = nil,
         rules: WidgetActivityRules? = nil,
@@ -40,11 +46,49 @@ struct ActivityWidgetDocument: Codable, Equatable, Sendable {
         self.title = title
         self.description = description
         self.learningObjective = learningObjective
+        self.pedagogicalWorkflow = pedagogicalWorkflow
+        self.usageTracking = usageTracking
+        self.assessmentConfiguration = assessmentConfiguration
         self.difficulty = difficulty
         self.presentation = presentation
         self.rules = rules
         self.feedback = feedback
         self.questions = questions
+    }
+}
+
+enum WidgetActivityWorkflow: String, Codable, CaseIterable, Sendable {
+    case bellRingerExitTicket
+    case conceptualInteractive
+    case assessment
+}
+
+struct WidgetActivityUsageTracking: Codable, Equatable, Sendable {
+    var lastUsedDate: Date?
+    var associatedClass: String?
+
+    init(
+        lastUsedDate: Date? = nil,
+        associatedClass: String? = nil
+    ) {
+        self.lastUsedDate = lastUsedDate
+        self.associatedClass = associatedClass
+    }
+}
+
+struct WidgetActivityAssessmentConfiguration: Codable, Equatable, Sendable {
+    var allowRetries: Bool?
+    var versionCount: Int?
+    var printExportIncludesAnswerKey: Bool?
+
+    init(
+        allowRetries: Bool? = nil,
+        versionCount: Int? = nil,
+        printExportIncludesAnswerKey: Bool? = nil
+    ) {
+        self.allowRetries = allowRetries
+        self.versionCount = versionCount
+        self.printExportIncludesAnswerKey = printExportIncludesAnswerKey
     }
 }
 

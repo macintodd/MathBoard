@@ -9,6 +9,7 @@ import Foundation
 
 enum WidgetMathtivityPromptIntent: Equatable, Sendable {
     case create
+    case createBellRingerExitTicket
     case remix(sourceJSON: String)
 }
 
@@ -22,9 +23,9 @@ enum WidgetMathtivityPromptFactory {
         let opening: String
 
         switch intent {
-        case .create:
-            opening = "You are helping create a MathBoard \(normalizedKind.displayName) JSON mathtivity."
-            sourceJSON = starterJSON(for: normalizedKind)
+        case .create, .createBellRingerExitTicket:
+            opening = "You are helping create a MathBoard \(normalizedKind.displayName) JSON bell ringer or exit ticket."
+            sourceJSON = singleQuestionStarterJSON(for: normalizedKind)
         case .remix(let json):
             opening = "You are helping revise a MathBoard \(normalizedKind.displayName) JSON mathtivity."
             sourceJSON = json
@@ -42,7 +43,7 @@ enum WidgetMathtivityPromptFactory {
             "For numerator and denominator answer cells, do not fake blanks with LaTeX such as \\\\frac{\\\\}{\\\\}. Define normal blanks, then add responseLayout: { \"type\": \"fraction\", \"label\": \"m =\", \"numeratorBlankId\": \"numerator\", \"denominatorBlankId\": \"denominator\" }.",
             "Keep schemaVersion as 1 and keep activity as \"\(normalizedKind.rawValue)\" unless I explicitly ask to change the activity type.",
             "Do not add teacher-facing theme, experience, CSS, scoring visual, animation, image, audio, or custom code fields. MathBoard owns the visual renderer and score presentation.",
-            "Preserve scoring rules unless I ask for a demo-only activity.",
+            workflowInstructions(for: intent),
             "",
             "Activity-specific JSON contract:",
             contract(for: normalizedKind),
@@ -55,13 +56,11 @@ enum WidgetMathtivityPromptFactory {
     static func starterJSON(for activityKind: WidgetObjectActivityKind) -> String {
         switch supportedKind(from: activityKind) {
         case .multipleChoice:
-            return JSONMathtivityCatalog.source(for: JSONMathtivityCatalog.quadraticFeaturesMultipleChoice)
-                ?? WidgetSamples.orderOpsActivityJSON
+            return singleQuestionStarterJSON(for: .multipleChoice)
         case .fillInTheBlank:
-            return JSONMathtivityCatalog.source(for: JSONMathtivityCatalog.linearEquationFillInTheBlank)
-                ?? WidgetSamples.orderOpsActivityJSON
+            return singleQuestionStarterJSON(for: .fillInTheBlank)
         case .builtInInteractive, .unknown:
-            return WidgetSamples.orderOpsActivityJSON
+            return singleQuestionStarterJSON(for: .multipleChoice)
         }
     }
 
@@ -79,10 +78,133 @@ enum WidgetMathtivityPromptFactory {
         kind: WidgetObjectActivityKind
     ) -> String {
         switch intent {
-        case .create:
-            return "Starter JSON structure for \(kind.displayName):"
+        case .create, .createBellRingerExitTicket:
+            return "Single-question starter JSON structure for \(kind.displayName):"
         case .remix:
             return "Existing JSON mathtivity to revise:"
+        }
+    }
+
+    private static func workflowInstructions(for intent: WidgetMathtivityPromptIntent) -> String {
+        switch intent {
+        case .create, .createBellRingerExitTicket:
+            return [
+                "Generate exactly one question in the questions array. This payload will be appended dynamically to a bell-ringer or exit-ticket bank.",
+                "Set pedagogicalWorkflow to \"bellRingerExitTicket\".",
+                "Include usageTracking with lastUsedDate as null and associatedClass as null so MathBoard can avoid repeating questions across periods.",
+                "Keep the activity scoreable unless I explicitly ask for a demo-only activity."
+            ].joined(separator: "\n")
+        case .remix:
+            return "Preserve scoring, pedagogicalWorkflow, usageTracking, and assessmentConfiguration unless I ask to change them."
+        }
+    }
+
+    private static func singleQuestionStarterJSON(for activityKind: WidgetObjectActivityKind) -> String {
+        switch supportedKind(from: activityKind) {
+        case .multipleChoice:
+            return #"""
+            {
+              "schemaVersion": 1,
+              "widgetId": "single-question-multiple-choice-template",
+              "activity": "multipleChoice",
+              "title": "Bell Ringer",
+              "description": "Single-question warmup or exit-ticket payload.",
+              "learningObjective": "Students answer one focused check for understanding.",
+              "pedagogicalWorkflow": "bellRingerExitTicket",
+              "usageTracking": {
+                "lastUsedDate": null,
+                "associatedClass": null
+              },
+              "difficulty": "easy",
+              "presentation": {
+                "preferredTheme": "cleanClassroom",
+                "preferredExperience": "paperQuiz"
+              },
+              "rules": {
+                "scoreMode": "correctOutOfAttempted",
+                "advanceMode": "manual",
+                "allowRetry": true,
+                "shuffleQuestions": false,
+                "shuffleChoices": false,
+                "maxAttemptsPerQuestion": 2,
+                "calculatorAllowed": false
+              },
+              "questions": [
+                {
+                  "id": "q1",
+                  "prompt": "Replace this prompt with one focused question.",
+                  "expression": "2x + 3 = 11",
+                  "choices": [
+                    { "id": "a", "label": "x = 4", "isCorrect": true },
+                    { "id": "b", "label": "x = 7", "isCorrect": false },
+                    { "id": "c", "label": "x = 8", "isCorrect": false },
+                    { "id": "d", "label": "x = 14", "isCorrect": false }
+                  ],
+                  "hints": [
+                    "Undo addition first.",
+                    "Then divide both sides."
+                  ],
+                  "correctFeedback": "Correct.",
+                  "incorrectFeedback": "Check the inverse operations.",
+                  "explanation": "Subtract 3 from both sides, then divide by 2."
+                }
+              ]
+            }
+            """#
+        case .fillInTheBlank:
+            return #"""
+            {
+              "schemaVersion": 1,
+              "widgetId": "single-question-fill-in-the-blank-template",
+              "activity": "fillInTheBlank",
+              "title": "Exit Ticket",
+              "description": "Single-question warmup or exit-ticket payload.",
+              "learningObjective": "Students complete one focused short response.",
+              "pedagogicalWorkflow": "bellRingerExitTicket",
+              "usageTracking": {
+                "lastUsedDate": null,
+                "associatedClass": null
+              },
+              "difficulty": "easy",
+              "presentation": {
+                "preferredTheme": "cleanClassroom",
+                "preferredExperience": "paperQuiz"
+              },
+              "rules": {
+                "scoreMode": "correctOutOfAttempted",
+                "advanceMode": "manual",
+                "allowRetry": true,
+                "shuffleQuestions": false,
+                "maxAttemptsPerQuestion": 2,
+                "calculatorAllowed": false
+              },
+              "questions": [
+                {
+                  "id": "q1",
+                  "prompt": "Solve for x.",
+                  "expression": "2x + 3 = 11",
+                  "blanks": [
+                    {
+                      "id": "x",
+                      "label": "x",
+                      "kind": "numeric",
+                      "acceptedAnswers": ["4"],
+                      "tolerance": 0.0001
+                    }
+                  ],
+                  "hints": [
+                    "Subtract 3 from both sides.",
+                    "Divide by 2."
+                  ],
+                  "correctFeedback": "Correct.",
+                  "incorrectFeedback": "Check the inverse operations.",
+                  "explanation": "x = 4."
+                }
+              ]
+            }
+            """#
+        case .builtInInteractive, .unknown:
+            return singleQuestionStarterJSON(for: .multipleChoice)
         }
     }
 

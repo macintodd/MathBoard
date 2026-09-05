@@ -285,6 +285,16 @@ public struct WidgetContainerView: View {
             MatchGridInteractiveView(
                 state: MatchGridStateRegistry.state(for: widget.id)
             )
+        case .actDailyPractice:
+            ACTDailyPracticeInteractiveView(
+                state: ACTDailyPracticeStateRegistry.state(for: widget) { encodedState in
+                    if let encodedState {
+                        widget.builtInRuntimeState[ACTDailyPracticeState.runtimeStateKey] = encodedState
+                    } else {
+                        widget.builtInRuntimeState.removeValue(forKey: ACTDailyPracticeState.runtimeStateKey)
+                    }
+                }
+            )
         }
     }
 
@@ -558,9 +568,6 @@ private struct WidgetPanGestureCaptureView: UIViewRepresentable {
 private final class WidgetPanGestureCaptureUIView: UIView {
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
         if let touches = event?.allTouches, touches.count > 1 {
-            return false
-        }
-        if event?.allTouches?.contains(where: { $0.type == .pencil }) == true {
             return false
         }
         return bounds.contains(point)

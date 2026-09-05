@@ -28,11 +28,13 @@ struct LessonDetailView: View {
     @State private var selectedLiveProgressAssignmentID: UUID?
     @State private var selectedLiveProgressWidgetID: UUID?
     @State private var liveProgressRows: [StudentWidgetLiveProgress] = []
-    @State private var localLiveProgressPointValue = 100
+    @State private var localLiveProgressPointValue = 1
     @State private var isRefreshingLiveProgress = false
     @State private var liveProgressErrorMessage: String?
     @State private var isLiveTeacherInkSettingsPresented = false
     @State private var isLibraryDrawerOpen = false
+    @State private var isMasterLessonUnlocked = false
+    @State private var isFollowMeEnabled = false
 
     #if canImport(UIKit)
     @Environment(\.dismiss) private var dismiss
@@ -42,6 +44,7 @@ struct LessonDetailView: View {
         SlidesView(
             lessonURL: lesson.url,
             classroomMode: $classroomMode,
+            isFollowMeEnabled: $isFollowMeEnabled,
             classroomSessionCode: selectedTeachingAssignment?.classLessonCode,
             liveClassroomConfiguration: liveClassroomConfiguration,
             onTeacherInkChunkPublished: persistTeacherInkChunk,
@@ -50,7 +53,9 @@ struct LessonDetailView: View {
             onTeacherSlideManifestSnapshotPublished: persistTeacherSlideManifestSnapshot,
             onLibraryDrawerOpenChange: { isOpen in
                 isLibraryDrawerOpen = isOpen
-            }
+            },
+            onLessonContentChanged: propagateMasterLessonChanges,
+            isEditingLocked: isMasterLessonEditingLocked
         )
             .onAppear { DisplayBroker.shared.lessonURL = lesson.url }
             .overlay(alignment: .trailing) {
@@ -58,7 +63,7 @@ struct LessonDetailView: View {
             }
             .overlay(alignment: .topTrailing) {
                 if !isLibraryDrawerOpen && !isLiveProgressDrawerOpen {
-                    teachingSessionMenu
+                    teachingSessionControls
                 }
             }
             .overlay {
@@ -113,6 +118,14 @@ struct LessonDetailView: View {
         return lessonAssignments.first { $0.id == selectedTeachingAssignmentID }
     }
 
+    private var isMasterLessonContext: Bool {
+        selectedTeachingAssignmentID == nil
+    }
+
+    private var isMasterLessonEditingLocked: Bool {
+        classroomMode == .teacher && isMasterLessonContext && !lessonAssignments.isEmpty && !isMasterLessonUnlocked
+    }
+
     private var selectedTeachingClassroom: Classroom? {
         guard let selectedTeachingAssignment else { return nil }
         return rosterStore.classrooms.first { $0.id == selectedTeachingAssignment.classroomID }
@@ -128,18 +141,19 @@ struct LessonDetailView: View {
     }
 
     private var selectedLiveProgressWidget: AssignedWidgetSummary? {
-        guard let assignment = selectedLiveProgressAssignment else { return nil }
-        if let selectedLiveProgressWidgetID,
-           let widget = assignment.widgetSummaries.first(where: { $0.widgetID == selectedLiveProgressWidgetID }) {
-            return widget
-        }
-        return assignment.widgetSummaries.first
+        guard let assignment = selectedLiveProgressAssignment,
+              let selectedLiveProgressWidgetID else { return nil }
+        return assignment.widgetSummaries.first(where: { $0.widgetID == selectedLiveProgressWidgetID })
     }
 
     private var isSelectedWidgetTeacherScored: Bool {
-        guard let selectedLiveProgressWidget else { return false }
-        return selectedLiveProgressWidget.builtInKind == .matchGrid
-            || selectedLiveProgressWidget.title == BuiltInInteractiveKind.matchGrid.displayName
+        guard let widget = selectedLiveProgressWidget else {
+            // No widget selected — manual scoring is the default for all slides.
+            return true
+        }
+        // Auto-scored widgets (isScoreable = true) provide Firebase scores.
+        // Everything else (MatchGrid, timers, tools, unknown widgets) uses manual scoring.
+        return !(widget.builtInKind?.isScoreable ?? false)
     }
 
     private var liveProgressTaskKey: String {
@@ -188,19 +202,81 @@ struct LessonDetailView: View {
     }
 
     @ViewBuilder
+    private var teachingSessionControls: some View {
+        if classroomMode == .teacher && !lessonAssignments.isEmpty {
+            HStack(spacing: 8) {
+                if isMasterLessonContext {
+                    masterLessonLockButton
+                }
+                if selectedTeachingAssignment != nil {
+                    followMeButton
+                }
+                teachingSessionMenu
+            }
+            .padding(.top, 8)
+            .padding(.trailing, 74)
+        }
+    }
+
+    private var masterLessonLockButton: some View {
+        Button {
+            isMasterLessonUnlocked.toggle()
+        } label: {
+            Label(
+                isMasterLessonUnlocked ? "Unlocked" : "Locked",
+                systemImage: isMasterLessonUnlocked ? "lock.open" : "lock.fill"
+            )
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(isMasterLessonUnlocked ? Color.orange : Color.secondary)
+            .padding(.horizontal, 12)
+            .frame(height: 44)
+            .background(.ultraThinMaterial, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isMasterLessonUnlocked ? "Lock Master copy" : "Unlock Master copy")
+    }
+
+    private var followMeButton: some View {
+        Button {
+            isFollowMeEnabled.toggle()
+        } label: {
+            Label(
+                isFollowMeEnabled ? "Following" : "Follow Me",
+                systemImage: isFollowMeEnabled ? "figure.walk.motion" : "figure.walk"
+            )
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(isFollowMeEnabled ? Color.white : Color.secondary)
+            .padding(.horizontal, 12)
+            .frame(height: 44)
+            .background(
+                isFollowMeEnabled ? Color.blue : Color.clear,
+                in: Capsule()
+            )
+            .background(.ultraThinMaterial, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(liveTeacherInkStatus != .ready)
+        .opacity(liveTeacherInkStatus == .ready ? 1 : 0.5)
+        .accessibilityLabel(isFollowMeEnabled ? "Turn off Follow Me" : "Turn on Follow Me")
+    }
+
+    @ViewBuilder
     private var teachingSessionMenu: some View {
         if classroomMode == .teacher && !lessonAssignments.isEmpty {
             Menu {
                 Button {
+                    isFollowMeEnabled = false
                     selectedTeachingAssignmentID = nil
                 } label: {
-                    Label("Master copy", systemImage: selectedTeachingAssignmentID == nil ? "checkmark" : "doc")
+                    Label("Master copy", systemImage: masterCopyMenuIconName)
                 }
 
                 Section("Class Sessions") {
                     ForEach(lessonAssignments) { assignment in
                         Button {
+                            isFollowMeEnabled = false
                             selectedTeachingAssignmentID = assignment.id
+                            isMasterLessonUnlocked = false
                         } label: {
                             Label(
                                 "\(classroomName(for: assignment)) - \(assignment.classLessonCode)",
@@ -233,10 +309,15 @@ struct LessonDetailView: View {
                 .background(.ultraThinMaterial, in: Capsule())
             }
             .buttonStyle(.plain)
-            .padding(.top, 8)
-            .padding(.trailing, 74)
             .accessibilityLabel("Teaching class session")
         }
+    }
+
+    private var masterCopyMenuIconName: String {
+        if isMasterLessonContext {
+            return isMasterLessonUnlocked ? "lock.open" : "lock.fill"
+        }
+        return "doc"
     }
 
     private func classroomName(for assignment: ClassroomAssignment) -> String {
@@ -336,7 +417,7 @@ struct LessonDetailView: View {
     private func liveProgressWidgetBinding(for assignment: ClassroomAssignment) -> Binding<UUID?> {
         Binding(
             get: {
-                selectedLiveProgressWidget?.widgetID ?? assignment.widgetSummaries.first?.widgetID
+                selectedLiveProgressWidgetID
             },
             set: { newWidgetID in
                 selectedLiveProgressWidgetID = newWidgetID
@@ -361,10 +442,8 @@ struct LessonDetailView: View {
 
     private func refreshLiveProgress() async {
         guard let assignment = selectedLiveProgressAssignment else { return }
-        guard !isSelectedWidgetTeacherScored else {
-            liveProgressRows = []
-            return
-        }
+        // Always fetch Firebase so presence indicators (student login state) are shown
+        // regardless of whether manual scoring or widget scoring is active.
         isRefreshingLiveProgress = true
         defer { isRefreshingLiveProgress = false }
 
@@ -381,10 +460,12 @@ struct LessonDetailView: View {
     }
 
     private func localScoresByStudentID(for assignment: ClassroomAssignment) -> [UUID: Int] {
-        guard let widget = selectedLiveProgressWidget else { return [:] }
+        // When no specific widget is selected, use assignment.id as a stable key for
+        // slide-level manual scores that aren't tied to any particular widget.
+        let widgetID = selectedLiveProgressWidget?.widgetID ?? assignment.id
         return assignmentStore.localWidgetScores(
             assignmentID: assignment.id,
-            widgetID: widget.widgetID
+            widgetID: widgetID
         ).reduce(into: [:]) { result, score in
             result[score.studentID] = score.points
         }
@@ -396,16 +477,26 @@ struct LessonDetailView: View {
         delta: Int
     ) {
         guard isSelectedWidgetTeacherScored,
-              let widget = selectedLiveProgressWidget,
               let classroom = selectedLiveProgressClassroom else { return }
         do {
-            try assignmentStore.updateLocalWidgetScore(
-                assignment: assignment,
-                classroom: classroom,
-                widgetID: widget.widgetID,
-                studentID: student.id,
-                delta: delta
-            )
+            if let widget = selectedLiveProgressWidget {
+                // Widget-specific manual scoring (e.g., MatchGrid)
+                try assignmentStore.updateLocalWidgetScore(
+                    assignment: assignment,
+                    classroom: classroom,
+                    widgetID: widget.widgetID,
+                    studentID: student.id,
+                    delta: delta
+                )
+            } else {
+                // Slide-level manual scoring — not tied to a specific widget
+                try assignmentStore.updateLocalManualScore(
+                    assignment: assignment,
+                    classroom: classroom,
+                    studentID: student.id,
+                    delta: delta
+                )
+            }
         } catch {
             liveProgressErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
@@ -476,6 +567,20 @@ struct LessonDetailView: View {
             teacherUserID: teacherAuthStore.state.userID,
             teacherEmail: teacherAuthStore.state.email
         ).publishTeacherSlideManifestSnapshot(snapshot)
+    }
+
+    private func propagateMasterLessonChanges() {
+        // Do NOT gate on isMasterLessonContext here. This callback fires 900 ms
+        // after the last master edit, but the teacher may have already switched to
+        // a class session view by then — that would make isMasterLessonContext false
+        // and silently skip propagation. The callback is only ever scheduled when
+        // classroomSessionCode is nil (master context), so guarding here creates a
+        // race condition without providing any safety.
+        guard !lessonAssignments.isEmpty else { return }
+        SlideStore.propagateMasterContent(
+            lessonURL: lesson.url,
+            toClassSessionCodes: lessonAssignments.map(\.classLessonCode)
+        )
     }
 
     #if canImport(UIKit)
@@ -693,12 +798,10 @@ private struct LiveProgressDrawerView: View {
 
     private var controls: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if assignment.widgetSummaries.isEmpty {
-                Text("No widgets in this lesson")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                Picker("Widget", selection: $selectedWidgetID) {
+            if !assignment.widgetSummaries.isEmpty {
+                Picker("Scoring", selection: $selectedWidgetID) {
+                    Text("Manual scoring")
+                        .tag(Optional<UUID>.none)
                     ForEach(assignment.widgetSummaries) { widget in
                         Text(widget.title)
                             .tag(Optional(widget.widgetID))
@@ -708,7 +811,7 @@ private struct LiveProgressDrawerView: View {
             }
 
             if isLocalScoringEnabled {
-                Stepper("Points per tap: \(localPointValue)", value: $localPointValue, in: 25...500, step: 25)
+                Stepper("Points per tap: \(localPointValue)", value: $localPointValue, in: 1...25, step: 1)
                     .font(.caption.weight(.semibold))
             }
         }
@@ -889,7 +992,7 @@ private struct LiveProgressStudentRow: View {
     }
 
     private var statusText: String {
-        if localScore != nil { return "Local score" }
+        if let localScore, localScore > 0 { return "Local score" }
         // Show "Submitted" even after reset so the teacher can see the student's prior submission.
         if progress?.hasEverBeenSubmitted == true { return "Submitted" }
         return currentIndicatorState.displayName
@@ -910,7 +1013,8 @@ private struct LiveProgressStudentRow: View {
     }
 
     private var dotColor: Color {
-        if localScore != nil { return .green }
+        // Only green when teacher has awarded actual points; 0-score keeps Firebase presence color.
+        if let localScore, localScore > 0 { return .green }
         switch currentIndicatorState {
         case .notStarted, .offline:
             return .red

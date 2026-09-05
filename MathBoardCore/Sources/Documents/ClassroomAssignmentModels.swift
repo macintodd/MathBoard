@@ -510,6 +510,45 @@ public final class ClassroomAssignmentStore {
         save()
     }
 
+    func updateLocalManualScore(
+        assignment: ClassroomAssignment,
+        classroom: Classroom,
+        studentID: UUID,
+        delta: Int
+    ) throws {
+        guard assignment.classroomID == classroom.id else {
+            throw ClassroomAssignmentStoreError.classroomMismatch
+        }
+        guard classroom.students.contains(where: { $0.id == studentID }) else {
+            throw ClassroomAssignmentStoreError.studentNotFound
+        }
+        // assignment.id is the stable sentinel widgetID for slide-level manual scores.
+        // No widgetSummaries validation — manual scoring is not tied to a specific widget.
+        let widgetID = assignment.id
+        if let existingIndex = localWidgetScores.firstIndex(where: {
+            $0.assignmentID == assignment.id &&
+            $0.widgetID == widgetID &&
+            $0.studentID == studentID
+        }) {
+            let existing = localWidgetScores[existingIndex]
+            localWidgetScores[existingIndex] = existing.replacing(
+                id: existing.id,
+                points: max(0, existing.points + delta)
+            )
+        } else {
+            localWidgetScores.append(
+                TeacherLocalWidgetScore(
+                    assignmentID: assignment.id,
+                    classroomID: classroom.id,
+                    studentID: studentID,
+                    widgetID: widgetID,
+                    points: max(0, delta)
+                )
+            )
+        }
+        save()
+    }
+
     @discardableResult
     func recordWidgetScore(
         _ scoreRecord: WidgetActivityScoreRecord,

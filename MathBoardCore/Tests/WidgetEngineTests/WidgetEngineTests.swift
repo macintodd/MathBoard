@@ -109,6 +109,72 @@ struct WidgetEngineTests {
         #expect(record.pointsPossible == 500)
     }
 
+    @Test func nonScoreableBuiltInInteractivesStayOutOfScoreSheets() throws {
+        let widget = WidgetObject(
+            name: "Explore Transformations",
+            codeString: BuiltInInteractiveKind.functionTransformationExplorer.widgetCodeString,
+            frame: CGRect(x: 0, y: 0, width: 640, height: 520)
+        )
+
+        #expect(widget.activityScoreRecord == nil)
+        #expect(WidgetActivityScoreSheet(widgets: [widget]).records.isEmpty)
+    }
+
+    @Test func conceptualJSONActivitiesStayOutOfScoreSheets() throws {
+        let source = #"""
+        {
+          "schemaVersion": 1,
+          "widgetId": "conceptual-number-line",
+          "activity": "multipleChoice",
+          "title": "Explore the Number Line",
+          "learningObjective": "Students explore equivalent locations without submitting a score.",
+          "pedagogicalWorkflow": "conceptualInteractive",
+          "rules": {
+            "scoreMode": "correctOutOfAttempted",
+            "advanceMode": "manual"
+          },
+          "questions": [
+            {
+              "id": "q1",
+              "prompt": "Move points to compare values.",
+              "choices": [
+                { "id": "a", "label": "Ready", "isCorrect": true },
+                { "id": "b", "label": "Not ready", "isCorrect": false }
+              ]
+            }
+          ]
+        }
+        """#
+        let result = WidgetActivityJSONCodec.decode(source)
+        let document = try #require(result.document)
+        let widget = WidgetObject(
+            name: document.title,
+            codeString: source,
+            frame: CGRect(x: 0, y: 0, width: 640, height: 360)
+        )
+
+        #expect(document.pedagogicalWorkflow == .conceptualInteractive)
+        #expect(widget.activityScoreRecord == nil)
+        #expect(WidgetActivityScoreSheet(widgets: [widget]).records.isEmpty)
+    }
+
+    @Test func bellRingerPromptStarterCreatesSingleQuestionUsageTrackedJSON() throws {
+        let starter = WidgetMathtivityPromptFactory.starterJSON(for: .multipleChoice)
+        let result = WidgetActivityJSONCodec.decode(starter)
+        let document = try #require(result.document)
+        let prompt = WidgetMathtivityPromptFactory.prompt(
+            for: .multipleChoice,
+            intent: .createBellRingerExitTicket
+        )
+
+        #expect(result.errors.isEmpty)
+        #expect(document.pedagogicalWorkflow == .bellRingerExitTicket)
+        #expect(document.usageTracking != nil)
+        #expect(document.questions.count == 1)
+        #expect(prompt.contains("Generate exactly one question"))
+        #expect(prompt.contains("associatedClass"))
+    }
+
     @MainActor
     @Test func inequalityExplorerLiveScoreRecordUsesSessionState() throws {
         let widgetID = UUID()

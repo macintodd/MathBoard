@@ -61,6 +61,7 @@ public struct PresentingCanvasView: View {
     private let onLibraryDrawerOpenChange: (@MainActor (Bool) -> Void)?
     private let objectStateReloadCommand: CanvasObjectCommand?
     private let allowsWidgetAuthoring: Bool
+    private let isEditingLocked: Bool
     private static let importedPhotoMaxPixelSide: CGFloat = 1800
     private static let importedPhotoJPEGCompressionQuality: CGFloat = 0.82
     private let broker = DisplayBroker.shared
@@ -71,9 +72,13 @@ public struct PresentingCanvasView: View {
     @State private var editCommand: CanvasEditCommand?
     @State private var toolCommand: CanvasToolCommand?
     @State private var objectCommand: CanvasObjectCommand?
+    @AppStorage("MathBoard.canvasDeskColor.red") private var canvasDeskColorRed = Double(CanvasStrokeColor.defaultCanvasDesk.red)
+    @AppStorage("MathBoard.canvasDeskColor.green") private var canvasDeskColorGreen = Double(CanvasStrokeColor.defaultCanvasDesk.green)
+    @AppStorage("MathBoard.canvasDeskColor.blue") private var canvasDeskColorBlue = Double(CanvasStrokeColor.defaultCanvasDesk.blue)
     @State private var animationPlaybackState = CanvasAnimationPlaybackState()
     @State private var selectionState = CanvasSelectionState()
     @State private var editState = CanvasEditState()
+    @State private var graphSnapshotHandlerOwnerID = UUID()
     @State private var pendingTextPlacement: PendingTextPlacement?
     @State private var pendingTextEdit: PendingTextEdit?
     @State private var pendingLaTeXPlacement: PendingLaTeXPlacement?
@@ -95,6 +100,7 @@ public struct PresentingCanvasView: View {
     @State private var pendingPDFObjectImport: PendingPDFObjectImport?
     @State private var imageFileImportError: ImageFileImportError?
     @State private var isExternalDisplayUnavailableAlertPresented = false
+    @State private var isCanvasBackgroundPickerPresented = false
     @State private var libraryRecentRefreshID = UUID()
     /// The tool that was active before the most recent tool change, so an
     /// Apple Pencil barrel double tap can toggle back to it.
@@ -120,7 +126,8 @@ public struct PresentingCanvasView: View {
         onCanvasObjectStateChange: (@MainActor () -> Void)? = nil,
         onLibraryDrawerOpenChange: (@MainActor (Bool) -> Void)? = nil,
         objectStateReloadCommand: CanvasObjectCommand? = nil,
-        allowsWidgetAuthoring: Bool = true
+        allowsWidgetAuthoring: Bool = true,
+        isEditingLocked: Bool = false
     ) {
         self.drawingURL = drawingURL
         self.background = background
@@ -140,6 +147,7 @@ public struct PresentingCanvasView: View {
         self.onLibraryDrawerOpenChange = onLibraryDrawerOpenChange
         self.objectStateReloadCommand = objectStateReloadCommand
         self.allowsWidgetAuthoring = allowsWidgetAuthoring
+        self.isEditingLocked = isEditingLocked
     }
 
     // The full-screen drawing surface and its full-bleed overlays. This
@@ -151,6 +159,7 @@ public struct PresentingCanvasView: View {
             CanvasView(
                 drawingURL: drawingURL,
                 background: background,
+                canvasDeskColor: canvasDeskColor,
                 presentationMode: broker.mode,
                 initialViewportState: initialViewportState,
                 viewportCommand: viewportCommand,
@@ -163,6 +172,7 @@ public struct PresentingCanvasView: View {
                 onFrameUpdate: broker.isExternalDisplayConnected ? Self.publishFrame : nil,
                 onViewportSourceRectChange: publishViewportSourceRect,
                 onLiveStrokeUpdate: publishLiveStroke,
+                onLiveTransformedStrokesUpdate: Self.publishLiveTransformedStrokes,
                 onDrawingDataChange: publishDrawingData,
                 onWidgetObjectsChange: Self.publishWidgets,
                 onCanvasObjectStateChange: onCanvasObjectStateChange,
@@ -181,6 +191,9 @@ public struct PresentingCanvasView: View {
                 onWidgetImageInsertionRequested: handleWidgetImageInsertionRequest,
                 allowsWidgetAuthoring: allowsWidgetAuthoring
             )
+
+            editingLockOverlay
+
             ViewfinderOverlay()
                 .opacity(broker.mode == .present ? 1 : 0)
 
@@ -208,7 +221,8 @@ public struct PresentingCanvasView: View {
             of: [UTType(exportedAs: LibraryCanvasDragPayload.typeIdentifier)],
             isTargeted: nil
         ) { providers, location in
-            handleLibraryItemDrop(providers, at: location)
+            guard !isEditingLocked else { return false }
+            return handleLibraryItemDrop(providers, at: location)
         }
         .background(
             GeometryReader { proxy in
@@ -224,6 +238,17 @@ public struct PresentingCanvasView: View {
             }
         )
         .ignoresSafeArea()
+    }
+
+    @ViewBuilder
+    private var editingLockOverlay: some View {
+        if isEditingLocked {
+            Color.clear
+                .contentShape(Rectangle())
+                .allowsHitTesting(true)
+                .zIndex(25)
+                .accessibilityLabel("Master lesson locked")
+        }
     }
 
     @ViewBuilder
@@ -310,10 +335,10 @@ public struct PresentingCanvasView: View {
         .onAppear {
             applyObjectStateReloadCommandIfNeeded()
             applyCurrentToolPaletteStateIfNeeded(triggering: .selectTool(broker.toolPaletteState.activeTool))
-            broker.graphSnapshotHandler = insertGraphSnapshot
+            broker.registerGraphSnapshotHandler(ownerID: graphSnapshotHandlerOwnerID, handler: insertGraphSnapshot)
         }
         .onDisappear {
-            broker.graphSnapshotHandler = nil
+            broker.unregisterGraphSnapshotHandler(ownerID: graphSnapshotHandlerOwnerID)
         }
         .onChange(of: objectStateReloadCommand) { _, _ in
             applyObjectStateReloadCommandIfNeeded()
@@ -509,9 +534,6 @@ public struct PresentingCanvasView: View {
             toolbarIconButton("minus.magnifyingglass", label: "Zoom Out", disabled: !canZoomOut) {
                 viewportCommand = CanvasViewportCommand(.zoomOut)
             }
-            toolbarIconButton("arrow.counterclockwise", label: "Reset Zoom") {
-                viewportCommand = CanvasViewportCommand(.reset)
-            }
             toolbarSeparator
             toolbarIconButton(
                 broker.mode == .present ? "rectangle.dashed" : "rectangle.inset.filled",
@@ -519,25 +541,24 @@ public struct PresentingCanvasView: View {
             ) {
                 togglePresentationMode()
             }
-            toolbarIconButton("forward.frame.fill", label: "Next Animation") {
-                advanceAnimationPlayback()
-            }
-            toolbarIconButton("arrow.counterclockwise.circle", label: "Reset Animations") {
-                resetAnimationPlayback()
-            }
             #if os(iOS)
             toolbarIconButton(
-                "chart.xyaxis.line",
+                "graph.2d",
                 label: isGraphCalculatorVisibleToUser ? "Hide Graph Calc" : "Show Graph Calc"
             ) {
                 if isGraphCalculatorVisibleToUser {
                     broker.isGraphCalculatorVisible = false
                 } else {
-                    broker.graphCalculator.restoreCompositeHomeBase()
                     broker.isGraphCalculatorVisible = true
                 }
             }
             #endif
+            toolbarIconButton(
+                "function",
+                label: calculator.isVisible ? "Hide TI-84 Calculator" : "Show TI-84 Calculator"
+            ) {
+                calculator.isVisible.toggle()
+            }
             toolbarSeparator
             floatingOverflowMenu
         }
@@ -589,6 +610,54 @@ public struct PresentingCanvasView: View {
         .accessibilityLabel(label)
     }
 
+    private var canvasDeskColor: CanvasStrokeColor {
+        CanvasStrokeColor(
+            red: CGFloat(canvasDeskColorRed),
+            green: CGFloat(canvasDeskColorGreen),
+            blue: CGFloat(canvasDeskColorBlue),
+            alpha: 1
+        )
+    }
+
+    private var canvasDeskColorBinding: Binding<Color> {
+        Binding {
+            Color(red: canvasDeskColorRed, green: canvasDeskColorGreen, blue: canvasDeskColorBlue)
+        } set: { color in
+            let components = Self.rgbComponents(for: color)
+            canvasDeskColorRed = components.red
+            canvasDeskColorGreen = components.green
+            canvasDeskColorBlue = components.blue
+        }
+    }
+
+    private func resetCanvasDeskColor() {
+        canvasDeskColorRed = Double(CanvasStrokeColor.defaultCanvasDesk.red)
+        canvasDeskColorGreen = Double(CanvasStrokeColor.defaultCanvasDesk.green)
+        canvasDeskColorBlue = Double(CanvasStrokeColor.defaultCanvasDesk.blue)
+    }
+
+    private static func rgbComponents(for color: Color) -> (red: Double, green: Double, blue: Double) {
+        #if os(iOS)
+        let platformColor = UIColor(color)
+        #elseif os(macOS)
+        let platformColor = NSColor(color)
+        #endif
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        #if os(iOS)
+        platformColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        #elseif os(macOS)
+        (platformColor.usingColorSpace(.deviceRGB) ?? platformColor).getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        #endif
+        return (
+            red: min(max(Double(red), 0), 1),
+            green: min(max(Double(green), 0), 1),
+            blue: min(max(Double(blue), 0), 1)
+        )
+    }
+
     private var floatingOverflowMenu: some View {
         Menu {
             Section("Zoom \(zoomLabel)") {
@@ -602,14 +671,18 @@ public struct PresentingCanvasView: View {
             Section {
                 Label(externalDisplayStatusTitle, systemImage: externalDisplayStatusIcon)
                     .foregroundStyle(.secondary)
+            }
 
+            Section("Canvas Background") {
                 Button {
-                    calculator.isVisible.toggle()
+                    isCanvasBackgroundPickerPresented = true
                 } label: {
-                    Label(
-                        calculator.isVisible ? "Hide Calculator" : "Calculator",
-                        systemImage: "function"
-                    )
+                    Label("Background Color", systemImage: "paintpalette")
+                }
+                Button {
+                    resetCanvasDeskColor()
+                } label: {
+                    Label("Reset Background", systemImage: "arrow.counterclockwise")
                 }
             }
 
@@ -672,27 +745,47 @@ public struct PresentingCanvasView: View {
         }
         .menuOrder(.fixed)
         .accessibilityLabel("More")
+        .popover(isPresented: $isCanvasBackgroundPickerPresented) {
+            VStack(alignment: .leading, spacing: 14) {
+                ColorPicker("Background", selection: canvasDeskColorBinding, supportsOpacity: false)
+                Button {
+                    resetCanvasDeskColor()
+                } label: {
+                    Label("Reset Background", systemImage: "arrow.counterclockwise")
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding(16)
+            .frame(width: 280)
+        }
     }
 
     private var selectedTextActionHUD: some View {
         GeometryReader { proxy in
-            if selectionState.selectedGroupObjectCount > 1,
+            if selectionState.selectedGroupObjectCount > 0,
                let viewportFrame = selectionState.viewportFrame,
                pendingTextEdit == nil,
                pendingTextPlacement == nil,
                pendingLaTeXPlacement == nil,
                pendingLaTeXEdit == nil {
+                let canToggleGroup = selectionState.selectedGroupObjectCount > 1
+                let groupToggleAction: (() -> Void)? = canToggleGroup ? {
+                    objectCommand = CanvasObjectCommand(selectionState.selectedObjectGroupID == nil ? .groupSelection : .ungroupSelection)
+                } : nil
                 FloatingActionHUD(
+                    onCopy: { toolCommand = CanvasToolCommand(.copySelection) },
                     onPaste: { objectCommand = CanvasObjectCommand(.pasteClipboard) },
                     onClone: { toolCommand = CanvasToolCommand(.duplicateSelection) },
-                    onGroupToggle: {
-                        objectCommand = CanvasObjectCommand(selectionState.selectedObjectGroupID == nil ? .groupSelection : .ungroupSelection)
-                    },
+                    onLockToggle: { objectCommand = CanvasObjectCommand(.lockSelection) },
+                    lockToggleTitle: "Lock",
+                    lockToggleSystemImage: "lock.open",
+                    lockToggleTint: .green,
+                    onGroupToggle: groupToggleAction,
                     groupToggleTitle: selectionState.selectedObjectGroupID == nil ? "Group" : "Ungroup",
                     groupToggleSystemImage: selectionState.selectedObjectGroupID == nil ? "rectangle.3.group" : "rectangle.3.group.bubble.left",
                     onDelete: { toolCommand = CanvasToolCommand(.deleteSelection) }
                 )
-                .position(hudPosition(for: viewportFrame, in: proxy.size))
+                .position(hudPosition(for: viewportFrame, in: proxy.size, verticalGap: 72))
                 .offset(actionHUDOffset)
                 .gesture(actionHUDDragGesture)
             } else if let object = selectionState.selectedTextObject,
@@ -701,24 +794,30 @@ public struct PresentingCanvasView: View {
                pendingTextPlacement == nil,
                pendingLaTeXPlacement == nil,
                pendingLaTeXEdit == nil {
+                let isLocked = object.isLocked == true
                 FloatingActionHUD(
-                    onEdit: { pendingTextEdit = PendingTextEdit(object: object) },
+                    onEdit: isLocked ? nil : { pendingTextEdit = PendingTextEdit(object: object) },
                     onCopy: { objectCommand = CanvasObjectCommand(.copy(.text(object.id))) },
                     onPaste: { objectCommand = CanvasObjectCommand(.pasteClipboard) },
-                    onClone: { objectCommand = CanvasObjectCommand(.duplicate(.text(object.id))) },
-                    onTextEffect: textEffectAction(for: object.id),
-                    onTextEffectToggleVisibility: {
+                    onClone: isLocked ? nil : { objectCommand = CanvasObjectCommand(.duplicate(.text(object.id))) },
+                    onLockToggle: { objectCommand = CanvasObjectCommand(.setTextLocked(object.id, !isLocked)) },
+                    lockToggleTitle: isLocked ? "Locked" : "Unlocked",
+                    lockToggleSystemImage: isLocked ? "lock.fill" : "lock.open",
+                    lockToggleTint: isLocked ? .red : .green,
+                    onTextEffect: isLocked ? nil : textEffectAction(for: object.id),
+                    onTextEffectToggleVisibility: isLocked ? nil : {
                         objectCommand = CanvasObjectCommand(.toggleTextEffectHidden(object.id))
                     },
-                    onTextEffectPlay: {
+                    onTextEffectPlay: isLocked ? nil : {
                         objectCommand = CanvasObjectCommand(.playTextEffect(object.id))
                     },
-                    onTextEffectPause: {
+                    onTextEffectPause: isLocked ? nil : {
                         objectCommand = CanvasObjectCommand(.pauseTextEffect(object.id))
                     },
-                    onTextEffectRepeat: { repeatMode in
+                    onTextEffectRepeat: isLocked ? nil : { repeatMode in
                         objectCommand = CanvasObjectCommand(.setTextEffectRepeatMode(object.id, repeatMode))
                     },
+                    canDelete: !isLocked,
                     onDelete: { objectCommand = CanvasObjectCommand(.delete(.text(object.id))) }
                 )
                 .position(hudPosition(for: viewportFrame, in: proxy.size))
@@ -762,6 +861,10 @@ public struct PresentingCanvasView: View {
                     onSendToBack: { objectCommand = CanvasObjectCommand(.reorderImage(object.id, .sendToBack)) },
                     canBringForward: !isLocked && selectionState.selectedImageCanMoveForward,
                     canSendBackward: !isLocked && selectionState.selectedImageCanMoveBackward,
+                    onLockToggle: { objectCommand = CanvasObjectCommand(.setImageLocked(object.id, !isLocked)) },
+                    lockToggleTitle: isLocked ? "Locked" : "Unlocked",
+                    lockToggleSystemImage: isLocked ? "lock.fill" : "lock.open",
+                    lockToggleTint: isLocked ? .red : .green,
                     canDelete: !isLocked,
                     onDelete: { objectCommand = CanvasObjectCommand(.delete(.image(object.id))) }
                 )
@@ -1807,13 +1910,12 @@ public struct PresentingCanvasView: View {
         applyToolPaletteState(state, triggering: .selectTool(.selection))
     }
 
-    private func hudPosition(for frame: CGRect, in size: CGSize) -> CGPoint {
+    private func hudPosition(for frame: CGRect, in size: CGSize, verticalGap: CGFloat = 46) -> CGPoint {
         let hudWidth: CGFloat = 300
         let hudHeight: CGFloat = 50
         let margin: CGFloat = 14
-        let gap: CGFloat = 46
-        let aboveY = frame.minY - hudHeight / 2 - gap
-        let belowY = frame.maxY + hudHeight / 2 + gap
+        let aboveY = frame.minY - hudHeight / 2 - verticalGap
+        let belowY = frame.maxY + hudHeight / 2 + verticalGap
         let minimumY = margin + hudHeight / 2
         let maximumY = size.height - margin - hudHeight / 2
         let proposedY: CGFloat
@@ -1867,6 +1969,7 @@ public struct PresentingCanvasView: View {
                 )
             )
         )
+        activateSelectTool()
         recordLibraryRecent(
             title: Self.libraryRecentTitle("Graph snapshot"),
             kind: .graphSnapshot,
@@ -2191,6 +2294,11 @@ public struct PresentingCanvasView: View {
     private func publishLiveStroke(_ stroke: CanvasLiveStroke?) {
         Self.publishLiveStroke(stroke)
         onLiveStrokeUpdate?(stroke)
+    }
+
+    @MainActor
+    private static func publishLiveTransformedStrokes(_ strokes: [CanvasLiveStroke]) {
+        DisplayBroker.shared.publishLiveTransformedStrokes(strokes)
     }
 
     @MainActor

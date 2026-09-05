@@ -54,6 +54,57 @@ private struct StudentLiveTeacherInkSaveRequest {
     var strokeIDs: [UUID]
 }
 
+private struct StudentCoverMaskOverlay: View {
+    var coverObjects: [CanvasCoverObject]
+    var viewportSourceRect: CGRect?
+    var fallbackSourceSize: CGSize
+    var fittedSize: CGSize
+
+    var body: some View {
+        SwiftUI.Canvas { context, _ in
+            for cover in coverObjects where cover.points.count >= 2 {
+                var path = Path()
+                let points = cover.points.map(scaledPoint)
+                guard let first = points.first else { continue }
+                path.move(to: first)
+                for point in points.dropFirst() {
+                    path.addLine(to: point)
+                }
+                path.closeSubpath()
+
+                context.fill(
+                    path,
+                    with: .color(Color(
+                        red: Double(cover.red),
+                        green: Double(cover.green),
+                        blue: Double(cover.blue),
+                        opacity: Double(cover.alpha)
+                    ))
+                )
+            }
+        }
+        .frame(width: fittedSize.width, height: fittedSize.height)
+        .allowsHitTesting(false)
+    }
+
+    private func scaledPoint(_ point: CGPoint) -> CGPoint {
+        if let viewportSourceRect,
+           viewportSourceRect.width > 0,
+           viewportSourceRect.height > 0 {
+            return CGPoint(
+                x: (point.x - viewportSourceRect.minX) * fittedSize.width / viewportSourceRect.width,
+                y: (point.y - viewportSourceRect.minY) * fittedSize.height / viewportSourceRect.height
+            )
+        }
+
+        guard fallbackSourceSize.width > 0, fallbackSourceSize.height > 0 else { return point }
+        return CGPoint(
+            x: point.x * fittedSize.width / fallbackSourceSize.width,
+            y: point.y * fittedSize.height / fallbackSourceSize.height
+        )
+    }
+}
+
 public struct SlidesView: View {
     private let lessonURL: URL
     private let classroomSessionCode: String?
@@ -69,9 +120,12 @@ public struct SlidesView: View {
     private let onTeacherSlideManifestSnapshotPublished: ((TeacherSlideManifestSnapshot) async throws -> Void)?
     private let onLiveTeacherSlideManifestRefreshRequested: ((TeacherSlideManifestSnapshot) async -> TeacherSlideManifestSnapshot?)?
     private let onLibraryDrawerOpenChange: (@MainActor (Bool) -> Void)?
+    private let onLessonContentChanged: (@MainActor () -> Void)?
+    private let isEditingLocked: Bool
 
     @State private var store: SlideStore
     @Binding private var classroomMode: MathBoardClassroomMode
+    @Binding private var isFollowMeEnabled: Bool
     @State private var activeIndex: Int = 0
     @State private var pendingDeleteIndices: [Int]?
     @State private var thumbnailCache = SlideThumbnailCache()
@@ -89,11 +143,13 @@ public struct SlidesView: View {
     @State private var canvasRefreshToken = UUID()
     @State private var inkDrawingSnapshotSaveTask: Task<Void, Never>?
     @State private var objectSnapshotSaveTasksBySlideID: [UUID: Task<Void, Never>] = [:]
+    @State private var lessonContentPropagationTask: Task<Void, Never>?
     @State private var inkDrawingSnapshotRevisionsBySlideID: [UUID: Int] = [:]
     @State private var objectSnapshotRevisionsBySlideID: [UUID: Int] = [:]
     @State private var slideManifestRevision = 0
     @State private var appliedTeacherSlideManifestUpdateID: String?
     @State private var appliedTeacherObjectSnapshotsUpdateID: String?
+    @State private var isStudentFollowMeActive = false
 
     private static let viewportSaveDebounce: Duration = .milliseconds(300)
     private static let inkDrawingSnapshotDebounce: Duration = .milliseconds(700)
@@ -102,6 +158,7 @@ public struct SlidesView: View {
     public init(
         lessonURL: URL,
         classroomMode: Binding<MathBoardClassroomMode> = .constant(.teacher),
+        isFollowMeEnabled: Binding<Bool> = .constant(false),
         classroomSessionCode: String? = nil,
         liveClassroomConfiguration: LiveClassroomSessionConfiguration? = nil,
         initialTeacherInkChunks: [TeacherInkStrokeChunk] = [],
@@ -115,7 +172,9 @@ public struct SlidesView: View {
         onTeacherObjectSnapshotPublished: ((TeacherObjectSnapshot) -> Void)? = nil,
         onTeacherSlideManifestSnapshotPublished: ((TeacherSlideManifestSnapshot) async throws -> Void)? = nil,
         onLiveTeacherSlideManifestRefreshRequested: ((TeacherSlideManifestSnapshot) async -> TeacherSlideManifestSnapshot?)? = nil,
-        onLibraryDrawerOpenChange: (@MainActor (Bool) -> Void)? = nil
+        onLibraryDrawerOpenChange: (@MainActor (Bool) -> Void)? = nil,
+        onLessonContentChanged: (@MainActor () -> Void)? = nil,
+        isEditingLocked: Bool = false
     ) {
         self.lessonURL = lessonURL
         self.classroomSessionCode = classroomSessionCode
@@ -131,6 +190,8 @@ public struct SlidesView: View {
         self.onTeacherSlideManifestSnapshotPublished = onTeacherSlideManifestSnapshotPublished
         self.onLiveTeacherSlideManifestRefreshRequested = onLiveTeacherSlideManifestRefreshRequested
         self.onLibraryDrawerOpenChange = onLibraryDrawerOpenChange
+        self.onLessonContentChanged = onLessonContentChanged
+        self.isEditingLocked = isEditingLocked
         let initialStore = SlideStore(
             lessonURL: lessonURL,
             classroomSessionCode: classroomMode.wrappedValue == .teacher ? classroomSessionCode : nil
@@ -152,72 +213,35 @@ public struct SlidesView: View {
             // into the student's own PencilKit drawing file, or student notes are
             // replaced the next time the lesson is opened.
         }
+        let initialActiveIndex: Int
+        if classroomMode.wrappedValue == .student,
+           initialTeacherSlideManifestSnapshot?.isFollowMeEnabled == true,
+           let teacherActiveSlideID = initialTeacherSlideManifestSnapshot?.activeSlideID,
+           let teacherActiveIndex = initialStore.slides.firstIndex(where: { $0.id == teacherActiveSlideID }) {
+            initialActiveIndex = teacherActiveIndex
+        } else {
+            initialActiveIndex = initialStore.lastActiveSlideID.flatMap { slideID in
+                initialStore.slides.firstIndex { $0.id == slideID }
+            } ?? 0
+        }
         _store = State(initialValue: initialStore)
         _classroomMode = classroomMode
+        _isFollowMeEnabled = isFollowMeEnabled
+        _activeIndex = State(initialValue: initialActiveIndex)
+        _isStudentFollowMeActive = State(initialValue: initialTeacherSlideManifestSnapshot?.isFollowMeEnabled ?? false)
         _appliedTeacherSlideManifestUpdateID = State(initialValue: appliedInitialTeacherSlideManifestUpdateID)
         _appliedTeacherObjectSnapshotsUpdateID = State(initialValue: appliedInitialTeacherObjectSnapshotsUpdateID)
     }
 
     public var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            if let slide = activeSlide {
-                PresentingCanvasView(
-                    drawingURL: canvasDrawingURL(for: slide),
-                    background: canvasBackground(for: slide.background),
-                    initialViewportState: presentationViewportState(for: slide),
-                    onViewportStateChange: { state in
-                        scheduleViewportSave(state, for: slide.id)
-                    },
-                    onInteractionBegan: handleCanvasInteractionBegan,
-                    onTextEditingBegan: handleCanvasTextEditingBegan,
-                    onTextEditingEnded: handleCanvasTextEditingEnded,
-                    onExtractedRegionSend: sendExtractedRegionToNextEmptySlide,
-                    onImportPDF: { isShowingPDFImporter = true },
-                    onImportPDFObjects: importPDFPagesAsCanvasObjects,
-                    onExportPDF: {
-                        flushPendingViewportSave()
-                        isShowingPDFExporter = true
-                    },
-                    onViewportSourceRectChange: { sourceRect in
-                        currentViewportSourceRect = sourceRect
-                    },
-                    onLiveStrokeUpdate: { stroke in
-                        liveTeacherInkCoordinator.publishTeacherStroke(stroke, slideID: slide.id)
-                    },
-                    onDrawingDataChange: { drawingData in
-                        scheduleTeacherInkDrawingSnapshotPublish(drawingData, for: slide)
-                    },
-                    onCanvasObjectStateChange: {
-                        scheduleTeacherObjectSnapshotPublish(for: slide)
-                    },
-                    onLibraryDrawerOpenChange: { isOpen in
-                        onLibraryDrawerOpenChange?(isOpen)
-                    },
-                    objectStateReloadCommand: objectStateReloadCommand,
-                    allowsWidgetAuthoring: classroomMode.allowsWidgetAuthoring
-                )
-                    .id(canvasViewIdentity(for: slide))
-            }
+            activeCanvasLayer
 
             liveTeacherInkOverlay
 
-            if !isTextEditingOnCanvas {
-                SlideNavigatorView(
-                    slides: store.slides,
-                    currentIndex: activeIndex,
-                    isFilmstripOpen: $isShowingFilmstrip,
-                    thumbnail: thumbnail(for:),
-                    onGoTo: goToSlide,
-                    onPrevious: goToPrevious,
-                    onNext: goToNext,
-                    onAdd: addSlide,
-                    onMoveSlides: moveSlides(at:by:),
-                    onDeleteSlides: requestDeleteSlides(at:)
-                )
-                .padding(.trailing, 16)
-                .padding(.bottom, 14)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
+            studentCoverMaskOverlay
+
+            slideNavigatorLayer
         }
         // Grabbing a tool (or any tool-palette interaction) closes the
         // filmstrip: every palette command writes broker.toolPaletteState.
@@ -268,6 +292,9 @@ public struct SlidesView: View {
             }
         }
         .onDisappear {
+            if let activeSlide {
+                store.saveLastActiveSlide(activeSlide.id)
+            }
             onActiveWidgetIDsChanged?([])
             onActiveWidgetsChanged?([])
             scheduleReceivedTeacherInkPersistenceForStudentCopy()
@@ -275,6 +302,15 @@ public struct SlidesView: View {
             inkDrawingSnapshotSaveTask = nil
             objectSnapshotSaveTasksBySlideID.values.forEach { $0.cancel() }
             objectSnapshotSaveTasksBySlideID = [:]
+            // Flush any pending master propagation before the lesson closes.
+            // The child canvas view disappears before SlidesView, so PencilKit
+            // will have already flushed its pending drawing save by this point.
+            let hadPendingPropagation = lessonContentPropagationTask != nil
+            lessonContentPropagationTask?.cancel()
+            lessonContentPropagationTask = nil
+            if hadPendingPropagation {
+                onLessonContentChanged?()
+            }
             liveTeacherInkCoordinator.onPublishedTeacherInkChunk = nil
             liveTeacherInkCoordinator.onPublishedTeacherInkDrawingSnapshot = nil
             liveTeacherInkCoordinator.onPublishedTeacherObjectSnapshot = nil
@@ -309,7 +345,17 @@ public struct SlidesView: View {
             liveTeacherInkCoordinator.seedInitialInkDrawingSnapshots(initialTeacherInkDrawingSnapshots)
             publishTeacherSlideManifestSnapshot()
         }
-        .onChange(of: classroomSessionCode) { _, newSessionCode in
+        .onChange(of: classroomSessionCode) { oldSessionCode, newSessionCode in
+            // Switching from master (nil) to a class session — immediately flush
+            // any buffered master propagation so the class canvas loads from
+            // already-propagated disk state rather than a snapshot that's still
+            // waiting for the 900 ms debounce to expire.
+            // Widget and object saves are synchronous, so they're already on disk.
+            // The pending 900 ms task is left running as a safety net for any ink
+            // strokes that may still be within their own 400 ms debounce window.
+            if oldSessionCode == nil, newSessionCode != nil {
+                onLessonContentChanged?()
+            }
             reloadClassroomSessionStore(for: newSessionCode)
             publishActiveWidgetIDs()
             publishTeacherSlideManifestSnapshot()
@@ -322,6 +368,13 @@ public struct SlidesView: View {
         }
         .onChange(of: activeSlide?.id) { _, _ in
             publishActiveWidgetIDs()
+            publishTeacherSlideManifestSnapshot()
+        }
+        .onChange(of: isFollowMeEnabled) { _, _ in
+            publishTeacherSlideManifestSnapshot()
+        }
+        .onChange(of: isStudentFollowMeActive) { _, isActive in
+            if isActive { isShowingFilmstrip = false }
         }
         .fileImporter(
             isPresented: $isShowingPDFImporter,
@@ -349,6 +402,90 @@ public struct SlidesView: View {
                 },
                 onExport: exportPDF
             )
+        }
+    }
+
+    @ViewBuilder
+    private var activeCanvasLayer: some View {
+        if let slide = activeSlide {
+            presentingCanvas(for: slide)
+        }
+    }
+
+    private func presentingCanvas(for slide: SlideMetadata) -> some View {
+        let viewportChange: (@MainActor (PresentationViewportState) -> Void)? = isEditingLocked ? nil : { @MainActor state in
+            scheduleViewportSave(state, for: slide.id)
+        }
+        let extractedRegionSend: (@MainActor (PresentationExtractedRegion) -> Void)? = isEditingLocked ? nil : { @MainActor region in
+            sendExtractedRegionToNextEmptySlide(region)
+        }
+        let pdfImport: (@MainActor () -> Void)? = isEditingLocked ? nil : { @MainActor in
+            isShowingPDFImporter = true
+        }
+        let pdfObjectImport: (@MainActor (URL, [Int]) -> Void)? = isEditingLocked ? nil : { @MainActor pdfURL, pageIndices in
+            importPDFPagesAsCanvasObjects(pdfURL: pdfURL, pageIndices: pageIndices)
+        }
+        let drawingDataChange: (@MainActor (Data) -> Void)? = isEditingLocked ? nil : { @MainActor drawingData in
+            scheduleTeacherInkDrawingSnapshotPublish(drawingData, for: slide)
+            notifyLessonContentChanged(slideID: slide.id)
+        }
+        let objectStateChange: (@MainActor () -> Void)? = isEditingLocked ? nil : { @MainActor in
+            scheduleTeacherObjectSnapshotPublish(for: slide)
+            notifyLessonContentChanged(slideID: slide.id)
+        }
+
+        return PresentingCanvasView(
+            drawingURL: canvasDrawingURL(for: slide),
+            background: canvasBackground(for: slide.background),
+            initialViewportState: presentationViewportState(for: slide),
+            onViewportStateChange: viewportChange,
+            onInteractionBegan: handleCanvasInteractionBegan,
+            onTextEditingBegan: handleCanvasTextEditingBegan,
+            onTextEditingEnded: handleCanvasTextEditingEnded,
+            onExtractedRegionSend: extractedRegionSend,
+            onImportPDF: pdfImport,
+            onImportPDFObjects: pdfObjectImport,
+            onExportPDF: {
+                flushPendingViewportSave()
+                isShowingPDFExporter = true
+            },
+            onViewportSourceRectChange: { sourceRect in
+                currentViewportSourceRect = sourceRect
+            },
+            onLiveStrokeUpdate: { stroke in
+                liveTeacherInkCoordinator.publishTeacherStroke(stroke, slideID: slide.id)
+            },
+            onDrawingDataChange: drawingDataChange,
+            onCanvasObjectStateChange: objectStateChange,
+            onLibraryDrawerOpenChange: { isOpen in
+                onLibraryDrawerOpenChange?(isOpen)
+            },
+            objectStateReloadCommand: objectStateReloadCommand,
+            allowsWidgetAuthoring: !isEditingLocked && classroomMode.allowsWidgetAuthoring,
+            isEditingLocked: isEditingLocked
+        )
+        .id(canvasViewIdentity(for: slide))
+    }
+
+    @ViewBuilder
+    private var slideNavigatorLayer: some View {
+        if !isTextEditingOnCanvas && !isStudentFollowMeActive {
+            SlideNavigatorView(
+                slides: store.slides,
+                currentIndex: activeIndex,
+                isFilmstripOpen: $isShowingFilmstrip,
+                thumbnail: thumbnail(for:),
+                onGoTo: goToSlide,
+                onPrevious: goToPrevious,
+                onNext: goToNext,
+                onAdd: addSlide,
+                onMoveSlides: moveSlides(at:by:),
+                onDeleteSlides: requestDeleteSlides(at:),
+                allowsEditing: !isEditingLocked
+            )
+            .padding(.trailing, 16)
+            .padding(.bottom, 14)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
 
@@ -456,8 +593,16 @@ public struct SlidesView: View {
     private func reloadClassroomSessionStore(for sessionCode: String?) {
         guard classroomMode == .teacher else { return }
         flushPendingViewportSave()
+        if let activeSlide {
+            store.saveLastActiveSlide(activeSlide.id)
+        }
         store = SlideStore(lessonURL: lessonURL, classroomSessionCode: sessionCode)
-        activeIndex = min(activeIndex, max(store.slides.count - 1, 0))
+        if let lastID = store.lastActiveSlideID,
+           let savedIndex = store.slides.firstIndex(where: { $0.id == lastID }) {
+            activeIndex = savedIndex
+        } else {
+            activeIndex = 0
+        }
         thumbnailCache.thumbnails = [:]
         objectStateReloadCommand = CanvasObjectCommand(.reloadObjectState)
         inkDrawingSnapshotRevisionsBySlideID = [:]
@@ -498,6 +643,29 @@ public struct SlidesView: View {
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
                 .zIndex(0.5)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var studentCoverMaskOverlay: some View {
+        if liveClassroomConfiguration?.role == .student,
+           let activeSlide {
+            let covers = CanvasCoverObject.load(
+                from: CanvasCoverObject.sidecarURL(forDrawingURL: canvasDrawingURL(for: activeSlide))
+            ).filter { !$0.isRevealed }
+            if !covers.isEmpty {
+                GeometryReader { proxy in
+                    StudentCoverMaskOverlay(
+                        coverObjects: covers,
+                        viewportSourceRect: currentViewportSourceRect,
+                        fallbackSourceSize: CanvasBoardMetrics.defaultUsableSize,
+                        fittedSize: proxy.size
+                    )
+                }
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .zIndex(0.6)
             }
         }
     }
@@ -599,15 +767,45 @@ public struct SlidesView: View {
         for slide in store.slides {
             guard let snapshot = latestSnapshots[slide.id] else { continue }
             do {
-                // Preserve widgets.json during initial merge: student owns their own widget
-                // runtime states and the teacher's snapshot never includes widgets.json
-                // (stripped at publish time), but write(to:) would delete it because it's
-                // in sidecarFileNames and absent from the snapshot's sidecarFiles list.
-                try snapshot.snapshot.write(to: store.drawingURL(for: slide), preserving: ["widgets.json"])
+                let drawingURL = store.drawingURL(for: slide)
+                let preserving: Set<String> = snapshot.snapshot.sidecarFiles.contains { $0.name == "widgets.json" }
+                    ? []
+                    : ["widgets.json"]
+                try studentMergedObjectSnapshot(
+                    snapshot.snapshot,
+                    drawingURL: drawingURL
+                ).write(to: drawingURL, preserving: preserving)
             } catch {
                 print("[Slides] initial teacher object merge error: \(error)")
             }
         }
+    }
+
+    private static func studentMergedObjectSnapshot(
+        _ snapshot: CanvasObjectSnapshot,
+        drawingURL: URL
+    ) -> CanvasObjectSnapshot {
+        guard let widgetsFile = snapshot.sidecarFiles.first(where: { $0.name == "widgets.json" }),
+              let widgetsData = widgetsFile.data,
+              let teacherWidgets = try? JSONDecoder().decode([WidgetObject].self, from: widgetsData) else {
+            return snapshot
+        }
+
+        let localWidgets = WidgetObject.load(from: WidgetObject.sidecarURL(forDrawingURL: drawingURL))
+        let localWidgetsByID = Dictionary(uniqueKeysWithValues: localWidgets.map { ($0.id, $0) })
+        let mergedWidgets = teacherWidgets.map { teacherWidget -> WidgetObject in
+            guard let localWidget = localWidgetsByID[teacherWidget.id] else { return teacherWidget }
+            var mergedWidget = teacherWidget
+            mergedWidget.activityRuntimeState = localWidget.activityRuntimeState
+            mergedWidget.builtInRuntimeState = localWidget.builtInRuntimeState
+            return mergedWidget
+        }
+        guard let mergedData = try? JSONEncoder().encode(mergedWidgets) else { return snapshot }
+
+        var mergedSnapshot = snapshot
+        mergedSnapshot.sidecarFiles.removeAll { $0.name == "widgets.json" }
+        mergedSnapshot.sidecarFiles.append(CanvasObjectSnapshotFile(name: "widgets.json", data: mergedData))
+        return mergedSnapshot
     }
 
     private static func mergeInitialTeacherInkChunks(_ chunks: [TeacherInkStrokeChunk], into store: SlideStore) {
@@ -664,15 +862,11 @@ public struct SlidesView: View {
     private func publishTeacherObjectSnapshot(for slide: SlideMetadata) {
         let revision = nextLiveRevision(after: objectSnapshotRevisionsBySlideID[slide.id] ?? 0)
         objectSnapshotRevisionsBySlideID[slide.id] = revision
-        var snapshot = CanvasObjectSnapshot.capture(
+        let snapshot = CanvasObjectSnapshot.capture(
             slideID: slide.id,
             drawingURL: canvasDrawingURL(for: slide),
             revision: revision
         )
-        // Widget runtime states (student answers) are owned per-device.
-        // Strip widgets.json so the teacher's in-progress answers never
-        // overwrite a student's widget state via the object snapshot channel.
-        snapshot.sidecarFiles.removeAll { $0.name == "widgets.json" }
         liveTeacherInkCoordinator.publishTeacherObjectSnapshot(snapshot, slideID: slide.id, revision: revision)
     }
 
@@ -682,7 +876,8 @@ public struct SlidesView: View {
         liveTeacherInkCoordinator.publishTeacherSlideManifestSnapshot(
             revision: slideManifestRevision,
             slides: store.slides.map(teacherSlideMetadata(for:)),
-            activeSlideID: activeSlide?.id
+            activeSlideID: activeSlide?.id,
+            isFollowMeEnabled: isFollowMeEnabled
         )
     }
 
@@ -742,7 +937,9 @@ public struct SlidesView: View {
             deferredTeacherSlideIDs: deferredPlaceholderSlideIDs
         )
 
-        if let teacherActiveSlideID = snapshot.activeSlideID,
+        isStudentFollowMeActive = snapshot.isFollowMeEnabled
+        if snapshot.isFollowMeEnabled,
+           let teacherActiveSlideID = snapshot.activeSlideID,
            readySlideIDs.contains(teacherActiveSlideID),
            let newActiveIndex = store.slides.firstIndex(where: { $0.id == teacherActiveSlideID }) {
             activeIndex = newActiveIndex
@@ -873,12 +1070,12 @@ public struct SlidesView: View {
         }
 
         do {
-            // Preserve widgets.json: students own their widget runtime states.
-            // write(to:preserving:) skips both deletion and overwrite of the listed
-            // files, so the student's in-progress widget answers are never touched
-            // by the teacher's snapshot — even if an old snapshot still contains
-            // a widgets.json from before this fix was deployed.
-            try snapshot.snapshot.write(to: canvasDrawingURL(for: slide), preserving: ["widgets.json"])
+            let drawingURL = canvasDrawingURL(for: slide)
+            let preserving: Set<String> = snapshot.snapshot.sidecarFiles.contains { $0.name == "widgets.json" }
+                ? []
+                : ["widgets.json"]
+            try Self.studentMergedObjectSnapshot(snapshot.snapshot, drawingURL: drawingURL)
+                .write(to: drawingURL, preserving: preserving)
             print("[Slides] applied teacher object snapshot slide=\(slide.id) revision=\(snapshot.revision) sidecars=\(snapshot.snapshot.sidecarFiles.count) imageAssets=\(snapshot.snapshot.imageAssetFiles.count)")
             if activeSlide?.id == slide.id {
                 objectStateReloadCommand = CanvasObjectCommand(.reloadObjectState)
@@ -897,18 +1094,21 @@ public struct SlidesView: View {
     }
 
     private func goToPrevious() {
+        guard !isStudentFollowMeActive else { return }
         guard activeIndex > 0 else { return }
         flushPendingViewportSave()
         activeIndex -= 1
     }
 
     private func goToNext() {
+        guard !isStudentFollowMeActive else { return }
         guard activeIndex < store.slides.count - 1 else { return }
         flushPendingViewportSave()
         activeIndex += 1
     }
 
     private func goToSlide(_ index: Int) {
+        guard !isStudentFollowMeActive else { return }
         guard store.slides.indices.contains(index) else { return }
         guard index != activeIndex else { return }
         flushPendingViewportSave()
@@ -931,6 +1131,49 @@ public struct SlidesView: View {
         closeFilmstripForOutsideInteraction()
     }
 
+    private func notifyLessonContentChanged(slideID: UUID? = nil) {
+        guard classroomMode == .teacher, !isEditingLocked else { return }
+
+        if let slideID, classroomSessionCode != nil {
+            SlideStore.markClassSessionSlideEdited(
+                lessonURL: lessonURL,
+                classroomSessionCode: classroomSessionCode,
+                slideID: slideID
+            )
+            return
+        }
+
+        guard classroomSessionCode == nil else { return }
+        lessonContentPropagationTask?.cancel()
+        lessonContentPropagationTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(900))
+            guard !Task.isCancelled else { return }
+            onLessonContentChanged?()
+        }
+    }
+
+    private func markClassSessionSlidesEdited(_ slideIDs: [UUID]) {
+        guard classroomMode == .teacher, classroomSessionCode != nil else { return }
+        for slideID in slideIDs {
+            SlideStore.markClassSessionSlideEdited(
+                lessonURL: lessonURL,
+                classroomSessionCode: classroomSessionCode,
+                slideID: slideID
+            )
+        }
+    }
+
+    private func markClassSessionSlidesDeleted(_ slideIDs: [UUID]) {
+        guard classroomMode == .teacher, classroomSessionCode != nil else { return }
+        for slideID in slideIDs {
+            SlideStore.markClassSessionSlideDeleted(
+                lessonURL: lessonURL,
+                classroomSessionCode: classroomSessionCode,
+                slideID: slideID
+            )
+        }
+    }
+
     private func handleCanvasTextEditingBegan() {
         withAnimation(.snappy(duration: 0.18)) {
             isShowingFilmstrip = false
@@ -947,17 +1190,20 @@ public struct SlidesView: View {
     /// Inserts a blank slide directly after the current one and makes it the
     /// active slide (matches the SlideNav prototype behavior).
     private func addSlide() {
+        guard !isEditingLocked else { return }
         flushPendingViewportSave()
         do {
-            try store.insertSlides(count: 1, afterSlideAt: activeIndex)
+            let insertedSlides = try store.insertSlides(count: 1, afterSlideAt: activeIndex)
             activeIndex += 1
             publishTeacherSlideManifestSnapshot()
+            notifyLessonContentChanged(slideID: insertedSlides.first?.id)
         } catch {
             slideErrorMessage = error.localizedDescription
         }
     }
 
     private func sendExtractedRegionToNextEmptySlide(_ region: PresentationExtractedRegion) {
+        guard !isEditingLocked else { return }
         flushPendingViewportSave()
         do {
             let targetSlide: SlideMetadata
@@ -968,6 +1214,7 @@ public struct SlidesView: View {
             } else {
                 targetSlide = store.addSlide()
                 publishTeacherSlideManifestSnapshot()
+                notifyLessonContentChanged(slideID: targetSlide.id)
             }
             try placeExtractedRegion(region, on: targetSlide)
         } catch {
@@ -1015,6 +1262,7 @@ public struct SlidesView: View {
             forDrawingURL: drawingURL
         )
         scheduleTeacherObjectSnapshotPublish(for: slide)
+        notifyLessonContentChanged(slideID: slide.id)
     }
 
     private static func libraryRecentTitle(_ baseTitle: String, date: Date = Date()) -> String {
@@ -1025,6 +1273,7 @@ public struct SlidesView: View {
     }
 
     private func importPDFPagesAsCanvasObjects(pdfURL: URL, pageIndices: [Int]) {
+        guard !isEditingLocked else { return }
         do {
             flushPendingViewportSave()
             let importedPages = try Self.renderPDFPagesAsCanvasImages(from: pdfURL, pageIndices: pageIndices)
@@ -1037,6 +1286,7 @@ public struct SlidesView: View {
                 try placePDFPageImage(page, on: slide)
             }
             publishTeacherSlideManifestSnapshot()
+            notifyLessonContentChanged()
             if let firstTargetIndex = store.slides.firstIndex(where: { $0.id == targetSlides[0].id }) {
                 activeIndex = firstTargetIndex
             }
@@ -1086,6 +1336,7 @@ public struct SlidesView: View {
             forDrawingURL: drawingURL
         )
         scheduleTeacherObjectSnapshotPublish(for: slide)
+        notifyLessonContentChanged(slideID: slide.id)
     }
 
     private static func centeredPDFPageFrame(for displaySize: CGSize) -> CGRect {
@@ -1128,6 +1379,7 @@ public struct SlidesView: View {
     }
 
     private func handlePDFImport(_ result: Result<[URL], any Error>) {
+        guard !isEditingLocked else { return }
         do {
             let urls = try result.get()
             guard let sourceURL = urls.first else { return }
@@ -1154,6 +1406,7 @@ public struct SlidesView: View {
     }
 
     private func importSelectedPDFPages(_ pageIndices: [Int], from pendingImport: PendingPDFImport) {
+        guard !isEditingLocked else { return }
         do {
             flushPendingViewportSave()
             let result = try store.importPDF(
@@ -1166,6 +1419,13 @@ public struct SlidesView: View {
             thumbnailCache.thumbnails = [:]
             canvasRefreshToken = UUID()
             publishTeacherSlideManifestSnapshot()
+            let importedSlideIDs = (result.startIndex..<(result.startIndex + result.slides.count)).compactMap { index in
+                store.slides.indices.contains(index) ? store.slides[index].id : nil
+            }
+            for slideID in importedSlideIDs {
+                notifyLessonContentChanged(slideID: slideID)
+            }
+            notifyLessonContentChanged()
             clearPendingPDFImport()
         } catch {
             slideErrorMessage = error.localizedDescription
@@ -1204,6 +1464,7 @@ public struct SlidesView: View {
     }
 
     private func requestDeleteSlides(at indices: [Int]) {
+        guard !isEditingLocked else { return }
         guard !indices.isEmpty, indices.count < store.slides.count else {
             slideErrorMessage = SlideStoreError.cannotDeleteLastSlide.localizedDescription
             return
@@ -1215,11 +1476,15 @@ public struct SlidesView: View {
     /// don't shift later ones), then lands on the nearest survivor at or after
     /// the old current position.
     private func deletePendingSlides() {
+        guard !isEditingLocked else { return }
         guard let indices = pendingDeleteIndices else { return }
         pendingDeleteIndices = nil
         flushPendingViewportSave()
 
         let doomed = Set(indices)
+        let deletedSlideIDs = indices.compactMap { index in
+            store.slides.indices.contains(index) ? store.slides[index].id : nil
+        }
         let survivorAfter = store.slides.enumerated().first {
             $0.offset >= activeIndex && !doomed.contains($0.offset)
         }?.element.id
@@ -1231,7 +1496,9 @@ public struct SlidesView: View {
             for index in indices.sorted(by: >) {
                 try store.deleteSlide(at: index)
             }
+            markClassSessionSlidesDeleted(deletedSlideIDs)
             publishTeacherSlideManifestSnapshot()
+            notifyLessonContentChanged()
         } catch {
             slideErrorMessage = error.localizedDescription
         }
@@ -1249,9 +1516,13 @@ public struct SlidesView: View {
     /// against the edge stay put and become a boundary the rest pack up
     /// against on further clicks.
     private func moveSlides(at indices: [Int], by direction: Int) {
+        guard !isEditingLocked else { return }
         guard !indices.isEmpty else { return }
         flushPendingViewportSave()
         let currentID = activeSlide?.id
+        let movedSlideIDs = indices.compactMap { index in
+            store.slides.indices.contains(index) ? store.slides[index].id : nil
+        }
 
         do {
             if direction < 0 {
@@ -1280,7 +1551,9 @@ public struct SlidesView: View {
         if let currentID, let newIndex = store.slides.firstIndex(where: { $0.id == currentID }) {
             activeIndex = newIndex
         }
+        markClassSessionSlidesEdited(movedSlideIDs)
         publishTeacherSlideManifestSnapshot()
+        notifyLessonContentChanged()
     }
 
     /// Static slide preview for the navigator filmstrip, cached by persisted

@@ -1,0 +1,5047 @@
+{
+  "title": "ACT Math Daily Practice",
+  "version": 1,
+  "subject": "ACT Math",
+  "questions": [
+    {
+      "id": "act-math-001",
+      "day": 1,
+      "domain": "Algebra",
+      "skill": "linear equations",
+      "difficulty": "easy",
+      "prompt": "What is the value of $x$ in the equation $3x - 7 = 14$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "5"
+        },
+        {
+          "id": "B",
+          "text": "7"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{21}{3}"
+        },
+        {
+          "id": "D",
+          "text": "9"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Add 7 to both sides of the equation to get $3x = 21$, then divide by 3 to find $x = 7$."
+    },
+    {
+      "id": "act-math-002",
+      "day": 2,
+      "domain": "Geometry",
+      "skill": "angles",
+      "difficulty": "easy",
+      "prompt": "Two angles are supplementary. If the measure of one angle is $65^{\\circ}$, what is the measure of the other angle?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "25^{\\circ}"
+        },
+        {
+          "id": "B",
+          "text": "115^{\\circ}"
+        },
+        {
+          "id": "C",
+          "text": "125^{\\circ}"
+        },
+        {
+          "id": "D",
+          "text": "295^{\\circ}"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Supplementary angles sum to $180^{\\circ}$. Subtract $65^{\\circ}$ from $180^{\\circ}$ to get $115^{\\circ}$."
+    },
+    {
+      "id": "act-math-003",
+      "day": 3,
+      "domain": "Functions",
+      "skill": "evaluating functions",
+      "difficulty": "easy",
+      "prompt": "Given the function $f(x) = 2x^2 - 5$, what is the value of $f(-3)$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "-23"
+        },
+        {
+          "id": "B",
+          "text": "-11"
+        },
+        {
+          "id": "C",
+          "text": "13"
+        },
+        {
+          "id": "D",
+          "text": "31"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Substitute $-3$ for $x$: $f(-3) = 2(-3)^2 - 5 = 2(9) - 5 = 18 - 5 = 13$."
+    },
+    {
+      "id": "act-math-004",
+      "day": 4,
+      "domain": "Data/statistics/probability",
+      "skill": "mean",
+      "difficulty": "easy",
+      "prompt": "A student has test scores of 78, 85, 90, and 83. What score must the student earn on the fifth test to have a mean score of 84?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "84"
+        },
+        {
+          "id": "B",
+          "text": "86"
+        },
+        {
+          "id": "C",
+          "text": "88"
+        },
+        {
+          "id": "D",
+          "text": "90"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "The sum of 5 tests with a mean of 84 must be $5 \\times 84 = 420$. The sum of the first four tests is $78 + 85 + 90 + 83 = 336$. The fifth test must be $420 - 336 = 88$."
+    },
+    {
+      "id": "act-math-005",
+      "day": 5,
+      "domain": "Algebra",
+      "skill": "simplifying expressions",
+      "difficulty": "easy",
+      "prompt": "Which of the following expressions is equivalent to $(4x^2 - 3x + 5) - (2x^2 + x - 4)$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "2x^2 - 4x + 9"
+        },
+        {
+          "id": "B",
+          "text": "2x^2 - 2x + 1"
+        },
+        {
+          "id": "C",
+          "text": "6x^2 - 4x + 1"
+        },
+        {
+          "id": "D",
+          "text": "6x^2 - 2x + 9"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Distribute the negative sign: $4x^2 - 2x^2 - 3x - x + 5 - (-4) = 2x^2 - 4x + 9$."
+    },
+    {
+      "id": "act-math-006",
+      "day": 6,
+      "domain": "Geometry",
+      "skill": "perimeter",
+      "difficulty": "easy",
+      "prompt": "A rectangle has a length of 12 centimeters and a width of 8 centimeters. What is the perimeter of the rectangle, in centimeters?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "20"
+        },
+        {
+          "id": "B",
+          "text": "40"
+        },
+        {
+          "id": "C",
+          "text": "48"
+        },
+        {
+          "id": "D",
+          "text": "96"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "The perimeter of a rectangle is $2(length + width)$. Here, $2(12 + 8) = 2(20) = 40$."
+    },
+    {
+      "id": "act-math-007",
+      "day": 7,
+      "domain": "Functions",
+      "skill": "linear functions",
+      "difficulty": "easy",
+      "prompt": "What is the slope of the line represented by the equation $4x - 2y = 10$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "-2"
+        },
+        {
+          "id": "B",
+          "text": "-\\frac{1}{2}"
+        },
+        {
+          "id": "C",
+          "text": "2"
+        },
+        {
+          "id": "D",
+          "text": "4"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Rewrite the equation in slope-intercept form ($y = mx + b$). Subtract $4x$ from both sides to get $-2y = -4x + 10$, then divide by $-2$ to get $y = 2x - 5$. The slope $m$ is 2."
+    },
+    {
+      "id": "act-math-008",
+      "day": 8,
+      "domain": "Data/statistics/probability",
+      "skill": "probability",
+      "difficulty": "easy",
+      "prompt": "A standard deck of 52 playing cards contains 4 kings. If one card is drawn at random from the deck, what is the probability that it is a king?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\frac{1}{52}"
+        },
+        {
+          "id": "B",
+          "text": "\\frac{1}{13}"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{1}{4}"
+        },
+        {
+          "id": "D",
+          "text": "\\frac{4}{13}"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "The probability is the number of favorable outcomes divided by the total number of possible outcomes: $\\frac{4}{52} = \\frac{1}{13}$."
+    },
+    {
+      "id": "act-math-009",
+      "day": 9,
+      "domain": "Algebra",
+      "skill": "inequalities",
+      "difficulty": "easy",
+      "prompt": "What is the solution set for the inequality $5x - 3 \\geq 2x + 9$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "x \\leq 2"
+        },
+        {
+          "id": "B",
+          "text": "x \\geq 2"
+        },
+        {
+          "id": "C",
+          "text": "x \\leq 4"
+        },
+        {
+          "id": "D",
+          "text": "x \\geq 4"
+        }
+      ],
+      "correctChoiceID": "D",
+      "explanation": "Subtract $2x$ from both sides to get $3x - 3 \\geq 9$, add 3 to both sides to get $3x \\geq 12$, and divide by 3 to find $x \\geq 4$."
+    },
+    {
+      "id": "act-math-010",
+      "day": 10,
+      "domain": "Trigonometry",
+      "skill": "basic ratios",
+      "difficulty": "easy",
+      "prompt": "In a right triangle where one acute angle has measure $\\theta$, the opposite side has length 5 and the hypotenuse has length 13. What is the value of $\\sin \\theta$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\frac{5}{12}"
+        },
+        {
+          "id": "B",
+          "text": "\\frac{12}{13}"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{5}{13}"
+        },
+        {
+          "id": "D",
+          "text": "\\frac{13}{5}"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "The sine of an angle in a right triangle is defined as $\\frac{\\text{opposite}}{\\text{hypotenuse}}$, which is $\\frac{5}{13}$."
+    },
+    {
+      "id": "act-math-011",
+      "day": 11,
+      "domain": "Algebra",
+      "skill": "systems of equations",
+      "difficulty": "easy",
+      "prompt": "Given the system of equations $x + y = 10$ and $x - y = 4$, what is the value of $x$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "3"
+        },
+        {
+          "id": "B",
+          "text": "4"
+        },
+        {
+          "id": "C",
+          "text": "7"
+        },
+        {
+          "id": "D",
+          "text": "10"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Add the two equations together: $(x + y) + (x - y) = 10 + 4$, which simplifies to $2x = 14$, so $x = 7$."
+    },
+    {
+      "id": "act-math-012",
+      "day": 12,
+      "domain": "Geometry",
+      "skill": "circles",
+      "difficulty": "easy",
+      "prompt": "A circle has a radius of 6 centimeters. What is the area of the circle, in square centimeters?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "6\\pi"
+        },
+        {
+          "id": "B",
+          "text": "12\\pi"
+        },
+        {
+          "id": "C",
+          "text": "18\\pi"
+        },
+        {
+          "id": "D",
+          "text": "36\\pi"
+        }
+      ],
+      "correctChoiceID": "D",
+      "explanation": "The area of a circle is given by $A = \\pi r^2$. Substituting $r = 6$: $A = \\pi (6^2) = 36\\pi$."
+    },
+    {
+      "id": "act-math-013",
+      "day": 13,
+      "domain": "Functions",
+      "skill": "domain and range",
+      "difficulty": "easy",
+      "prompt": "What is the domain of the function $f(x) = \\frac{5}{x - 4}$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "All real numbers"
+        },
+        {
+          "id": "B",
+          "text": "All real numbers except x = 0"
+        },
+        {
+          "id": "C",
+          "text": "All real numbers except x = 4"
+        },
+        {
+          "id": "D",
+          "text": "All real numbers except x = -4"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "A rational function is undefined when its denominator is zero. Setting $x - 4 = 0$ gives $x = 4$, so the domain includes all real numbers except $x = 4$."
+    },
+    {
+      "id": "act-math-014",
+      "day": 14,
+      "domain": "Data/statistics/probability",
+      "skill": "median",
+      "difficulty": "easy",
+      "prompt": "What is the median of the following set of numbers: 14, 7, 22, 19, 3?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "7"
+        },
+        {
+          "id": "B",
+          "text": "14"
+        },
+        {
+          "id": "C",
+          "text": "15"
+        },
+        {
+          "id": "D",
+          "text": "19"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "First, order the numbers from least to greatest: 3, 7, 14, 19, 22. The median is the middle number, which is 14."
+    },
+    {
+      "id": "act-math-015",
+      "day": 15,
+      "domain": "Algebra",
+      "skill": "exponents",
+      "difficulty": "easy",
+      "prompt": "Which of the following expressions is equivalent to $(2x^3)(4x^5)$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "6x^8"
+        },
+        {
+          "id": "B",
+          "text": "8x^8"
+        },
+        {
+          "id": "C",
+          "text": "8x^15"
+        },
+        {
+          "id": "D",
+          "text": "16x^8"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Multiply the coefficients ($2 \\times 4 = 8$) and add the exponents of like bases ($x^3 \\cdot x^5 = x^{3+5} = x^8$), resulting in $8x^8$."
+    },
+    {
+      "id": "act-math-016",
+      "day": 16,
+      "domain": "Modeling/word problems",
+      "skill": "rates",
+      "difficulty": "easy",
+      "prompt": "A car travels at a constant speed of 60 miles per hour. How many miles does the car travel in 2.5 hours?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "120"
+        },
+        {
+          "id": "B",
+          "text": "135"
+        },
+        {
+          "id": "C",
+          "text": "150"
+        },
+        {
+          "id": "D",
+          "text": "180"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Multiply the rate by the time: $60 \\text{ miles/hour} \\times 2.5 \\text{ hours} = 150 \\text{ miles}."
+    },
+    {
+      "id": "act-math-017",
+      "day": 17,
+      "domain": "Geometry",
+      "skill": "pythagorean theorem",
+      "difficulty": "easy",
+      "prompt": "A right triangle has legs of lengths 6 centimeters and 8 centimeters. What is the length of the hypotenuse, in centimeters?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "10"
+        },
+        {
+          "id": "B",
+          "text": "12"
+        },
+        {
+          "id": "C",
+          "text": "14"
+        },
+        {
+          "id": "D",
+          "text": "\\sqrt{14}"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Use the Pythagorean theorem: $a^2 + b^2 = c^2$. Thus, $6^2 + 8^2 = 36 + 64 = 100$. Taking the square root gives $c = 10$."
+    },
+    {
+      "id": "act-math-018",
+      "day": 18,
+      "domain": "Algebra",
+      "skill": "factoring quadratic expressions",
+      "difficulty": "easy",
+      "prompt": "Which of the following is a factor of the quadratic expression $x^2 + 7x + 10$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "x - 5"
+        },
+        {
+          "id": "B",
+          "text": "x + 2"
+        },
+        {
+          "id": "C",
+          "text": "x - 2"
+        },
+        {
+          "id": "D",
+          "text": "x + 10"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Factor the quadratic expression by finding two numbers that multiply to 10 and add to 7. These numbers are 2 and 5, so $x^2 + 7x + 10 = (x + 2)(x + 5)$. Thus, $(x + 2)$ is a factor."
+    },
+    {
+      "id": "act-math-019",
+      "day": 19,
+      "domain": "Functions",
+      "skill": "composite functions",
+      "difficulty": "easy",
+      "prompt": "Given $f(x) = x + 3$ and $g(x) = 2x$, what is the value of $f(g(4))$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "10"
+        },
+        {
+          "id": "B",
+          "text": "11"
+        },
+        {
+          "id": "C",
+          "text": "14"
+        },
+        {
+          "id": "D",
+          "text": "16"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "First, evaluate the inner function: $g(4) = 2(4) = 8$. Then substitute into the outer function: $f(8) = 8 + 3 = 11$."
+    },
+    {
+      "id": "act-math-020",
+      "day": 20,
+      "domain": "Data/statistics/probability",
+      "skill": "weighted average",
+      "difficulty": "easy",
+      "prompt": "A class has 10 boys and 15 girls. The average score of the boys on a quiz is 80, and the average score of the girls is 90. What is the overall average score for the entire class?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "84"
+        },
+        {
+          "id": "B",
+          "text": "85"
+        },
+        {
+          "id": "C",
+          "text": "86"
+        },
+        {
+          "id": "D",
+          "text": "88"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Calculate the total points: $(10 \\times 80) + (15 \\times 90) = 800 + 1350 = 2150$. Divide by the total number of students (25): $\\frac{2150}{25} = 86$."
+    },
+    {
+      "id": "act-math-021",
+      "day": 21,
+      "domain": "Trigonometry",
+      "skill": "cosine",
+      "difficulty": "easy",
+      "prompt": "In a right triangle, the cosine of an acute angle $\\theta$ is $\\frac{4}{5}$. If the adjacent side has length 12, what is the length of the hypotenuse?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "9"
+        },
+        {
+          "id": "B",
+          "text": "15"
+        },
+        {
+          "id": "C",
+          "text": "16"
+        },
+        {
+          "id": "D",
+          "text": "20"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "$\\cos \\theta = \\frac{\\text{adjacent}}{\\text{hypotenuse}} = \\frac{12}{h} = \\frac{4}{5}$. Solving for $h$ gives $4h = 60$, so $h = 15$."
+    },
+    {
+      "id": "act-math-022",
+      "day": 22,
+      "domain": "Algebra",
+      "skill": "absolute value equations",
+      "difficulty": "easy",
+      "prompt": "What are all the possible values of $x$ that satisfy the equation $|2x - 4| = 6$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "5 only"
+        },
+        {
+          "id": "B",
+          "text": "-1 and 5"
+        },
+        {
+          "id": "C",
+          "text": "-5 and 1"
+        },
+        {
+          "id": "D",
+          "text": "-3 and 3"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Split the absolute value into two equations: $2x - 4 = 6$ or $2x - 4 = -6$. Solving the first gives $2x = 10 \\implies x = 5$. Solving the second gives $2x = -2 \\implies x = -1$."
+    },
+    {
+      "id": "act-math-023",
+      "day": 23,
+      "domain": "Geometry",
+      "skill": "coordinate geometry",
+      "difficulty": "easy",
+      "prompt": "What is the midpoint of the line segment with endpoints at $(2, 3)$ and $(6, 9)$ in the standard $(x,y)$ coordinate plane?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "(2, 3)"
+        },
+        {
+          "id": "B",
+          "text": "(4, 6)"
+        },
+        {
+          "id": "C",
+          "text": "(3, 4)"
+        },
+        {
+          "id": "D",
+          "text": "(4, 3)"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Use the midpoint formula: $\\left(\\frac{x_1 + x_2}{2}, \\frac{y_1 + y_2}{2}\\right) = \\left(\\frac{2 + 6}{2}, \\frac{3 + 9}{2}\\right) = (4, 6)$."
+    },
+    {
+      "id": "act-math-024",
+      "day": 24,
+      "domain": "Functions",
+      "skill": "inverse functions",
+      "difficulty": "easy",
+      "prompt": "If $f(x) = 3x - 6$, what is the inverse function $f^{-1}(x)$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "f^{-1}(x) = \\frac{x + 6}{3}"
+        },
+        {
+          "id": "B",
+          "text": "f^{-1}(x) = \\frac{x - 6}{3}"
+        },
+        {
+          "id": "C",
+          "text": "f^{-1}(x) = 3x + 6"
+        },
+        {
+          "id": "D",
+          "text": "f^{-1}(x) = \\frac{1}{3}x - 2"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Replace $f(x)$ with $y$: $y = 3x - 6$. Swap $x$ and $y$: $x = 3y - 6$. Solve for $y$: $x + 6 = 3y \\implies y = \\frac{x + 6}{3}$."
+    },
+    {
+      "id": "act-math-025",
+      "day": 25,
+      "domain": "Data/statistics/probability",
+      "skill": "range",
+      "difficulty": "easy",
+      "prompt": "A data set consists of the values 12, 25, 8, 33, 19, and 41. What is the range of this data set?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "25"
+        },
+        {
+          "id": "B",
+          "text": "33"
+        },
+        {
+          "id": "C",
+          "text": "41"
+        },
+        {
+          "id": "D",
+          "text": "49"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "The range is the difference between the maximum and minimum values. The maximum is 41 and the minimum is 8. $41 - 8 = 33$."
+    },
+    {
+      "id": "act-math-026",
+      "day": 26,
+      "domain": "Algebra",
+      "skill": "rational expressions",
+      "difficulty": "easy",
+      "prompt": "Which of the following expressions is equivalent to $\\frac{x^2 - 9}{x - 3}$ for all $x \\neq 3$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "x - 3"
+        },
+        {
+          "id": "B",
+          "text": "x + 3"
+        },
+        {
+          "id": "C",
+          "text": "x^2 + 3"
+        },
+        {
+          "id": "D",
+          "text": "3"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Factor the numerator as a difference of squares: $x^2 - 9 = (x - 3)(x + 3)$. Then cancel the common factor $(x - 3)$ from numerator and denominator, leaving $x + 3$."
+    },
+    {
+      "id": "act-math-027",
+      "day": 27,
+      "domain": "Geometry",
+      "skill": "volume",
+      "difficulty": "easy",
+      "prompt": "A rectangular prism has a length of 5 cm, a width of 3 cm, and a height of 4 cm. What is the volume of the prism, in cubic centimeters?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "12"
+        },
+        {
+          "id": "B",
+          "text": "20"
+        },
+        {
+          "id": "C",
+          "text": "60"
+        },
+        {
+          "id": "D",
+          "text": "120"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "The volume of a rectangular prism is $V = \\text{length} \\times \\text{width} \\times \\text{height} = 5 \\times 3 \\times 4 = 60$."
+    },
+    {
+      "id": "act-math-028",
+      "day": 28,
+      "domain": "Modeling/word problems",
+      "skill": "percentages",
+      "difficulty": "easy",
+      "prompt": "An item originally priced at $80 is on sale for 25% off. What is the sale price of the item?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "$20"
+        },
+        {
+          "id": "B",
+          "text": "$55"
+        },
+        {
+          "id": "C",
+          "text": "$60"
+        },
+        {
+          "id": "D",
+          "text": "$75"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Calculate the discount: $0.25 \\times 80 = 20$. Subtract the discount from the original price: $80 - 20 = 60$."
+    },
+    {
+      "id": "act-math-029",
+      "day": 29,
+      "domain": "Trigonometry",
+      "skill": "tangent",
+      "difficulty": "easy",
+      "prompt": "In a right triangle, the tangent of an acute angle $\\theta$ is $\\frac{3}{4}$. If the adjacent side has length 8, what is the length of the opposite side?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "3"
+        },
+        {
+          "id": "B",
+          "text": "6"
+        },
+        {
+          "id": "C",
+          "text": "10"
+        },
+        {
+          "id": "D",
+          "text": "12"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "$\\tan \\theta = \\frac{\\text{opposite}}{\\text{adjacent}} = \\frac{o}{8} = \\frac{3}{4}$. Solving for $o$ gives $o = 8 \\times \\frac{3}{4} = 6$."
+    },
+    {
+      "id": "act-math-030",
+      "day": 30,
+      "domain": "Algebra",
+      "skill": "quadratic formulas",
+      "difficulty": "easy",
+      "prompt": "What are the solutions to the quadratic equation $x^2 - 5x + 6 = 0$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "1 and 6"
+        },
+        {
+          "id": "B",
+          "text": "-2 and -3"
+        },
+        {
+          "id": "C",
+          "text": "2 and 3"
+        },
+        {
+          "id": "D",
+          "text": "0 and 5"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Factor the quadratic expression as $(x - 2)(x - 3) = 0$. Setting each factor to zero gives $x = 2$ and $x = 3$."
+    },
+    {
+      "id": "act-math-031",
+      "day": 31,
+      "domain": "Geometry",
+      "skill": "lines and angles",
+      "difficulty": "easy",
+      "prompt": "Two parallel lines are cut by a transversal. If one of the interior angles measures $70^{\\circ}$, what is the measure of its alternate interior angle?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "20^{\\circ}"
+        },
+        {
+          "id": "B",
+          "text": "70^{\\circ}"
+        },
+        {
+          "id": "C",
+          "text": "110^{\\circ}"
+        },
+        {
+          "id": "D",
+          "text": "140^{\\circ}"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Alternate interior angles formed by parallel lines cut by a transversal are equal in measure, so it is $70^{\\circ}$."
+    },
+    {
+      "id": "act-math-032",
+      "day": 32,
+      "domain": "Functions",
+      "skill": "quadratic functions",
+      "difficulty": "easy",
+      "prompt": "What is the $y$-intercept of the graph of the function $f(x) = 3x^2 - 5x + 7$ in the standard $(x,y)$ coordinate plane?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "-5"
+        },
+        {
+          "id": "B",
+          "text": "3"
+        },
+        {
+          "id": "C",
+          "text": "7"
+        },
+        {
+          "id": "D",
+          "text": "(0, -5)"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "The $y$-intercept occurs when $x = 0$. Substituting $x = 0$ yields $f(0) = 3(0)^2 - 5(0) + 7 = 7$, corresponding to the $y$-value 7."
+    },
+    {
+      "id": "act-math-033",
+      "day": 33,
+      "domain": "Data/statistics/probability",
+      "skill": "probability",
+      "difficulty": "easy",
+      "prompt": "A bag contains 5 red marbles, 3 blue marbles, and 2 green marbles. If one marble is drawn at random, what is the probability that it is NOT blue?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\frac{3}{10}"
+        },
+        {
+          "id": "B",
+          "text": "\\frac{7}{10}"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{1}{3}"
+        },
+        {
+          "id": "D",
+          "text": "\\frac{1}{2}"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "There are $5 + 2 = 7$ non-blue marbles out of a total of 10 marbles. The probability is $\\frac{7}{10}$."
+    },
+    {
+      "id": "act-math-034",
+      "day": 34,
+      "domain": "Algebra",
+      "skill": "simplifying radicals",
+      "difficulty": "easy",
+      "prompt": "Which of the following expressions is equivalent to $\\sqrt{75}$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "5\\sqrt{3}"
+        },
+        {
+          "id": "B",
+          "text": "3\\sqrt{5}"
+        },
+        {
+          "id": "C",
+          "text": "25\\sqrt{3}"
+        },
+        {
+          "id": "D",
+          "text": "5\\sqrt{5}"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Factor the number under the radical into its greatest square factor: $\\sqrt{75} = \\sqrt{25 \\times 3} = \\sqrt{25} \\times \\sqrt{3} = 5\\sqrt{3}$."
+    },
+    {
+      "id": "act-math-035",
+      "day": 35,
+      "domain": "Modeling/word problems",
+      "skill": "word problems",
+      "difficulty": "easy",
+      "prompt": "Tickets to a school play cost $8 for adults and $5 for students. If 120 tickets were sold and a total of $780 was collected, how many adult tickets were sold?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "40"
+        },
+        {
+          "id": "B",
+          "text": "50"
+        },
+        {
+          "id": "C",
+          "text": "60"
+        },
+        {
+          "id": "D",
+          "text": "80"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Let $a$ be the number of adult tickets and $s$ be student tickets. Then $a + s = 120$ and $8a + 5s = 780$. From the first equation, $s = 120 - a$. Substitute into the second: $8a + 5(120 - a) = 780 \\implies 8a + 600 - 5a = 780 \\implies 3a = 180 \\implies a = 60$."
+    },
+    {
+      "id": "act-math-036",
+      "day": 36,
+      "domain": "Algebra",
+      "skill": "linear equations",
+      "difficulty": "easy",
+      "prompt": "What is the value of $x$ in the equation $5(x - 2) = 3x + 4$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "3"
+        },
+        {
+          "id": "B",
+          "text": "5"
+        },
+        {
+          "id": "C",
+          "text": "7"
+        },
+        {
+          "id": "D",
+          "text": "9"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Distribute the 5 to get $5x - 10 = 3x + 4$. Subtract $3x$ from both sides to get $2x - 10 = 4$, then add 10 to get $2x = 14$, so $x = 7$."
+    },
+    {
+      "id": "act-math-037",
+      "day": 37,
+      "domain": "Geometry",
+      "skill": "angles",
+      "difficulty": "easy",
+      "prompt": "An angle measures $42^{\\circ}$. What is the measure of its complement?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "42^{\\circ}"
+        },
+        {
+          "id": "B",
+          "text": "48^{\\circ}"
+        },
+        {
+          "id": "C",
+          "text": "58^{\\circ}"
+        },
+        {
+          "id": "D",
+          "text": "138^{\\circ}"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Complementary angles sum to $90^{\\circ}$. Subtract $42^{\\circ}$ from $90^{\\circ}$ to get $48^{\\circ}$."
+    },
+    {
+      "id": "act-math-038",
+      "day": 38,
+      "domain": "Functions",
+      "skill": "evaluating functions",
+      "difficulty": "easy",
+      "prompt": "If $g(x) = -x^2 + 4x - 3$, what is the value of $g(2)$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "-7"
+        },
+        {
+          "id": "B",
+          "text": "-3"
+        },
+        {
+          "id": "C",
+          "text": "1"
+        },
+        {
+          "id": "D",
+          "text": "5"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Substitute 2 for $x$: $g(2) = -(2)^2 + 4(2) - 3 = -4 + 8 - 3 = 1$."
+    },
+    {
+      "id": "act-math-039",
+      "day": 39,
+      "domain": "Data/statistics/probability",
+      "skill": "mean",
+      "difficulty": "easy",
+      "prompt": "The average of five numbers is 32. If four of the numbers are 20, 28, 35, and 41, what is the fifth number?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "26"
+        },
+        {
+          "id": "B",
+          "text": "32"
+        },
+        {
+          "id": "C",
+          "text": "36"
+        },
+        {
+          "id": "D",
+          "text": "44"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "The sum of the five numbers is $5 \\times 32 = 160$. The sum of the first four numbers is $20 + 28 + 35 + 41 = 124$. The fifth number is $160 - 124 = 36$."
+    },
+    {
+      "id": "act-math-040",
+      "day": 40,
+      "domain": "Algebra",
+      "skill": "exponents",
+      "difficulty": "easy",
+      "prompt": "Which of the following is equivalent to $\\frac{12x^6}{3x^2}$ for all $x \\neq 0$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "4x^3"
+        },
+        {
+          "id": "B",
+          "text": "4x^4"
+        },
+        {
+          "id": "C",
+          "text": "9x^4"
+        },
+        {
+          "id": "D",
+          "text": "4x^8"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Divide the coefficients ($12 / 3 = 4$) and subtract the exponents ($x^6 / x^2 = x^{6-2} = x^4$), yielding $4x^4$."
+    },
+    {
+      "id": "act-math-041",
+      "day": 41,
+      "domain": "Geometry",
+      "skill": "triangles",
+      "difficulty": "easy",
+      "prompt": "In triangle $ABC$, the measure of angle $A$ is $50^{\\circ}$ and the measure of angle $B$ is $65^{\\circ}$. What is the measure of angle $C$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "50^{\\circ}"
+        },
+        {
+          "id": "B",
+          "text": "65^{\\circ}"
+        },
+        {
+          "id": "C",
+          "text": "75^{\\circ}"
+        },
+        {
+          "id": "D",
+          "text": "115^{\\circ}"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "The sum of interior angles in a triangle is $180^{\\circ}$. Thus, angle $C = 180^{\\circ} - 50^{\\circ} - 65^{\\circ} = 65^{\\circ}$."
+    },
+    {
+      "id": "act-math-042",
+      "day": 42,
+      "domain": "Trigonometry",
+      "skill": "basic ratios",
+      "difficulty": "easy",
+      "prompt": "In a right triangle, the side opposite acute angle $\\theta$ is 7 and the adjacent side is 24. What is $\\tan \\theta$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\frac{7}{25}"
+        },
+        {
+          "id": "B",
+          "text": "\\frac{24}{25}"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{7}{24}"
+        },
+        {
+          "id": "D",
+          "text": "\\frac{24}{7}"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Tangent is defined as $\\frac{\\text{opposite}}{\\text{adjacent}}$, which gives $\\frac{7}{24}$."
+    },
+    {
+      "id": "act-math-043",
+      "day": 43,
+      "domain": "Functions",
+      "skill": "linear functions",
+      "difficulty": "easy",
+      "prompt": "What is the $y$-intercept of the line given by the equation $y = -3x + 7$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "(7, 0)"
+        },
+        {
+          "id": "B",
+          "text": "(0, 7)"
+        },
+        {
+          "id": "C",
+          "text": "(-3, 0)"
+        },
+        {
+          "id": "D",
+          "text": "(0, -3)"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "In slope-intercept form $y = mx + b$, $b$ is the $y$-intercept. Here $b = 7$, so the coordinate point is $(0, 7)$."
+    },
+    {
+      "id": "act-math-044",
+      "day": 44,
+      "domain": "Data/statistics/probability",
+      "skill": "probability",
+      "difficulty": "easy",
+      "prompt": "A standard 6-sided die numbered 1 through 6 is rolled once. What is the probability of rolling a number greater than 4?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\frac{1}{6}"
+        },
+        {
+          "id": "B",
+          "text": "\\frac{1}{3}"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{1}{2}"
+        },
+        {
+          "id": "D",
+          "text": "\\frac{2}{3}"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "The numbers greater than 4 on a 6-sided die are 5 and 6 (2 favorable outcomes). The probability is $\\frac{2}{6} = \\frac{1}{3}$."
+    },
+    {
+      "id": "act-math-045",
+      "day": 45,
+      "domain": "Algebra",
+      "skill": "inequalities",
+      "difficulty": "easy",
+      "prompt": "What is the solution to $-2x + 5 > 11$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "x < -3"
+        },
+        {
+          "id": "B",
+          "text": "x > -3"
+        },
+        {
+          "id": "C",
+          "text": "x < 3"
+        },
+        {
+          "id": "D",
+          "text": "x > 3"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Subtract 5 from both sides to get $-2x > 6$. Divide by $-2$ and flip the inequality sign to get $x < -3$."
+    },
+    {
+      "id": "act-math-046",
+      "day": 46,
+      "domain": "Geometry",
+      "skill": "circles",
+      "difficulty": "easy",
+      "prompt": "The circumference of a circle is $14\\pi$ centimeters. What is the radius of the circle, in centimeters?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "3.5"
+        },
+        {
+          "id": "B",
+          "text": "7"
+        },
+        {
+          "id": "C",
+          "text": "14"
+        },
+        {
+          "id": "D",
+          "text": "28"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "The formula for circumference is $C = 2\\pi r$. Setting $2\\pi r = 14\\pi$ gives $2r = 14$, so $r = 7$."
+    },
+    {
+      "id": "act-math-047",
+      "day": 47,
+      "domain": "Modeling/word problems",
+      "skill": "rates",
+      "difficulty": "easy",
+      "prompt": "A factory produces 450 items in 5 hours. At this constant rate, how many items does the factory produce in 8 hours?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "540"
+        },
+        {
+          "id": "B",
+          "text": "640"
+        },
+        {
+          "id": "C",
+          "text": "720"
+        },
+        {
+          "id": "D",
+          "text": "810"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Find the unit rate: $450 / 5 = 90$ items per hour. Multiply by 8 hours: $90 \\times 8 = 720$ items."
+    },
+    {
+      "id": "act-math-048",
+      "day": 48,
+      "domain": "Functions",
+      "skill": "domain and range",
+      "difficulty": "easy",
+      "prompt": "What is the domain of the function $f(x) = \\sqrt{x - 5}$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "x > 0"
+        },
+        {
+          "id": "B",
+          "text": "x \\geq 0"
+        },
+        {
+          "id": "C",
+          "text": "x > 5"
+        },
+        {
+          "id": "D",
+          "text": "x \\geq 5"
+        }
+      ],
+      "correctChoiceID": "D",
+      "explanation": "The expression inside a square root must be greater than or equal to zero. Setting $x - 5 \\geq 0$ yields $x \\geq 5$."
+    },
+    {
+      "id": "act-math-049",
+      "day": 49,
+      "domain": "Algebra",
+      "skill": "systems of equations",
+      "difficulty": "easy",
+      "prompt": "Given the system $2x + y = 11$ and $y = 3x - 4$, what is the value of $x$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "1"
+        },
+        {
+          "id": "B",
+          "text": "2"
+        },
+        {
+          "id": "C",
+          "text": "3"
+        },
+        {
+          "id": "D",
+          "text": "4"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Substitute $3x - 4$ for $y$ in the first equation: $2x + (3x - 4) = 11$. This simplifies to $5x - 4 = 11$, so $5x = 15$, and $x = 3$."
+    },
+    {
+      "id": "act-math-050",
+      "day": 50,
+      "domain": "Trigonometry",
+      "skill": "cosine",
+      "difficulty": "easy",
+      "prompt": "In a right triangle with hypotenuse length 10 and an adjacent leg length 6, what is the cosine of the angle between them?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\frac{3}{5}"
+        },
+        {
+          "id": "B",
+          "text": "\\frac{4}{5}"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{3}{4}"
+        },
+        {
+          "id": "D",
+          "text": "\\frac{5}{3}"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Cosine is $\\frac{\\text{adjacent}}{\\text{hypotenuse}} = \\frac{6}{10} = \\frac{3}{5}$."
+    },
+    {
+      "id": "act-math-051",
+      "day": 51,
+      "domain": "Geometry",
+      "skill": "coordinate geometry",
+      "difficulty": "easy",
+      "prompt": "What is the distance between the points $(1, 2)$ and $(4, 6)$ in the standard $(x,y)$ coordinate plane?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "3"
+        },
+        {
+          "id": "B",
+          "text": "4"
+        },
+        {
+          "id": "C",
+          "text": "5"
+        },
+        {
+          "id": "D",
+          "text": "7"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Use the distance formula: $\\sqrt{(4 - 1)^2 + (6 - 2)^2} = \\sqrt{3^2 + 4^2} = \\sqrt{9 + 16} = \\sqrt{25} = 5$."
+    },
+    {
+      "id": "act-math-052",
+      "day": 52,
+      "domain": "Data/statistics/probability",
+      "skill": "weighted average",
+      "difficulty": "easy",
+      "prompt": "A test is worth 70% of a final grade and a project is worth 30%. If a student scores 80 on the test and 90 on the project, what is the student's final grade?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "81"
+        },
+        {
+          "id": "B",
+          "text": "83"
+        },
+        {
+          "id": "C",
+          "text": "85"
+        },
+        {
+          "id": "D",
+          "text": "87"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Calculate the weighted sum: $(0.70 \\times 80) + (0.30 \\times 90) = 56 + 27 = 83$."
+    },
+    {
+      "id": "act-math-053",
+      "day": 53,
+      "domain": "Algebra",
+      "skill": "factoring quadratic expressions",
+      "difficulty": "easy",
+      "prompt": "Which of the following is equivalent to $x^2 - 16$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "(x - 4)^2"
+        },
+        {
+          "id": "B",
+          "text": "(x + 4)^2"
+        },
+        {
+          "id": "C",
+          "text": "(x - 4)(x + 4)"
+        },
+        {
+          "id": "D",
+          "text": "(x - 8)(x + 2)"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "This is a difference of squares: $a^2 - b^2 = (a - b)(a + b)$. Thus, $x^2 - 16 = (x - 4)(x + 4)$."
+    },
+    {
+      "id": "act-math-054",
+      "day": 54,
+      "domain": "Functions",
+      "skill": "composite functions",
+      "difficulty": "easy",
+      "prompt": "Given $f(x) = 3x$ and $g(x) = x - 5$, what is the value of $g(f(3))$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "-2"
+        },
+        {
+          "id": "B",
+          "text": "4"
+        },
+        {
+          "id": "C",
+          "text": "9"
+        },
+        {
+          "id": "D",
+          "text": "12"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "First find $f(3) = 3(3) = 9$. Then evaluate $g(9) = 9 - 5 = 4$."
+    },
+    {
+      "id": "act-math-055",
+      "day": 55,
+      "domain": "Modeling/word problems",
+      "skill": "percentages",
+      "difficulty": "easy",
+      "prompt": "A jacket's price increased from $50 to $60. What was the percentage increase in the price?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "10%"
+        },
+        {
+          "id": "B",
+          "text": "16.7%"
+        },
+        {
+          "id": "C",
+          "text": "20%"
+        },
+        {
+          "id": "D",
+          "text": "25%"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "The increase is $60 - 50 = 10$. Divide the increase by the original price: $\\frac{10}{50} = 0.20$ or 20%."
+    },
+    {
+      "id": "act-math-056",
+      "day": 56,
+      "domain": "Geometry",
+      "skill": "volume",
+      "difficulty": "easy",
+      "prompt": "A cube has an edge length of 4 centimeters. What is the volume of the cube, in cubic centimeters?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "16"
+        },
+        {
+          "id": "B",
+          "text": "24"
+        },
+        {
+          "id": "C",
+          "text": "48"
+        },
+        {
+          "id": "D",
+          "text": "64"
+        }
+      ],
+      "correctChoiceID": "D",
+      "explanation": "The volume of a cube is given by $V = s^3$. Here, $4^3 = 64$."
+    },
+    {
+      "id": "act-math-057",
+      "day": 57,
+      "domain": "Algebra",
+      "skill": "simplifying radicals",
+      "difficulty": "easy",
+      "prompt": "Which of the following expressions is equivalent to $\\sqrt{18} + \\sqrt{32}$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "5\\sqrt{2}"
+        },
+        {
+          "id": "B",
+          "text": "7\\sqrt{2}"
+        },
+        {
+          "id": "C",
+          "text": "\\sqrt{50}"
+        },
+        {
+          "id": "D",
+          "text": "12\\sqrt{2}"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Simplify each radical: $\\sqrt{18} = 3\\sqrt{2}$ and $\\sqrt{32} = 4\\sqrt{2}$. Adding them gives $3\\sqrt{2} + 4\\sqrt{2} = 7\\sqrt{2}$."
+    },
+    {
+      "id": "act-math-058",
+      "day": 58,
+      "domain": "Trigonometry",
+      "skill": "tangent",
+      "difficulty": "easy",
+      "prompt": "In a right triangle where $\\theta$ is an acute angle, if $\\sin \\theta = 3/5$ and $\\cos \\theta = 4/5$, what is $\\tan \\theta$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\frac{3}{4}"
+        },
+        {
+          "id": "B",
+          "text": "\\frac{4}{3}"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{3}{5}"
+        },
+        {
+          "id": "D",
+          "text": "\\frac{5}{4}"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Tangent is defined as $\\frac{\\sin \\theta}{\\cos \\theta} = \\frac{3/5}{4/5} = \\frac{3}{4}$."
+    },
+    {
+      "id": "act-math-059",
+      "day": 59,
+      "domain": "Functions",
+      "skill": "inverse functions",
+      "difficulty": "easy",
+      "prompt": "If $f(x) = \\frac{x}{2} + 4$, what is $f^{-1}(x)$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "2x - 4"
+        },
+        {
+          "id": "B",
+          "text": "2x - 8"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{x - 4}{2}"
+        },
+        {
+          "id": "D",
+          "text": "2(x + 4)"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Set $y = \\frac{x}{2} + 4$, swap $x$ and $y$ to get $x = \\frac{y}{2} + 4$, then solve for $y$: $x - 4 = \\frac{y}{2} \\implies y = 2(x - 4) = 2x - 8$."
+    },
+    {
+      "id": "act-math-060",
+      "day": 60,
+      "domain": "Data/statistics/probability",
+      "skill": "range",
+      "difficulty": "easy",
+      "prompt": "The test scores of a class are 55, 72, 85, 91, 64, and 98. What is the range of these scores?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "43"
+        },
+        {
+          "id": "B",
+          "text": "26"
+        },
+        {
+          "id": "C",
+          "text": "76.5"
+        },
+        {
+          "id": "D",
+          "text": "85"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "The range is the highest value minus the lowest value: $98 - 55 = 43$."
+    },
+    {
+      "id": "act-math-061",
+      "day": 61,
+      "domain": "Algebra",
+      "skill": "rational equations",
+      "difficulty": "medium",
+      "prompt": "What is the value of $x$ in the equation $\\frac{3}{x} + \\frac{1}{2} = \\frac{5}{x}$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "1"
+        },
+        {
+          "id": "B",
+          "text": "2"
+        },
+        {
+          "id": "C",
+          "text": "4"
+        },
+        {
+          "id": "D",
+          "text": "6"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Subtract $\\frac{3}{x}$ from both sides to get $\\frac{1}{2} = \\frac{2}{x}$. Cross-multiply to find $x = 4$."
+    },
+    {
+      "id": "act-math-062",
+      "day": 62,
+      "domain": "Geometry",
+      "skill": "polygons",
+      "difficulty": "medium",
+      "prompt": "What is the measure of each interior angle of a regular pentagon?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "72^{\\circ}"
+        },
+        {
+          "id": "B",
+          "text": "108^{\\circ}"
+        },
+        {
+          "id": "C",
+          "text": "120^{\\circ}"
+        },
+        {
+          "id": "D",
+          "text": "135^{\\circ}"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "The sum of interior angles of an $n$-sided polygon is $(n - 2)180^{\\circ}$. For a pentagon ($n = 5$), the sum is $(3)180^{\\circ} = 540^{\\circ}$. Each angle is $\\frac{540^{\\circ}}{5} = 108^{\\circ}$."
+    },
+    {
+      "id": "act-math-063",
+      "day": 63,
+      "domain": "Functions",
+      "skill": "quadratic functions",
+      "difficulty": "medium",
+      "prompt": "What is the $y$-coordinate of the vertex of the parabola given by $y = x^2 - 6x + 8$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "-1"
+        },
+        {
+          "id": "B",
+          "text": "0"
+        },
+        {
+          "id": "C",
+          "text": "3"
+        },
+        {
+          "id": "D",
+          "text": "8"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "The $x$-coordinate of the vertex is given by $x = \\frac{-b}{2a} = \\frac{6}{2(1)} = 3$. Substitute $x = 3$ into the equation: $y = (3)^2 - 6(3) + 8 = 9 - 18 + 8 = -1$."
+    },
+    {
+      "id": "act-math-064",
+      "day": 64,
+      "domain": "Data/statistics/probability",
+      "skill": "expected value",
+      "difficulty": "medium",
+      "prompt": "A game has a 0.2 probability of winning $10 and a 0.8 probability of losing $2. What is the expected value of the game?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "$0.40"
+        },
+        {
+          "id": "B",
+          "text": "$0.60"
+        },
+        {
+          "id": "C",
+          "text": "$0.80"
+        },
+        {
+          "id": "D",
+          "text": "$1.00"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Expected value is $(0.2 \\times 10) + (0.8 \\times -2) = 2.0 - 1.6 = 0.40$."
+    },
+    {
+      "id": "act-math-065",
+      "day": 65,
+      "domain": "Trigonometry",
+      "skill": "identities",
+      "difficulty": "medium",
+      "prompt": "Which of the following is equivalent to $\\frac{\\sin^2 \\theta + \\cos^2 \\theta}{\\cos \\theta}$ for all values where it is defined?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\sin \\theta"
+        },
+        {
+          "id": "B",
+          "text": "\\cos \\theta"
+        },
+        {
+          "id": "C",
+          "text": "\\sec \\theta"
+        },
+        {
+          "id": "D",
+          "text": "\\csc \\theta"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "By the Pythagorean identity, $\\sin^2 \\theta + \\cos^2 \\theta = 1$. Thus, the expression simplifies to $\\frac{1}{\\cos \\theta}$, which equals $\\sec \\theta$."
+    },
+    {
+      "id": "act-math-066",
+      "day": 66,
+      "domain": "Algebra",
+      "skill": "quadratic formula",
+      "difficulty": "medium",
+      "prompt": "What are the solutions to the quadratic equation $x^2 - 4x + 1 = 0$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "2 \\pm \\sqrt{3}"
+        },
+        {
+          "id": "B",
+          "text": "-2 \\pm \\sqrt{3}"
+        },
+        {
+          "id": "C",
+          "text": "4 \\pm \\sqrt{3}"
+        },
+        {
+          "id": "D",
+          "text": "\\frac{4 \\pm \\sqrt{5}}{2}"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Use the quadratic formula $x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}$: $x = \\frac{4 \\pm \\sqrt{(-4)^2 - 4(1)(1)}}{2(1)} = \\frac{4 \\pm \\sqrt{12}}{2} = \\frac{4 \\pm 2\\sqrt{3}}{2} = 2 \\pm \\sqrt{3}$."
+    },
+    {
+      "id": "act-math-067",
+      "day": 67,
+      "domain": "Geometry",
+      "skill": "similar triangles",
+      "difficulty": "medium",
+      "prompt": "Two similar triangles have a ratio of corresponding sides of $2:3$. If the area of the smaller triangle is 20 square centimeters, what is the area of the larger triangle, in square centimeters?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "30"
+        },
+        {
+          "id": "B",
+          "text": "45"
+        },
+        {
+          "id": "C",
+          "text": "30"
+        },
+        {
+          "id": "D",
+          "text": "40"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "The ratio of the areas of similar figures is the square of the ratio of their corresponding linear dimensions: $\\left(\\frac{3}{2}\\right)^2 = \\frac{9}{4}$. Thus, the area of the larger triangle is $20 \\times \\frac{9}{4} = 45$."
+    },
+    {
+      "id": "act-math-068",
+      "day": 68,
+      "domain": "Functions",
+      "skill": "transformations",
+      "difficulty": "medium",
+      "prompt": "If the graph of $y = f(x)$ is shifted 3 units to the left and 4 units up, which of the following equations represents the new graph?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "y = f(x - 3) + 4"
+        },
+        {
+          "id": "B",
+          "text": "y = f(x + 3) + 4"
+        },
+        {
+          "id": "C",
+          "text": "y = f(x - 3) - 4"
+        },
+        {
+          "id": "D",
+          "text": "y = f(x + 3) - 4"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Shifting a graph $h$ units horizontally to the left replaces $x$ with $(x + h)$, and shifting $k$ units vertically upward adds $k$ to the function. Thus, $y = f(x + 3) + 4$."
+    },
+    {
+      "id": "act-math-069",
+      "day": 69,
+      "domain": "Data/statistics/probability",
+      "skill": "conditional probability",
+      "difficulty": "medium",
+      "prompt": "A bag contains 4 red marbles and 6 blue marbles. Two marbles are drawn one after the other without replacement. What is the probability that both marbles are red?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\frac{2}{15}"
+        },
+        {
+          "id": "B",
+          "text": "\\frac{4}{25}"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{3}{10}"
+        },
+        {
+          "id": "D",
+          "text": "\\frac{2}{9}"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "The probability of drawing a red first is $\\frac{4}{10} = \\frac{2}{5}$. With one red marble removed, the probability of drawing a second red marble is $\\frac{3}{9} = \\frac{1}{3}$. Multiply the probabilities: $\\frac{2}{5} \\times \\frac{1}{3} = \\frac{2}{15}$."
+    },
+    {
+      "id": "act-math-070",
+      "day": 70,
+      "domain": "Trigonometry",
+      "skill": "radians",
+      "difficulty": "medium",
+      "prompt": "What is the degree measure of an angle that equals $\\frac{5\\pi}{6}$ radians?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "120^{\\circ}"
+        },
+        {
+          "id": "B",
+          "text": "150^{\\circ}"
+        },
+        {
+          "id": "C",
+          "text": "210^{\\circ}"
+        },
+        {
+          "id": "D",
+          "text": "300^{\\circ}"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "To convert radians to degrees, multiply by $\\frac{180^{\\circ}}{\\pi}$: $\\frac{5\\pi}{6} \\times \\frac{180^{\\circ}}{\\pi} = 5 \\times 30^{\\circ} = 150^{\\circ}$."
+    },
+    {
+      "id": "act-math-071",
+      "day": 71,
+      "domain": "Algebra",
+      "skill": "logarithms",
+      "difficulty": "medium",
+      "prompt": "What is the value of $x$ if $\\log_2(x) = 5$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "10"
+        },
+        {
+          "id": "B",
+          "text": "25"
+        },
+        {
+          "id": "C",
+          "text": "32"
+        },
+        {
+          "id": "D",
+          "text": "64"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Rewrite the logarithmic equation in exponential form: $x = 2^5 = 32$."
+    },
+    {
+      "id": "act-math-072",
+      "day": 72,
+      "domain": "Geometry",
+      "skill": "arcs and sectors",
+      "difficulty": "medium",
+      "prompt": "A circle has a radius of 8 cm. What is the length of an arc intercepted by a central angle of $60^{\\circ}$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\frac{4\\pi}{3}"
+        },
+        {
+          "id": "B",
+          "text": "\\frac{8\\pi}{3}"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{16\\pi}{3}"
+        },
+        {
+          "id": "D",
+          "text": "8\\pi"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Arc length is given by $s = 2\\pi r\\left(\frac{\theta}{360^{\\circ}}\right)$. With $r = 8$ and $\theta = 60^{\\circ}$, $s = 2\\pi(8)\\left(\frac{60}{360}\right) = 16\\pi\\left(\frac{1}{6}\right) = \frac{8\\pi}{3}$."
+    },
+    {
+      "id": "act-math-073",
+      "day": 73,
+      "domain": "Functions",
+      "skill": "asymptotes",
+      "difficulty": "medium",
+      "prompt": "What is the vertical asymptote of the graph of $f(x) = \\frac{2x + 1}{x - 3}$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "x = -3"
+        },
+        {
+          "id": "B",
+          "text": "x = 3"
+        },
+        {
+          "id": "C",
+          "text": "x = -\\frac{1}{2}"
+        },
+        {
+          "id": "D",
+          "text": "y = 2"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "A vertical asymptote occurs where the denominator is zero and the numerator is non-zero. Setting $x - 3 = 0$ gives $x = 3$."
+    },
+    {
+      "id": "act-math-074",
+      "day": 74,
+      "domain": "Data/statistics/probability",
+      "skill": "standard deviation",
+      "difficulty": "medium",
+      "prompt": "Which of the following data sets has a standard deviation of 0?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "{0, 1, 2, 3}"
+        },
+        {
+          "id": "B",
+          "text": "{-5, 0, 5}"
+        },
+        {
+          "id": "C",
+          "text": "{7, 7, 7, 7}"
+        },
+        {
+          "id": "D",
+          "text": "{1, 2, 4, 8}"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Standard deviation measures the spread or dispersion of a data set from its mean. If all values in the data set are identical, there is no variation, so the standard deviation is 0."
+    },
+    {
+      "id": "act-math-075",
+      "day": 75,
+      "domain": "Modeling/word problems",
+      "skill": "exponential growth",
+      "difficulty": "medium",
+      "prompt": "An investment of $1,000 grows at an annual interest rate of 5%, compounded annually. Which expression represents the value of the investment after 4 years?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "1000(1 + 0.05)(4)"
+        },
+        {
+          "id": "B",
+          "text": "1000(1 + 0.05)^4"
+        },
+        {
+          "id": "C",
+          "text": "1000(1 + 0.20)^4"
+        },
+        {
+          "id": "D",
+          "text": "1000(1 + 4)(0.05)"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Compound interest is modeled by $A = P(1 + r)^t$. Substituting $P = 1000$, $r = 0.05$, and $t = 4$ yields $1000(1 + 0.05)^4$."
+    },
+    {
+      "id": "act-math-076",
+      "day": 76,
+      "domain": "Algebra",
+      "skill": "complex numbers",
+      "difficulty": "medium",
+      "prompt": "What is the product $(3 + 2i)(4 - 5i)$, where $i = \\sqrt{-1}$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "22 - 7i"
+        },
+        {
+          "id": "B",
+          "text": "2 - 7i"
+        },
+        {
+          "id": "C",
+          "text": "12 - 10i"
+        },
+        {
+          "id": "D",
+          "text": "22 - 23i"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Use FOIL: $12 - 15i + 8i - 10i^2$. Since $i^2 = -1$, this becomes $12 - 7i - 10(-1) = 12 + 10 - 7i = 22 - 7i$."
+    },
+    {
+      "id": "act-math-077",
+      "day": 77,
+      "domain": "Geometry",
+      "skill": "circles in coordinate plane",
+      "difficulty": "medium",
+      "prompt": "What is the radius of the circle given by the equation $(x - 2)^2 + (y + 3)^2 = 49$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "2"
+        },
+        {
+          "id": "B",
+          "text": "3"
+        },
+        {
+          "id": "C",
+          "text": "7"
+        },
+        {
+          "id": "D",
+          "text": "49"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "The standard equation of a circle is $(x - h)^2 + (y - k)^2 = r^2$. Here, $r^2 = 49$, so the radius $r = 7$."
+    },
+    {
+      "id": "act-math-078",
+      "day": 78,
+      "domain": "Functions",
+      "skill": "piecewise functions",
+      "difficulty": "medium",
+      "prompt": "Given the piecewise function $f(x) = \\begin{cases} 2x + 1 & \\text{if } x < 3 \\\\ x^2 - 2 & \\text{if } x \\geq 3 \\end{cases}$, what is the value of $f(4)$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "9"
+        },
+        {
+          "id": "B",
+          "text": "14"
+        },
+        {
+          "id": "C",
+          "text": "16"
+        },
+        {
+          "id": "D",
+          "text": "18"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Since $4 \\geq 3$, use the second rule: $f(4) = 4^2 - 2 = 16 - 2 = 14$."
+    },
+    {
+      "id": "act-math-079",
+      "day": 79,
+      "domain": "Algebra",
+      "skill": "matrices",
+      "difficulty": "medium",
+      "prompt": "What is the determinant of the 2x2 matrix $\\begin{bmatrix} 3 & 5 \\\\ 2 & 4 \\end{bmatrix}$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "2"
+        },
+        {
+          "id": "B",
+          "text": "7"
+        },
+        {
+          "id": "C",
+          "text": "22"
+        },
+        {
+          "id": "D",
+          "text": "2"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "The determinant of $\\begin{bmatrix} a & b \\\\ c & d \\end{bmatrix}$ is $ad - bc$. Here, $(3)(4) - (5)(2) = 12 - 10 = 2$."
+    },
+    {
+      "id": "act-math-080",
+      "day": 80,
+      "domain": "Trigonometry",
+      "skill": "right triangles",
+      "difficulty": "medium",
+      "prompt": "In a right triangle, if $\\sin \\theta = \\frac{5}{13}$, what is the value of $\\cos(90^{\\circ} - \\theta)$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\frac{5}{13}"
+        },
+        {
+          "id": "B",
+          "text": "\\frac{12}{13}"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{13}{5}"
+        },
+        {
+          "id": "D",
+          "text": "\\frac{12}{5}"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "By co-function identities, $\\cos(90^{\\circ} - \\theta) = \\sin \\theta$. Since $\\sin \\theta = \\frac{5}{13}$, the value is $\\frac{5}{13}$."
+    },
+    {
+      "id": "act-math-081",
+      "day": 81,
+      "domain": "Algebra",
+      "skill": "polynomial roots",
+      "difficulty": "medium",
+      "prompt": "What is the sum of the roots of the quadratic equation $2x^2 - 8x + 6 = 0$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "-4"
+        },
+        {
+          "id": "B",
+          "text": "3"
+        },
+        {
+          "id": "C",
+          "text": "4"
+        },
+        {
+          "id": "D",
+          "text": "8"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "By Vieta's formulas, the sum of the roots of a quadratic equation $ax^2 + bx + c = 0$ is given by $-\\frac{b}{a}$. Here, $-\\frac{-8}{2} = 4$."
+    },
+    {
+      "id": "act-math-082",
+      "day": 82,
+      "domain": "Geometry",
+      "skill": "surface area",
+      "difficulty": "medium",
+      "prompt": "A cylinder has a radius of 3 cm and a height of 5 cm. What is the total surface area of the cylinder, in square centimeters?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "24\\pi"
+        },
+        {
+          "id": "B",
+          "text": "30\\pi"
+        },
+        {
+          "id": "C",
+          "text": "48\\pi"
+        },
+        {
+          "id": "D",
+          "text": "54\\pi"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Total surface area is $2\\pi r^2 + 2\\pi rh = 2\\pi(3)^2 + 2\\pi(3)(5) = 18\\pi + 30\\pi = 48\\pi$."
+    },
+    {
+      "id": "act-math-083",
+      "day": 83,
+      "domain": "Functions",
+      "skill": "inverse functions",
+      "difficulty": "medium",
+      "prompt": "If $f(x) = x^3 + 2$ for all real numbers $x$, what is $f^{-1}(10)$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "2"
+        },
+        {
+          "id": "B",
+          "text": "3"
+        },
+        {
+          "id": "C",
+          "text": "8"
+        },
+        {
+          "id": "D",
+          "text": "10"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Finding $f^{-1}(10)$ is equivalent to solving $f(x) = 10$. Thus, $x^3 + 2 = 10 \\implies x^3 = 8 \\implies x = 2$."
+    },
+    {
+      "id": "act-math-084",
+      "day": 84,
+      "domain": "Data/statistics/probability",
+      "skill": "permutations",
+      "difficulty": "medium",
+      "prompt": "How many different 3-letter arrangements can be formed from the letters A, B, C, D, and E if no letter is repeated?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "10"
+        },
+        {
+          "id": "B",
+          "text": "60"
+        },
+        {
+          "id": "C",
+          "text": "120"
+        },
+        {
+          "id": "D",
+          "text": "125"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Use the permutation formula $P(n, r) = \\frac{n!}{(n-r)!}$ or $5 \\times 4 \\times 3 = 60$."
+    },
+    {
+      "id": "act-math-085",
+      "day": 85,
+      "domain": "Modeling/word problems",
+      "skill": "word problems",
+      "difficulty": "medium",
+      "prompt": "A car travels 150 miles at an average speed of 50 mph and then returns along the same route at an average speed of 75 mph. What was the car's average speed for the entire round trip, in mph?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "55"
+        },
+        {
+          "id": "B",
+          "text": "60"
+        },
+        {
+          "id": "C",
+          "text": "62.5"
+        },
+        {
+          "id": "D",
+          "text": "65"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Average speed is total distance divided by total time. Total distance = $150 + 150 = 300$ miles. Time out = $150 / 50 = 3$ hours. Time back = $150 / 75 = 2$ hours. Total time = 5 hours. Average speed = $300 / 5 = 60$ mph."
+    },
+    {
+      "id": "act-math-086",
+      "day": 86,
+      "domain": "Algebra",
+      "skill": "absolute value inequalities",
+      "difficulty": "medium",
+      "prompt": "What is the solution set for the inequality $|x - 3| \\leq 5$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "x \\leq 8"
+        },
+        {
+          "id": "B",
+          "text": "-2 \\leq x \\leq 8"
+        },
+        {
+          "id": "C",
+          "text": "-8 \\leq x \\leq 2"
+        },
+        {
+          "id": "D",
+          "text": "x \\geq -2"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Rewrite the inequality as a compound inequality: $-5 \\leq x - 3 \\leq 5$. Add 3 to all parts: $-2 \\leq x \\leq 8$."
+    },
+    {
+      "id": "act-math-087",
+      "day": 87,
+      "domain": "Geometry",
+      "skill": "conic sections",
+      "difficulty": "medium",
+      "prompt": "What are the coordinates of the center of the ellipse given by $\\frac{(x - 1)^2}{16} + \\frac{(y + 4)^2}{9} = 1$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "(1, -4)"
+        },
+        {
+          "id": "B",
+          "text": "(-1, 4)"
+        },
+        {
+          "id": "C",
+          "text": "(4, 3)"
+        },
+        {
+          "id": "D",
+          "text": "(-4, 1)"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "The standard equation of an ellipse is $\\frac{(x - h)^2}{a^2} + \\frac{(y - k)^2}{b^2} = 1$ with center $(h, k)$. Here, $h = 1$ and $k = -4$, so the center is $(1, -4)$."
+    },
+    {
+      "id": "act-math-088",
+      "day": 88,
+      "domain": "Functions",
+      "skill": "remainder theorem",
+      "difficulty": "medium",
+      "prompt": "What is the remainder when the polynomial $P(x) = x^3 - 4x^2 + x + 6$ is divided by $(x - 2)$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "-2"
+        },
+        {
+          "id": "B",
+          "text": "0"
+        },
+        {
+          "id": "C",
+          "text": "4"
+        },
+        {
+          "id": "D",
+          "text": "12"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "By the Remainder Theorem, the remainder of division by $(x - c)$ is $P(c)$. Substitute $x = 2$: $P(2) = (2)^3 - 4(2)^2 + (2) + 6 = 8 - 16 + 2 + 6 = 0$."
+    },
+    {
+      "id": "act-math-089",
+      "day": 89,
+      "domain": "Trigonometry",
+      "skill": "trig graphs",
+      "difficulty": "medium",
+      "prompt": "What is the period of the function $f(x) = 3 \\sin(4x)$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\frac{\\pi}{2}"
+        },
+        {
+          "id": "B",
+          "text": "\\pi"
+        },
+        {
+          "id": "C",
+          "text": "2\\pi"
+        },
+        {
+          "id": "D",
+          "text": "4\\pi"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "The period of $y = a \\sin(bx)$ is given by $\\frac{2\\pi}{b}$. Here $b = 4$, so the period is $\\frac{2\\pi}{4} = \\frac{\\pi}{2}$."
+    },
+    {
+      "id": "act-math-090",
+      "day": 90,
+      "domain": "Algebra",
+      "skill": "sequences",
+      "difficulty": "medium",
+      "prompt": "In a geometric sequence, the first term is 3 and the fourth term is 24. What is the common ratio of the sequence?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "2"
+        },
+        {
+          "id": "B",
+          "text": "3"
+        },
+        {
+          "id": "C",
+          "text": "4"
+        },
+        {
+          "id": "D",
+          "text": "8"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "The $n$-th term of a geometric sequence is $a_n = a_1 r^{n-1}$. For the fourth term, $a_4 = 3r^3 = 24$. Thus, $r^3 = 8$, so $r = 2$."
+    },
+    {
+      "id": "act-math-091",
+      "day": 91,
+      "domain": "Algebra",
+      "skill": "logarithmic equations",
+      "difficulty": "medium",
+      "prompt": "What is the value of $x$ in the equation $\\log_3(x) + \\log_3(2) = 4$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "8"
+        },
+        {
+          "id": "B",
+          "text": "9"
+        },
+        {
+          "id": "C",
+          "text": "18"
+        },
+        {
+          "id": "D",
+          "text": "40.5"
+        }
+      ],
+      "correctChoiceID": "D",
+      "explanation": "Use the property of logarithms $\\log_b(a) + \\log_b(c) = \\log_b(ac)$. Thus, $\\log_3(2x) = 4$. Rewrite in exponential form: $2x = 3^4 = 81$, so $x = \\frac{81}{2} = 40.5$."
+    },
+    {
+      "id": "act-math-092",
+      "day": 92,
+      "domain": "Geometry",
+      "skill": "coordinate geometry",
+      "difficulty": "medium",
+      "prompt": "What is the slope of a line that is perpendicular to the line passing through the points $(2, 5)$ and $(-4, 1)$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "-\\frac{3}{2}"
+        },
+        {
+          "id": "B",
+          "text": "-\\frac{2}{3}"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{2}{3}"
+        },
+        {
+          "id": "D",
+          "text": "\\frac{3}{2}"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "First, find the slope of the given line: $m = \\frac{1 - 5}{-4 - 2} = \\frac{-4}{-6} = \\frac{2}{3}$. Perpendicular lines have slopes that are negative reciprocals. The negative reciprocal of $\\frac{2}{3}$ is $-\\frac{3}{2}$."
+    },
+    {
+      "id": "act-math-093",
+      "day": 93,
+      "domain": "Functions",
+      "skill": "evaluating functions",
+      "difficulty": "medium",
+      "prompt": "Given $f(x) = 2x^2 - 3x$ and $g(x) = x + 4$, what is the value of $f(g(-1))$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "5"
+        },
+        {
+          "id": "B",
+          "text": "8"
+        },
+        {
+          "id": "C",
+          "text": "9"
+        },
+        {
+          "id": "D",
+          "text": "27"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Evaluate $g(-1)$ first: $g(-1) = -1 + 4 = 3$. Then $f(3) = 2(3)^2 - 3(3) = 18 - 9 = 9$."
+    },
+    {
+      "id": "act-math-094",
+      "day": 94,
+      "domain": "Data/statistics/probability",
+      "skill": "combinations",
+      "difficulty": "medium",
+      "prompt": "A committee of 3 people is to be chosen from a group of 8 people. How many different committees can be formed?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "24"
+        },
+        {
+          "id": "B",
+          "text": "56"
+        },
+        {
+          "id": "C",
+          "text": "336"
+        },
+        {
+          "id": "D",
+          "text": "512"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Use the combination formula $C(n, r) = \\frac{n!}{r!(n-r)!}$. For $n = 8$ and $r = 3$: $\\frac{8 \\times 7 \\times 6}{3 \\times 2 \\times 1} = 56$."
+    },
+    {
+      "id": "act-math-095",
+      "day": 95,
+      "domain": "Trigonometry",
+      "skill": "identities",
+      "difficulty": "medium",
+      "prompt": "Which of the following expressions is equivalent to $\\frac{\\tan \\theta}{\\sec \\theta}$ for all values where it is defined?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\sin \\theta"
+        },
+        {
+          "id": "B",
+          "text": "\\cos \\theta"
+        },
+        {
+          "id": "C",
+          "text": "\\cot \\theta"
+        },
+        {
+          "id": "D",
+          "text": "\\csc \\theta"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Rewrite in terms of sine and cosine: $\\tan \\theta = \\frac{\\sin \\theta}{\\cos \\theta}$ and $\\sec \\theta = \\frac{1}{\\cos \\theta}$. Then $\\frac{\\frac{\\sin \\theta}{\\cos \\theta}}{\\frac{1}{\\cos \\theta}} = \\sin \\theta$."
+    },
+    {
+      "id": "act-math-096",
+      "day": 96,
+      "domain": "Algebra",
+      "skill": "matrices",
+      "difficulty": "medium",
+      "prompt": "What is the product matrix $\\begin{bmatrix} 2 & 1 \\\\ 0 & 3 \\end{bmatrix} \\begin{bmatrix} 4 & -1 \\\\ 2 & 5 \\end{bmatrix}$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\begin{bmatrix} 8 & -1 \\ 0 & 15 \\end{bmatrix}"
+        },
+        {
+          "id": "B",
+          "text": "\\begin{bmatrix} 10 & 3 \\ 6 & 15 \\end{bmatrix}"
+        },
+        {
+          "id": "C",
+          "text": "\\begin{bmatrix} 6 & 3 \\ 2 & 8 \\end{bmatrix}"
+        },
+        {
+          "id": "D",
+          "text": "\\begin{bmatrix} 10 & 7 \\ 6 & 15 \\end{bmatrix}"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Multiply row by column: top-left is $(2)(4) + (1)(2) = 10$; top-right is $(2)(-1) + (1)(5) = 3$; bottom-left is $(0)(4) + (3)(2) = 6$; bottom-right is $(0)(-1) + (3)(5) = 15$. Result is $\\begin{bmatrix} 10 & 3 \\\\ 6 & 15 \\end{bmatrix}$."
+    },
+    {
+      "id": "act-math-097",
+      "day": 97,
+      "domain": "Geometry",
+      "skill": "vectors",
+      "difficulty": "medium",
+      "prompt": "Given vectors $\\mathbf{u} = \\langle 3, -4 \\rangle$ and $\\mathbf{v} = \\langle -1, 5 \\rangle$, what is the vector $2\\mathbf{u} - 3\\mathbf{v}$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\langle 3, -23 \\rangle"
+        },
+        {
+          "id": "B",
+          "text": "\\langle 9, -23 \\rangle"
+        },
+        {
+          "id": "C",
+          "text": "\\langle 3, 7 \\rangle"
+        },
+        {
+          "id": "D",
+          "text": "\\langle 9, 7 \\rangle"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Compute scalar multiplications: $2\\mathbf{u} = \\langle 6, -8 \\rangle$ and $3\\mathbf{v} = \\langle -3, 15 \\rangle$. Subtract: $\\langle 6 - (-3), -8 - 15 \\rangle = \\langle 9, -23 \\rangle$."
+    },
+    {
+      "id": "act-math-098",
+      "day": 98,
+      "domain": "Functions",
+      "skill": "polynomial remainder theorem",
+      "difficulty": "medium",
+      "prompt": "When the polynomial $P(x) = 2x^3 - kx^2 + 4x - 5$ is divided by $(x - 1)$, the remainder is 3. What is the value of $k$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "-2"
+        },
+        {
+          "id": "B",
+          "text": "0"
+        },
+        {
+          "id": "C",
+          "text": "2"
+        },
+        {
+          "id": "D",
+          "text": "4"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "By the Remainder Theorem, $P(1) = 3$. Substitute $x = 1$: $2(1)^3 - k(1)^2 + 4(1) - 5 = 3 \\implies 2 - k + 4 - 5 = 3 \\implies 1 - k = 3 \\implies k = -2$."
+    },
+    {
+      "id": "act-math-099",
+      "day": 99,
+      "domain": "Data/statistics/probability",
+      "skill": "standard deviation",
+      "difficulty": "medium",
+      "prompt": "If each number in a data set is increased by 5, which of the following statistical measures will remain unchanged?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "The mean"
+        },
+        {
+          "id": "B",
+          "text": "The median"
+        },
+        {
+          "id": "C",
+          "text": "The standard deviation"
+        },
+        {
+          "id": "D",
+          "text": "The sum of the values"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Adding a constant to every value shifts the entire distribution without changing its spread. Therefore, the mean, median, and sum all increase by 5, but the standard deviation remains unchanged."
+    },
+    {
+      "id": "act-math-100",
+      "day": 100,
+      "domain": "Modeling/word problems",
+      "skill": "systems word problems",
+      "difficulty": "medium",
+      "prompt": "At a bakery, 3 muffins and 2 scones cost a total of $11.00, while 2 muffins and 4 scones cost a total of $12.00. What is the cost of a single muffin?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "$2.00"
+        },
+        {
+          "id": "B",
+          "text": "$2.50"
+        },
+        {
+          "id": "C",
+          "text": "$3.00"
+        },
+        {
+          "id": "D",
+          "text": "$3.50"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Let $m$ be the cost of a muffin and $s$ be the cost of a scone. The equations are $3m + 2s = 11$ and $2m + 4s = 12$. Divide the second equation by 2 to get $m + 2s = 6$, so $2s = 6 - m$. Substitute into the first equation: $3m + 6 - m = 11$, so $2m = 5$ and $m = 2.50$."
+    },
+    {
+      "id": "act-math-101",
+      "day": 101,
+      "domain": "Algebra",
+      "skill": "rational expressions",
+      "difficulty": "medium",
+      "prompt": "Which of the following expressions is equivalent to $\\frac{2}{x - 3} + \\frac{3}{x + 2}$ for all $x$ where it is defined?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\frac{5}{2x - 1}"
+        },
+        {
+          "id": "B",
+          "text": "\\frac{5x - 5}{(x - 3)(x + 2)}"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{5x + 5}{(x - 3)(x + 2)}"
+        },
+        {
+          "id": "D",
+          "text": "\\frac{6}{(x - 3)(x + 2)}"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Find a common denominator, $(x - 3)(x + 2)$: $\\frac{2(x + 2) + 3(x - 3)}{(x - 3)(x + 2)} = \\frac{2x + 4 + 3x - 9}{(x - 3)(x + 2)} = \\frac{5x - 5}{(x - 3)(x + 2)}$."
+    },
+    {
+      "id": "act-math-102",
+      "day": 102,
+      "domain": "Geometry",
+      "skill": "volume",
+      "difficulty": "medium",
+      "prompt": "A sphere has a radius of 3 centimeters. What is the volume of the sphere, in cubic centimeters? (The volume of a sphere is $V = \\frac{4}{3}\\pi r^3$)",
+      "choices": [
+        {
+          "id": "A",
+          "text": "12\\pi"
+        },
+        {
+          "id": "B",
+          "text": "18\\pi"
+        },
+        {
+          "id": "C",
+          "text": "36\\pi"
+        },
+        {
+          "id": "D",
+          "text": "108\\pi"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Substitute $r = 3$ into the volume formula: $V = \\frac{4}{3}\\pi(3^3) = \\frac{4}{3}\\pi(27) = 36\\pi$."
+    },
+    {
+      "id": "act-math-103",
+      "day": 103,
+      "domain": "Functions",
+      "skill": "exponential functions",
+      "difficulty": "medium",
+      "prompt": "If $4^{x-1} = 32$, what is the value of $x$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "2.5"
+        },
+        {
+          "id": "B",
+          "text": "3"
+        },
+        {
+          "id": "C",
+          "text": "3.5"
+        },
+        {
+          "id": "D",
+          "text": "4"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Express both sides with base 2: $(2^2)^{x-1} = 2^5 \\implies 2^{2x-2} = 2^5$. Set exponents equal: $2x - 2 = 5 \\implies 2x = 7 \\implies x = 3.5$."
+    },
+    {
+      "id": "act-math-104",
+      "day": 104,
+      "domain": "Data/statistics/probability",
+      "skill": "expected value",
+      "difficulty": "medium",
+      "prompt": "A raffle sells 500 tickets at $5 each. One ticket wins a prize of $800. What is the expected net value of purchasing a single ticket?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "-$3.40"
+        },
+        {
+          "id": "B",
+          "text": "-$1.60"
+        },
+        {
+          "id": "C",
+          "text": "$1.60"
+        },
+        {
+          "id": "D",
+          "text": "$3.40"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "The cost of the ticket is $5. Net winnings if you win are $800 - $5 = $795 with probability $\\frac{1}{500}$. Net loss if you lose is -$5 with probability $\\frac{499}{500}$. Expected value = $\\frac{1}{500}(795) + \\frac{499}{500}(-5) = 1.59 - 4.99 = -3.40$."
+    },
+    {
+      "id": "act-math-105",
+      "day": 105,
+      "domain": "Trigonometry",
+      "skill": "right triangles",
+      "difficulty": "medium",
+      "prompt": "An observer stands 50 feet away from the base of a building and looks up at the top with an angle of elevation of $60^{\\circ}$. What is the height of the building, in feet?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "25"
+        },
+        {
+          "id": "B",
+          "text": "50"
+        },
+        {
+          "id": "C",
+          "text": "50\\sqrt{3}"
+        },
+        {
+          "id": "D",
+          "text": "100"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Using tangent: $\\tan(60^{\\circ}) = \\frac{\\text{height}}{50}$. Since $\\tan(60^{\\circ}) = \\sqrt{3}$, the height is $50\\sqrt{3}$."
+    },
+    {
+      "id": "act-math-106",
+      "day": 106,
+      "domain": "Algebra",
+      "skill": "complex numbers",
+      "difficulty": "medium",
+      "prompt": "What is the quotient $\\frac{5}{1 - 2i}$ expressed in standard form $a + bi$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "1 + 2i"
+        },
+        {
+          "id": "B",
+          "text": "1 - 2i"
+        },
+        {
+          "id": "C",
+          "text": "5 - 10i"
+        },
+        {
+          "id": "D",
+          "text": "\\frac{1}{5} + \\frac{2}{5}i"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Multiply numerator and denominator by the conjugate $1 + 2i$: $\\frac{5(1 + 2i)}{(1 - 2i)(1 + 2i)} = \\frac{5 + 10i}{1 - 4i^2} = \\frac{5 + 10i}{1 + 4} = \\frac{5 + 10i}{5} = 1 + 2i$."
+    },
+    {
+      "id": "act-math-107",
+      "day": 107,
+      "domain": "Geometry",
+      "skill": "conic sections",
+      "difficulty": "medium",
+      "prompt": "What are the coordinates of the focus of the parabola given by $y = \\frac{1}{8}x^2$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "(0, 2)"
+        },
+        {
+          "id": "B",
+          "text": "(2, 0)"
+        },
+        {
+          "id": "C",
+          "text": "(0, 4)"
+        },
+        {
+          "id": "D",
+          "text": "(4, 0)"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "The standard vertical parabola equation is $y = \\frac{1}{4p}x^2$. Here $\\frac{1}{4p} = \\frac{1}{8}$, so $4p = 8 \\implies p = 2$. The focus is at $(0, p) = (0, 2)$."
+    },
+    {
+      "id": "act-math-108",
+      "day": 108,
+      "domain": "Functions",
+      "skill": "domain and range",
+      "difficulty": "medium",
+      "prompt": "What is the range of the function $f(x) = 3\\sin(x) - 2$ for all real numbers $x$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "[-1, 1]"
+        },
+        {
+          "id": "B",
+          "text": "[-3, 3]"
+        },
+        {
+          "id": "C",
+          "text": "[-5, 1]"
+        },
+        {
+          "id": "D",
+          "text": "[-5, 5]"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "The range of $\\sin(x)$ is $[-1, 1]$. Multiplying by 3 gives $[-3, 3]$, and subtracting 2 shifts this interval to $[-5, 1]$."
+    },
+    {
+      "id": "act-math-109",
+      "day": 109,
+      "domain": "Data/statistics/probability",
+      "skill": "probability",
+      "difficulty": "medium",
+      "prompt": "A box contains 3 red pens, 4 blue pens, and 3 black pens. Two pens are drawn at random without replacement. What is the probability that both pens are blue?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\frac{6}{25}"
+        },
+        {
+          "id": "B",
+          "text": "\\frac{2}{15}"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{4}{25}"
+        },
+        {
+          "id": "D",
+          "text": "\\frac{1}{5}"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Total pens = 10. Probability of first blue is $\\frac{4}{10} = \\frac{2}{5}$. Probability of second blue is $\\frac{3}{9} = \\frac{1}{3}$. Multiply: $\\frac{2}{5} \\times \\frac{1}{3} = \\frac{2}{15}$."
+    },
+    {
+      "id": "act-math-110",
+      "day": 110,
+      "domain": "Trigonometry",
+      "skill": "trigonometric equations",
+      "difficulty": "medium",
+      "prompt": "What are all the solutions for $x$ in the interval $0 \\leq x < 2\\pi$ for the equation $2\\sin(x) - 1 = 0$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\frac{\\pi}{6} \\text{ and } \\frac{5\\pi}{6}"
+        },
+        {
+          "id": "B",
+          "text": "\\frac{\\pi}{3} \\text{ and } \\frac{2\\pi}{3}"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{\\pi}{4} \\text{ and } \\frac{3\\pi}{4}"
+        },
+        {
+          "id": "D",
+          "text": "\\frac{\\pi}{2} \\text{ and } \\frac{3\\pi}{2}"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Solve for $\\sin(x) = \\frac{1}{2}$. In the interval $[0, 2\\pi)$, sine is positive in the first and second quadrants, yielding reference angle $\\frac{\\pi}{6}$, so $x = \\frac{\\pi}{6}$ and $x = \\frac{5\\pi}{6}$."
+    },
+    {
+      "id": "act-math-111",
+      "day": 111,
+      "domain": "Algebra",
+      "skill": "inequalities",
+      "difficulty": "medium",
+      "prompt": "What is the solution set for the inequality $|2x - 5| > 3$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "1 < x < 4"
+        },
+        {
+          "id": "B",
+          "text": "x < 1 \\text{ or } x > 4"
+        },
+        {
+          "id": "C",
+          "text": "-1 < x < 4"
+        },
+        {
+          "id": "D",
+          "text": "x < -4 \\text{ or } x > 1"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Split into two inequalities: $2x - 5 > 3$ or $2x - 5 < -3$. Solving the first gives $2x > 8 \\implies x > 4$. Solving the second gives $2x < 2 \\implies x < 1$. Thus, $x < 1$ or $x > 4$."
+    },
+    {
+      "id": "act-math-112",
+      "day": 112,
+      "domain": "Geometry",
+      "skill": "polygons",
+      "difficulty": "medium",
+      "prompt": "The sum of the interior angles of a regular polygon is $1,080^{\\circ}$. How many sides does the polygon have?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "6"
+        },
+        {
+          "id": "B",
+          "text": "8"
+        },
+        {
+          "id": "C",
+          "text": "10"
+        },
+        {
+          "id": "D",
+          "text": "12"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Use the interior angle sum formula: $(n - 2)180^{\\circ} = 1,080^{\\circ}$. Divide by $180^{\\circ}$ to get $n - 2 = 6$, so $n = 8$."
+    },
+    {
+      "id": "act-math-113",
+      "day": 113,
+      "domain": "Functions",
+      "skill": "transformations",
+      "difficulty": "medium",
+      "prompt": "Which of the following functions represents a reflection of $f(x) = x^3$ across the $x$-axis followed by a vertical shift 3 units upward?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "g(x) = -x^3 + 3"
+        },
+        {
+          "id": "B",
+          "text": "g(x) = (-x)^3 + 3"
+        },
+        {
+          "id": "C",
+          "text": "g(x) = -(x + 3)^3"
+        },
+        {
+          "id": "D",
+          "text": "g(x) = -x^3 - 3"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Reflection across the $x$-axis multiplies the function by $-1$ (yielding $-x^3$), and shifting 3 units upward adds 3, resulting in $g(x) = -x^3 + 3$."
+    },
+    {
+      "id": "act-math-114",
+      "day": 114,
+      "domain": "Data/statistics/probability",
+      "skill": "mean",
+      "difficulty": "medium",
+      "prompt": "The mean score of 4 tests is 78. What must be the score on the 5th test to raise the mean score to 82?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "86"
+        },
+        {
+          "id": "B",
+          "text": "90"
+        },
+        {
+          "id": "C",
+          "text": "94"
+        },
+        {
+          "id": "D",
+          "text": "98"
+        }
+      ],
+      "correctChoiceID": "D",
+      "explanation": "The sum of 5 tests with a mean of 82 is $5 \\times 82 = 410$. The sum of the first 4 tests is $4 \\times 78 = 312$. The 5th test score must be $410 - 312 = 98$."
+    },
+    {
+      "id": "act-math-115",
+      "day": 115,
+      "domain": "Modeling/word problems",
+      "skill": "rates",
+      "difficulty": "medium",
+      "prompt": "Pump A can empty a pool in 4 hours, and Pump B can empty the same pool in 6 hours. Working together, how many hours will it take both pumps to empty the pool?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "2.4"
+        },
+        {
+          "id": "B",
+          "text": "3.5"
+        },
+        {
+          "id": "C",
+          "text": "5.0"
+        },
+        {
+          "id": "D",
+          "text": "10.0"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Combined rate is $\\frac{1}{4} + \\frac{1}{6} = \\frac{3}{12} + \\frac{2}{12} = \\frac{5}{12}$ of the pool per hour. Time required is the reciprocal: $\\frac{12}{5} = 2.4$ hours."
+    },
+    {
+      "id": "act-math-116",
+      "day": 116,
+      "domain": "Algebra",
+      "skill": "systems of equations",
+      "difficulty": "medium",
+      "prompt": "Given the nonlinear system $y = x^2$ and $y = x + 2$, what is the positive value of $x$ for their intersection?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "1"
+        },
+        {
+          "id": "B",
+          "text": "2"
+        },
+        {
+          "id": "C",
+          "text": "3"
+        },
+        {
+          "id": "D",
+          "text": "4"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Set the equations equal: $x^2 = x + 2$. Then $x^2 - x - 2 = 0$, which factors as $(x - 2)(x + 1) = 0$. The solutions are $x = 2$ and $x = -1$, so the positive value is $2$."
+    },
+    {
+      "id": "act-math-117",
+      "day": 117,
+      "domain": "Geometry",
+      "skill": "triangles",
+      "difficulty": "medium",
+      "prompt": "In a right triangle, one leg has length 5 and the hypotenuse has length 13. What is the area of the triangle?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "30"
+        },
+        {
+          "id": "B",
+          "text": "60"
+        },
+        {
+          "id": "C",
+          "text": "65"
+        },
+        {
+          "id": "D",
+          "text": "32.5"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Find the other leg using Pythagorean theorem: $5^2 + b^2 = 13^2 \\implies 25 + b^2 = 169 \\implies b^2 = 144 \\implies b = 12$. The area is $\\frac{1}{2} \\times \\text{base} \\times \\text{height} = \\frac{1}{2} \\times 5 \\times 12 = 30$."
+    },
+    {
+      "id": "act-math-118",
+      "day": 118,
+      "domain": "Functions",
+      "skill": "sequences",
+      "difficulty": "medium",
+      "prompt": "In an arithmetic sequence, the 3rd term is 11 and the 7th term is 27. What is the 10th term?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "35"
+        },
+        {
+          "id": "B",
+          "text": "39"
+        },
+        {
+          "id": "C",
+          "text": "43"
+        },
+        {
+          "id": "D",
+          "text": "47"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "The difference between the 7th and 3rd terms is $27 - 11 = 16$, which equals $4d$. Thus, the common difference $d = 4$. The 3rd term is $a_1 + 2(4) = 11 \\implies a_1 = 3$. The 10th term is $a_{10} = 3 + 9(4) = 39$."
+    },
+    {
+      "id": "act-math-119",
+      "day": 119,
+      "domain": "Data/statistics/probability",
+      "skill": "probability",
+      "difficulty": "medium",
+      "prompt": "Two fair 6-sided dice are rolled. What isetown probability that the sum of the numbers showing is 8?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\frac{1}{9}"
+        },
+        {
+          "id": "B",
+          "text": "\\frac{5}{36}"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{1}{6}"
+        },
+        {
+          "id": "D",
+          "text": "\\frac{7}{36}"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Total possible outcomes are $6 \\times 6 = 36$. The pairs that sum to 8 are $(2,6), (3,5), (4,4), (5,3), (6,2)$, which is 5 outcomes. The probability is $\\frac{5}{36}$."
+    },
+    {
+      "id": "act-math-120",
+      "day": 120,
+      "domain": "Trigonometry",
+      "skill": "identities",
+      "difficulty": "medium",
+      "prompt": "Which of the following expressions is equivalent to $\\cos^2(x) - \\sin^2(x)$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "1"
+        },
+        {
+          "id": "B",
+          "text": "\\cos(2x)"
+        },
+        {
+          "id": "C",
+          "text": "\\sin(2x)"
+        },
+        {
+          "id": "D",
+          "text": "2\\cos^2(x)"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "By the double-angle identity for cosine, $\\cos(2x) = \\cos^2(x) - \\sin^2(x)$."
+    },
+    {
+      "id": "act-math-121",
+      "day": 121,
+      "domain": "Algebra",
+      "skill": "radical equations",
+      "difficulty": "medium",
+      "prompt": "What is the real solution to the equation $\\sqrt{2x + 5} = x - 5$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "2"
+        },
+        {
+          "id": "B",
+          "text": "10"
+        },
+        {
+          "id": "C",
+          "text": "2 and 10"
+        },
+        {
+          "id": "D",
+          "text": "No real solution"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Square both sides: $2x + 5 = (x - 5)^2 \\implies 2x + 5 = x^2 - 10x + 25 \\implies x^2 - 12x + 20 = 0$. Factor: $(x - 10)(x - 2) = 0$, giving $x = 10$ or $x = 2$. Check extraneous solutions: for $x = 2$, $\\sqrt{9} = 3 \\neq -3$, so 2 is extraneous. For $x = 10$, $\\sqrt{25} = 5 = 10 - 5$, which is valid. Thus, $x = 10$."
+    },
+    {
+      "id": "act-math-122",
+      "day": 122,
+      "domain": "Geometry",
+      "skill": "coordinate geometry",
+      "difficulty": "medium",
+      "prompt": "What is the equation of the line passing through $(-2, 3)$ and parallel to the line $4x - 2y = 7$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "y = 2x + 7"
+        },
+        {
+          "id": "B",
+          "text": "y = 2x - 1"
+        },
+        {
+          "id": "C",
+          "text": "y = -2x - 1"
+        },
+        {
+          "id": "D",
+          "text": "y = \\frac{1}{2}x + 4"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Find the slope of $4x - 2y = 7$: $-2y = -4x + 7 \\implies y = 2x - 3.5$, so slope $m = 2$. Using point-slope form with $(-2, 3)$: $y - 3 = 2(x - (-2)) \\implies y - 3 = 2x + 4 \\implies y = 2x + 7$."
+    },
+    {
+      "id": "act-math-123",
+      "day": 123,
+      "domain": "Functions",
+      "skill": "asymptotes",
+      "difficulty": "medium",
+      "prompt": "What is the horizontal asymptote of the function $f(x) = \\frac{3x^2 - 5x + 1}{2x^2 + 4}$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "y = 0"
+        },
+        {
+          "id": "B",
+          "text": "y = \\frac{3}{2}"
+        },
+        {
+          "id": "C",
+          "text": "y = \\frac{5}{2}"
+        },
+        {
+          "id": "D",
+          "text": "There is no horizontal asymptote"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Since the degree of the numerator (2) equals the degree of the denominator (2), the horizontal asymptote is the ratio of the leading coefficients: $y = \\frac{3}{2}$."
+    },
+    {
+      "id": "act-math-124",
+      "day": 124,
+      "domain": "Data/statistics/probability",
+      "skill": "median",
+      "difficulty": "medium",
+      "prompt": "A data set consists of the values 14, 22, 8, 35, 19, 41, and 27. What is the median of this data set?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "19"
+        },
+        {
+          "id": "B",
+          "text": "22"
+        },
+        {
+          "id": "C",
+          "text": "23.7"
+        },
+        {
+          "id": "D",
+          "text": "27"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Order the values from least to greatest: 8, 14, 19, 22, 27, 35, 41. The median is the middle (4th) value, which is 22."
+    },
+    {
+      "id": "act-math-125",
+      "day": 125,
+      "domain": "Modeling/word problems",
+      "skill": "exponential growth",
+      "difficulty": "medium",
+      "prompt": "A population of bacteria triples every 4 hours. If the initial population is 200, which expression represents the population after $t$ hours?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "200(3)^{4t}"
+        },
+        {
+          "id": "B",
+          "text": "200(3)^{\\frac{t}{4}}"
+        },
+        {
+          "id": "C",
+          "text": "600^{\\frac{t}{4}}"
+        },
+        {
+          "id": "D",
+          "text": "200(4)^{\\frac{t}{3}}"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "The exponential model is $P(t) = P_0 b^{\\frac{t}{d}}$, where $P_0 = 200$, growth factor $b = 3$, and doubling/tripling period $d = 4$. Thus, $200(3)^{\\frac{t}{4}}$."
+    },
+    {
+      "id": "act-math-126",
+      "day": 126,
+      "domain": "Algebra",
+      "skill": "factoring quadratic expressions",
+      "difficulty": "medium",
+      "prompt": "Which of the following is equivalent to $2x^2 + 7x - 15$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "(2x - 3)(x + 5)"
+        },
+        {
+          "id": "B",
+          "text": "(2x + 3)(x - 5)"
+        },
+        {
+          "id": "C",
+          "text": "(2x - 5)(x + 3)"
+        },
+        {
+          "id": "D",
+          "text": "(2x + 5)(x - 3)"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Factor by grouping or trial: $2x^2 + 10x - 3x - 15 = 2x(x + 5) - 3(x + 5) = (2x - 3)(x + 5)$."
+    },
+    {
+      "id": "act-math-127",
+      "day": 127,
+      "domain": "Geometry",
+      "skill": "arcs and sectors",
+      "difficulty": "medium",
+      "prompt": "A circle has a radius of 6 cm. What is the area of a sector with a central angle of $45^{\\circ}$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "2\\pi"
+        },
+        {
+          "id": "B",
+          "text": "3\\pi"
+        },
+        {
+          "id": "C",
+          "text": "4.5\\pi"
+        },
+        {
+          "id": "D",
+          "text": "9\\pi"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Sector area formula is $A = \\pi r^2 \\left(\\frac{\\theta}{360^{\\circ}}\\right) = \\pi(6^2)\\left(\\frac{45}{360}\\right) = 36\\pi \\left(\\frac{1}{8}\\right) = 4.5\\pi$."
+    },
+    {
+      "id": "act-math-128",
+      "day": 128,
+      "domain": "Functions",
+      "skill": "transformations",
+      "difficulty": "medium",
+      "prompt": "If $f(x) = x^2$, which of the following describes the transformation from $f(x)$ to $g(x) = (x - 2)^2 + 5$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "Shifted left 2 units and up 5 units"
+        },
+        {
+          "id": "B",
+          "text": "Shifted right 2 units and up 5 units"
+        },
+        {
+          "id": "C",
+          "text": "Shifted right 2 units and down 5 units"
+        },
+        {
+          "id": "D",
+          "text": "Shifted left 2 units and down 5 units"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Replacing $x$ with $(x - 2)$ shifts the graph 2 units to the right, and adding 5 outside shifts the graph 5 units upward."
+    },
+    {
+      "id": "act-math-129",
+      "day": 129,
+      "domain": "Trigonometry",
+      "skill": "trig graphs",
+      "difficulty": "medium",
+      "prompt": "What is the amplitude of the function $f(x) = -4 \\cos(3x) + 2$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "-4"
+        },
+        {
+          "id": "B",
+          "text": "2"
+        },
+        {
+          "id": "C",
+          "text": "3"
+        },
+        {
+          "id": "D",
+          "text": "4"
+        }
+      ],
+      "correctChoiceID": "D",
+      "explanation": "The amplitude of a trigonometric function $y = a \\cos(bx) + c$ is given by $|a|$. Here $|-4| = 4$."
+    },
+    {
+      "id": "act-math-130",
+      "day": 130,
+      "domain": "Algebra",
+      "skill": "simplifying expressions",
+      "difficulty": "medium",
+      "prompt": "What is the coefficient of the $x^2$ term in the expansion of $(2x - 3)^4$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "-216"
+        },
+        {
+          "id": "B",
+          "text": "-54"
+        },
+        {
+          "id": "C",
+          "text": "54"
+        },
+        {
+          "id": "D",
+          "text": "216"
+        }
+      ],
+      "correctChoiceID": "D",
+      "explanation": "Using the binomial theorem, the term with $x^2$ is $\\binom{4}{2}(2x)^2(-3)^2 = 6(4x^2)(9) = 216x^2$. The coefficient is 216."
+    },
+    {
+      "id": "act-math-131",
+      "day": 131,
+      "domain": "Geometry",
+      "skill": "surface area",
+      "difficulty": "hard",
+      "prompt": "A solid right circular cylinder has a height of 10 cm and a base radius of 4 cm. A cylindrical hole of radius 2 cm is drilled straight through the center from top to bottom. What is the total surface area of this hollowed cylinder, in square centimeters?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "96\\pi"
+        },
+        {
+          "id": "B",
+          "text": "112\\pi"
+        },
+        {
+          "id": "C",
+          "text": "120\\pi"
+        },
+        {
+          "id": "D",
+          "text": "144\\pi"
+        }
+      ],
+      "correctChoiceID": "D",
+      "explanation": "Total surface area includes outer lateral area ($2\\pi(4)(10) = 80\\pi$), inner hole lateral area ($2\\pi(2)(10) = 40\\pi$), and two ring-shaped bases. Each base area is $\\pi(4^2 - 2^2) = 12\\pi$, so two bases equal $24\\pi$. Total = $80\\pi + 40\\pi + 24\\pi = 144\\pi$."
+    },
+    {
+      "id": "act-math-132",
+      "day": 132,
+      "domain": "Functions",
+      "skill": "composite functions",
+      "difficulty": "hard",
+      "prompt": "Given $f(x) = x^2 + 1$ and $g(x) = \\sqrt{x - 3}$, what is the domain of the composite function $f(g(x))$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "x \\geq 0"
+        },
+        {
+          "id": "B",
+          "text": "x \\geq 3"
+        },
+        {
+          "id": "C",
+          "text": "x > 3"
+        },
+        {
+          "id": "D",
+          "text": "All real numbers"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "For $g(x) = \\sqrt{x - 3}$ to be defined, $x - 3 \\geq 0 \\implies x \\geq 3$. The output of $g(x)$ is plugged into $f$, which accepts all real numbers. Thus, the domain is $x \\geq 3$."
+    },
+    {
+      "id": "act-math-133",
+      "day": 133,
+      "domain": "Algebra",
+      "skill": "logarithmic equations",
+      "difficulty": "hard",
+      "prompt": "If $\\log_2(x) + \\log_2(x - 2) = 3$, what is the value of $x$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "-2"
+        },
+        {
+          "id": "B",
+          "text": "4"
+        },
+        {
+          "id": "C",
+          "text": "2 and 4"
+        },
+        {
+          "id": "D",
+          "text": "1 and 4"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Combine logarithms: $\\log_2(x(x - 2)) = 3$. Rewrite exponentially: $x(x - 2) = 2^3 = 8 \\implies x^2 - 2x - 8 = 0$. Factor: $(x - 4)(x + 2) = 0$, giving $x = 4$ or $x = -2$. Since $\\log_2(-2)$ is undefined, $x = -2$ is extraneous. Thus, $x = 4$."
+    },
+    {
+      "id": "act-math-134",
+      "day": 134,
+      "domain": "Data/statistics/probability",
+      "skill": "conditional probability",
+      "difficulty": "hard",
+      "prompt": "A bag contains 5 red marbles and 3 green marbles. Two marbles are drawn sequentially without replacement. Given that the first marble drawn is red, what is the probability that the second marble is green?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\frac{3}{8}"
+        },
+        {
+          "id": "B",
+          "text": "\\frac{3}{7}"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{5}{7}"
+        },
+        {
+          "id": "D",
+          "text": "\\frac{15}{56}"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "If the first marble drawn is red, 4 red marbles and 3 green marbles remain, for a total of 7 marbles. The probability that the second marble is green is $\\frac{3}{7}$."
+    },
+    {
+      "id": "act-math-135",
+      "day": 135,
+      "domain": "Trigonometry",
+      "skill": "identities",
+      "difficulty": "hard",
+      "prompt": "What is the exact value of $\\sin(75^{\\circ})$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\frac{\\sqrt{6} + \\sqrt{2}}{4}"
+        },
+        {
+          "id": "B",
+          "text": "\\frac{\\sqrt{6} - \\sqrt{2}}{4}"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{\\sqrt{3} + 1}{2}"
+        },
+        {
+          "id": "D",
+          "text": "\\frac{\\sqrt{3} - 1}{2}"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Use angle addition: $\\sin(75^{\\circ}) = \\sin(45^{\\circ} + 30^{\\circ}) = \\sin(45^{\\circ})\\cos(30^{\\circ}) + \\cos(45^{\\circ})\\sin(30^{\\circ}) = \\left(\\frac{\\sqrt{2}}{2}\\right)\\left(\\frac{\\sqrt{3}}{2}\\right) + \\left(\\frac{\\sqrt{2}}{2}\\right)\\left(\\frac{1}{2}\\right) = \\frac{\\sqrt{6} + \\sqrt{2}}{4}$."
+    },
+    {
+      "id": "act-math-136",
+      "day": 136,
+      "domain": "Algebra",
+      "skill": "rational equations",
+      "difficulty": "hard",
+      "prompt": "What is the real solution to the equation $\\frac{2}{x} - \\frac{1}{x-2} = \\frac{1}{x+1}$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "-4"
+        },
+        {
+          "id": "B",
+          "text": "-2"
+        },
+        {
+          "id": "C",
+          "text": "2"
+        },
+        {
+          "id": "D",
+          "text": "4"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Multiply both sides by the common denominator $x(x-2)(x+1)$ to clear fractions: $2(x-2)(x+1) - x(x+1) = x(x-2)$. Expanding and simplifying gives $2(x^2 - x - 2) - x^2 - x = x^2 - 2x$, which reduces to $-3x - 4 = -2x$, resulting in $x = -4$."
+    },
+    {
+      "id": "act-math-137",
+      "day": 137,
+      "domain": "Geometry",
+      "skill": "circles",
+      "difficulty": "hard",
+      "prompt": "Two circles with radii 5 cm and 12 cm have parallel tangents at their closest points. If the distance between their centers is 25 cm, what is the length of their direct common tangent segment?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "20"
+        },
+        {
+          "id": "B",
+          "text": "24"
+        },
+        {
+          "id": "C",
+          "text": "sqrt(529)"
+        },
+        {
+          "id": "D",
+          "text": "26"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "The length $L$ of the direct common tangent segment between two circles with centers distance $d$ apart and radii $r_1, r_2$ is given by $L = \\sqrt{d^2 - (r_2 - r_1)^2}$. Here $d = 25$, $r_2 = 12$, and $r_1 = 5$. Thus, $L = \\sqrt{25^2 - (12 - 5)^2} = \\sqrt{625 - 49} = \\sqrt{576} = 24$."
+    },
+    {
+      "id": "act-math-138",
+      "day": 138,
+      "domain": "Functions",
+      "skill": "inverse functions",
+      "difficulty": "hard",
+      "prompt": "If $f(x) = \\frac{2x + 1}{3x - 4}$ for $x \\neq \\frac{4}{3}$, what is the inverse function $f^{-1}(x)$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\frac{3x - 4}{2x + 1}"
+        },
+        {
+          "id": "B",
+          "text": "\\frac{4x + 1}{3x - 2}"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{4x - 1}{3x + 2}"
+        },
+        {
+          "id": "D",
+          "text": "\\frac{3x + 4}{2x - 1}"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Set $y = \\frac{2x + 1}{3x - 4}$, swap $x$ and $y$: $x = \\frac{2y + 1}{3y - 4}$. Solve for $y$: $x(3y - 4) = 2y + 1 \\implies 3xy - 4x = 2y + 1 \\implies 3xy - 2y = 4x + 1 \\implies y(3x - 2) = 4x + 1 \\implies y = \\frac{4x + 1}{3x - 2}$."
+    },
+    {
+      "id": "act-math-139",
+      "day": 139,
+      "domain": "Trigonometry",
+      "skill": "trigonometric equations",
+      "difficulty": "hard",
+      "prompt": "What are all solutions for $x$ in the interval $[0, 2\\pi)$ for the equation $2\\cos^2(x) + \\sin(x) - 1 = 0$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\frac{\\pi}{2}, \\frac{7\\pi}{6}, \\frac{11\\pi}{6}"
+        },
+        {
+          "id": "B",
+          "text": "\\frac{\\pi}{3}, \\frac{5\\pi}{3}"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{\\pi}{6}, \\frac{5\\pi}{6}, \\frac{3\\pi}{2}"
+        },
+        {
+          "id": "D",
+          "text": "\\frac{\\pi}{2}, \\frac{\\pi}{6}, \\frac{5\\pi}{6}"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Substitute $\\cos^2(x) = 1 - \\sin^2(x)$ to get $2(1 - \\sin^2(x)) + \\sin(x) - 1 = 0$. This simplifies to $2\\sin^2(x) - \\sin(x) - 1 = 0$, or $(2\\sin(x) + 1)(\\sin(x) - 1) = 0$. Thus $\\sin(x) = 1$ or $\\sin(x) = -\frac{1}{2}$, giving $x = \frac{\\pi}{2}, \frac{7\\pi}{6}, \frac{11\\pi}{6}$."
+    },
+    {
+      "id": "act-math-140",
+      "day": 140,
+      "domain": "Data/statistics/probability",
+      "skill": "permutations",
+      "difficulty": "hard",
+      "prompt": "How many 4-digit positive integers can be formed using the digits 1, 2, 3, 4, 5, and 6 without repetition such that the number is greater than 4000?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "120"
+        },
+        {
+          "id": "B",
+          "text": "180"
+        },
+        {
+          "id": "C",
+          "text": "240"
+        },
+        {
+          "id": "D",
+          "text": "360"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "The first digit can be 4, 5, or 6 (3 choices). The remaining 3 digits are chosen from the remaining 5 available digits without repetition, which is $P(5,3) = 5 \\times 4 \\times 3 = 60$ ways. Total integers = $3 \\times 60 = 180$."
+    },
+    {
+      "id": "act-math-141",
+      "day": 141,
+      "domain": "Algebra",
+      "skill": "matrices",
+      "difficulty": "hard",
+      "prompt": "If the determinant of the 2x2 matrix $\\begin{bmatrix} x & 2 \\\\ 3 & x \\end{bmatrix}$ is equal to $-2$, what are the possible values of $x$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\pm 1"
+        },
+        {
+          "id": "B",
+          "text": "\\pm 2"
+        },
+        {
+          "id": "C",
+          "text": "\\pm 3"
+        },
+        {
+          "id": "D",
+          "text": "\\pm 4"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "The determinant of a 2x2 matrix $\\begin{bmatrix} a & b \\\\ c & d \\end{bmatrix}$ is $ad - bc$. Setting $(x)(x) - (2)(3) = -2$ gives $x^2 - 6 = -2 \\implies x^2 = 4 \\implies x = \\pm 2$."
+    },
+    {
+      "id": "act-math-142",
+      "day": 142,
+      "domain": "Geometry",
+      "skill": "coordinate geometry",
+      "difficulty": "hard",
+      "prompt": "What is the shortest distance from the point $(3, 5)$ to the line $3x + 4y - 19 = 0$ in the standard $(x,y)$ coordinate plane?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "2"
+        },
+        {
+          "id": "B",
+          "text": "3"
+        },
+        {
+          "id": "C",
+          "text": "4"
+        },
+        {
+          "id": "D",
+          "text": "5"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Use the distance formula from a point $(x_1, y_1)$ to a line $Ax + By + C = 0$: $d = \\frac{|Ax_1 + By_1 + C|}{\\sqrt{A^2 + B^2}}$. Substituting $A=3, B=4, C=-19, x_1=3, y_1=5$ gives $d = \\frac{|3(3) + 4(5) - 19|}{\\sqrt{3^2 + 4^2}} = \\frac{|9 + 20 - 19|}{5} = \\frac{10}{5} = 2$."
+    },
+    {
+      "id": "act-math-143",
+      "day": 143,
+      "domain": "Functions",
+      "skill": "polynomial roots",
+      "difficulty": "hard",
+      "prompt": "If $x - 2$ is a factor of $P(x) = 2x^3 - kx^2 + 5x - 6$, what is the value of $k$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "3"
+        },
+        {
+          "id": "B",
+          "text": "4"
+        },
+        {
+          "id": "C",
+          "text": "5"
+        },
+        {
+          "id": "D",
+          "text": "6"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "By the Factor Theorem, if $x - 2$ is a factor, then $P(2) = 0$. Substitute $x = 2$: $2(2)^3 - k(2)^2 + 5(2) - 6 = 0 \\implies 2(8) - 4k + 10 - 6 = 0 \\implies 16 - 4k + 4 = 0 \\implies 20 - 4k = 0 \\implies 4k = 20 \\implies k = 5$."
+    },
+    {
+      "id": "act-math-144",
+      "day": 144,
+      "domain": "Modeling/word problems",
+      "skill": "exponential growth",
+      "difficulty": "hard",
+      "prompt": "A population of bacteria grows according to the model $P(t) = P_0 e^{kt}$. If the population doubles every 5 hours, what is the value of $k$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\frac{\\ln 2}{5}"
+        },
+        {
+          "id": "B",
+          "text": "5 \\ln 2"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{\\ln 5}{2}"
+        },
+        {
+          "id": "D",
+          "text": "2 \\ln 5"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "When population doubles, $P(5) = 2P_0$, so $2P_0 = P_0 e^{5k} \\implies 2 = e^{5k}$. Take the natural log of both sides: $\\ln 2 = 5k \\implies k = \\frac{\\ln 2}{5}$."
+    },
+    {
+      "id": "act-math-145",
+      "day": 145,
+      "domain": "Trigonometry",
+      "skill": "trig graphs",
+      "difficulty": "hard",
+      "prompt": "What is the phase shift of the trigonometric function $f(x) = 3 \\sin\\left(2x - \\frac{\\pi}{3}\\right)$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\frac{\\pi}{6} \\text{ units left}"
+        },
+        {
+          "id": "B",
+          "text": "\\frac{\\pi}{6} \\text{ units right}"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{\\pi}{3} \\text{ units right}"
+        },
+        {
+          "id": "D",
+          "text": "\\frac{2\\pi}{3} \\text{ units right}"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Rewrite the argument in standard form $b(x - c)$: $3 \\sin\\left(2\\left(x - \\frac{\\pi}{6}\\right)\\right)$. The phase shift is $\\frac{\\pi}{6}$ units to the right."
+    },
+    {
+      "id": "act-math-146",
+      "day": 146,
+      "domain": "Algebra",
+      "skill": "systems of equations",
+      "difficulty": "hard",
+      "prompt": "How many distinct real solutions $(x,y)$ does the system of equations $x^2 + y^2 = 25$ and $y = x^2 - 5$ have?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "1"
+        },
+        {
+          "id": "B",
+          "text": "2"
+        },
+        {
+          "id": "C",
+          "text": "3"
+        },
+        {
+          "id": "D",
+          "text": "4"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Substitute $x^2 = y + 5$ into the first equation: $(y + 5) + y^2 = 25 \\implies y^2 + y - 20 = 0$. Factor: $(y + 5)(y - 4) = 0$, so $y = -5$ or $y = 4$. If $y = -5$, $x^2 = 0 \\implies x = 0$ (1 solution: $(0, -5)$). If $y = 4$, $x^2 = 9 \\implies x = \\pm 3$ (2 solutions: $(3, 4)$ and $(-3, 4)$). Total distinct real solutions = $1 + 2 = 3$."
+    },
+    {
+      "id": "act-math-147",
+      "day": 147,
+      "domain": "Geometry",
+      "skill": "volume",
+      "difficulty": "hard",
+      "prompt": "A solid metal cone with a base radius of 6 cm and a height of 12 cm is melted down and recast into identical solid spheres each of radius 3 cm. How many such spheres can be formed?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "3"
+        },
+        {
+          "id": "B",
+          "text": "4"
+        },
+        {
+          "id": "C",
+          "text": "6"
+        },
+        {
+          "id": "D",
+          "text": "9"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Volume of the cone is $V_c = \\frac{1}{3}\\pi (6^2)(12) = 144\\pi$. Volume of one sphere of radius 3 is $V_s = \\frac{4}{3}\\pi (3^3) = 36\\pi$. Number of spheres = $\\frac{144\\pi}{36\\pi} = 4$."
+    },
+    {
+      "id": "act-math-148",
+      "day": 148,
+      "domain": "Functions",
+      "skill": "piecewise functions",
+      "difficulty": "hard",
+      "prompt": "Let $f(x) = \\begin{cases} 2x + 3 & \\text{if } x < 2 \\\\ x^2 - 1 & \\text{if } x \\geq 2 \\end{cases}$. What is the value of $f(f(0))$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "3"
+        },
+        {
+          "id": "B",
+          "text": "5"
+        },
+        {
+          "id": "C",
+          "text": "8"
+        },
+        {
+          "id": "D",
+          "text": "11"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "First evaluate inner function $f(0)$: since $0 < 2$, $f(0) = 2(0) + 3 = 3$. Then evaluate $f(3)$: since $3 \\geq 2$, $f(3) = 3^2 - 1 = 9 - 1 = 8$."
+    },
+    {
+      "id": "act-math-149",
+      "day": 149,
+      "domain": "Data/statistics/probability",
+      "skill": "conditional probability",
+      "difficulty": "hard",
+      "prompt": "A jar contains 4 red marbles, 5 blue marbles, and 3 green marbles. Three marbles are drawn at random without replacement. What is the probability that all three marbles are blue?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\frac{1}{22}"
+        },
+        {
+          "id": "B",
+          "text": "\\frac{1}{44}"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{5}{132}"
+        },
+        {
+          "id": "D",
+          "text": "\\frac{1}{12}"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Total marbles = $4 + 5 + 3 = 12$. The probability of drawing three blue marbles is $\\frac{5}{12} \\times \\frac{4}{11} \\times \\frac{3}{10} = \\frac{60}{1320} = \\frac{1}{22}$."
+    },
+    {
+      "id": "act-math-150",
+      "day": 150,
+      "domain": "Trigonometry",
+      "skill": "law of sines/cosines",
+      "difficulty": "hard",
+      "prompt": "In triangle $ABC$, side $a = 7$, side $b = 8$, and side $c = 9$. What is the value of $\\cos(A)$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\frac{1}{3}"
+        },
+        {
+          "id": "B",
+          "text": "\\frac{2}{3}"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{3}{4}"
+        },
+        {
+          "id": "D",
+          "text": "\\frac{5}{6}"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Use the Law of Cosines: $a^2 = b^2 + c^2 - 2bc \\cos(A)$. Substituting values: $7^2 = 8^2 + 9^2 - 2(8)(9)\\cos(A) \\implies 49 = 64 + 81 - 144\\cos(A) \\implies 49 = 145 - 144\\cos(A) \\implies 144\\cos(A) = 96 \\implies \\cos(A) = \\frac{96}{144} = \\frac{2}{3}$."
+    },
+    {
+      "id": "act-math-151",
+      "day": 151,
+      "domain": "Algebra",
+      "skill": "complex numbers",
+      "difficulty": "hard",
+      "prompt": "What is the simplified value of $i^{2026}$, where $i = \\sqrt{-1}$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "1"
+        },
+        {
+          "id": "B",
+          "text": "i"
+        },
+        {
+          "id": "C",
+          "text": "-1"
+        },
+        {
+          "id": "D",
+          "text": "-i"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Powers of $i$ repeat in a cycle of 4 ($i^1 = i, i^2 = -1, i^3 = -i, i^4 = 1$). Divide the exponent 2026 by 4: $2026 \\div 4 = 506$ with a remainder of 2. Thus, $i^{2026} = i^2 = -1$."
+    },
+    {
+      "id": "act-math-152",
+      "day": 152,
+      "domain": "Geometry",
+      "skill": "vectors",
+      "difficulty": "hard",
+      "prompt": "What is the dot product of vectors $\\mathbf{u} = \\langle 3, -4 \\rangle$ and $\\mathbf{v} = \\langle 5, 12 \\rangle$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "-33"
+        },
+        {
+          "id": "B",
+          "text": "-15"
+        },
+        {
+          "id": "C",
+          "text": "15"
+        },
+        {
+          "id": "D",
+          "text": "63"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "The dot product of two vectors $\\langle u_1, u_2 \\rangle$ and $\\langle v_1, v_2 \\rangle$ is $u_1v_1 + u_2v_2$. Here, $(3)(5) + (-4)(12) = 15 - 48 = -33$."
+    },
+    {
+      "id": "act-math-153",
+      "day": 153,
+      "domain": "Functions",
+      "skill": "logarithmic functions",
+      "difficulty": "hard",
+      "prompt": "If $\\log_3(x - 1) + \\log_3(x + 1) = 1$, what is the real value of $x$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "2"
+        },
+        {
+          "id": "B",
+          "text": "\\sqrt{2}"
+        },
+        {
+          "id": "C",
+          "text": "0"
+        },
+        {
+          "id": "D",
+          "text": "not a real number"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Combine logarithms: $\\log_3((x - 1)(x + 1)) = \\log_3(x^2 - 1) = 1$. Rewrite in exponential form: $x^2 - 1 = 3^1 = 3 \\implies x^2 = 4 \\implies x = \\pm 2$. Since $x - 1 > 0$, $x$ must be greater than 1, so $x = 2$."
+    },
+    {
+      "id": "act-math-154",
+      "day": 154,
+      "domain": "Modeling/word problems",
+      "skill": "optimization",
+      "difficulty": "hard",
+      "prompt": "A farmer has 120 feet of fencing to enclose a rectangular garden against a straight river (no fencing is needed along the river). What is the maximum possible area of the garden, in square feet?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "900"
+        },
+        {
+          "id": "B",
+          "text": "1,200"
+        },
+        {
+          "id": "C",
+          "text": "1,800"
+        },
+        {
+          "id": "D",
+          "text": "3,600"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Let the width perpendicular to the river be $x$ and the length parallel be $120 - 2x$. The area function is $A(x) = x(120 - 2x) = 120x - 2x^2$. The maximum of a parabola $ax^2 + bx + c$ occurs at $x = \\frac{-b}{2a} = \\frac{-120}{2(-2)} = 30$. Substituting $x = 30$: $A(30) = 30(120 - 60) = 30(60) = 1,800$."
+    },
+    {
+      "id": "act-math-155",
+      "day": 155,
+      "domain": "Trigonometry",
+      "skill": "inverse trig",
+      "difficulty": "hard",
+      "prompt": "What is the exact value of $\\sin\\left(\\arccos\\left(\\frac{3}{5}\\right)\\right)$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\frac{3}{5}"
+        },
+        {
+          "id": "B",
+          "text": "\\frac{4}{5}"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{5}{4}"
+        },
+        {
+          "id": "D",
+          "text": "\\frac{5}{3}"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Let $\\theta = \\arccos\\left(\\frac{3}{5}\\right)$, meaning $\\cos(\\theta) = \\frac{3}{5}$. In a right triangle with adjacent side 3 and hypotenuse 5, the opposite side is $\\sqrt{5^2 - 3^2} = 4$. Thus, $\\sin(\\theta) = \\frac{4}{5}$."
+    },
+    {
+      "id": "act-math-156",
+      "day": 156,
+      "domain": "Algebra",
+      "skill": "sequences and series",
+      "difficulty": "hard",
+      "prompt": "What is the sum of the infinite geometric series $12 + 4 + \\frac{4}{3} + \\frac{4}{9} + \\dots$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "16"
+        },
+        {
+          "id": "B",
+          "text": "18"
+        },
+        {
+          "id": "C",
+          "text": "24"
+        },
+        {
+          "id": "D",
+          "text": "36"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "The sum of an infinite geometric series is given by $S = \\frac{a}{1 - r}$, where first term $a = 12$ and common ratio $r = \\frac{4}{12} = \\frac{1}{3}$. Thus, $S = \\frac{12}{1 - 1/3} = \\frac{12}{2/3} = 18$."
+    },
+    {
+      "id": "act-math-157",
+      "day": 157,
+      "domain": "Geometry",
+      "skill": "polygons",
+      "difficulty": "hard",
+      "prompt": "The area of a regular hexagon is $54\\sqrt{3}$ square inches. What is the perimeter of the hexagon, in inches?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "18"
+        },
+        {
+          "id": "B",
+          "text": "24"
+        },
+        {
+          "id": "C",
+          "text": "36"
+        },
+        {
+          "id": "D",
+          "text": "54"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "The area of a regular hexagon with side length $s$ is $A = \\frac{3\\sqrt{3}}{2}s^2$. Setting $\\frac{3\\sqrt{3}}{2}s^2 = 54\\sqrt{3}$ gives $\\frac{3}{2}s^2 = 54 \\implies 3s^2 = 108 \\implies s^2 = 36 \\implies s = 6$. The perimeter is $6s = 6(6) = 36$."
+    },
+    {
+      "id": "act-math-158",
+      "day": 158,
+      "domain": "Functions",
+      "skill": "asymptotes",
+      "difficulty": "hard",
+      "prompt": "What are the equations of all vertical asymptotes of the function $f(x) = \\frac{x^2 - 4}{x^2 - 5x + 6}$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "x = 2 only"
+        },
+        {
+          "id": "B",
+          "text": "x = 3 only"
+        },
+        {
+          "id": "C",
+          "text": "x = 2 and x = 3"
+        },
+        {
+          "id": "D",
+          "text": "x = -2 and x = 3"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Factor numerator and denominator: $f(x) = \\frac{(x-2)(x+2)}{(x-2)(x-3)}$. For $x \\neq 2$, this simplifies to $\\frac{x+2}{x-3}$. The factor $(x-2)$ cancels out, creating a hole at $x = 2$, while the factor $(x-3)$ in the denominator remains, yielding a vertical asymptote at $x = 3$."
+    },
+    {
+      "id": "act-math-159",
+      "day": 159,
+      "domain": "Data/statistics/probability",
+      "skill": "expected value",
+      "difficulty": "hard",
+      "prompt": "A continuous variable or discrete game pays $10 with probability 0.3, $20 with probability 0.5, and $50 with probability 0.2. What is the expected payout?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "$20"
+        },
+        {
+          "id": "B",
+          "text": "$23"
+        },
+        {
+          "id": "C",
+          "text": "$26"
+        },
+        {
+          "id": "D",
+          "text": "$30"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Expected value = $(10 \\times 0.3) + (20 \\times 0.5) + (50 \\times 0.2) = 3 + 10 + 10 = 23$."
+    },
+    {
+      "id": "act-math-160",
+      "day": 160,
+      "domain": "Trigonometry",
+      "skill": "identities",
+      "difficulty": "hard",
+      "prompt": "Which of the following expressions is equivalent to $\\frac{1 - \\cos(2x)}{\\sin(2x)}$ for all values where it is defined?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\tan(x)"
+        },
+        {
+          "id": "B",
+          "text": "\\cot(x)"
+        },
+        {
+          "id": "C",
+          "text": "\\sin(x)"
+        },
+        {
+          "id": "D",
+          "text": "\\cos(x)"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Use double angle formulas: $1 - \\cos(2x) = 2\\sin^2(x)$ and $\\sin(2x) = 2\\sin(x)\\cos(x)$. Then $\\frac{2\\sin^2(x)}{2\\sin(x)\\cos(x)} = \\frac{\\sin(x)}{\\cos(x)} = \\tan(x)$."
+    },
+    {
+      "id": "act-math-161",
+      "day": 161,
+      "domain": "Algebra",
+      "skill": "polynomial division",
+      "difficulty": "hard",
+      "prompt": "When $P(x) = 3x^3 - 2x^2 + kx - 5$ is divided by $x - 2$, the remainder is 15. What is the value of $k$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "-2"
+        },
+        {
+          "id": "B",
+          "text": "0"
+        },
+        {
+          "id": "C",
+          "text": "2"
+        },
+        {
+          "id": "D",
+          "text": "4"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "By the Remainder Theorem, $P(2) = 15$. Substitute $x = 2$: $3(2)^3 - 2(2)^2 + k(2) - 5 = 15 \\implies 3(8) - 2(4) + 2k - 5 = 15 \\implies 24 - 8 + 2k - 5 = 15 \\implies 11 + 2k = 15 \\implies 2k = 4 \\implies k = 2$."
+    },
+    {
+      "id": "act-math-162",
+      "day": 162,
+      "domain": "Geometry",
+      "skill": "coordinate geometry",
+      "difficulty": "hard",
+      "prompt": "What is the radius of the circle given by the general equation $x^2 + y^2 - 6x + 8y - 11 = 0$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "3"
+        },
+        {
+          "id": "B",
+          "text": "4"
+        },
+        {
+          "id": "C",
+          "text": "6"
+        },
+        {
+          "id": "D",
+          "text": "36"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Complete the square: $(x^2 - 6x + 9) + (y^2 + 8y + 16) = 11 + 9 + 16 \\implies (x - 3)^2 + (y + 4)^2 = 36$. Since $r^2 = 36$, the radius $r = 6$."
+    },
+    {
+      "id": "act-math-163",
+      "day": 163,
+      "domain": "Functions",
+      "skill": "inverse functions",
+      "difficulty": "hard",
+      "prompt": "If $f(x) = 5^{x-1} + 2$, what is $f^{-1}(7)$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "1"
+        },
+        {
+          "id": "B",
+          "text": "2"
+        },
+        {
+          "id": "C",
+          "text": "3"
+        },
+        {
+          "id": "D",
+          "text": "5"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Set $f(x) = 7$: $5^{x-1} + 2 = 7 \\implies 5^{x-1} = 5 \\implies x - 1 = 1 \\implies x = 2$."
+    },
+    {
+      "id": "act-math-164",
+      "day": 164,
+      "domain": "Modeling/word problems",
+      "skill": "exponential decay",
+      "difficulty": "hard",
+      "prompt": "A radioactive substance has a half-life of 30 years. If an initial sample has a mass of 80 grams, how many grams remain after 90 years?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "5"
+        },
+        {
+          "id": "B",
+          "text": "10"
+        },
+        {
+          "id": "C",
+          "text": "20"
+        },
+        {
+          "id": "D",
+          "text": "40"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "The number of half-lives elapsed is $\\frac{90}{30} = 3$. The remaining mass is $80 \\times \\left(\\frac{1}{2}\\right)^3 = 80 \\times \\frac{1}{8} = 10$ grams."
+    },
+    {
+      "id": "act-math-165",
+      "day": 165,
+      "domain": "Trigonometry",
+      "skill": "double angle formulas",
+      "difficulty": "hard",
+      "prompt": "If $\\sin(x) = \\frac{4}{5}$ and $x$ is in the first quadrant, what is the value of $\\sin(2x)$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\frac{7}{25}"
+        },
+        {
+          "id": "B",
+          "text": "\\frac{12}{25}"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{16}{25}"
+        },
+        {
+          "id": "D",
+          "text": "\\frac{24}{25}"
+        }
+      ],
+      "correctChoiceID": "D",
+      "explanation": "Since $\\sin(x) = \\frac{4}{5}$ in the first quadrant, $\\cos(x) = \\frac{3}{5}$. Use the double-angle formula $\\sin(2x) = 2\\sin(x)\\cos(x) = 2\\left(\\frac{4}{5}\\right)\\left(\\frac{3}{5}\\right) = \\frac{24}{25}$."
+    },
+    {
+      "id": "act-math-166",
+      "day": 166,
+      "domain": "Algebra",
+      "skill": "absolute value inequalities",
+      "difficulty": "hard",
+      "prompt": "What is the solution set for the inequality $|3x - 2| \\geq 7$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "-\\frac{5}{3} \\leq x \\leq 3"
+        },
+        {
+          "id": "B",
+          "text": "x \\leq -\\frac{5}{3} \\text{ or } x \\geq 3"
+        },
+        {
+          "id": "C",
+          "text": "-3 \\leq x \\leq \\frac{5}{3}"
+        },
+        {
+          "id": "D",
+          "text": "x \\leq -3 \\text{ or } x \\geq \\frac{5}{3}"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Split into two inequalities: $3x - 2 \\geq 7$ or $3x - 2 \\leq -7$. Solving the first gives $3x \\geq 9 \\implies x \\geq 3$. Solving the second gives $3x \\leq -5 \\implies x \\leq --\\frac{5}{3}$. Thus, $x \\leq -\\frac{5}{3}$ or $x \\geq 3$."
+    },
+    {
+      "id": "act-math-167",
+      "day": 167,
+      "domain": "Geometry",
+      "skill": "three-dimensional geometry",
+      "difficulty": "hard",
+      "prompt": "What is the length of the longest diagonal of a rectangular box with dimensions 3 cm, 4 cm, and 12 cm?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "13"
+        },
+        {
+          "id": "B",
+          "text": "14"
+        },
+        {
+          "id": "C",
+          "text": "15"
+        },
+        {
+          "id": "D",
+          "text": "17"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "The space diagonal of a rectangular box is given by $d = \\sqrt{l^2 + w^2 + h^2}$. Here, $d = \\sqrt{3^2 + 4^2 + 12^2} = \\sqrt{9 + 16 + 144} = \\sqrt{169} = 13$."
+    },
+    {
+      "id": "act-math-168",
+      "day": 168,
+      "domain": "Functions",
+      "skill": "composite functions",
+      "difficulty": "hard",
+      "prompt": "Given $f(x) = 3x - 2$ and $f(g(x)) = 6x + 4$, what is the function $g(x)$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "2x + 2"
+        },
+        {
+          "id": "B",
+          "text": "2x + 3"
+        },
+        {
+          "id": "C",
+          "text": "3x + 2"
+        },
+        {
+          "id": "D",
+          "text": "6x + 2"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Substitute $g(x)$ into $f$: $3g(x) - 2 = 6x + 4$. Add 2 to both sides: $3g(x) = 6x + 6$. Divide by 3: $g(x) = 2x + 2$."
+    },
+    {
+      "id": "act-math-169",
+      "day": 169,
+      "domain": "Data/statistics/probability",
+      "skill": "combinations",
+      "difficulty": "hard",
+      "prompt": "A club has 6 men and 4 women. A subcommittee of 4 members is to be formed containing exactly 2 men and 2 women. How many different subcommittees can be formed?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "60"
+        },
+        {
+          "id": "B",
+          "text": "90"
+        },
+        {
+          "id": "C",
+          "text": "120"
+        },
+        {
+          "id": "D",
+          "text": "210"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Choose 2 men out of 6: $C(6, 2) = \\frac{6 \\times 5}{2} = 15$. Choose 2 women out of 4: $C(4, 2) = \\frac{4 \\times 3}{2} = 6$. Multiply the combinations: $15 \\times 6 = 90$."
+    },
+    {
+      "id": "act-math-170",
+      "day": 170,
+      "domain": "Trigonometry",
+      "skill": "trig equations",
+      "difficulty": "hard",
+      "prompt": "What is the minimum value of the function $f(x) = 5 - 3\\cos(4x)$ for all real numbers $x$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "-3"
+        },
+        {
+          "id": "B",
+          "text": "2"
+        },
+        {
+          "id": "C",
+          "text": "5"
+        },
+        {
+          "id": "D",
+          "text": "8"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "The expression $\\cos(4x)$ ranges from $-1$ to $1$. To minimize $5 - 3\\cos(4x)$, use the largest possible value of cosine, $1$. The minimum is $5 - 3(1) = 2$."
+    },
+    {
+      "id": "act-math-171",
+      "day": 171,
+      "domain": "Algebra",
+      "skill": "rational expressions",
+      "difficulty": "hard",
+      "prompt": "Which of the following is equivalent to $\\frac{x^3 - 8}{x^2 - 4}$ for all $x \\neq 2$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "x - 2"
+        },
+        {
+          "id": "B",
+          "text": "x + 2"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{x^2 + 2x + 4}{x + 2}"
+        },
+        {
+          "id": "D",
+          "text": "\\frac{x^2 - 2x + 4}{x + 2}"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Factor numerator using difference of cubes ($x^3 - 8 = (x-2)(x^2 + 2x + 4)$) and denominator using difference of squares ($x^2 - 4 = (x-2)(x+2)$). Cancel the common factor $(x-2)$ to get $\\frac{x^2 + 2x + 4}{x + 2}$."
+    },
+    {
+      "id": "act-math-172",
+      "day": 172,
+      "domain": "Geometry",
+      "skill": "circles",
+      "difficulty": "hard",
+      "prompt": "A tangent segment of length 12 cm is drawn to a circle from an external point $P$. If the distance from point $P$ to the center of the circle is 13 cm, what is the radius of the circle, in centimeters?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "5"
+        },
+        {
+          "id": "B",
+          "text": "7"
+        },
+        {
+          "id": "C",
+          "text": "sqrt(313)"
+        },
+        {
+          "id": "D",
+          "text": "25"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "The radius drawn to the point of tangency is perpendicular to the tangent segment, forming a right triangle with legs $r$ and tangent length 12, and hypotenuse 13. By the Pythagorean theorem: $r^2 + 12^2 = 13^2 \\implies r^2 + 144 = 169 \\implies r^2 = 25 \\implies r = 5$."
+    },
+    {
+      "id": "act-math-173",
+      "day": 173,
+      "domain": "Functions",
+      "skill": "exponential functions",
+      "difficulty": "hard",
+      "prompt": "If $2^{3x} = 32^{x-1}$, what is the value of $x$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\frac{5}{2}"
+        },
+        {
+          "id": "B",
+          "text": "3"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{7}{2}"
+        },
+        {
+          "id": "D",
+          "text": "5"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Rewrite 32 as $2^5$: $2^{3x} = (2^5)^{x-1} \\implies 2^{3x} = 2^{5x - 5}$. Equate exponents: $3x = 5x - 5 \\implies 2x = 5 \\implies x = \\frac{5}{2}$."
+    },
+    {
+      "id": "act-math-174",
+      "day": 174,
+      "domain": "Modeling/word problems",
+      "skill": "rates",
+      "difficulty": "hard",
+      "prompt": "Pipe A can fill a tank in 3 hours, and Pipe B can fill the same tank in 4 hours. A drain pipe can empty the tank in 12 hours. If all three pipes are open simultaneously, how many hours will it take to fill the empty tank?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "1.5"
+        },
+        {
+          "id": "B",
+          "text": "2.0"
+        },
+        {
+          "id": "C",
+          "text": "2.4"
+        },
+        {
+          "id": "D",
+          "text": "3.0"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Combined rate is $\\frac{1}{3} + \\frac{1}{4} - \\frac{1}{12} = \\frac{4}{12} + \\frac{3}{12} - \\frac{1}{12} = \\frac{6}{12} = \\frac{1}{2}$ of the tank per hour. The time required is the reciprocal: $\\frac{2}{1} = 2.0$ hours."
+    },
+    {
+      "id": "act-math-175",
+      "day": 175,
+      "domain": "Trigonometry",
+      "skill": "law of cosines",
+      "difficulty": "hard",
+      "prompt": "In triangle $ABC$, side $b = 5$, side $c = 7$, and the included angle $A = 60^{\\circ}$. What is the length of side $a$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\sqrt{39}"
+        },
+        {
+          "id": "B",
+          "text": "\\sqrt{74}"
+        },
+        {
+          "id": "C",
+          "text": "39"
+        },
+        {
+          "id": "D",
+          "text": "74"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Use the Law of Cosines: $a^2 = b^2 + c^2 - 2bc \\cos(A) = 5^2 + 7^2 - 2(5)(7)\\cos(60^{\\circ}) = 25 + 49 - 70(0.5) = 74 - 35 = 39$. Thus, $a = \\sqrt{39}$."
+    },
+    {
+      "id": "act-math-176",
+      "day": 176,
+      "domain": "Algebra",
+      "skill": "matrices",
+      "difficulty": "hard",
+      "prompt": "What is the inverse of the 2x2 matrix $\\begin{bmatrix} 2 & 1 \\\\ 5 & 3 \\end{bmatrix}$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\begin{bmatrix} 3 & -1 \\ -5 & 2 \\end{bmatrix}"
+        },
+        {
+          "id": "B",
+          "text": "\\begin{bmatrix} -3 & 1 \\ 5 & -2 \\end{bmatrix}"
+        },
+        {
+          "id": "C",
+          "text": "\\begin{bmatrix} 2 & -1 \\ -5 & 3 \\end{bmatrix}"
+        },
+        {
+          "id": "D",
+          "text": "\\begin{bmatrix} 3 & 5 \\ 1 & 2 \\end{bmatrix}"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "The inverse of $\\begin{bmatrix} a & b \\\\ c & d \\end{bmatrix}$ is $\\frac{1}{ad-bc} \\begin{bmatrix} d & -b \\\\ -c & a \\end{bmatrix}$. The determinant is $(2)(3) - (1)(5) = 1$. Swapping $a$ and $d$ and negating $b$ and $c$ gives $\\begin{bmatrix} 3 & -1 \\\\ -5 & 2 \\end{bmatrix}$."
+    },
+    {
+      "id": "act-math-177",
+      "day": 177,
+      "domain": "Geometry",
+      "skill": "conic sections",
+      "difficulty": "hard",
+      "prompt": "What are the coordinates of the foci of the ellipse given by $\\frac{x^2}{25} + \\frac{y^2}{9} = 1$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "(\\pm 3, 0)"
+        },
+        {
+          "id": "B",
+          "text": "(\\pm 4, 0)"
+        },
+        {
+          "id": "C",
+          "text": "(0, \\pm 4)"
+        },
+        {
+          "id": "D",
+          "text": "(0, \\pm 5)"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "For an ellipse $\\frac{x^2}{a^2} + \\frac{y^2}{b^2} = 1$, $a^2 = 25$ and $b^2 = 9$. The distance $c$ from the center to each focus is given by $c^2 = a^2 - b^2 = 25 - 9 = 16 \\implies c = 4$. Since the major axis is horizontal, the foci are at $(\\pm 4, 0)$."
+    },
+    {
+      "id": "act-math-178",
+      "day": 178,
+      "domain": "Functions",
+      "skill": "composite functions",
+      "difficulty": "hard",
+      "prompt": "Given $f(x) = x^2$ and $g(x) = x + 1$, for what value of $x$ does $f(g(x)) = g(f(x))$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "0"
+        },
+        {
+          "id": "B",
+          "text": "1"
+        },
+        {
+          "id": "C",
+          "text": "-1"
+        },
+        {
+          "id": "D",
+          "text": "2"
+        }
+      ],
+      "correctChoiceID": "A",
+      "explanation": "Compute $f(g(x)) = (x + 1)^2 = x^2 + 2x + 1$. Compute $g(f(x)) = x^2 + 1$. Set them equal: $x^2 + 2x + 1 = x^2 + 1 \\implies 2x = 0 \\implies x = 0$."
+    },
+    {
+      "id": "act-math-179",
+      "day": 179,
+      "domain": "Data/statistics/probability",
+      "skill": "probability",
+      "difficulty": "hard",
+      "prompt": "A box contains 3 red marbles and 2 blue marbles. Two marbles are drawn simultaneously at random. What is the probability that at least one red marble is drawn?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "\\frac{3}{10}"
+        },
+        {
+          "id": "B",
+          "text": "\\frac{7}{10}"
+        },
+        {
+          "id": "C",
+          "text": "\\frac{9}{10}"
+        },
+        {
+          "id": "D",
+          "text": "\\frac{4}{5}"
+        }
+      ],
+      "correctChoiceID": "C",
+      "explanation": "Use the complement rule: $P(\\text{at least one red}) = 1 - P(\\text{no red})$. The probability of drawing 2 blue marbles out of 2 blue from a total of 5 is $\\frac{C(2, 2)}{C(5, 2)} = \\frac{1}{10}$. Thus, $1 - \\frac{1}{10} = \\frac{9}{10}$."
+    },
+    {
+      "id": "act-math-180",
+      "day": 180,
+      "domain": "Algebra",
+      "skill": "mixed review",
+      "difficulty": "hard",
+      "prompt": "What is the sum of all solutions to the absolute value equation $|2x - 3| = x + 5$?",
+      "choices": [
+        {
+          "id": "A",
+          "text": "-1"
+        },
+        {
+          "id": "B",
+          "text": "rac{22}{3}"
+        },
+        {
+          "id": "C",
+          "text": "8"
+        },
+        {
+          "id": "D",
+          "text": "10"
+        }
+      ],
+      "correctChoiceID": "B",
+      "explanation": "Split into two cases. If $2x - 3 = x + 5$, then $x = 8$. If $2x - 3 = -(x + 5)$, then $3x = -2$ and $x = -\frac{2}{3}$. Both solutions are valid, so their sum is $8 - \frac{2}{3} = \frac{22}{3}$."
+    }
+  ]
+}

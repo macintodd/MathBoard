@@ -22,6 +22,7 @@ import PDFKit
 public final class SlideStore {
 
     public private(set) var slides: [SlideMetadata]
+    public private(set) var lastActiveSlideID: UUID?
 
     private let lessonURL: URL
     private let classroomSessionCode: String?
@@ -30,6 +31,7 @@ public final class SlideStore {
     private static let manifestFileName = "slides.json"
     private static let strokesDirName = "strokes"
     private static let classSessionsDirName = "class-sessions"
+    private static let classSessionEditsFileName = "edited-slides.json"
     private static let assetsDirName = "assets"
     private static let legacyDrawingFileName = "main.drawing"
     private static let canvasSidecarExtensions = [
@@ -45,14 +47,13 @@ public final class SlideStore {
     private static let canvasSidecarDirectoryExtensions = ["imageobjects"]
 
     public init(lessonURL: URL, classroomSessionCode: String? = nil) {
+        let normalizedCode = Self.normalizedClassroomSessionCode(classroomSessionCode)
         self.lessonURL = lessonURL
-        self.classroomSessionCode = Self.normalizedClassroomSessionCode(classroomSessionCode)
+        self.classroomSessionCode = normalizedCode
         self.fileManager = .default
-        self.slides = Self.loadOrMigrate(
-            lessonURL: lessonURL,
-            classroomSessionCode: Self.normalizedClassroomSessionCode(classroomSessionCode),
-            fileManager: .default
-        )
+        let loaded = Self.loadOrMigrate(lessonURL: lessonURL, classroomSessionCode: normalizedCode, fileManager: .default)
+        self.slides = loaded.slides
+        self.lastActiveSlideID = loaded.lastActiveSlideID
     }
 
     /// File URL where the given slide's `PKDrawing` data lives. Returned
@@ -162,6 +163,118 @@ public final class SlideStore {
         try updateViewport(viewport, forSlideAt: index)
     }
 
+    public static func propagateMasterContent(
+        lessonURL: URL,
+        toClassSessionCodes classSessionCodes: [String]
+    ) {
+        let normalizedCodes = Set(classSessionCodes.compactMap(Self.normalizedClassroomSessionCode))
+        guard !normalizedCodes.isEmpty else { return }
+
+        let masterSlides = loadOrMigrateMasterSlides(lessonURL: lessonURL, fileManager: .default)
+        for sessionCode in normalizedCodes {
+            let sessionStore = SlideStore(lessonURL: lessonURL, classroomSessionCode: sessionCode)
+            let editedSlideIDs = loadClassSessionEditedSlideIDs(
+                lessonURL: lessonURL,
+                sessionCode: sessionCode,
+                fileManager: .default
+            )
+            let deletedSlideIDs = loadClassSessionDeletedSlideIDs(
+                lessonURL: lessonURL,
+                sessionCode: sessionCode,
+                fileManager: .default
+            )
+            let isSlideOrderEdited = loadClassSessionEditManifest(
+                lessonURL: lessonURL,
+                sessionCode: sessionCode,
+                fileManager: .default
+            ).isSlideOrderEdited
+            _ = sessionStore.mergeMasterSlides(
+                masterSlides,
+                preservingEditedSlideIDs: editedSlideIDs,
+                deletedSlideIDs: deletedSlideIDs,
+                preservingSlideOrder: isSlideOrderEdited
+            )
+
+            for slide in masterSlides {
+                guard !editedSlideIDs.contains(slide.id),
+                      !deletedSlideIDs.contains(slide.id) else { continue }
+                let masterDrawingURL = drawingURL(in: lessonURL, slideID: slide.id)
+                let sessionDrawingURL = sessionDrawingURL(
+                    in: lessonURL,
+                    sessionCode: sessionCode,
+                    slideID: slide.id
+                )
+                replaceCanvasState(
+                    from: masterDrawingURL,
+                    to: sessionDrawingURL,
+                    fileManager: .default
+                )
+            }
+        }
+    }
+
+    public static func markClassSessionSlideEdited(
+        lessonURL: URL,
+        classroomSessionCode: String?,
+        slideID: UUID
+    ) {
+        guard let sessionCode = normalizedClassroomSessionCode(classroomSessionCode) else { return }
+        var editedSlideIDs = loadClassSessionEditedSlideIDs(
+            lessonURL: lessonURL,
+            sessionCode: sessionCode,
+            fileManager: .default
+        )
+        guard editedSlideIDs.insert(slideID).inserted else { return }
+        saveClassSessionEditedSlideIDs(
+            editedSlideIDs,
+            lessonURL: lessonURL,
+            sessionCode: sessionCode,
+            fileManager: .default
+        )
+    }
+
+    public static func markClassSessionSlideDeleted(
+        lessonURL: URL,
+        classroomSessionCode: String?,
+        slideID: UUID
+    ) {
+        guard let sessionCode = normalizedClassroomSessionCode(classroomSessionCode) else { return }
+        var manifest = loadClassSessionEditManifest(
+            lessonURL: lessonURL,
+            sessionCode: sessionCode,
+            fileManager: .default
+        )
+        manifest.editedSlideIDs.removeAll { $0 == slideID }
+        guard !manifest.deletedSlideIDs.contains(slideID) else { return }
+        manifest.deletedSlideIDs.append(slideID)
+        saveClassSessionEditManifest(
+            manifest,
+            lessonURL: lessonURL,
+            sessionCode: sessionCode,
+            fileManager: .default
+        )
+    }
+
+    public static func markClassSessionSlideOrderEdited(
+        lessonURL: URL,
+        classroomSessionCode: String?
+    ) {
+        guard let sessionCode = normalizedClassroomSessionCode(classroomSessionCode) else { return }
+        var manifest = loadClassSessionEditManifest(
+            lessonURL: lessonURL,
+            sessionCode: sessionCode,
+            fileManager: .default
+        )
+        guard !manifest.isSlideOrderEdited else { return }
+        manifest.isSlideOrderEdited = true
+        saveClassSessionEditManifest(
+            manifest,
+            lessonURL: lessonURL,
+            sessionCode: sessionCode,
+            fileManager: .default
+        )
+    }
+
     @discardableResult
     public func mergeTeacherSlides(
         _ teacherSlides: [SlideMetadata],
@@ -184,6 +297,65 @@ public final class SlideStore {
         }
 
         slides = mergedTeacherSlides + remainingLocalSlides
+        guard slides != originalSlides else { return false }
+        saveManifest()
+        return true
+    }
+
+    @discardableResult
+    private func mergeMasterSlides(
+        _ masterSlides: [SlideMetadata],
+        preservingEditedSlideIDs editedSlideIDs: Set<UUID>,
+        deletedSlideIDs: Set<UUID>,
+        preservingSlideOrder: Bool
+    ) -> Bool {
+        guard !masterSlides.isEmpty else { return false }
+
+        let originalSlides = slides
+        let visibleMasterSlides = masterSlides.filter { !deletedSlideIDs.contains($0.id) }
+        let masterSlideIDs = Set(visibleMasterSlides.map(\.id))
+        let masterSlidesByID = Dictionary(uniqueKeysWithValues: visibleMasterSlides.map { ($0.id, $0) })
+
+        let mergedMasterSlides: [SlideMetadata]
+        if preservingSlideOrder {
+            var emittedSlideIDs = Set<UUID>()
+            var orderedSlides: [SlideMetadata] = originalSlides.compactMap { localSlide in
+                guard let masterSlide = masterSlidesByID[localSlide.id] else {
+                    return editedSlideIDs.contains(localSlide.id) && !deletedSlideIDs.contains(localSlide.id)
+                        ? localSlide
+                        : nil
+                }
+                emittedSlideIDs.insert(localSlide.id)
+                if editedSlideIDs.contains(localSlide.id) {
+                    return localSlide
+                }
+                var mergedSlide = masterSlide
+                mergedSlide.viewport = localSlide.viewport ?? masterSlide.viewport
+                return mergedSlide
+            }
+            orderedSlides.append(contentsOf: visibleMasterSlides.filter { !emittedSlideIDs.contains($0.id) })
+            mergedMasterSlides = orderedSlides
+        } else {
+            mergedMasterSlides = visibleMasterSlides.map { masterSlide in
+                if editedSlideIDs.contains(masterSlide.id),
+                   let localSlide = originalSlides.first(where: { $0.id == masterSlide.id }) {
+                    return localSlide
+                }
+                if let localSlide = originalSlides.first(where: { $0.id == masterSlide.id }) {
+                    var mergedSlide = masterSlide
+                    mergedSlide.viewport = localSlide.viewport ?? masterSlide.viewport
+                    return mergedSlide
+                }
+                return masterSlide
+            }
+        }
+        let remainingEditedLocalSlides = preservingSlideOrder ? [] : originalSlides.filter { localSlide in
+            !masterSlideIDs.contains(localSlide.id)
+                && editedSlideIDs.contains(localSlide.id)
+                && !deletedSlideIDs.contains(localSlide.id)
+        }
+
+        slides = mergedMasterSlides + remainingEditedLocalSlides
         guard slides != originalSlides else { return false }
         saveManifest()
         return true
@@ -277,26 +449,44 @@ public final class SlideStore {
         let url = Self.manifestURL(in: lessonURL, classroomSessionCode: classroomSessionCode)
         do {
             try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            let data = try Self.jsonEncoder.encode(SlideManifest(slides: slides))
+            let data = try Self.jsonEncoder.encode(SlideManifest(slides: slides, lastActiveSlideID: lastActiveSlideID))
             try data.write(to: url, options: .atomic)
         } catch {
             print("[Slides] save error: \(error)")
         }
     }
 
+    public func saveLastActiveSlide(_ slideID: UUID) {
+        guard slides.contains(where: { $0.id == slideID }) else { return }
+        guard lastActiveSlideID != slideID else { return }
+        lastActiveSlideID = slideID
+        saveManifest()
+    }
+
     private static func loadOrMigrate(
         lessonURL: URL,
         classroomSessionCode: String?,
         fileManager: FileManager
-    ) -> [SlideMetadata] {
+    ) -> (slides: [SlideMetadata], lastActiveSlideID: UUID?) {
         let masterSlides = loadOrMigrateMasterSlides(lessonURL: lessonURL, fileManager: fileManager)
-        guard let classroomSessionCode else { return masterSlides }
+        guard let classroomSessionCode else {
+            // Master context — re-read the master manifest to pick up lastActiveSlideID.
+            let masterManifestURL = manifestURL(in: lessonURL, classroomSessionCode: nil)
+            let lastActiveSlideID: UUID?
+            if let data = try? Data(contentsOf: masterManifestURL),
+               let manifest = try? jsonDecoder.decode(SlideManifest.self, from: data) {
+                lastActiveSlideID = manifest.lastActiveSlideID
+            } else {
+                lastActiveSlideID = nil
+            }
+            return (slides: masterSlides, lastActiveSlideID: lastActiveSlideID)
+        }
 
         let sessionManifestURL = manifestURL(in: lessonURL, classroomSessionCode: classroomSessionCode)
         if let data = try? Data(contentsOf: sessionManifestURL),
            let manifest = try? jsonDecoder.decode(SlideManifest.self, from: data),
            !manifest.slides.isEmpty {
-            return manifest.slides
+            return (slides: manifest.slides, lastActiveSlideID: manifest.lastActiveSlideID)
         }
 
         do {
@@ -309,7 +499,7 @@ public final class SlideStore {
         } catch {
             print("[Slides] class session manifest seed error: \(error)")
         }
-        return masterSlides
+        return (slides: masterSlides, lastActiveSlideID: nil)
     }
 
     private static func loadOrMigrateMasterSlides(lessonURL: URL, fileManager: FileManager) -> [SlideMetadata] {
@@ -368,6 +558,13 @@ public final class SlideStore {
             .appendingPathComponent("slide-\(slideID.uuidString).drawing")
     }
 
+    private static func classSessionEditsURL(in lessonURL: URL, sessionCode: String) -> URL {
+        lessonURL
+            .appendingPathComponent(classSessionsDirName, isDirectory: true)
+            .appendingPathComponent(sessionCode, isDirectory: true)
+            .appendingPathComponent(classSessionEditsFileName)
+    }
+
     private static func normalizedClassroomSessionCode(_ code: String?) -> String? {
         let normalized = (code ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -417,6 +614,35 @@ public final class SlideStore {
         }
     }
 
+    private static func replaceCanvasState(
+        from masterDrawingURL: URL,
+        to sessionDrawingURL: URL,
+        fileManager: FileManager
+    ) {
+        do {
+            try replaceItemIfPresent(from: masterDrawingURL, to: sessionDrawingURL, fileManager: fileManager)
+
+            let masterBaseURL = masterDrawingURL.deletingPathExtension()
+            let sessionBaseURL = sessionDrawingURL.deletingPathExtension()
+            for sidecarExtension in canvasSidecarExtensions {
+                try replaceItemIfPresent(
+                    from: masterBaseURL.appendingPathExtension(sidecarExtension),
+                    to: sessionBaseURL.appendingPathExtension(sidecarExtension),
+                    fileManager: fileManager
+                )
+            }
+            for directoryExtension in canvasSidecarDirectoryExtensions {
+                try replaceItemIfPresent(
+                    from: masterBaseURL.appendingPathExtension(directoryExtension),
+                    to: sessionBaseURL.appendingPathExtension(directoryExtension),
+                    fileManager: fileManager
+                )
+            }
+        } catch {
+            print("[Slides] class session master propagation error: \(error)")
+        }
+    }
+
     private static func copyItemIfPresent(from sourceURL: URL, to destinationURL: URL, fileManager: FileManager) throws {
         guard fileManager.fileExists(atPath: sourceURL.path),
               !fileManager.fileExists(atPath: destinationURL.path) else {
@@ -429,8 +655,115 @@ public final class SlideStore {
         try fileManager.copyItem(at: sourceURL, to: destinationURL)
     }
 
+    private static func replaceItemIfPresent(from sourceURL: URL, to destinationURL: URL, fileManager: FileManager) throws {
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            try fileManager.removeItem(at: destinationURL)
+        }
+        guard fileManager.fileExists(atPath: sourceURL.path) else { return }
+        try fileManager.createDirectory(
+            at: destinationURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try fileManager.copyItem(at: sourceURL, to: destinationURL)
+    }
+
+    private static func loadClassSessionEditedSlideIDs(
+        lessonURL: URL,
+        sessionCode: String,
+        fileManager: FileManager
+    ) -> Set<UUID> {
+        Set(loadClassSessionEditManifest(
+            lessonURL: lessonURL,
+            sessionCode: sessionCode,
+            fileManager: fileManager
+        ).editedSlideIDs)
+    }
+
+    private static func loadClassSessionDeletedSlideIDs(
+        lessonURL: URL,
+        sessionCode: String,
+        fileManager: FileManager
+    ) -> Set<UUID> {
+        Set(loadClassSessionEditManifest(
+            lessonURL: lessonURL,
+            sessionCode: sessionCode,
+            fileManager: fileManager
+        ).deletedSlideIDs)
+    }
+
+    private static func saveClassSessionEditedSlideIDs(
+        _ editedSlideIDs: Set<UUID>,
+        lessonURL: URL,
+        sessionCode: String,
+        fileManager: FileManager
+    ) {
+        var manifest = loadClassSessionEditManifest(
+            lessonURL: lessonURL,
+            sessionCode: sessionCode,
+            fileManager: fileManager
+        )
+        manifest.editedSlideIDs = editedSlideIDs.sorted { $0.uuidString < $1.uuidString }
+        saveClassSessionEditManifest(manifest, lessonURL: lessonURL, sessionCode: sessionCode, fileManager: fileManager)
+    }
+
+    private static func loadClassSessionEditManifest(
+        lessonURL: URL,
+        sessionCode: String,
+        fileManager: FileManager
+    ) -> ClassSessionEditManifest {
+        let url = classSessionEditsURL(in: lessonURL, sessionCode: sessionCode)
+        guard let data = try? Data(contentsOf: url),
+              let manifest = try? jsonDecoder.decode(ClassSessionEditManifest.self, from: data) else {
+            return ClassSessionEditManifest()
+        }
+        return manifest
+    }
+
+    private static func saveClassSessionEditManifest(
+        _ manifest: ClassSessionEditManifest,
+        lessonURL: URL,
+        sessionCode: String,
+        fileManager: FileManager
+    ) {
+        let url = classSessionEditsURL(in: lessonURL, sessionCode: sessionCode)
+        do {
+            try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            var normalizedManifest = manifest
+            normalizedManifest.editedSlideIDs.sort { $0.uuidString < $1.uuidString }
+            normalizedManifest.deletedSlideIDs.sort { $0.uuidString < $1.uuidString }
+            let data = try jsonEncoder.encode(normalizedManifest)
+            try data.write(to: url, options: .atomic)
+        } catch {
+            print("[Slides] class session edit manifest save error: \(error)")
+        }
+    }
+
     private struct SlideManifest: Codable {
         let slides: [SlideMetadata]
+        var lastActiveSlideID: UUID? = nil
+    }
+
+    private struct ClassSessionEditManifest: Codable {
+        var editedSlideIDs: [UUID]
+        var deletedSlideIDs: [UUID]
+        var isSlideOrderEdited: Bool
+
+        init(
+            editedSlideIDs: [UUID] = [],
+            deletedSlideIDs: [UUID] = [],
+            isSlideOrderEdited: Bool = false
+        ) {
+            self.editedSlideIDs = editedSlideIDs
+            self.deletedSlideIDs = deletedSlideIDs
+            self.isSlideOrderEdited = isSlideOrderEdited
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            editedSlideIDs = try container.decodeIfPresent([UUID].self, forKey: .editedSlideIDs) ?? []
+            deletedSlideIDs = try container.decodeIfPresent([UUID].self, forKey: .deletedSlideIDs) ?? []
+            isSlideOrderEdited = try container.decodeIfPresent(Bool.self, forKey: .isSlideOrderEdited) ?? false
+        }
     }
 
     private static let jsonEncoder: JSONEncoder = {

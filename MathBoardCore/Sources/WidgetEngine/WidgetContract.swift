@@ -22,6 +22,7 @@ public struct WidgetObject: MathBoardObject, Codable, Equatable {
     public var name: String
     public var codeString: String
     public var activityRuntimeState: WidgetActivityRuntimeState?
+    public var builtInRuntimeState: [String: String]
     public var isPinnedToCanvas: Bool
     public var librarySourceCodeString: String?
     public var hasRecordedLibraryDerivative: Bool
@@ -34,6 +35,7 @@ public struct WidgetObject: MathBoardObject, Codable, Equatable {
         codeString: String,
         frame: CGRect,
         activityRuntimeState: WidgetActivityRuntimeState? = nil,
+        builtInRuntimeState: [String: String] = [:],
         isPinnedToCanvas: Bool = false,
         librarySourceCodeString: String? = nil,
         hasRecordedLibraryDerivative: Bool = false,
@@ -45,6 +47,7 @@ public struct WidgetObject: MathBoardObject, Codable, Equatable {
         self.codeString = codeString
         self.frame = frame
         self.activityRuntimeState = activityRuntimeState
+        self.builtInRuntimeState = builtInRuntimeState
         self.isPinnedToCanvas = isPinnedToCanvas
         self.librarySourceCodeString = librarySourceCodeString
         self.hasRecordedLibraryDerivative = hasRecordedLibraryDerivative
@@ -58,6 +61,7 @@ public struct WidgetObject: MathBoardObject, Codable, Equatable {
         case name
         case codeString
         case activityRuntimeState
+        case builtInRuntimeState
         case isPinnedToCanvas
         case librarySourceCodeString
         case hasRecordedLibraryDerivative
@@ -72,6 +76,7 @@ public struct WidgetObject: MathBoardObject, Codable, Equatable {
         name = try container.decode(String.self, forKey: .name)
         codeString = try container.decode(String.self, forKey: .codeString)
         activityRuntimeState = try container.decodeIfPresent(WidgetActivityRuntimeState.self, forKey: .activityRuntimeState)
+        builtInRuntimeState = try container.decodeIfPresent([String: String].self, forKey: .builtInRuntimeState) ?? [:]
         isPinnedToCanvas = try container.decodeIfPresent(Bool.self, forKey: .isPinnedToCanvas) ?? false
         librarySourceCodeString = try container.decodeIfPresent(String.self, forKey: .librarySourceCodeString)
         hasRecordedLibraryDerivative = try container.decodeIfPresent(Bool.self, forKey: .hasRecordedLibraryDerivative) ?? false
@@ -87,6 +92,7 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
     case coordinateGridGenerator
     case functionTransformationExplorer
     case matchGrid
+    case actDailyPractice
 
     public var id: String { rawValue }
 
@@ -98,6 +104,7 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
         case .coordinateGridGenerator: return "Coordinate Grid Generator"
         case .functionTransformationExplorer: return "Function Transformation Explorer"
         case .matchGrid: return "MatchGrid"
+        case .actDailyPractice: return "ACT Daily Practice"
         }
     }
 
@@ -115,6 +122,8 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
             return "Native applet for exploring y = a(x - h)^2 + k with live parameter sliders."
         case .matchGrid:
             return "Teacher-led 6 x 6 classroom matching game with equations, formulas, All Play prompts, and local scoring."
+        case .actDailyPractice:
+            return "Daily ACT Math practice problem bank with topic browsing, search, and scoreable live-progress reporting."
         }
     }
 
@@ -132,6 +141,8 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
             return ["built-in", "interactive", "function transformations", "quadratics", "graphing"]
         case .matchGrid:
             return ["built-in", "interactive", "matching game", "linear equations", "formulas", "local scoring"]
+        case .actDailyPractice:
+            return ["built-in", "interactive", "ACT", "daily practice", "test prep", "scoreable"]
         }
     }
 
@@ -143,12 +154,14 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
         case .coordinateGridGenerator: return CGSize(width: 720, height: 560)
         case .functionTransformationExplorer: return CGSize(width: 640, height: 520)
         case .matchGrid: return CGSize(width: 940, height: 680)
+        case .actDailyPractice: return CGSize(width: 760, height: 620)
         }
     }
 
     public var scoreableTaskCount: Int {
         switch self {
         case .inequalitiesExplorer: return 50
+        case .actDailyPractice: return 1
         case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator, .functionTransformationExplorer, .matchGrid: return 0
         }
     }
@@ -156,6 +169,7 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
     public var pointsPerTask: Int {
         switch self {
         case .inequalitiesExplorer: return 10
+        case .actDailyPractice: return 1
         case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator, .functionTransformationExplorer, .matchGrid: return 0
         }
     }
@@ -248,6 +262,7 @@ extension WidgetObject {
         }
 
         guard let document = activityDocument else { return nil }
+        guard document.pedagogicalWorkflow != .conceptualInteractive else { return nil }
         let runtimeState = activityRuntimeState ?? WidgetActivityRuntimeState(
             multipleChoice: WidgetMultipleChoiceRuntimeState.initial(for: document),
             fillInTheBlank: WidgetFillInTheBlankRuntimeState.initial(for: document)
@@ -263,6 +278,8 @@ extension WidgetObject {
             switch builtInInteractiveKind {
             case .inequalitiesExplorer:
                 return InequalityExplorerStateRegistry.scoreRecord(for: id, title: name)
+            case .actDailyPractice:
+                return ACTDailyPracticeStateRegistry.scoreRecord(for: id, title: name)
             case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator, .functionTransformationExplorer, .matchGrid:
                 return nil
             }
@@ -286,6 +303,8 @@ extension WidgetObject {
                 FunctionTransformationExplorerStateRegistry.removeState(for: widget.id)
             case .matchGrid:
                 MatchGridStateRegistry.removeState(for: widget.id)
+            case .actDailyPractice:
+                ACTDailyPracticeStateRegistry.removeState(for: widget.id)
             case .none:
                 continue
             }

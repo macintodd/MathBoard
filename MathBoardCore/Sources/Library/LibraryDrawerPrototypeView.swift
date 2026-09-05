@@ -1687,6 +1687,8 @@ private struct BuiltInInteractiveGlyph: View {
             return "function"
         case .matchGrid:
             return "rectangle.grid.3x2.fill"
+        case .actDailyPractice:
+            return "calendar.badge.checkmark"
         case .inequalitiesExplorer:
             return "number.line"
         case .none:
@@ -1702,6 +1704,8 @@ private struct BuiltInInteractiveGlyph: View {
             return "FUNCTION"
         case .matchGrid:
             return "MATCHGRID"
+        case .actDailyPractice:
+            return "ACT"
         case .randomNumberGenerator:
             return "RANDOM"
         case .countdownTimer:

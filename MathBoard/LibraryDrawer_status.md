@@ -1,6 +1,6 @@
 # Library Drawer — Status
 
-Status: **Prototype (live insertions + organized Catalog utilities)** · Live canvas overlay · Last updated 2026-08-30
+Status: **Prototype (live insertions + five-tab Catalog utilities)** · Live canvas overlay · Last updated 2026-09-05
 
 ## Purpose
 
@@ -20,9 +20,10 @@ libraries can be dragged from the drawer and dropped onto the canvas, and
 widget-backed entries carry reusable widget JSON templates that insert as fresh
 interactive canvas widgets, and LaTeX-backed entries carry editable source plus
 their rendered PNG so they insert as resizable equation objects. The Library side
-now has an organized Catalog path: Widget Types, Built-In Interactives, and
-Premade Mathtivities all come from the Catalog, while teacher-created reusable
-items remain in the teacher's Library. Bundled catalog records provide offline
+now has an organized Catalog path with top tabs for Bell Ringers & Exit Tickets,
+Conceptual Interactives, Assessments, Tools, and Class Play. Widget Types,
+Built-In Interactives, and Premade Mathtivities remain catalog format metadata,
+while teacher-created reusable items remain in the teacher's Library. Bundled catalog records provide offline
 defaults, and the Firebase-backed catalog service can authenticate anonymously
 before reading remote catalog/storage data while falling back to bundled records
 when Firebase is unavailable. Built-in interactives, including **Inequality
@@ -71,8 +72,8 @@ Supported in the prototype:
 | `MathBoardCore/Sources/Library/LibraryRecentStore.swift` | Public per-lesson Recent sidecar API. Stores `library/recent.json` plus optional PNG thumbnails in `library/recent-assets/` inside each `.mathboard` package. |
 | `MathBoardCore/Sources/Library/LibraryStore.swift` | Public global reusable Library store. Persists library folders in Application Support plus starred Recent items and copied thumbnails per library. |
 | `MathBoardCore/Sources/Library/LibraryDrawerPrototypeView.swift` | `LibraryDrawerPrototypeView` + folder tab, mode picker, persisted Recent loading, Recent grid, persisted Libraries grid + opened-library detail, star handling, code-drawn or PNG thumbnails, preview host, `#Preview`s. |
-| `MathBoardCore/Sources/Library/MathtivityCatalogModels.swift` | Catalog-facing item/source models for Widget Types, Built-In Interactives, and Premade Mathtivities, plus the bundled catalog registry. |
-| `MathBoardCore/Sources/Library/MathtivityCatalogSheet.swift` | SwiftUI catalog browser sheet grouped into Widget Types, Built-In Interactives, and Premade Mathtivities, with filters for content kind, topic, activity type, difficulty, and question count. |
+| `MathBoardCore/Sources/Library/MathtivityCatalogModels.swift` | Catalog-facing item/source/workflow models for Bell Ringers & Exit Tickets, Conceptual Interactives, Assessments, Tools, and Class Play, plus the bundled catalog registry. |
+| `MathBoardCore/Sources/Library/MathtivityCatalogSheet.swift` | Wider SwiftUI catalog browser sheet with workflow tabs below search/filter controls, plus filters for content format, topic, activity type, difficulty, and question count. |
 | `MathBoardCore/Sources/Library/FirebaseMathtivityCatalogService.swift` | Firebase-backed catalog service that authenticates anonymously when needed, reads online catalog/storage data, and merges it with bundled catalog records when remote loading succeeds. |
 | `MathBoardCore/Sources/WidgetEngine/BuiltInInteractives/CatalogUtilityInteractivesView.swift` | Native built-in utility/applet views for the Countdown Timer, Random Number Generator, Coordinate Grid Generator, and Function Transformation Explorer catalog records. |
 | `MathBoardCore/Sources/WidgetEngine/JSONMathtivities/` | Bundled resource-backed JSON Mathtivity files used by the catalog and tests. |
@@ -113,8 +114,8 @@ Sticker, and Axis (`AddItemKind` + `.addItem`).
 - **Preview-safe thumbnails.** Mock content still uses code-drawn thumbnails;
   persisted Recents use saved PNG thumbnails when available and fall back to the
   schematic thumbnail styles. Widget fallbacks are classified from their payload
-  so timers no longer stand in for every widget; built-in interactives use green,
-  widget templates use sage, premade Mathtivities use blue, and text/image items
+  so timers no longer stand in for every widget; catalog records use workflow-aware
+  colors for warmups, conceptual tools, and assessments, and text/image items
   have their own outline colors.
 - **Canvas insertion.** PNG-backed objects in Recent and inside persisted
   Libraries can be dragged onto the canvas for precise placement or tapped to
@@ -129,8 +130,8 @@ Sticker, and Axis (`AddItemKind` + `.addItem`).
   Library placement. LaTeX entries carry both the rendered PNG and source
   metadata; they insert as image-backed equation objects, resize with image
   handles, and reopen in the LaTeX editor from the HUD.
-- **Catalog owns system content.** Widget Types, Built-In Interactives, and
-  Premade Mathtivities are Catalog records, not teacher Library folders. The
+- **Catalog owns system content.** Bell Ringers & Exit Tickets, Conceptual
+  Interactives, Assessments, Tools, Class Play, and their underlying format records are Catalog records, not teacher Library folders. The
   teacher Library stores only items the teacher explicitly saves for reuse, and
   newly created/renamed folders avoid reserved system category names.
 - **Built-in interactives.** Built-ins appear in the Catalog with
@@ -139,7 +140,12 @@ Sticker, and Axis (`AddItemKind` + `.addItem`).
   detects that marker and renders the matching native interactive instead of
   decoding the multiple-choice widget JSON schema. Classroom utilities are
   explicitly non-scoreable so they do not publish live score records through the
-  Ably/Firebase progress path.
+  Firebase progress path.
+- **Catalog tab routing.** Coordinate Grid Generator, Countdown Timer, and
+  Random Number Generator live under Tools. Function Transformation Explorer
+  is currently the only Conceptual Interactive. MatchGrid lives under Class Play
+  because its strongest current use is whole-class review/game play, even though
+  it can evolve toward individual review later.
 - **Coordinate grid Photo output.** The Coordinate Grid Generator uses the
   existing graph-snapshot pattern: render configured SwiftUI grid content to PNG
   with `ImageRenderer`, then route the data to `CanvasViewportImageInsertion` so

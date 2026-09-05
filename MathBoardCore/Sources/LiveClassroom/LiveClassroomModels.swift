@@ -335,6 +335,7 @@ public struct TeacherSlideManifestSnapshot: Codable, Sendable, Identifiable, Equ
     public var revision: Int
     public var slides: [TeacherSlideMetadata]
     public var activeSlideID: UUID?
+    public var isFollowMeEnabled: Bool
     public var sentAt: Date
 
     public init(
@@ -343,6 +344,7 @@ public struct TeacherSlideManifestSnapshot: Codable, Sendable, Identifiable, Equ
         revision: Int,
         slides: [TeacherSlideMetadata],
         activeSlideID: UUID? = nil,
+        isFollowMeEnabled: Bool = false,
         sentAt: Date = Date()
     ) {
         self.id = id
@@ -350,7 +352,25 @@ public struct TeacherSlideManifestSnapshot: Codable, Sendable, Identifiable, Equ
         self.revision = revision
         self.slides = slides
         self.activeSlideID = activeSlideID
+        self.isFollowMeEnabled = isFollowMeEnabled
         self.sentAt = sentAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, lessonCode, revision, slides, activeSlideID, isFollowMeEnabled, sentAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        lessonCode = LiveClassroomSessionConfiguration.normalizedLessonCode(
+            try container.decode(String.self, forKey: .lessonCode)
+        )
+        revision = try container.decode(Int.self, forKey: .revision)
+        slides = try container.decode([TeacherSlideMetadata].self, forKey: .slides)
+        activeSlideID = try container.decodeIfPresent(UUID.self, forKey: .activeSlideID)
+        isFollowMeEnabled = try container.decodeIfPresent(Bool.self, forKey: .isFollowMeEnabled) ?? false
+        sentAt = try container.decode(Date.self, forKey: .sentAt)
     }
 }
 

@@ -30,6 +30,7 @@ public struct CanvasTextObject: Identifiable, Codable, Hashable, Sendable {
     public var rotation: CGFloat
     public var librarySourceText: String?
     public var hasRecordedLibraryDerivative: Bool
+    public var isLocked: Bool?
 
     public init(
         id: UUID = UUID(),
@@ -53,7 +54,8 @@ public struct CanvasTextObject: Identifiable, Codable, Hashable, Sendable {
         fontName: String? = nil,
         rotation: CGFloat = 0,
         librarySourceText: String? = nil,
-        hasRecordedLibraryDerivative: Bool = false
+        hasRecordedLibraryDerivative: Bool = false,
+        isLocked: Bool? = nil
     ) {
         self.id = id
         self.text = text
@@ -77,6 +79,7 @@ public struct CanvasTextObject: Identifiable, Codable, Hashable, Sendable {
         self.rotation = rotation
         self.librarySourceText = librarySourceText
         self.hasRecordedLibraryDerivative = hasRecordedLibraryDerivative
+        self.isLocked = isLocked
     }
 
     public var frame: CGRect {
@@ -190,6 +193,7 @@ public struct CanvasTextObject: Identifiable, Codable, Hashable, Sendable {
         case rotation
         case librarySourceText
         case hasRecordedLibraryDerivative
+        case isLocked
     }
 
     public init(from decoder: Decoder) throws {
@@ -216,5 +220,6 @@ public struct CanvasTextObject: Identifiable, Codable, Hashable, Sendable {
         rotation = try container.decodeIfPresent(CGFloat.self, forKey: .rotation) ?? 0
         librarySourceText = try container.decodeIfPresent(String.self, forKey: .librarySourceText)
         hasRecordedLibraryDerivative = try container.decodeIfPresent(Bool.self, forKey: .hasRecordedLibraryDerivative) ?? false
+        isLocked = try container.decodeIfPresent(Bool.self, forKey: .isLocked)
     }
 }

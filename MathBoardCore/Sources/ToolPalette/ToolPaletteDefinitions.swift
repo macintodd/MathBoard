@@ -14,6 +14,7 @@ public protocol ToolDefinition: Sendable {
 
 public enum ToolPaletteDefinitions {
     public static let orderedToolIDs: [ToolID] = [
+        .reserved,
         .selection,
         .extract,
         .pen,
@@ -21,7 +22,6 @@ public enum ToolPaletteDefinitions {
         .laser,
         .eraser,
         .geometry,
-        .reserved,
         .cover
     ]
 
@@ -85,7 +85,7 @@ public enum ToolPaletteReducer {
             state.strokeWidth = clampedWidth
             switch state.activeTool {
             case .pen:
-                state.penStrokeWidth = min(max(width, 1), 24)
+                state.penStrokeWidth = min(max(width, 10), 27)
             case .marker:
                 state.markerStrokeWidth = min(max(width, 4), 36)
             case .eraser:
@@ -193,8 +193,8 @@ struct PenToolDefinition: ToolDefinition {
     let iconSystemName = ToolID.pen.iconSystemName
     let label = ToolID.pen.displayName
 
-    static let widthPresets: [Double] = [2, 5, 10, 17, 24]
-    static let widthLabels = ["XS", "S", "M", "L", "XL"]
+    static let widthPresets: [Double] = [10, 17, 24, 25, 26, 27]
+    static let widthLabels = ["Small", "Medium", "Large", "XL", "XXL", "XXXL"]
 
     func configuration(for state: ToolPaletteState) -> ToolPaletteConfiguration {
         let presets = Self.widthPresets

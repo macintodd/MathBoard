@@ -248,6 +248,7 @@ public final class GraphCalculatorState {
     public var isGraphSettingsVisible: Bool = false
     public var isKeystrokeDisplayEnabled: Bool = false
     public var isKeystrokeRecordingPaused: Bool = false
+    public var highlightedKeyLabel: String?
     public var recordedKeystrokes: [GraphRecordedKeyStroke] = []
     public var keystrokeWindowPosition: CGPoint?
     public var keystrokeWindowSize: CGSize = CGSize(width: 430, height: 180)

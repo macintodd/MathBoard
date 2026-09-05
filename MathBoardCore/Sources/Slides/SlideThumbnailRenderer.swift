@@ -219,10 +219,20 @@ enum SlideThumbnailRenderer {
         destinationRect: CGRect,
         in context: CGContext
     ) {
-        guard !drawing.bounds.isEmpty, let cgImage = cgImage(from: drawing.image(from: sourceRect, scale: 2)) else { return }
+        guard !drawing.bounds.isEmpty else { return }
+        #if canImport(UIKit)
+        // UIGraphicsImageRenderer context is y-DOWN; UIImage.draw handles the flip correctly.
+        // CGContext.draw(cgImage:in:) would render upside down in this context.
+        let image = drawing.image(from: sourceRect, scale: 2)
+        UIGraphicsPushContext(context)
+        image.draw(in: destinationRect)
+        UIGraphicsPopContext()
+        #else
+        guard let cgImage = cgImage(from: drawing.image(from: sourceRect, scale: 2)) else { return }
         context.saveGState()
         context.draw(cgImage, in: destinationRect)
         context.restoreGState()
+        #endif
     }
 
     private static func drawImageObjects(
@@ -240,7 +250,6 @@ enum SlideThumbnailRenderer {
         context.clip(to: destinationRect)
         for object in imageObjects {
             let imageURL = assetDirectoryURL.appendingPathComponent(object.imageFileName)
-            guard let cgImage = cgImage(fromImageAt: imageURL) else { continue }
             let rect = CGRect(
                 x: destinationRect.minX + (object.x - sourceRect.minX) * scaleX,
                 y: destinationRect.minY + (object.y - sourceRect.minY) * scaleY,
@@ -253,7 +262,17 @@ enum SlideThumbnailRenderer {
                 context.rotate(by: object.rotation)
                 context.translateBy(x: -rect.midX, y: -rect.midY)
             }
-            context.draw(cgImage, in: rect)
+            #if canImport(UIKit)
+            if let uiImage = UIImage(contentsOfFile: imageURL.path) {
+                UIGraphicsPushContext(context)
+                uiImage.draw(in: rect)
+                UIGraphicsPopContext()
+            }
+            #else
+            if let cgImage = cgImage(fromImageAt: imageURL) {
+                context.draw(cgImage, in: rect)
+            }
+            #endif
             context.restoreGState()
         }
         context.restoreGState()
@@ -312,7 +331,6 @@ enum SlideThumbnailRenderer {
 
         context.saveGState()
         context.clip(to: destinationRect)
-        context.textMatrix = .identity
         for object in textObjects where !object.text.isEmpty {
             let textRect = CGRect(
                 x: destinationRect.minX + (object.x - sourceRect.minX) * scaleX,
@@ -329,6 +347,20 @@ enum SlideThumbnailRenderer {
                 ))
                 context.fill(textRect)
             }
+            #if canImport(UIKit)
+            // CTFrameDraw assumes y-UP and renders upside down in the y-DOWN UIKit context.
+            // NSAttributedString.draw handles UIKit context orientation natively.
+            let font = UIFont(name: object.fontName ?? "Helvetica", size: max(object.fontSize * scaleY, 4))
+                ?? .systemFont(ofSize: max(object.fontSize * scaleY, 4))
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: font,
+                .foregroundColor: UIColor(red: object.red, green: object.green, blue: object.blue, alpha: object.alpha)
+            ]
+            UIGraphicsPushContext(context)
+            NSAttributedString(string: object.text, attributes: attrs).draw(in: textRect)
+            UIGraphicsPopContext()
+            #else
+            context.textMatrix = .identity
             let path = CGMutablePath()
             path.addRect(textRect)
             let attributes: [NSAttributedString.Key: Any] = [
@@ -339,6 +371,7 @@ enum SlideThumbnailRenderer {
             let framesetter = CTFramesetterCreateWithAttributedString(attributedString)
             let frame = CTFramesetterCreateFrame(framesetter, CFRange(location: 0, length: attributedString.length), path, nil)
             CTFrameDraw(frame, context)
+            #endif
         }
         context.restoreGState()
     }
