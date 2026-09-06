@@ -195,14 +195,14 @@ struct WidgetEngineTests {
         #expect(record.id == widgetID.uuidString)
         #expect(record.title == "Inequality Explorer")
         #expect(record.status == .inProgress)
-        #expect(record.score == 2)
+        #expect(record.score == 20)
         #expect(record.attempts == 2)
         #expect(record.points == 20)
         #expect(record.pointsPossible == 500)
         #expect(record.numberCorrectFirstTry == 1)
         #expect(record.numberCorrectAfterRetry == 1)
         #expect(record.longestStreak == 1)
-        #expect(record.percent == 100)
+        #expect(record.percent == 4)
     }
 
     @Test func quadraticFormActivitySampleDecodesAsValidActivity() throws {

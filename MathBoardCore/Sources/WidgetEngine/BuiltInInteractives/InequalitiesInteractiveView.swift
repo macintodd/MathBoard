@@ -359,7 +359,6 @@ private extension InequalityExplorerState {
 private extension StudentSession {
     func scoreRecord(widgetID: WidgetObject.ID, title: String, isComplete: Bool) -> WidgetActivityScoreRecord {
         let kind = BuiltInInteractiveKind.inequalitiesExplorer
-        let correctCount = solvedKeys.count
         let firstTryCount = solvedKeys.subtracting(erroredKeys).count
         let retryCount = solvedKeys.intersection(erroredKeys).count
         let status: WidgetActivityScoreStatus
@@ -376,7 +375,7 @@ private extension StudentSession {
             id: widgetID.uuidString,
             title: title,
             status: status,
-            score: correctCount,
+            score: score,
             attempts: attemptedCount,
             points: Double(score),
             pointsPossible: kind.pointsPossible,

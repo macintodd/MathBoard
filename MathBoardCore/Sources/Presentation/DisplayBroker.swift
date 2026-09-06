@@ -127,6 +127,24 @@ public final class DisplayBroker {
     public var widgetReferenceSize: CGSize?
     public var widgetCanvasIdentity = ""
 
+    /// Ephemeral teacher-triggered classroom celebrations shown locally and on the external display.
+    public var classroomCelebrationEvents: [ClassroomCelebrationEvent] = []
+
+    public func presentClassroomCelebration(studentName: String) {
+        let event = ClassroomCelebrationEvent(studentName: studentName)
+        classroomCelebrationEvents.append(event)
+        ClassroomCelebrationAudioPlayer.shared.playStarLaunch()
+
+        Task { @MainActor in
+            do {
+                try await Task.sleep(for: .seconds(10.6))
+            } catch {
+                return
+            }
+            classroomCelebrationEvents.removeAll { $0.id == event.id }
+        }
+    }
+
     public func publishFrame(_ frame: CGImage, sourceRect: CGRect, viewportSourceRect: CGRect) {
         currentFrame = frame
         currentFrameSourceRect = sourceRect

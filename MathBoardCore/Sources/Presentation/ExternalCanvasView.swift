@@ -164,6 +164,10 @@ public struct ExternalCanvasView: View {
                 } else {
                     ExternalDisplayPlaceholder()
                 }
+                ForEach(broker.classroomCelebrationEvents) { celebrationEvent in
+                    ShootingStarCelebrationOverlay(event: celebrationEvent)
+                        .id(celebrationEvent.id)
+                }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
         }

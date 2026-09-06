@@ -610,6 +610,9 @@ public struct WidgetActivityScoreRecord: Codable, Equatable, Identifiable, Senda
 
     public var percent: Int? {
         guard attempts > 0 else { return nil }
+        if pointsPossible > 0 {
+            return Int((points / Double(pointsPossible) * 100).rounded())
+        }
         return Int((Double(score) / Double(attempts) * 100).rounded())
     }
 }

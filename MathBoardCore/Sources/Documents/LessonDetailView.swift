@@ -78,6 +78,13 @@ struct LessonDetailView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+            .overlay {
+                let broker = DisplayBroker.shared
+                ForEach(broker.classroomCelebrationEvents) { celebrationEvent in
+                    ShootingStarCelebrationOverlay(event: celebrationEvent)
+                        .id(celebrationEvent.id)
+                }
+            }
             .task(id: liveProgressTaskKey) {
                 await pollLiveProgressIfNeeded()
             }
@@ -370,7 +377,8 @@ struct LessonDetailView: View {
             },
             onSubtractLocalPoints: { student in
                 updateLocalScore(for: student, assignment: assignment, delta: -localLiveProgressPointValue)
-            }
+            },
+            onCelebrateStudent: presentStudentCelebration
         )
     }
 
@@ -438,6 +446,10 @@ struct LessonDetailView: View {
             guard !Task.isCancelled else { return }
             await refreshLiveProgress()
         }
+    }
+
+    private func presentStudentCelebration(_ studentName: String) {
+        DisplayBroker.shared.presentClassroomCelebration(studentName: studentName)
     }
 
     private func refreshLiveProgress() async {
@@ -727,6 +739,7 @@ private struct LiveProgressDrawerView: View {
     let onRefresh: () -> Void
     let onAddLocalPoints: (RosterStudent) -> Void
     let onSubtractLocalPoints: (RosterStudent) -> Void
+    let onCelebrateStudent: (String) -> Void
 
     // Ticked every 2 seconds so indicatorState(now:) re-evaluates without waiting for
     // a data change. This makes stale records (student left the lesson) turn red/gray
@@ -831,7 +844,8 @@ private struct LiveProgressDrawerView: View {
                             now: now,
                             localScore: isLocalScoringEnabled ? localScoresByStudentID[student.id, default: 0] : nil,
                             onAddLocalPoints: isLocalScoringEnabled ? { onAddLocalPoints(student) } : nil,
-                            onSubtractLocalPoints: isLocalScoringEnabled ? { onSubtractLocalPoints(student) } : nil
+                            onSubtractLocalPoints: isLocalScoringEnabled ? { onSubtractLocalPoints(student) } : nil,
+                            onCelebrate: { onCelebrateStudent(celebrationName(for: student, progress: studentProgress)) }
                         )
                     }
                 } else {
@@ -845,7 +859,8 @@ private struct LiveProgressDrawerView: View {
                             preferredFirstName: progress.studentPreferredFirstName,
                             progress: progress,
                             lessonPresence: presence,
-                            now: now
+                            now: now,
+                            onCelebrate: { onCelebrateStudent(celebrationName(for: progress)) }
                         )
                     }
                 }
@@ -870,6 +885,27 @@ private struct LiveProgressDrawerView: View {
         progress.studentID == student.id ||
         normalizedStudentIdentifier(progress.studentIdentifier) == normalizedStudentIdentifier(student.officialStudentID) ||
         normalizedStudentIdentifier(progress.studentIdentifier) == normalizedStudentIdentifier(student.alternateStudentID)
+    }
+
+    private func celebrationName(for student: RosterStudent, progress: StudentWidgetLiveProgress?) -> String {
+        let preferred = progress?.studentPreferredFirstName ?? student.firstName
+        let trimmedPreferred = preferred.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedPreferred.isEmpty { return trimmedPreferred }
+        return celebrationName(fromDisplayName: student.displayName)
+    }
+
+    private func celebrationName(for progress: StudentWidgetLiveProgress) -> String {
+        let preferred = progress.studentPreferredFirstName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !preferred.isEmpty { return preferred }
+        return celebrationName(fromDisplayName: progress.studentName)
+    }
+
+    private func celebrationName(fromDisplayName displayName: String) -> String {
+        displayName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: " ")
+            .first
+            .map(String.init) ?? "Student"
     }
 
     private func normalizedStudentIdentifier(_ identifier: String) -> String {
@@ -900,12 +936,22 @@ private struct LiveProgressStudentRow: View {
     var localScore: Int? = nil
     var onAddLocalPoints: (() -> Void)? = nil
     var onSubtractLocalPoints: (() -> Void)? = nil
+    var onCelebrate: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 10) {
-            Circle()
-                .fill(dotColor)
-                .frame(width: 10, height: 10)
+            Button {
+                onCelebrate?()
+            } label: {
+                Image(systemName: "star.fill")
+                    .font(.system(size: 17, weight: .heavy))
+                    .foregroundStyle(dotColor)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Celebrate \(studentName)")
+            .accessibilityHint("Shows a shooting star shout-out on the teacher and external display screens.")
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(studentName)

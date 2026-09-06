@@ -80,7 +80,13 @@ let package = Package(
                 .product(name: "Ably", package: "ably-cocoa")
             ]
         ),
-        .target(name: "Presentation", dependencies: ["Canvas", "Calculator", "GraphCalculator", "Library", "LiveClassroom", "TextEngine", "ToolPalette", "WidgetEngine"]),
+        .target(
+            name: "Presentation",
+            dependencies: ["Canvas", "Calculator", "GraphCalculator", "Library", "LiveClassroom", "TextEngine", "ToolPalette", "WidgetEngine"],
+            resources: [
+                .process("Resources")
+            ]
+        ),
         .target(name: "Slides", dependencies: ["Library", "LiveClassroom", "Presentation", "WidgetEngine"]),
         .target(
             name: "Documents",
