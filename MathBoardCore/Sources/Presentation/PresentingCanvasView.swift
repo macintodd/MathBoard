@@ -56,14 +56,24 @@ public struct PresentingCanvasView: View {
     private let onExportPDF: (@MainActor () -> Void)?
     private let onViewportSourceRectChange: (@MainActor (CGRect) -> Void)?
     private let onLiveStrokeUpdate: (@MainActor (CanvasLiveStroke?) -> Void)?
+    private let onPencilHoverUpdate: (@MainActor (CanvasPencilHover?) -> Void)?
     private let onDrawingDataChange: (@MainActor (Data) -> Void)?
     private let onCanvasObjectStateChange: (@MainActor () -> Void)?
     private let onLibraryDrawerOpenChange: (@MainActor (Bool) -> Void)?
     private let objectStateReloadCommand: CanvasObjectCommand?
     private let allowsWidgetAuthoring: Bool
+    private let showsTeacherDemoWebApplets: Bool
+    private let showsCatalogInLibraryDrawer: Bool
+    private let hidesStudentInk: Bool
     private let isEditingLocked: Bool
     private static let importedPhotoMaxPixelSide: CGFloat = 1800
     private static let importedPhotoJPEGCompressionQuality: CGFloat = 0.82
+    private static let importableMediaTypes: [UTType] = [
+        UTType(filenameExtension: "gif"),
+        UTType(filenameExtension: "mp4"),
+        UTType(filenameExtension: "m4v"),
+        UTType(filenameExtension: "mov")
+    ].compactMap { $0 }
     private let broker = DisplayBroker.shared
     private let calculator = CalculatorState.shared
     private let paletteSettings = ToolPaletteSettings.shared
@@ -89,6 +99,7 @@ public struct PresentingCanvasView: View {
     @State private var isImageFileImporterPresented = false
     @State private var isPhotoImporterPresented = false
     @State private var isCameraImporterPresented = false
+    @State private var isMediaFileImporterPresented = false
     @State private var isWidgetEditorPresented = false
     @State private var pendingCatalogWidgetPreview: PendingCatalogWidgetPreview?
     @State private var pendingWidgetEdit: PendingWidgetEdit?
@@ -99,6 +110,7 @@ public struct PresentingCanvasView: View {
     @State private var widgetMathKeypadResizeStart: CGSize?
     @State private var pendingPDFObjectImport: PendingPDFObjectImport?
     @State private var imageFileImportError: ImageFileImportError?
+    @State private var mediaFileImportError: ImageFileImportError?
     @State private var isExternalDisplayUnavailableAlertPresented = false
     @State private var isCanvasBackgroundPickerPresented = false
     @State private var libraryRecentRefreshID = UUID()
@@ -122,11 +134,15 @@ public struct PresentingCanvasView: View {
         onExportPDF: (@MainActor () -> Void)? = nil,
         onViewportSourceRectChange: (@MainActor (CGRect) -> Void)? = nil,
         onLiveStrokeUpdate: (@MainActor (CanvasLiveStroke?) -> Void)? = nil,
+        onPencilHoverUpdate: (@MainActor (CanvasPencilHover?) -> Void)? = nil,
         onDrawingDataChange: (@MainActor (Data) -> Void)? = nil,
         onCanvasObjectStateChange: (@MainActor () -> Void)? = nil,
         onLibraryDrawerOpenChange: (@MainActor (Bool) -> Void)? = nil,
         objectStateReloadCommand: CanvasObjectCommand? = nil,
         allowsWidgetAuthoring: Bool = true,
+        showsTeacherDemoWebApplets: Bool = true,
+        showsCatalogInLibraryDrawer: Bool = true,
+        hidesStudentInk: Bool = false,
         isEditingLocked: Bool = false
     ) {
         self.drawingURL = drawingURL
@@ -142,11 +158,15 @@ public struct PresentingCanvasView: View {
         self.onExportPDF = onExportPDF
         self.onViewportSourceRectChange = onViewportSourceRectChange
         self.onLiveStrokeUpdate = onLiveStrokeUpdate
+        self.onPencilHoverUpdate = onPencilHoverUpdate
         self.onDrawingDataChange = onDrawingDataChange
         self.onCanvasObjectStateChange = onCanvasObjectStateChange
         self.onLibraryDrawerOpenChange = onLibraryDrawerOpenChange
         self.objectStateReloadCommand = objectStateReloadCommand
         self.allowsWidgetAuthoring = allowsWidgetAuthoring
+        self.showsTeacherDemoWebApplets = showsTeacherDemoWebApplets
+        self.showsCatalogInLibraryDrawer = showsCatalogInLibraryDrawer
+        self.hidesStudentInk = hidesStudentInk
         self.isEditingLocked = isEditingLocked
     }
 
@@ -158,6 +178,7 @@ public struct PresentingCanvasView: View {
         ZStack {
             CanvasView(
                 drawingURL: drawingURL,
+                widgetAssetBaseURL: WidgetMediaAssetStore.assetDirectoryURL(forDrawingURL: drawingURL),
                 background: background,
                 canvasDeskColor: canvasDeskColor,
                 presentationMode: broker.mode,
@@ -173,6 +194,7 @@ public struct PresentingCanvasView: View {
                 onViewportSourceRectChange: publishViewportSourceRect,
                 onLiveStrokeUpdate: publishLiveStroke,
                 onLiveTransformedStrokesUpdate: Self.publishLiveTransformedStrokes,
+                onPencilHoverUpdate: publishPencilHover,
                 onDrawingDataChange: publishDrawingData,
                 onWidgetObjectsChange: Self.publishWidgets,
                 onCanvasObjectStateChange: onCanvasObjectStateChange,
@@ -189,7 +211,9 @@ public struct PresentingCanvasView: View {
                 onWidgetEditRequested: allowsWidgetAuthoring ? requestWidgetEdit : nil,
                 onWidgetMathInputRequested: handleWidgetMathInputRequest,
                 onWidgetImageInsertionRequested: handleWidgetImageInsertionRequest,
-                allowsWidgetAuthoring: allowsWidgetAuthoring
+                allowsWidgetAuthoring: allowsWidgetAuthoring,
+                showsTeacherDemoWebApplets: showsTeacherDemoWebApplets,
+                hidesStudentInk: hidesStudentInk
             )
 
             editingLockOverlay
@@ -211,18 +235,17 @@ public struct PresentingCanvasView: View {
 
             selectedTextActionHUD
 
-            #if os(iOS)
-            if paletteSettings.isCustomPaletteEnabled {
+            if isToolPaletteActive {
                 activeToolPaletteOverlay
             }
-            #endif
         }
         .onDrop(
-            of: [UTType(exportedAs: LibraryCanvasDragPayload.typeIdentifier)],
+            of: [UTType(exportedAs: LibraryCanvasDragPayload.typeIdentifier), .image],
             isTargeted: nil
         ) { providers, location in
             guard !isEditingLocked else { return false }
-            return handleLibraryItemDrop(providers, at: location)
+            if handleLibraryItemDrop(providers, at: location) { return true }
+            return handleImageDrop(providers, at: location)
         }
         .background(
             GeometryReader { proxy in
@@ -320,6 +343,7 @@ public struct PresentingCanvasView: View {
                 startOpen: false,
                 recentLessonURL: LibraryRecentStore.lessonURL(forDrawingURL: drawingURL),
                 recentRefreshID: libraryRecentRefreshID,
+                showsCatalogButton: showsCatalogInLibraryDrawer,
                 onInsertItem: { payload in
                     placeLibraryItemAtViewportCenter(payload)
                 },
@@ -490,6 +514,13 @@ public struct PresentingCanvasView: View {
             handleImageFileImport(result)
         }
         #endif
+        .fileImporter(
+            isPresented: $isMediaFileImporterPresented,
+            allowedContentTypes: Self.importableMediaTypes,
+            allowsMultipleSelection: false
+        ) { result in
+            handleMediaFileImport(result)
+        }
         .sheet(item: $pendingPDFObjectImport) { pendingImport in
             PDFObjectImportPreviewView(
                 pdfURL: pendingImport.url,
@@ -502,6 +533,13 @@ public struct PresentingCanvasView: View {
         .alert(item: $imageFileImportError) { error in
             Alert(
                 title: Text("Image Import Failed"),
+                message: Text(error.message),
+                dismissButton: .default(Text("OK"))
+            )
+        }
+        .alert(item: $mediaFileImportError) { error in
+            Alert(
+                title: Text("Media Import Failed"),
                 message: Text(error.message),
                 dismissButton: .default(Text("OK"))
             )
@@ -549,7 +587,7 @@ public struct PresentingCanvasView: View {
                 if isGraphCalculatorVisibleToUser {
                     broker.isGraphCalculatorVisible = false
                 } else {
-                    broker.isGraphCalculatorVisible = true
+                    openGraphCalculator()
                 }
             }
             #endif
@@ -709,6 +747,21 @@ public struct PresentingCanvasView: View {
                     }
                 }
                 .disabled(paletteSettings.paletteStyle != .radial)
+            }
+            #endif
+
+            #if os(iOS)
+            if broker.isExternalDisplayConnected || broker.isPencilHoverIndicatorEnabled {
+                Section("Presentation") {
+                    Button {
+                        broker.isPencilHoverIndicatorEnabled.toggle()
+                    } label: {
+                        Label(
+                            broker.isPencilHoverIndicatorEnabled ? "Hide Pencil Indicator" : "Show Pencil Indicator",
+                            systemImage: broker.isPencilHoverIndicatorEnabled ? "pencil.slash" : "pencil.tip"
+                        )
+                    }
+                }
             }
             #endif
 
@@ -916,9 +969,23 @@ public struct PresentingCanvasView: View {
             }
     }
 
-    #if os(iOS)
+    private var isToolPaletteActive: Bool {
+        #if os(macOS)
+        return !isEditingLocked
+        #else
+        return paletteSettings.isCustomPaletteEnabled
+        #endif
+    }
+
     @ViewBuilder
     private var activeToolPaletteOverlay: some View {
+        #if os(macOS)
+        FloatingCompactToolPaletteView(
+            state: toolPaletteStateBinding,
+            center: compactToolPaletteCenterBinding,
+            onResolvedCommand: handleToolPaletteCommand
+        )
+        #else
         switch paletteSettings.paletteStyle {
         case .radial:
             FloatingToolPaletteView(
@@ -936,8 +1003,8 @@ public struct PresentingCanvasView: View {
                 onResolvedCommand: handleToolPaletteCommand
             )
         }
+        #endif
     }
-    #endif
 
     private var zoomLabel: String {
         guard let viewportState = broker.viewportState else { return "100%" }
@@ -961,6 +1028,13 @@ public struct PresentingCanvasView: View {
 
     private var isGraphCalculatorVisibleToUser: Bool {
         broker.isGraphCalculatorVisible && broker.graphCalculator.hasVisibleSection
+    }
+
+    private func openGraphCalculator() {
+        if !broker.graphCalculator.hasVisibleSection {
+            broker.graphCalculator.restoreCompositeHomeBase()
+        }
+        broker.isGraphCalculatorVisible = true
     }
 
     private var isLaTeXEditorPresented: Bool {
@@ -1098,6 +1172,16 @@ public struct PresentingCanvasView: View {
     }
 
     private func handleToolPaletteCommand(_ command: ToolPaletteCommand, state: ToolPaletteState) {
+        if command == .undo {
+            editCommand = CanvasEditCommand(.undo)
+            return
+        }
+
+        if command == .redo {
+            editCommand = CanvasEditCommand(.redo)
+            return
+        }
+
         if command == .addItem(.file) {
             broker.toolPaletteState = collapsedAddItemState(from: state)
             presentImageFileImporter()
@@ -1113,6 +1197,12 @@ public struct PresentingCanvasView: View {
         if command == .addItem(.camera) {
             broker.toolPaletteState = collapsedAddItemState(from: state)
             presentCameraImporter()
+            return
+        }
+
+        if command == .addItem(.media) {
+            broker.toolPaletteState = collapsedAddItemState(from: state)
+            presentMediaFileImporter()
             return
         }
 
@@ -1226,6 +1316,13 @@ public struct PresentingCanvasView: View {
         #endif
     }
 
+    private func presentMediaFileImporter() {
+        Task { @MainActor in
+            await Task.yield()
+            isMediaFileImporterPresented = true
+        }
+    }
+
     private func presentWidgetEditor() {
         Task { @MainActor in
             await Task.yield()
@@ -1243,8 +1340,7 @@ public struct PresentingCanvasView: View {
                     kind: .widget,
                     displaySize: displaySize,
                     widgetCodeString: downloadedItem.jsonSource
-                ),
-                pinsWidgetToCanvas: builtInKind == .matchGrid
+                )
             )
             recordLibraryRecent(
                 title: downloadedItem.item.title,
@@ -1385,7 +1481,7 @@ public struct PresentingCanvasView: View {
     }
 
     private func applyToolPaletteState(_ state: ToolPaletteState, triggering command: ToolPaletteCommand) {
-        guard paletteSettings.isCustomPaletteEnabled,
+        guard isToolPaletteActive,
               let canvasToolCommand = CanvasToolCommand(toolPaletteState: state, triggering: command) else {
             return
         }
@@ -1468,11 +1564,63 @@ public struct PresentingCanvasView: View {
         return true
     }
 
+    private func handleImageDrop(_ providers: [NSItemProvider], at canvasPoint: CGPoint) -> Bool {
+        guard let provider = providers.first(where: {
+            $0.hasItemConformingToTypeIdentifier(UTType.image.identifier)
+        }) else { return false }
+
+        // Prefer loading as a file URL (Files app drags) to get the full image via existing security-scoped path
+        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                let url: URL?
+                if let data = item as? Data {
+                    url = URL(dataRepresentation: data, relativeTo: nil)
+                } else {
+                    url = item as? URL
+                }
+                guard let url else { return }
+                Task { @MainActor in
+                    do {
+                        let importedImage = try Self.importedCanvasImage(from: url)
+                        insertImportedCanvasImage(importedImage)
+                        activateSelectTool()
+                    } catch {
+                        imageFileImportError = ImageFileImportError(message: error.localizedDescription)
+                    }
+                }
+            }
+            return true
+        }
+
+        // Fall back to loading raw image data (Photos app drags, web image drags)
+        let typeID: String
+        if provider.hasItemConformingToTypeIdentifier(UTType.png.identifier) {
+            typeID = UTType.png.identifier
+        } else if provider.hasItemConformingToTypeIdentifier(UTType.jpeg.identifier) {
+            typeID = UTType.jpeg.identifier
+        } else {
+            typeID = UTType.image.identifier
+        }
+        provider.loadDataRepresentation(forTypeIdentifier: typeID) { data, _ in
+            guard let data else { return }
+            Task { @MainActor in
+                do {
+                    let importedImage = try Self.importedCanvasImage(fromImageData: data)
+                    insertImportedCanvasImage(importedImage)
+                    activateSelectTool()
+                } catch {
+                    imageFileImportError = ImageFileImportError(message: error.localizedDescription)
+                }
+            }
+        }
+        return true
+    }
+
     @MainActor
     private func placeLibraryItem(
         _ payload: LibraryCanvasDragPayload,
         at canvasPoint: CGPoint,
-        pinsWidgetToCanvas: Bool = false
+        pinsWidgetToCanvas: Bool = true
     ) {
         if payload.kind == .widget,
            let widgetCodeString = payload.widgetCodeString {
@@ -1552,7 +1700,7 @@ public struct PresentingCanvasView: View {
     @MainActor
     private func placeLibraryItemAtViewportCenter(
         _ payload: LibraryCanvasDragPayload,
-        pinsWidgetToCanvas: Bool = false
+        pinsWidgetToCanvas: Bool = true
     ) {
         let referenceSize = broker.toolPaletteReferenceSize
             ?? broker.calculatorReferenceSize
@@ -1733,6 +1881,15 @@ public struct PresentingCanvasView: View {
             kind: .widget,
             widgetCodeString: insertion.codeString
         )
+    }
+
+    private func insertMediaWidget(_ asset: WidgetMediaAsset) {
+        let html = WidgetMediaAssetStore.html(for: asset)
+        objectCommand = CanvasObjectCommand(.insertWidget(CanvasWidgetInsertion(
+            name: asset.displayName,
+            codeString: html,
+            displaySize: CGSize(width: 760, height: 430)
+        )))
     }
 
     private func updateWidget(_ insertion: WidgetEditorInsertion, id: UUID) {
@@ -1991,6 +2148,18 @@ public struct PresentingCanvasView: View {
             activateSelectTool()
         } catch {
             imageFileImportError = ImageFileImportError(message: error.localizedDescription)
+        }
+    }
+
+    @MainActor
+    private func handleMediaFileImport(_ result: Result<[URL], Error>) {
+        do {
+            guard let url = try result.get().first else { return }
+            let asset = try WidgetMediaAssetStore.copyMediaFile(from: url, forDrawingURL: drawingURL)
+            insertMediaWidget(asset)
+            activateSelectTool()
+        } catch {
+            mediaFileImportError = ImageFileImportError(message: error.localizedDescription)
         }
     }
 
@@ -2273,8 +2442,7 @@ public struct PresentingCanvasView: View {
         let context = graphicsContext.cgContext
         context.saveGState()
         context.scaleBy(x: renderScale, y: renderScale)
-        context.translateBy(x: -pageBounds.minX, y: pageBounds.height + pageBounds.minY)
-        context.scaleBy(x: 1, y: -1)
+        context.translateBy(x: -pageBounds.minX, y: -pageBounds.minY)
         page.draw(with: .mediaBox, to: context)
         context.restoreGState()
         NSGraphicsContext.restoreGraphicsState()
@@ -2294,6 +2462,12 @@ public struct PresentingCanvasView: View {
     private func publishLiveStroke(_ stroke: CanvasLiveStroke?) {
         Self.publishLiveStroke(stroke)
         onLiveStrokeUpdate?(stroke)
+    }
+
+    @MainActor
+    private func publishPencilHover(_ hover: CanvasPencilHover?) {
+        DisplayBroker.shared.publishPencilHover(hover)
+        onPencilHoverUpdate?(hover)
     }
 
     @MainActor
@@ -3125,6 +3299,11 @@ private extension CanvasToolCommand {
                 color: CanvasStrokeColor(color: state.penColor, opacity: state.penOpacity),
                 width: CGFloat(state.penStrokeWidth)
             ))
+        case .fountainPen:
+            self.init(.fountainPen(
+                color: CanvasStrokeColor(color: state.fountainPenColor, opacity: state.fountainPenOpacity),
+                width: CGFloat(state.fountainPenStrokeWidth)
+            ))
         case .marker:
             self.init(.marker(
                 color: CanvasStrokeColor(color: state.markerColor, opacity: state.markerOpacity),
@@ -3152,7 +3331,7 @@ private extension CanvasToolCommand {
         case .selectTool(let tool):
             return ToolID.allCases.contains(tool)
         case .setStrokeColor, .setPaletteColor, .setStrokeWidth, .setOpacity:
-            return activeTool == .pen || activeTool == .marker || activeTool == .eraser || activeTool == .laser || activeTool == .geometry || activeTool == .cover
+            return activeTool == .pen || activeTool == .fountainPen || activeTool == .marker || activeTool == .eraser || activeTool == .laser || activeTool == .geometry || activeTool == .cover
         case .setFillColor, .setGeometryType, .setPolygonSides, .setGeometryLineArrowMode, .setGeometryFillOpacity:
             return activeTool == .geometry
         case .setEraserMode:
@@ -3215,6 +3394,7 @@ private extension View {
         #else
         sheet(isPresented: isPresented) {
             content()
+                .frame(minWidth: 1100, idealWidth: 1240, minHeight: 760, idealHeight: 860)
         }
         #endif
     }
@@ -3231,6 +3411,7 @@ private extension View {
         #else
         sheet(item: item) { item in
             content(item)
+                .frame(minWidth: 1100, idealWidth: 1240, minHeight: 760, idealHeight: 860)
         }
         #endif
     }

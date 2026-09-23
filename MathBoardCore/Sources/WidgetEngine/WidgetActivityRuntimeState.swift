@@ -12,21 +12,25 @@ public struct WidgetActivityRuntimeState: Codable, Equatable, Sendable {
     public var multipleChoice: WidgetMultipleChoiceRuntimeState
     public var fillInTheBlank: WidgetFillInTheBlankRuntimeState
     public var interactiveParts: WidgetInteractivePartsRuntimeState
+    public var trivialPursuit: WidgetTrivialPursuitRuntimeState
 
     public init(
         multipleChoice: WidgetMultipleChoiceRuntimeState = WidgetMultipleChoiceRuntimeState(),
         fillInTheBlank: WidgetFillInTheBlankRuntimeState = WidgetFillInTheBlankRuntimeState(),
-        interactiveParts: WidgetInteractivePartsRuntimeState = WidgetInteractivePartsRuntimeState()
+        interactiveParts: WidgetInteractivePartsRuntimeState = WidgetInteractivePartsRuntimeState(),
+        trivialPursuit: WidgetTrivialPursuitRuntimeState = WidgetTrivialPursuitRuntimeState()
     ) {
         self.multipleChoice = multipleChoice
         self.fillInTheBlank = fillInTheBlank
         self.interactiveParts = interactiveParts
+        self.trivialPursuit = trivialPursuit
     }
 
     private enum CodingKeys: String, CodingKey {
         case multipleChoice
         case fillInTheBlank
         case interactiveParts
+        case trivialPursuit
     }
 
     public init(from decoder: any Decoder) throws {
@@ -34,6 +38,7 @@ public struct WidgetActivityRuntimeState: Codable, Equatable, Sendable {
         multipleChoice = try container.decodeIfPresent(WidgetMultipleChoiceRuntimeState.self, forKey: .multipleChoice) ?? WidgetMultipleChoiceRuntimeState()
         fillInTheBlank = try container.decodeIfPresent(WidgetFillInTheBlankRuntimeState.self, forKey: .fillInTheBlank) ?? WidgetFillInTheBlankRuntimeState()
         interactiveParts = try container.decodeIfPresent(WidgetInteractivePartsRuntimeState.self, forKey: .interactiveParts) ?? WidgetInteractivePartsRuntimeState()
+        trivialPursuit = try container.decodeIfPresent(WidgetTrivialPursuitRuntimeState.self, forKey: .trivialPursuit) ?? WidgetTrivialPursuitRuntimeState()
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -41,6 +46,7 @@ public struct WidgetActivityRuntimeState: Codable, Equatable, Sendable {
         try container.encode(multipleChoice, forKey: .multipleChoice)
         try container.encode(fillInTheBlank, forKey: .fillInTheBlank)
         try container.encode(interactiveParts, forKey: .interactiveParts)
+        try container.encode(trivialPursuit, forKey: .trivialPursuit)
     }
 }
 
@@ -52,8 +58,162 @@ extension WidgetActivityRuntimeState {
             baseRecord = multipleChoice.scoreRecord(for: document)
         case .fillInTheBlank:
             baseRecord = fillInTheBlank.scoreRecord(for: document)
+        case .trivialPursuit:
+            baseRecord = trivialPursuit.scoreRecord(for: document)
         }
         return interactiveParts.combinedScoreRecord(base: baseRecord, document: document)
+    }
+}
+
+public struct WidgetTrivialPursuitRuntimeState: Codable, Equatable, Sendable {
+    public var isGameStarted: Bool
+    public var roundID: String?
+    public var activeCategoryID: String?
+    public var activeQuestionIndex: Int?
+    public var activePlayerIndex: Int
+    public var didRevealChoices: Bool
+    public var choicesRevealedAt: Date?
+    public var revealedCorrectChoiceID: String?
+    public var winnerParticipantID: String?
+    public var winnerDisplayName: String?
+    public var localAnswer: WidgetTrivialPursuitAnswer?
+    public var earnedCategoryIDsByParticipantID: [String: [String]]
+
+    public init(
+        isGameStarted: Bool = false,
+        roundID: String? = nil,
+        activeCategoryID: String? = nil,
+        activeQuestionIndex: Int? = nil,
+        activePlayerIndex: Int = 0,
+        didRevealChoices: Bool = false,
+        choicesRevealedAt: Date? = nil,
+        revealedCorrectChoiceID: String? = nil,
+        winnerParticipantID: String? = nil,
+        winnerDisplayName: String? = nil,
+        localAnswer: WidgetTrivialPursuitAnswer? = nil,
+        earnedCategoryIDsByParticipantID: [String: [String]] = [:]
+    ) {
+        self.isGameStarted = isGameStarted
+        self.roundID = roundID
+        self.activeCategoryID = activeCategoryID
+        self.activeQuestionIndex = activeQuestionIndex
+        self.activePlayerIndex = max(0, activePlayerIndex)
+        self.didRevealChoices = didRevealChoices
+        self.choicesRevealedAt = choicesRevealedAt
+        self.revealedCorrectChoiceID = revealedCorrectChoiceID
+        self.winnerParticipantID = winnerParticipantID
+        self.winnerDisplayName = winnerDisplayName
+        self.localAnswer = localAnswer
+        self.earnedCategoryIDsByParticipantID = earnedCategoryIDsByParticipantID
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case isGameStarted
+        case roundID
+        case activeCategoryID
+        case activeQuestionIndex
+        case activePlayerIndex
+        case didRevealChoices
+        case choicesRevealedAt
+        case revealedCorrectChoiceID
+        case winnerParticipantID
+        case winnerDisplayName
+        case localAnswer
+        case earnedCategoryIDsByParticipantID
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        isGameStarted = try container.decodeIfPresent(Bool.self, forKey: .isGameStarted) ?? false
+        roundID = try container.decodeIfPresent(String.self, forKey: .roundID)
+        activeCategoryID = try container.decodeIfPresent(String.self, forKey: .activeCategoryID)
+        activeQuestionIndex = try container.decodeIfPresent(Int.self, forKey: .activeQuestionIndex)
+        activePlayerIndex = max(0, try container.decodeIfPresent(Int.self, forKey: .activePlayerIndex) ?? 0)
+        didRevealChoices = try container.decodeIfPresent(Bool.self, forKey: .didRevealChoices) ?? false
+        choicesRevealedAt = try container.decodeIfPresent(Date.self, forKey: .choicesRevealedAt)
+        revealedCorrectChoiceID = try container.decodeIfPresent(String.self, forKey: .revealedCorrectChoiceID)
+        winnerParticipantID = try container.decodeIfPresent(String.self, forKey: .winnerParticipantID)
+        winnerDisplayName = try container.decodeIfPresent(String.self, forKey: .winnerDisplayName)
+        localAnswer = try container.decodeIfPresent(WidgetTrivialPursuitAnswer.self, forKey: .localAnswer)
+        earnedCategoryIDsByParticipantID = try container.decodeIfPresent([String: [String]].self, forKey: .earnedCategoryIDsByParticipantID) ?? [:]
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(isGameStarted, forKey: .isGameStarted)
+        try container.encodeIfPresent(roundID, forKey: .roundID)
+        try container.encodeIfPresent(activeCategoryID, forKey: .activeCategoryID)
+        try container.encodeIfPresent(activeQuestionIndex, forKey: .activeQuestionIndex)
+        try container.encode(activePlayerIndex, forKey: .activePlayerIndex)
+        try container.encode(didRevealChoices, forKey: .didRevealChoices)
+        try container.encodeIfPresent(choicesRevealedAt, forKey: .choicesRevealedAt)
+        try container.encodeIfPresent(revealedCorrectChoiceID, forKey: .revealedCorrectChoiceID)
+        try container.encodeIfPresent(winnerParticipantID, forKey: .winnerParticipantID)
+        try container.encodeIfPresent(winnerDisplayName, forKey: .winnerDisplayName)
+        try container.encodeIfPresent(localAnswer, forKey: .localAnswer)
+        if !earnedCategoryIDsByParticipantID.isEmpty {
+            try container.encode(earnedCategoryIDsByParticipantID, forKey: .earnedCategoryIDsByParticipantID)
+        }
+    }
+
+    public var hasActiveQuestion: Bool {
+        activeCategoryID != nil && activeQuestionIndex != nil
+    }
+
+    func scoreRecord(for document: ActivityWidgetDocument) -> WidgetActivityScoreRecord {
+        let isCorrect = localAnswer?.isCorrect == true
+        return WidgetActivityScoreRecord(
+            id: document.widgetId ?? document.title,
+            title: document.title,
+            status: localAnswer == nil ? .notStarted : .inProgress,
+            score: isCorrect ? 1 : 0,
+            attempts: localAnswer == nil ? 0 : 1,
+            points: isCorrect ? 1 : 0,
+            pointsPossible: 1,
+            numberCorrectFirstTry: isCorrect ? 1 : 0,
+            longestStreak: isCorrect ? 1 : 0,
+            metadata: scoreMetadata
+        )
+    }
+
+    private var scoreMetadata: [String: String] {
+        var metadata: [String: String] = [:]
+        if let roundID, !roundID.isEmpty {
+            metadata["trivialPursuitRoundID"] = roundID
+        }
+        if let localAnswer {
+            metadata["trivialPursuitParticipantID"] = localAnswer.participantID
+            metadata["trivialPursuitChoiceID"] = localAnswer.choiceID
+            metadata["trivialPursuitChoiceIndex"] = "\(localAnswer.choiceIndex)"
+            metadata["trivialPursuitIsCorrect"] = localAnswer.isCorrect ? "true" : "false"
+            metadata["trivialPursuitAnsweredAt"] = "\(localAnswer.answeredAt.timeIntervalSince1970)"
+            if let choicesRevealedAt {
+                metadata["trivialPursuitAnswerElapsed"] = "\(max(0, localAnswer.answeredAt.timeIntervalSince(choicesRevealedAt)))"
+            }
+        }
+        return metadata
+    }
+}
+
+public struct WidgetTrivialPursuitAnswer: Codable, Equatable, Sendable {
+    public var participantID: String
+    public var choiceID: String
+    public var choiceIndex: Int
+    public var isCorrect: Bool
+    public var answeredAt: Date
+
+    public init(
+        participantID: String,
+        choiceID: String,
+        choiceIndex: Int,
+        isCorrect: Bool,
+        answeredAt: Date = Date()
+    ) {
+        self.participantID = participantID
+        self.choiceID = choiceID
+        self.choiceIndex = max(0, choiceIndex)
+        self.isCorrect = isCorrect
+        self.answeredAt = answeredAt
     }
 }
 
@@ -569,6 +729,7 @@ public struct WidgetActivityScoreRecord: Codable, Equatable, Identifiable, Senda
     public var numberCorrectFirstTry: Int
     public var numberCorrectAfterRetry: Int
     public var longestStreak: Int
+    public var metadata: [String: String]
 
     public init(
         id: String,
@@ -580,7 +741,8 @@ public struct WidgetActivityScoreRecord: Codable, Equatable, Identifiable, Senda
         pointsPossible: Int,
         numberCorrectFirstTry: Int = 0,
         numberCorrectAfterRetry: Int = 0,
-        longestStreak: Int = 0
+        longestStreak: Int = 0,
+        metadata: [String: String] = [:]
     ) {
         self.id = id
         self.title = title
@@ -592,6 +754,7 @@ public struct WidgetActivityScoreRecord: Codable, Equatable, Identifiable, Senda
         self.numberCorrectFirstTry = max(0, numberCorrectFirstTry)
         self.numberCorrectAfterRetry = max(0, numberCorrectAfterRetry)
         self.longestStreak = max(0, longestStreak)
+        self.metadata = metadata
     }
 
     public init(from decoder: any Decoder) throws {
@@ -606,6 +769,7 @@ public struct WidgetActivityScoreRecord: Codable, Equatable, Identifiable, Senda
         numberCorrectFirstTry = max(0, try container.decodeIfPresent(Int.self, forKey: .numberCorrectFirstTry) ?? score)
         numberCorrectAfterRetry = max(0, try container.decodeIfPresent(Int.self, forKey: .numberCorrectAfterRetry) ?? 0)
         longestStreak = max(0, try container.decodeIfPresent(Int.self, forKey: .longestStreak) ?? score)
+        metadata = try container.decodeIfPresent([String: String].self, forKey: .metadata) ?? [:]
     }
 
     public var percent: Int? {

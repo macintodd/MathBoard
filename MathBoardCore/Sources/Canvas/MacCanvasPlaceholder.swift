@@ -12,33 +12,44 @@ import SwiftUI
 import AppKit
 import PDFKit
 import PencilKit
+import WidgetEngine
 
 private enum MacCanvasTool: String, CaseIterable, Identifiable {
+    case select
     case pen
     case eraser
     case text
+    case extract
 
     var id: Self { self }
 
     var title: String {
         switch self {
+        case .select:
+            return "Select"
         case .pen:
             return "Pen"
         case .eraser:
             return "Eraser"
         case .text:
             return "Text"
+        case .extract:
+            return "Extract"
         }
     }
 
     var systemImage: String {
         switch self {
+        case .select:
+            return "cursorarrow"
         case .pen:
             return "pencil.tip"
         case .eraser:
             return "eraser"
         case .text:
             return "textformat"
+        case .extract:
+            return "crop"
         }
     }
 }
@@ -46,6 +57,24 @@ private enum MacCanvasTool: String, CaseIterable, Identifiable {
 private enum MacTextInteractionMode: Equatable {
     case move(offset: CGSize)
     case resize(origin: CGPoint)
+}
+
+private enum MacImageInteractionMode: Equatable {
+    case move(offset: CGSize)
+}
+
+private struct MacExtractSelection: Equatable {
+    var start: CGPoint
+    var current: CGPoint
+
+    var rect: CGRect {
+        CGRect(
+            x: min(start.x, current.x),
+            y: min(start.y, current.y),
+            width: abs(current.x - start.x),
+            height: abs(current.y - start.y)
+        )
+    }
 }
 
 private enum MacPenPreset: String, CaseIterable, Identifiable {
@@ -94,15 +123,41 @@ private enum MacPenPreset: String, CaseIterable, Identifiable {
             alpha: components.alpha
         )
     }
+
+    static func closestPreset(to color: CanvasStrokeColor) -> MacPenPreset {
+        allCases.min { lhs, rhs in
+            lhs.distance(to: color) < rhs.distance(to: color)
+        } ?? .black
+    }
+
+    private func distance(to color: CanvasStrokeColor) -> CGFloat {
+        let components = textColorComponents
+        let red = components.red - color.red
+        let green = components.green - color.green
+        let blue = components.blue - color.blue
+        return red * red + green * green + blue * blue
+    }
 }
 
 struct MacCanvasPlaceholder: View {
     let drawingURL: URL
+    let widgetAssetBaseURL: URL?
     let background: CanvasBackground?
     let initialViewportState: CanvasViewportState?
     let viewportCommand: CanvasViewportCommand?
+    let editCommand: CanvasEditCommand?
+    let toolCommand: CanvasToolCommand?
+    let objectCommand: CanvasObjectCommand?
+    let onWidgetObjectsChange: (@MainActor ([WidgetObject], WidgetCanvasViewport, CGSize, String) -> Void)?
+    let onCanvasObjectStateChange: (@MainActor () -> Void)?
     let onViewportStateChange: (@MainActor (CanvasViewportState) -> Void)?
+    let onEditStateChange: (@MainActor (CanvasEditState) -> Void)?
     let onInteractionBegan: (@MainActor () -> Void)?
+    let onWidgetEditRequested: (@MainActor (WidgetObject) -> Void)?
+    let onWidgetMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)?
+    let onWidgetImageInsertionRequested: (@MainActor (WidgetCanvasImageInsertionRequest) -> Void)?
+    let allowsWidgetAuthoring: Bool
+    let showsTeacherDemoWebApplets: Bool
 
     @State private var drawing = PKDrawing()
     @State private var didLoad = false
@@ -111,16 +166,34 @@ struct MacCanvasPlaceholder: View {
     @State private var currentPoints: [CGPoint] = []
     @State private var strokeColorRecords: [CanvasStrokeColorRecord] = []
     @State private var textObjects: [CanvasTextObject] = []
+    @State private var imageObjects: [CanvasImageObject] = []
+    @State private var latexObjects: [CanvasLaTeXObject] = []
+    @State private var widgetObjects: [WidgetObject] = []
+    @State private var appliedEditCommandID: CanvasEditCommand.ID?
+    @State private var appliedToolCommandID: CanvasToolCommand.ID?
+    @State private var appliedObjectCommandID: CanvasObjectCommand.ID?
     @State private var selectedTextObjectID: UUID?
+    @State private var selectedImageObjectID: UUID?
     @State private var textInteractionMode: MacTextInteractionMode?
+    @State private var imageInteractionMode: MacImageInteractionMode?
+    @State private var extractSelection: MacExtractSelection?
+    @State private var completedExtractRect: CGRect?
     @State private var textObjectSaveTask: Task<Void, Never>?
     @State private var hasPendingTextObjectSave = false
+    @State private var imageObjectSaveTask: Task<Void, Never>?
+    @State private var hasPendingImageObjectSave = false
+    @State private var latexObjectSaveTask: Task<Void, Never>?
+    @State private var hasPendingLatexObjectSave = false
+    @State private var widgetObjectSaveTask: Task<Void, Never>?
+    @State private var hasPendingWidgetObjectSave = false
     @State private var pagePreview: MacPDFPagePreview?
     @State private var penWidth: CGFloat = 5
     @State private var selectedTool: MacCanvasTool = .pen
     @State private var selectedPenPreset: MacPenPreset = .black
 
-    private static let contentSize = CGSize(width: 2400, height: 1800)
+    private static let contentSize = CanvasBoardMetrics.defaultUsableSize
+    private static let canvasInset: CGFloat = 180
+    private static let canvasOrigin = CGPoint(x: canvasInset, y: canvasInset)
     private static let minimumZoomScale: CGFloat = 0.1
     private static let maximumZoomScale: CGFloat = 4
     private static let saveDebounce: Duration = .milliseconds(400)
@@ -132,12 +205,12 @@ struct MacCanvasPlaceholder: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             MacZoomableCanvasView(
-                contentSize: Self.contentSize,
+                contentSize: documentSize,
                 initialViewportState: initialViewportState,
                 viewportCommand: viewportCommand,
                 minimumZoomScale: Self.minimumZoomScale,
                 maximumZoomScale: Self.maximumZoomScale,
-                fitRect: fitRect,
+                fitRect: documentFitRect,
                 onViewportStateChange: handleViewportStateChange,
                 onInteractionBegan: onInteractionBegan,
                 onCanvasPointBegan: beginCanvasInteraction,
@@ -145,74 +218,147 @@ struct MacCanvasPlaceholder: View {
                 onCanvasPointEnded: endCanvasInteraction
             ) {
                 ZStack(alignment: .topLeading) {
-                    Color.white
+                    Color(red: 0.82, green: 0.92, blue: 1.0)
+                        .ignoresSafeArea()
 
-                    if let pagePreview {
-                        MacPDFPageSurface(preview: pagePreview)
-                    }
+                    ZStack(alignment: .topLeading) {
+                        Color.white
 
-                    if !nonBlackStrokes.isEmpty {
-                        Image(nsImage: committedDrawingImage(for: nonBlackStrokes))
-                            .renderingMode(.original)
-                            .resizable()
-                            .interpolation(.high)
-                            .frame(width: Self.contentSize.width, height: Self.contentSize.height)
+                        if let pagePreview {
+                            MacPDFPageSurface(preview: pagePreview)
+                        }
+
+                        if !nonBlackStrokes.isEmpty {
+                            Image(nsImage: committedDrawingImage(for: nonBlackStrokes))
+                                .renderingMode(.original)
+                                .resizable()
+                                .interpolation(.high)
+                                .frame(width: Self.contentSize.width, height: Self.contentSize.height)
+                                .allowsHitTesting(false)
+                        }
+
+                        MacCommittedBlackInkView(strokes: blackStrokes)
                             .allowsHitTesting(false)
+
+                        MacImageObjectLayer(
+                            imageObjects: imageObjects,
+                            assetDirectoryURL: imageObjectAssetDirectoryURL,
+                            selectedImageObjectID: selectedImageObjectID
+                        )
+                        .allowsHitTesting(false)
+
+                        MacTextObjectLayer(
+                            textObjects: textObjects,
+                            selectedTextObjectID: selectedTextObjectID,
+                            resizeHandleSize: Self.textResizeHandleSize
+                        )
+                        .allowsHitTesting(false)
+
+                        WidgetCanvasOverlayView(
+                            widgets: $widgetObjects,
+                            viewport: macWidgetViewport,
+                            canvasIdentity: drawingURL.path,
+                            widgetAssetBaseURL: widgetAssetBaseURL,
+                            scoreSheet: WidgetActivityScoreSheet(widgets: widgetObjects),
+                            onEditWidget: onWidgetEditRequested,
+                            allowsWidgetAuthoring: allowsWidgetAuthoring,
+                            onWidgetInteractionChanged: { isInteracting in
+                                if isInteracting {
+                                    onInteractionBegan?()
+                                }
+                            },
+                            onWidgetDisplayFrameChanged: { _, _ in },
+                            onMathInputRequested: onWidgetMathInputRequested,
+                            onImageInsertionRequested: onWidgetImageInsertionRequested,
+                            showsTeacherDemoWebApplets: showsTeacherDemoWebApplets
+                        )
+                        .frame(width: Self.contentSize.width, height: Self.contentSize.height, alignment: .topLeading)
+
+                        MacLiveStrokeView(
+                            points: currentPoints,
+                            lineWidth: penWidth,
+                            color: selectedPenPreset.color
+                        )
+                        .allowsHitTesting(false)
+
+                        if let extractSelection {
+                            MacExtractSelectionView(rect: extractSelection.rect, isCompleted: false)
+                                .allowsHitTesting(false)
+                        } else if let completedExtractRect {
+                            MacExtractSelectionView(rect: completedExtractRect, isCompleted: true)
+                                .allowsHitTesting(false)
+                        }
                     }
-
-                    MacCommittedBlackInkView(strokes: blackStrokes)
-                        .allowsHitTesting(false)
-
-                    MacTextObjectLayer(
-                        textObjects: textObjects,
-                        selectedTextObjectID: selectedTextObjectID,
-                        resizeHandleSize: Self.textResizeHandleSize
-                    )
-                    .allowsHitTesting(false)
-
-                    MacLiveStrokeView(
-                        points: currentPoints,
-                        lineWidth: penWidth,
-                        color: selectedPenPreset.color
-                    )
-                        .allowsHitTesting(false)
+                    .frame(width: Self.contentSize.width, height: Self.contentSize.height)
+                    .background(.white)
+                    .overlay {
+                        Rectangle()
+                            .stroke(Color(red: 0.45, green: 0.68, blue: 0.98), lineWidth: 3)
+                    }
+                    .shadow(color: .black.opacity(0.12), radius: 16, y: 4)
+                    .offset(x: Self.canvasOrigin.x, y: Self.canvasOrigin.y)
                 }
-                .frame(width: Self.contentSize.width, height: Self.contentSize.height)
+                .frame(width: documentSize.width, height: documentSize.height)
             }
             .background(Color(nsColor: .windowBackgroundColor))
-
-            MacPrepToolbar(
-                canUndo: !drawing.strokes.isEmpty,
-                canClear: !drawing.strokes.isEmpty,
-                selectedTool: $selectedTool,
-                selectedPenPreset: $selectedPenPreset,
-                penWidth: $penWidth,
-                selectedText: selectedTextBinding,
-                selectedFontSize: selectedFontSizeBinding,
-                applySelectedColor: applySelectedColor,
-                deleteSelectedText: deleteSelectedTextObject,
-                undo: undoLastStroke,
-                clear: clearDrawing
-            )
-            .padding(12)
         }
         .task(id: drawingURL) {
             drawing = (try? Self.loadDrawing(at: drawingURL)) ?? PKDrawing()
             strokeColorRecords = Self.loadStrokeColorRecords(at: strokeColorRecordsURL)
             textObjects = Self.loadTextObjects(at: textObjectsURL)
+            imageObjects = CanvasImageObject.load(from: imageObjectsURL)
+            latexObjects = CanvasLaTeXObject.load(from: latexObjectsURL)
+            widgetObjects = WidgetObject.load(from: widgetObjectsURL)
             selectedTextObjectID = nil
             didLoad = true
+            publishEditState()
+            publishWidgetObjects()
         }
         .task(id: background) {
             pagePreview = Self.loadPagePreview(from: background)
         }
+        .task(id: editCommand?.id) {
+            applyEditCommandIfNeeded(editCommand)
+        }
+        .task(id: toolCommand?.id) {
+            applyToolCommandIfNeeded(toolCommand)
+        }
+        .task(id: objectCommand?.id) {
+            applyObjectCommandIfNeeded(objectCommand)
+        }
         .onChange(of: drawing) { _, newDrawing in
             guard didLoad else { return }
             scheduleSave(of: newDrawing)
+            publishEditState()
+        }
+        .onChange(of: imageObjects) { _, newImageObjects in
+            guard didLoad else { return }
+            scheduleImageObjectSave(newImageObjects)
+        }
+        .onChange(of: latexObjects) { _, newLatexObjects in
+            guard didLoad else { return }
+            scheduleLatexObjectSave(newLatexObjects)
+        }
+        .onChange(of: widgetObjects) { _, newWidgetObjects in
+            guard didLoad else { return }
+            scheduleWidgetObjectSave(newWidgetObjects)
+            publishWidgetObjects()
+        }
+        .onChange(of: editCommand) { _, newCommand in
+            applyEditCommandIfNeeded(newCommand)
+        }
+        .onChange(of: toolCommand) { _, newCommand in
+            applyToolCommandIfNeeded(newCommand)
+        }
+        .onChange(of: objectCommand) { _, newCommand in
+            applyObjectCommandIfNeeded(newCommand)
         }
         .onDisappear {
             flushPendingSave()
             flushPendingTextObjectSave()
+            flushPendingImageObjectSave()
+            flushPendingLatexObjectSave()
+            flushPendingWidgetObjectSave()
         }
     }
 
@@ -220,12 +366,51 @@ struct MacCanvasPlaceholder: View {
         CGRect(origin: .zero, size: Self.contentSize)
     }
 
+    private var canvasContentBounds: CGRect {
+        contentRect.union(fitRect ?? contentRect)
+    }
+
+    private var documentSize: CGSize {
+        CGSize(
+            width: max(Self.contentSize.width, canvasContentBounds.maxX) + Self.canvasInset * 2,
+            height: max(Self.contentSize.height, canvasContentBounds.maxY) + Self.canvasInset * 2
+        )
+    }
+
+    private var documentFitRect: CGRect {
+        canvasContentBounds.offsetBy(dx: Self.canvasOrigin.x, dy: Self.canvasOrigin.y)
+    }
+
     private var textObjectsURL: URL {
         CanvasTextObject.sidecarURL(forDrawingURL: drawingURL)
     }
 
+    private var imageObjectsURL: URL {
+        CanvasImageObject.sidecarURL(forDrawingURL: drawingURL)
+    }
+
+    private var imageObjectAssetDirectoryURL: URL {
+        CanvasImageObject.assetDirectoryURL(forDrawingURL: drawingURL)
+    }
+
+    private var latexObjectsURL: URL {
+        CanvasLaTeXObject.sidecarURL(forDrawingURL: drawingURL)
+    }
+
+    private var widgetObjectsURL: URL {
+        WidgetObject.sidecarURL(forDrawingURL: drawingURL)
+    }
+
     private var strokeColorRecordsURL: URL {
         CanvasStrokeColorRecord.sidecarURL(forDrawingURL: drawingURL)
+    }
+
+    private var macWidgetViewport: WidgetCanvasViewport {
+        WidgetCanvasViewport(
+            zoomScale: 1,
+            contentOffset: .zero,
+            canvasOrigin: .zero
+        )
     }
 
     private var selectedTextObject: CanvasTextObject? {
@@ -283,37 +468,56 @@ struct MacCanvasPlaceholder: View {
     }
 
     private var fitRect: CGRect? {
-        CanvasContentBounds.combinedBounds(
+        var bounds = CanvasContentBounds.combinedBounds(
             drawingBounds: drawing.bounds,
             backgroundSize: pagePreview?.size,
             textObjects: textObjects
         )
+        for image in imageObjects where image.frame.width > 0 && image.frame.height > 0 {
+            bounds = bounds.map { $0.union(image.renderedBounds) } ?? image.renderedBounds
+        }
+        for widget in widgetObjects where widget.frame.width > 0 && widget.frame.height > 0 {
+            bounds = bounds.map { $0.union(widget.frame) } ?? widget.frame
+        }
+        return bounds
     }
 
     private func clampedPoint(_ point: CGPoint) -> CGPoint {
-        CGPoint(
-            x: min(max(point.x, 0), Self.contentSize.width),
-            y: min(max(point.y, 0), Self.contentSize.height)
+        let canvasPoint = CGPoint(
+            x: point.x - Self.canvasOrigin.x,
+            y: point.y - Self.canvasOrigin.y
+        )
+        return CGPoint(
+            x: min(max(canvasPoint.x, 0), Self.contentSize.width),
+            y: min(max(canvasPoint.y, 0), Self.contentSize.height)
         )
     }
 
     private func beginCanvasInteraction(_ point: CGPoint) {
         let clampedPoint = clampedPoint(point)
         switch selectedTool {
+        case .select:
+            beginSelectionInteraction(at: clampedPoint)
         case .pen:
-            selectedTextObjectID = nil
+            clearObjectSelection()
             currentPoints = [clampedPoint]
         case .eraser:
-            selectedTextObjectID = nil
+            clearObjectSelection()
             eraseStroke(at: clampedPoint)
         case .text:
-            beginTextInteraction(at: clampedPoint)
+            beginTextInteraction(at: clampedPoint, createsIfMissing: true)
+        case .extract:
+            clearObjectSelection()
+            extractSelection = MacExtractSelection(start: clampedPoint, current: clampedPoint)
+            completedExtractRect = nil
         }
     }
 
     private func updateCanvasInteraction(_ point: CGPoint) {
         let clampedPoint = clampedPoint(point)
         switch selectedTool {
+        case .select:
+            updateSelectionInteraction(at: clampedPoint)
         case .pen:
             if currentPoints.last != clampedPoint {
                 currentPoints.append(clampedPoint)
@@ -322,21 +526,31 @@ struct MacCanvasPlaceholder: View {
             eraseStroke(at: clampedPoint)
         case .text:
             updateTextInteraction(at: clampedPoint)
+        case .extract:
+            extractSelection?.current = clampedPoint
         }
     }
 
     private func endCanvasInteraction() {
         switch selectedTool {
+        case .select:
+            if imageInteractionMode != nil {
+                scheduleImageObjectSave(imageObjects)
+            }
+            textInteractionMode = nil
+            imageInteractionMode = nil
         case .pen:
             commitCurrentStroke()
         case .eraser:
             currentPoints = []
         case .text:
             textInteractionMode = nil
+        case .extract:
+            finishExtractSelection()
         }
     }
 
-    private func beginTextInteraction(at point: CGPoint) {
+    private func beginTextInteraction(at point: CGPoint, createsIfMissing: Bool) {
         if let selectedIndex = selectedTextObjectIndex,
            resizeHandleRect(for: textObjects[selectedIndex]).contains(point) {
             textInteractionMode = .resize(origin: CGPoint(
@@ -355,6 +569,11 @@ struct MacCanvasPlaceholder: View {
             return
         }
 
+        guard createsIfMissing else {
+            clearObjectSelection()
+            return
+        }
+
         var newObject = CanvasTextObject(
             text: "Text",
             x: min(point.x, Self.contentSize.width - 240),
@@ -368,6 +587,65 @@ struct MacCanvasPlaceholder: View {
         selectedTextObjectID = newObject.id
         textInteractionMode = .move(offset: CGSize(width: 12, height: 12))
         scheduleTextObjectSave()
+    }
+
+    private func beginSelectionInteraction(at point: CGPoint) {
+        if let selectedIndex = selectedTextObjectIndex,
+           resizeHandleRect(for: textObjects[selectedIndex]).contains(point) {
+            selectedImageObjectID = nil
+            textInteractionMode = .resize(origin: CGPoint(x: textObjects[selectedIndex].x, y: textObjects[selectedIndex].y))
+            return
+        }
+
+        if let textIndex = textObjectIndex(at: point) {
+            selectedTextObjectID = textObjects[textIndex].id
+            selectedImageObjectID = nil
+            textInteractionMode = .move(offset: CGSize(
+                width: point.x - textObjects[textIndex].x,
+                height: point.y - textObjects[textIndex].y
+            ))
+            return
+        }
+
+        if let imageIndex = imageObjectIndex(at: point) {
+            selectedImageObjectID = imageObjects[imageIndex].id
+            selectedTextObjectID = nil
+            imageInteractionMode = .move(offset: CGSize(
+                width: point.x - imageObjects[imageIndex].x,
+                height: point.y - imageObjects[imageIndex].y
+            ))
+            return
+        }
+
+        clearObjectSelection()
+    }
+
+    private func updateSelectionInteraction(at point: CGPoint) {
+        if textInteractionMode != nil {
+            updateTextInteraction(at: point)
+            return
+        }
+        updateImageInteraction(at: point)
+    }
+
+    private func updateImageInteraction(at point: CGPoint) {
+        guard let selectedImageObjectID,
+              let imageInteractionMode,
+              let index = imageObjects.firstIndex(where: { $0.id == selectedImageObjectID }) else {
+            return
+        }
+
+        switch imageInteractionMode {
+        case .move(let offset):
+            imageObjects[index].x = min(
+                max(point.x - offset.width, 0),
+                Self.contentSize.width - imageObjects[index].width
+            )
+            imageObjects[index].y = min(
+                max(point.y - offset.height, 0),
+                Self.contentSize.height - imageObjects[index].height
+            )
+        }
     }
 
     private func updateTextInteraction(at point: CGPoint) {
@@ -400,6 +678,13 @@ struct MacCanvasPlaceholder: View {
         scheduleTextObjectSave()
     }
 
+    private func clearObjectSelection() {
+        selectedTextObjectID = nil
+        selectedImageObjectID = nil
+        textInteractionMode = nil
+        imageInteractionMode = nil
+    }
+
     private var selectedTextObjectIndex: Int? {
         guard let selectedTextObjectID else { return nil }
         return textObjects.firstIndex { $0.id == selectedTextObjectID }
@@ -408,6 +693,12 @@ struct MacCanvasPlaceholder: View {
     private func textObjectIndex(at point: CGPoint) -> Int? {
         textObjects.indices.reversed().first { index in
             textObjects[index].frame.insetBy(dx: -8, dy: -8).contains(point)
+        }
+    }
+
+    private func imageObjectIndex(at point: CGPoint) -> Int? {
+        imageObjects.indices.reversed().first { index in
+            imageObjects[index].renderedBounds.insetBy(dx: -8, dy: -8).contains(point)
         }
     }
 
@@ -447,6 +738,513 @@ struct MacCanvasPlaceholder: View {
         textObjects.remove(at: index)
         self.selectedTextObjectID = nil
         scheduleTextObjectSave()
+    }
+
+    private func applyEditCommandIfNeeded(_ command: CanvasEditCommand?) {
+        guard let command, appliedEditCommandID != command.id else { return }
+        appliedEditCommandID = command.id
+
+        switch command.action {
+        case .undo:
+            undoLastStroke()
+        case .redo:
+            break
+        }
+    }
+
+    private func applyToolCommandIfNeeded(_ command: CanvasToolCommand?) {
+        guard let command, appliedToolCommandID != command.id else { return }
+        appliedToolCommandID = command.id
+
+        switch command.action {
+        case .pen(let color, let width), .fountainPen(let color, let width), .marker(let color, let width):
+            selectedTool = .pen
+            selectedPenPreset = MacPenPreset.closestPreset(to: color)
+            penWidth = width
+        case .eraser:
+            selectedTool = .eraser
+        case .text:
+            selectedTool = .text
+        case .select(let target, _, _, _):
+            selectedTool = target == .region ? .extract : .select
+        case .extractSelectionAsImageSticker:
+            extractCompletedSelectionAsImage()
+        case .idle, .copySelection, .pasteSelection, .duplicateSelection, .deleteSelection,
+             .sendSelectionToNextSlide, .setExtractAction, .laser, .geometry, .cover:
+            break
+        }
+    }
+
+    private func finishExtractSelection() {
+        guard let selection = extractSelection else { return }
+        extractSelection = nil
+        let rect = selection.rect.integral
+        guard rect.width >= 8, rect.height >= 8 else {
+            completedExtractRect = nil
+            return
+        }
+        completedExtractRect = rect
+        extractCompletedSelectionAsImage()
+    }
+
+    private func extractCompletedSelectionAsImage() {
+        guard let rect = completedExtractRect,
+              rect.width >= 8,
+              rect.height >= 8,
+              let pngData = snapshotPNGData(in: rect) else { return }
+        let offsetFrame = rect.offsetBy(dx: 24, dy: 24)
+        guard saveImageObject(pngData: pngData, frame: offsetFrame, isLocked: false) != nil else { return }
+        completedExtractRect = nil
+    }
+
+    private func snapshotPNGData(in rect: CGRect) -> Data? {
+        let scale: CGFloat = 2
+        let pixelSize = CGSize(width: rect.width * scale, height: rect.height * scale)
+        guard let representation = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(pixelSize.width.rounded(.up)),
+            pixelsHigh: Int(pixelSize.height.rounded(.up)),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else { return nil }
+        representation.size = pixelSize
+        guard let graphicsContext = NSGraphicsContext(bitmapImageRep: representation) else { return nil }
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = graphicsContext
+        let context = graphicsContext.cgContext
+        context.saveGState()
+        context.scaleBy(x: scale, y: scale)
+        context.translateBy(x: -rect.minX, y: -rect.minY)
+        drawSnapshotContent(in: context)
+        context.restoreGState()
+        NSGraphicsContext.restoreGraphicsState()
+
+        return representation.representation(using: .png, properties: [:])
+    }
+
+    private func drawSnapshotContent(in context: CGContext) {
+        NSColor.white.setFill()
+        context.fill(contentRect)
+
+        if let pagePreview,
+           let document = PDFDocument(url: pagePreview.pdfURL),
+           let page = document.page(at: pagePreview.pageIndex) {
+            context.saveGState()
+            context.translateBy(x: 0, y: pagePreview.size.height)
+            context.scaleBy(x: 1, y: -1)
+            page.draw(with: .mediaBox, to: context)
+            context.restoreGState()
+        }
+
+        for imageObject in imageObjects {
+            guard let image = NSImage(contentsOf: imageObjectAssetDirectoryURL.appendingPathComponent(imageObject.imageFileName)),
+                  let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { continue }
+            context.saveGState()
+            context.translateBy(x: imageObject.center.x, y: imageObject.center.y)
+            context.rotate(by: imageObject.rotation)
+            context.translateBy(x: -imageObject.width / 2, y: -imageObject.height / 2)
+            context.draw(cgImage, in: CGRect(origin: .zero, size: CGSize(width: imageObject.width, height: imageObject.height)))
+            context.restoreGState()
+        }
+
+        if !drawing.strokes.isEmpty, let inkImage = committedDrawingImage(for: drawing.strokes).cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            context.draw(inkImage, in: contentRect)
+        }
+
+        for textObject in textObjects {
+            drawTextObject(textObject, in: context)
+        }
+    }
+
+    private func drawTextObject(_ object: CanvasTextObject, in context: CGContext) {
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .left
+        let font = NSFont.systemFont(ofSize: object.fontSize, weight: object.isBold ? .bold : .regular)
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor(
+                srgbRed: object.red,
+                green: object.green,
+                blue: object.blue,
+                alpha: object.alpha
+            ),
+            .paragraphStyle: paragraph
+        ]
+        (object.text as NSString).draw(with: object.frame, options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: attributes)
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    private func applyObjectCommandIfNeeded(_ command: CanvasObjectCommand?) {
+        guard let command, appliedObjectCommandID != command.id else { return }
+        appliedObjectCommandID = command.id
+        guard allowsWidgetAuthoring || command.action == .reloadObjectState else { return }
+
+        switch command.action {
+        case .insertText(let insertion):
+            insertTextObject(insertion)
+        case .insertImage(let insertion):
+            insertImageObject(insertion)
+        case .insertImageAtCanvasPoint(let insertion):
+            insertDroppedImageObject(insertion)
+        case .insertImageNearViewport(let insertion):
+            insertViewportImageObject(insertion)
+        case .insertImagesNearViewport(let insertions):
+            for (index, insertion) in insertions.enumerated() {
+                insertViewportImageObject(insertion, cascadeIndex: index)
+            }
+        case .insertLaTeX(let insertion):
+            insertLaTeXObject(insertion)
+        case .updateLaTeX(let update):
+            updateLaTeXObject(update)
+        case .insertWidget(let insertion):
+            insertWidgetObject(insertion)
+        case .updateWidget(let update):
+            updateWidgetObject(update)
+        case .updateText(let update):
+            updateTextObject(update)
+        case .delete(.text(let id)):
+            deleteTextObject(id)
+        case .delete(.image(let id)):
+            deleteImageObject(id)
+        case .clearSelection:
+            selectedTextObjectID = nil
+        case .reloadObjectState:
+            textObjects = CanvasTextObject.load(from: textObjectsURL)
+            imageObjects = CanvasImageObject.load(from: imageObjectsURL)
+            latexObjects = CanvasLaTeXObject.load(from: latexObjectsURL)
+            widgetObjects = WidgetObject.load(from: widgetObjectsURL)
+            publishWidgetObjects()
+        default:
+            break
+        }
+    }
+
+    private func insertTextObject(_ insertion: CanvasTextInsertion) {
+        let text = insertion.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        onInteractionBegan?()
+        let size = insertion.displaySize ?? CGSize(width: 360, height: max(insertion.fontSize * 1.8, 72))
+        let origin = sourceOrigin(
+            canvasPoint: insertion.canvasPoint,
+            fallbackSourcePoint: insertion.sourcePoint,
+            size: size
+        )
+        let object = CanvasTextObject(
+            text: text,
+            x: origin.x,
+            y: origin.y,
+            width: size.width,
+            height: size.height,
+            fontSize: insertion.fontSize,
+            red: insertion.color.red,
+            green: insertion.color.green,
+            blue: insertion.color.blue,
+            alpha: insertion.color.alpha,
+            backgroundRed: insertion.backgroundColor?.red,
+            backgroundGreen: insertion.backgroundColor?.green,
+            backgroundBlue: insertion.backgroundColor?.blue,
+            backgroundAlpha: insertion.backgroundColor?.alpha,
+            isBold: insertion.isBold,
+            isItalic: insertion.isItalic,
+            isUnderlined: insertion.isUnderlined,
+            fontName: insertion.fontName,
+            librarySourceText: insertion.librarySourceText,
+            hasRecordedLibraryDerivative: insertion.hasRecordedLibraryDerivative
+        )
+        textObjects.append(object)
+        selectedTextObjectID = object.id
+        scheduleTextObjectSave()
+    }
+
+    private func updateTextObject(_ update: CanvasTextUpdate) {
+        let text = update.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty,
+              let index = textObjects.firstIndex(where: { $0.id == update.id }) else { return }
+        onInteractionBegan?()
+        textObjects[index].text = text
+        textObjects[index].fontSize = update.fontSize
+        if let color = update.color {
+            textObjects[index].setColor(red: color.red, green: color.green, blue: color.blue, alpha: color.alpha)
+        }
+        if update.updatesBackgroundColor {
+            if let backgroundColor = update.backgroundColor {
+                textObjects[index].setBackgroundColor(
+                    red: backgroundColor.red,
+                    green: backgroundColor.green,
+                    blue: backgroundColor.blue,
+                    alpha: backgroundColor.alpha
+                )
+            } else {
+                textObjects[index].clearBackgroundColor()
+            }
+        }
+        textObjects[index].isBold = update.isBold
+        textObjects[index].isItalic = update.isItalic
+        textObjects[index].isUnderlined = update.isUnderlined
+        textObjects[index].fontName = update.fontName
+        if let hasRecordedLibraryDerivative = update.hasRecordedLibraryDerivative {
+            textObjects[index].hasRecordedLibraryDerivative = hasRecordedLibraryDerivative
+        }
+        selectedTextObjectID = update.id
+        scheduleTextObjectSave()
+    }
+
+    private func deleteTextObject(_ id: UUID) {
+        textObjects.removeAll { $0.id == id }
+        if selectedTextObjectID == id {
+            selectedTextObjectID = nil
+        }
+        scheduleTextObjectSave()
+    }
+
+    private func insertImageObject(_ insertion: CanvasImageInsertion) {
+        saveImageObject(
+            pngData: insertion.pngData,
+            imageFileExtension: insertion.imageFileExtension,
+            frame: insertion.frame,
+            isLocked: insertion.isLocked
+        )
+    }
+
+    private func insertDroppedImageObject(_ insertion: CanvasDroppedImageInsertion) {
+        let frame = centeredFrame(size: insertion.displaySize, center: insertion.canvasPoint, margin: 24)
+        saveImageObject(
+            pngData: insertion.pngData,
+            imageFileExtension: insertion.imageFileExtension,
+            frame: frame,
+            isLocked: insertion.isLocked
+        )
+    }
+
+    private func insertViewportImageObject(_ insertion: CanvasViewportImageInsertion, cascadeIndex: Int = 0) {
+        var frame = sourceFrame(forViewportImageInsertion: insertion)
+        let offset = CGFloat(cascadeIndex) * 24
+        frame.origin.x += offset
+        frame.origin.y += offset
+        saveImageObject(
+            pngData: insertion.pngData,
+            imageFileExtension: insertion.imageFileExtension,
+            frame: frame,
+            isLocked: insertion.isLocked
+        )
+    }
+
+    @discardableResult
+    private func saveImageObject(
+        pngData: Data,
+        imageFileExtension: String = "png",
+        frame: CGRect,
+        isLocked: Bool
+    ) -> CanvasImageObject? {
+        let fileName = "\(UUID().uuidString).\(Self.imageFileExtension(for: pngData, preferredExtension: imageFileExtension))"
+        let assetURL = imageObjectAssetDirectoryURL.appendingPathComponent(fileName)
+        do {
+            try FileManager.default.createDirectory(at: imageObjectAssetDirectoryURL, withIntermediateDirectories: true)
+            try pngData.write(to: assetURL, options: .atomic)
+        } catch {
+            print("[Canvas] Mac image object save error: \(error)")
+            return nil
+        }
+
+        onInteractionBegan?()
+        let imageObject = CanvasImageObject(
+            imageFileName: fileName,
+            x: frame.minX,
+            y: frame.minY,
+            width: frame.width,
+            height: frame.height,
+            isLocked: isLocked ? true : nil
+        )
+        imageObjects.append(imageObject)
+        return imageObject
+    }
+
+    private func insertLaTeXObject(_ insertion: CanvasLaTeXInsertion) {
+        let frame: CGRect
+        if let canvasPoint = insertion.canvasPoint {
+            frame = centeredFrame(size: insertion.displaySize, center: canvasPoint, margin: insertion.margin)
+        } else {
+            frame = sourceFrame(forViewportImageInsertion: CanvasViewportImageInsertion(
+                pngData: insertion.pngData,
+                displaySize: insertion.displaySize,
+                referenceRect: insertion.referenceRect,
+                containerSize: insertion.containerSize,
+                margin: insertion.margin
+            ))
+        }
+
+        guard let imageObject = saveImageObject(
+            pngData: insertion.pngData,
+            imageFileExtension: "png",
+            frame: frame,
+            isLocked: false
+        ) else { return }
+        latexObjects.append(CanvasLaTeXObject(
+            imageObjectID: imageObject.id,
+            latexSource: insertion.latexSource,
+            librarySourceLaTeX: insertion.librarySourceLaTeX,
+            hasRecordedLibraryDerivative: insertion.hasRecordedLibraryDerivative
+        ))
+    }
+
+    private func updateLaTeXObject(_ update: CanvasLaTeXUpdate) {
+        guard let imageIndex = imageObjects.firstIndex(where: { $0.id == update.imageObjectID }),
+              let latexIndex = latexObjects.firstIndex(where: { $0.imageObjectID == update.imageObjectID }) else { return }
+        let oldFileName = imageObjects[imageIndex].imageFileName
+        let newFileName = "\(UUID().uuidString).png"
+        let assetURL = imageObjectAssetDirectoryURL.appendingPathComponent(newFileName)
+        do {
+            try FileManager.default.createDirectory(at: imageObjectAssetDirectoryURL, withIntermediateDirectories: true)
+            try update.pngData.write(to: assetURL, options: .atomic)
+        } catch {
+            print("[Canvas] Mac LaTeX image update save error: \(error)")
+            return
+        }
+
+        onInteractionBegan?()
+        latexObjects[latexIndex].latexSource = update.latexSource
+        if let hasRecordedLibraryDerivative = update.hasRecordedLibraryDerivative {
+            latexObjects[latexIndex].hasRecordedLibraryDerivative = hasRecordedLibraryDerivative
+        }
+        imageObjects[imageIndex].imageFileName = newFileName
+        let aspectRatio = max(update.displaySize.width, 1) / max(update.displaySize.height, 1)
+        let center = imageObjects[imageIndex].center
+        let height = max(imageObjects[imageIndex].height, 1)
+        let width = max(height * aspectRatio, 1)
+        imageObjects[imageIndex].x = center.x - width / 2
+        imageObjects[imageIndex].y = center.y - height / 2
+        imageObjects[imageIndex].width = width
+        imageObjects[imageIndex].height = height
+        if !imageObjects.contains(where: { $0.id != update.imageObjectID && $0.imageFileName == oldFileName }) {
+            try? FileManager.default.removeItem(at: imageObjectAssetDirectoryURL.appendingPathComponent(oldFileName))
+        }
+    }
+
+    private func deleteImageObject(_ id: UUID) {
+        guard let index = imageObjects.firstIndex(where: { $0.id == id }) else { return }
+        let fileName = imageObjects[index].imageFileName
+        imageObjects.remove(at: index)
+        latexObjects.removeAll { $0.imageObjectID == id }
+        if !imageObjects.contains(where: { $0.imageFileName == fileName }) {
+            try? FileManager.default.removeItem(at: imageObjectAssetDirectoryURL.appendingPathComponent(fileName))
+        }
+    }
+
+    private func insertWidgetObject(_ insertion: CanvasWidgetInsertion) {
+        onInteractionBegan?()
+        var widgetObject = insertion.widgetObject
+        widgetObject.frame = sourceFrame(forWidgetInsertion: insertion)
+        widgetObjects.append(widgetObject)
+    }
+
+    private func updateWidgetObject(_ update: CanvasWidgetUpdate) {
+        guard let index = widgetObjects.firstIndex(where: { $0.id == update.id }) else { return }
+        onInteractionBegan?()
+        widgetObjects[index].name = update.name
+        widgetObjects[index].codeString = update.codeString
+        widgetObjects[index].activityRuntimeState = update.resetsRuntimeState ? nil : widgetObjects[index].activityRuntimeState
+        if let hasRecordedLibraryDerivative = update.hasRecordedLibraryDerivative {
+            widgetObjects[index].hasRecordedLibraryDerivative = hasRecordedLibraryDerivative
+        }
+    }
+
+    private func sourceOrigin(canvasPoint: CGPoint?, fallbackSourcePoint: CGPoint, size: CGSize) -> CGPoint {
+        if let canvasPoint {
+            return CGPoint(x: canvasPoint.x - size.width / 2, y: canvasPoint.y - size.height / 2)
+        }
+        return fallbackSourcePoint
+    }
+
+    private func centeredFrame(size: CGSize, center: CGPoint, margin: CGFloat) -> CGRect {
+        let proposedOrigin = CGPoint(x: center.x - size.width / 2, y: center.y - size.height / 2)
+        return clampedFrame(origin: proposedOrigin, size: size, margin: margin)
+    }
+
+    private func sourceFrame(forViewportImageInsertion insertion: CanvasViewportImageInsertion) -> CGRect {
+        let containerSize = insertion.containerSize ?? Self.contentSize
+        let margin = max(insertion.margin, 0)
+        let size = CGSize(
+            width: min(max(insertion.displaySize.width, 1), max(containerSize.width - margin * 2, 1)),
+            height: min(max(insertion.displaySize.height, 1), max(containerSize.height - margin * 2, 1))
+        )
+        let proposedOrigin: CGPoint
+        if let referenceRect = insertion.referenceRect {
+            let canvasReferenceRect = referenceRect.offsetBy(dx: -Self.canvasOrigin.x, dy: -Self.canvasOrigin.y)
+            proposedOrigin = CGPoint(
+                x: canvasReferenceRect.midX - size.width / 2,
+                y: canvasReferenceRect.midY - size.height / 2
+            )
+        } else {
+            proposedOrigin = CGPoint(x: (Self.contentSize.width - size.width) / 2, y: (Self.contentSize.height - size.height) / 2)
+        }
+        return clampedFrame(origin: proposedOrigin, size: size, margin: margin)
+    }
+
+    private func clampedFrame(origin: CGPoint, size: CGSize, margin: CGFloat) -> CGRect {
+        CGRect(
+            x: min(max(origin.x, margin), max(margin, Self.contentSize.width - size.width - margin)),
+            y: min(max(origin.y, margin), max(margin, Self.contentSize.height - size.height - margin)),
+            width: size.width,
+            height: size.height
+        )
+    }
+
+    private static func normalizedImageFileExtension(_ fileExtension: String) -> String {
+        let normalized = fileExtension
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".").union(.whitespacesAndNewlines))
+            .lowercased()
+        return normalized.isEmpty ? "png" : normalized
+    }
+
+    private static func imageFileExtension(for data: Data, preferredExtension: String) -> String {
+        if data.starts(with: [0xFF, 0xD8, 0xFF]) {
+            return "jpg"
+        }
+        if data.starts(with: [0x89, 0x50, 0x4E, 0x47]) {
+            return "png"
+        }
+        return normalizedImageFileExtension(preferredExtension)
+    }
+
+    private func sourceFrame(forWidgetInsertion insertion: CanvasWidgetInsertion) -> CGRect {
+        let size = insertion.displaySize
+        let proposedOrigin: CGPoint
+        if let canvasPoint = insertion.canvasPoint {
+            proposedOrigin = CGPoint(
+                x: canvasPoint.x - size.width / 2,
+                y: canvasPoint.y - size.height / 2
+            )
+        } else if let referenceRect = insertion.referenceRect, let containerSize = insertion.containerSize {
+            let canvasReferenceRect = referenceRect.offsetBy(dx: -Self.canvasOrigin.x, dy: -Self.canvasOrigin.y)
+            let canvasContainerSize = CGSize(
+                width: min(containerSize.width, Self.contentSize.width),
+                height: min(containerSize.height, Self.contentSize.height)
+            )
+            proposedOrigin = CGPoint(
+                x: (canvasContainerSize.width - size.width) / 2 + canvasReferenceRect.minX,
+                y: (canvasContainerSize.height - size.height) / 2 + canvasReferenceRect.minY
+            )
+        } else {
+            proposedOrigin = CGPoint(
+                x: (Self.contentSize.width - size.width) / 2,
+                y: (Self.contentSize.height - size.height) / 2
+            )
+        }
+
+        return CGRect(
+            x: min(max(proposedOrigin.x, insertion.margin), max(insertion.margin, Self.contentSize.width - size.width - insertion.margin)),
+            y: min(max(proposedOrigin.y, insertion.margin), max(insertion.margin, Self.contentSize.height - size.height - insertion.margin)),
+            width: size.width,
+            height: size.height
+        )
     }
 
     @MainActor
@@ -534,6 +1332,10 @@ struct MacCanvasPlaceholder: View {
         drawing = PKDrawing()
     }
 
+    private func publishEditState() {
+        onEditStateChange?(CanvasEditState(canUndo: !drawing.strokes.isEmpty, canRedo: false))
+    }
+
     private func scheduleSave(of newDrawing: PKDrawing) {
         hasPendingSave = true
         saveTask?.cancel()
@@ -556,6 +1358,39 @@ struct MacCanvasPlaceholder: View {
         }
     }
 
+    private func scheduleImageObjectSave(_ newImageObjects: [CanvasImageObject]) {
+        hasPendingImageObjectSave = true
+        imageObjectSaveTask?.cancel()
+        imageObjectSaveTask = Task { @MainActor in
+            try? await Task.sleep(for: Self.textObjectSaveDebounce)
+            guard !Task.isCancelled else { return }
+            saveImageObjects(newImageObjects, to: imageObjectsURL)
+            hasPendingImageObjectSave = false
+        }
+    }
+
+    private func scheduleLatexObjectSave(_ newLatexObjects: [CanvasLaTeXObject]) {
+        hasPendingLatexObjectSave = true
+        latexObjectSaveTask?.cancel()
+        latexObjectSaveTask = Task { @MainActor in
+            try? await Task.sleep(for: Self.textObjectSaveDebounce)
+            guard !Task.isCancelled else { return }
+            saveLatexObjects(newLatexObjects, to: latexObjectsURL)
+            hasPendingLatexObjectSave = false
+        }
+    }
+
+    private func scheduleWidgetObjectSave(_ newWidgetObjects: [WidgetObject]) {
+        hasPendingWidgetObjectSave = true
+        widgetObjectSaveTask?.cancel()
+        widgetObjectSaveTask = Task { @MainActor in
+            try? await Task.sleep(for: Self.textObjectSaveDebounce)
+            guard !Task.isCancelled else { return }
+            saveWidgetObjects(newWidgetObjects, to: widgetObjectsURL)
+            hasPendingWidgetObjectSave = false
+        }
+    }
+
     private func flushPendingSave() {
         saveTask?.cancel()
         saveTask = nil
@@ -570,6 +1405,30 @@ struct MacCanvasPlaceholder: View {
         guard hasPendingTextObjectSave else { return }
         saveTextObjects(textObjects, to: textObjectsURL)
         hasPendingTextObjectSave = false
+    }
+
+    private func flushPendingImageObjectSave() {
+        imageObjectSaveTask?.cancel()
+        imageObjectSaveTask = nil
+        guard hasPendingImageObjectSave else { return }
+        saveImageObjects(imageObjects, to: imageObjectsURL)
+        hasPendingImageObjectSave = false
+    }
+
+    private func flushPendingLatexObjectSave() {
+        latexObjectSaveTask?.cancel()
+        latexObjectSaveTask = nil
+        guard hasPendingLatexObjectSave else { return }
+        saveLatexObjects(latexObjects, to: latexObjectsURL)
+        hasPendingLatexObjectSave = false
+    }
+
+    private func flushPendingWidgetObjectSave() {
+        widgetObjectSaveTask?.cancel()
+        widgetObjectSaveTask = nil
+        guard hasPendingWidgetObjectSave else { return }
+        saveWidgetObjects(widgetObjects, to: widgetObjectsURL)
+        hasPendingWidgetObjectSave = false
     }
 
     private static func loadDrawing(at url: URL) throws -> PKDrawing {
@@ -615,6 +1474,42 @@ struct MacCanvasPlaceholder: View {
         } catch {
             print("[Canvas] text object save error: \(error)")
         }
+    }
+
+    private func saveImageObjects(_ imageObjects: [CanvasImageObject], to url: URL) {
+        do {
+            try CanvasImageObject.save(imageObjects, to: url)
+            onCanvasObjectStateChange?()
+        } catch {
+            print("[Canvas] image object save error: \(error)")
+        }
+    }
+
+    private func saveLatexObjects(_ latexObjects: [CanvasLaTeXObject], to url: URL) {
+        do {
+            try CanvasLaTeXObject.save(latexObjects, to: url)
+            onCanvasObjectStateChange?()
+        } catch {
+            print("[Canvas] LaTeX object save error: \(error)")
+        }
+    }
+
+    private func saveWidgetObjects(_ widgetObjects: [WidgetObject], to url: URL) {
+        do {
+            try WidgetObject.save(widgetObjects, to: url)
+            onCanvasObjectStateChange?()
+        } catch {
+            print("[Canvas] widget object save error: \(error)")
+        }
+    }
+
+    private func publishWidgetObjects() {
+        onWidgetObjectsChange?(
+            widgetObjects,
+            macWidgetViewport,
+            Self.contentSize,
+            drawingURL.path
+        )
     }
 
     private static func loadPagePreview(from background: CanvasBackground?) -> MacPDFPagePreview? {
@@ -663,8 +1558,9 @@ private struct MacZoomableCanvasView<Content: View>: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
+        scrollView.contentView = MacCenteringClipView()
         scrollView.drawsBackground = true
-        scrollView.backgroundColor = .windowBackgroundColor
+        scrollView.backgroundColor = NSColor(calibratedRed: 0.82, green: 0.92, blue: 1.0, alpha: 1)
         scrollView.hasHorizontalScroller = true
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
@@ -756,8 +1652,10 @@ private struct MacZoomableCanvasView<Content: View>: NSViewRepresentable {
                 object: scrollView.contentView,
                 queue: .main
             ) { [weak self] _ in
-                self?.parent.onInteractionBegan?()
-                self?.publishViewportState()
+                Task { @MainActor [weak self] in
+                    self?.parent.onInteractionBegan?()
+                    self?.publishViewportState()
+                }
             }
 
             magnifyObserver = NotificationCenter.default.addObserver(
@@ -765,8 +1663,10 @@ private struct MacZoomableCanvasView<Content: View>: NSViewRepresentable {
                 object: scrollView,
                 queue: .main
             ) { [weak self] _ in
-                self?.parent.onInteractionBegan?()
-                self?.publishViewportState()
+                Task { @MainActor [weak self] in
+                    self?.parent.onInteractionBegan?()
+                    self?.publishViewportState()
+                }
             }
         }
 
@@ -774,13 +1674,19 @@ private struct MacZoomableCanvasView<Content: View>: NSViewRepresentable {
             guard !didApplyInitialViewport, let scrollView else { return }
             didApplyInitialViewport = true
 
-            guard let initialViewportState = parent.initialViewportState else {
+            if let fitRect = parent.fitRect, !fitRect.isEmpty {
+                scrollView.magnify(toFit: fitRect.insetBy(dx: -80, dy: -80))
+                scrollView.contentView.needsDisplay = true
+                scrollView.reflectScrolledClipView(scrollView.contentView)
                 return
             }
+
+            guard let initialViewportState = parent.initialViewportState else { return }
 
             let zoomScale = clampedZoom(initialViewportState.zoomScale)
             scrollView.magnification = zoomScale
             scrollView.contentView.scroll(to: initialViewportState.contentOffset)
+            scrollView.contentView.needsDisplay = true
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
 
@@ -801,10 +1707,12 @@ private struct MacZoomableCanvasView<Content: View>: NSViewRepresentable {
             case .reset:
                 scrollView.magnification = 1
                 scrollView.contentView.scroll(to: .zero)
+                scrollView.contentView.needsDisplay = true
                 scrollView.reflectScrolledClipView(scrollView.contentView)
             case .fitToViewfinder:
                 guard let fitRect = parent.fitRect, !fitRect.isEmpty else { return }
                 scrollView.magnify(toFit: fitRect.insetBy(dx: -80, dy: -80))
+                scrollView.contentView.needsDisplay = true
             }
 
             publishViewportStateAfterViewUpdate()
@@ -838,11 +1746,29 @@ private struct MacZoomableCanvasView<Content: View>: NSViewRepresentable {
             let visibleRect = scrollView.documentVisibleRect
             let center = CGPoint(x: visibleRect.midX, y: visibleRect.midY)
             scrollView.setMagnification(targetZoom, centeredAt: center)
+            scrollView.contentView.needsDisplay = true
+            scrollView.reflectScrolledClipView(scrollView.contentView)
         }
 
         private func clampedZoom(_ zoomScale: CGFloat) -> CGFloat {
             min(max(zoomScale, parent.minimumZoomScale), parent.maximumZoomScale)
         }
+    }
+}
+
+private final class MacCenteringClipView: NSClipView {
+    override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
+        var bounds = super.constrainBoundsRect(proposedBounds)
+        guard let documentView else { return bounds }
+
+        let documentFrame = documentView.frame
+        if bounds.width > documentFrame.width {
+            bounds.origin.x = documentFrame.midX - bounds.width / 2
+        }
+        if bounds.height > documentFrame.height {
+            bounds.origin.y = documentFrame.midY - bounds.height / 2
+        }
+        return bounds
     }
 }
 
@@ -969,6 +1895,8 @@ private final class MacPDFPageDrawingView: NSView {
         guard let page, let pageBounds else { return }
 
         context.saveGState()
+        context.translateBy(x: 0, y: bounds.height)
+        context.scaleBy(x: 1, y: -1)
         context.translateBy(x: -pageBounds.minX, y: -pageBounds.minY)
         page.draw(with: .mediaBox, to: context)
         context.restoreGState()
@@ -1010,6 +1938,52 @@ private struct MacLiveStrokeView: View {
                 lineJoin: .round
             )
         )
+    }
+}
+
+private struct MacExtractSelectionView: View {
+    let rect: CGRect
+    let isCompleted: Bool
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.blue.opacity(isCompleted ? 0.08 : 0.12))
+            .frame(width: rect.width, height: rect.height)
+            .overlay {
+                Rectangle()
+                    .stroke(
+                        Color.blue.opacity(isCompleted ? 0.85 : 0.95),
+                        style: StrokeStyle(lineWidth: 2, dash: [8, 5])
+                    )
+            }
+            .position(x: rect.midX, y: rect.midY)
+    }
+}
+
+private struct MacImageObjectLayer: View {
+    let imageObjects: [CanvasImageObject]
+    let assetDirectoryURL: URL
+    let selectedImageObjectID: UUID?
+
+    var body: some View {
+        ForEach(imageObjects) { object in
+            if let image = NSImage(contentsOf: assetDirectoryURL.appendingPathComponent(object.imageFileName)) {
+                let isSelected = selectedImageObjectID == object.id
+                Image(nsImage: image)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: object.width, height: object.height)
+                    .overlay {
+                        Rectangle()
+                            .stroke(
+                                isSelected ? Color.blue : Color.clear,
+                                style: StrokeStyle(lineWidth: 2, dash: [6, 4])
+                            )
+                    }
+                    .rotationEffect(.radians(Double(object.rotation)))
+                    .position(x: object.center.x, y: object.center.y)
+            }
+        }
     }
 }
 

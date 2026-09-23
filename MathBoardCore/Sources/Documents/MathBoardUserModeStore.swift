@@ -26,20 +26,31 @@ public final class MathBoardUserModeStore {
         }
     }
 
+    /// When false the store always starts in student mode and
+    /// `switchToTeacherMode()` is a no-op. Set to false for the student build.
+    public let allowsTeacherMode: Bool
+
     private let userDefaults: UserDefaults
     private let storageKey: String
 
     public init(
         userDefaults: UserDefaults = .standard,
-        storageKey: String = "MathBoardUserMode"
+        storageKey: String = "MathBoardUserMode",
+        allowsTeacherMode: Bool = true
     ) {
         self.userDefaults = userDefaults
         self.storageKey = storageKey
-        let storedMode = userDefaults.string(forKey: storageKey).flatMap(MathBoardUserMode.init(rawValue:))
-        self.mode = storedMode ?? .teacher
+        self.allowsTeacherMode = allowsTeacherMode
+        if allowsTeacherMode {
+            let storedMode = userDefaults.string(forKey: storageKey).flatMap(MathBoardUserMode.init(rawValue:))
+            self.mode = storedMode ?? .teacher
+        } else {
+            self.mode = .student
+        }
     }
 
     public func switchToTeacherMode() {
+        guard allowsTeacherMode else { return }
         mode = .teacher
     }
 

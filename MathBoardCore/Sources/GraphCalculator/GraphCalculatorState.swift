@@ -25,6 +25,8 @@ public struct GraphCalculatorPointReadout: Equatable, Sendable {
         case yIntercept
         case intersection
         case plottedPoint
+        case localMax
+        case localMin
     }
 
     public var x: Double
@@ -52,6 +54,16 @@ public struct GraphOrderedPair: Identifiable, Codable, Hashable, Sendable {
         self.id = id
         self.x = x
         self.y = y
+    }
+}
+
+public struct GraphPointTableColumns: Codable, Hashable, Sendable {
+    public var xHeader: String
+    public var yHeader: String
+
+    public init(xHeader: String = "x_1", yHeader: String = "y_1") {
+        self.xHeader = xHeader
+        self.yHeader = yHeader
     }
 }
 
@@ -246,6 +258,7 @@ public final class GraphCalculatorState {
     public var isFunctionMenuVisible: Bool = false
     public var isAddMenuVisible: Bool = false
     public var isGraphSettingsVisible: Bool = false
+    public var isAlphabetKeypadVisible: Bool = false
     public var isKeystrokeDisplayEnabled: Bool = false
     public var isKeystrokeRecordingPaused: Bool = false
     public var highlightedKeyLabel: String?
@@ -292,6 +305,8 @@ public final class GraphCalculatorState {
     /// Extra teacher-added points for a point row, keyed by `GraphEquation.id`. Does not include
     /// the ordered pair typed into the equation cell itself.
     public var pointRows: [UUID: [GraphOrderedPair]] = [:]
+    /// Editable x/y headers for inline point tables, keyed by `GraphEquation.id`.
+    public var pointTableColumns: [UUID: GraphPointTableColumns] = [:]
     /// Whether trace mode is on for the open function table. A finger drag on the graph then sets
     /// the table start value, keeping the traced points and the table rows in sync.
     public var isTraceActive: Bool = false
@@ -313,8 +328,14 @@ public final class GraphCalculatorState {
         }
         set {
             ensureExpression(at: selectedExpressionIndex)
-            fractionResultRowIDs.remove(expressions[selectedExpressionIndex].id)
-            regressionRows.removeValue(forKey: expressions[selectedExpressionIndex].id)
+            let id = expressions[selectedExpressionIndex].id
+            fractionResultRowIDs.remove(id)
+            regressionRows.removeValue(forKey: id)
+            pointRows.removeValue(forKey: id)
+            pointTableColumns.removeValue(forKey: id)
+            if activeTable?.equationID == id {
+                closeTable()
+            }
             expressions[selectedExpressionIndex].expression = newValue
             cursorOffset = min(cursorOffset, newValue.count)
         }
@@ -332,6 +353,19 @@ public final class GraphCalculatorState {
         selectedExpressionIndex = expressions.count - 1
         cursorOffset = 0
         isAddMenuVisible = false
+    }
+
+    @discardableResult
+    public func addTable() -> UUID {
+        let equation = GraphEquation(expression: "", colorIndex: expressions.count)
+        expressions.append(equation)
+        pointRows[equation.id] = [GraphOrderedPair(), GraphOrderedPair()]
+        pointTableColumns[equation.id] = GraphPointTableColumns()
+        selectedExpressionIndex = expressions.count - 1
+        cursorOffset = 0
+        isAddMenuVisible = false
+        activeTable = nil
+        return equation.id
     }
 
     @discardableResult
@@ -376,16 +410,28 @@ public final class GraphCalculatorState {
         }
 
         if expressions.count == 1 {
-            fractionResultRowIDs.remove(expressions[0].id)
-            regressionRows.removeValue(forKey: expressions[0].id)
+            let id = expressions[0].id
+            fractionResultRowIDs.remove(id)
+            regressionRows.removeValue(forKey: id)
+            pointRows.removeValue(forKey: id)
+            pointTableColumns.removeValue(forKey: id)
+            if activeTable?.equationID == id {
+                closeTable()
+            }
             expressions[0].expression = ""
             selectedExpressionIndex = 0
             cursorOffset = 0
             return
         }
 
-        fractionResultRowIDs.remove(expressions[index].id)
-        regressionRows.removeValue(forKey: expressions[index].id)
+        let id = expressions[index].id
+        fractionResultRowIDs.remove(id)
+        regressionRows.removeValue(forKey: id)
+        pointRows.removeValue(forKey: id)
+        pointTableColumns.removeValue(forKey: id)
+        if activeTable?.equationID == id {
+            closeTable()
+        }
         expressions.remove(at: index)
         selectedExpressionIndex = min(max(0, index), expressions.count - 1)
         cursorOffset = expressions[selectedExpressionIndex].expression.count
@@ -555,6 +601,22 @@ public final class GraphCalculatorState {
 
     public func extraPoints(for id: UUID) -> [GraphOrderedPair] {
         pointRows[id] ?? []
+    }
+
+    public func pointTableColumns(for id: UUID) -> GraphPointTableColumns {
+        pointTableColumns[id] ?? GraphPointTableColumns()
+    }
+
+    public func setPointTableXHeader(_ value: String, for id: UUID) {
+        var columns = pointTableColumns(for: id)
+        columns.xHeader = value.isEmpty ? "x_1" : value
+        pointTableColumns[id] = columns
+    }
+
+    public func setPointTableYHeader(_ value: String, for id: UUID) {
+        var columns = pointTableColumns(for: id)
+        columns.yHeader = value.isEmpty ? "y_1" : value
+        pointTableColumns[id] = columns
     }
 
     public func addExtraPoint(for id: UUID) {

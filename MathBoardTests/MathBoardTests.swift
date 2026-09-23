@@ -1460,6 +1460,145 @@ struct MathBoardTests {
         }
     }
 
+    @Test func trivialPursuitQuestionBankUsesBalancedAnswerPositions() throws {
+        let source = try #require(JSONMathtivityCatalog.source(for: JSONMathtivityCatalog.trivialPursuitParty))
+        let document = try #require(WidgetActivityJSONCodec.decode(source).document)
+        let categories = try #require(document.categories)
+
+        #expect(categories.count == 6)
+
+        var overallAnswerCounts: [String: Int] = [:]
+        for category in categories {
+            #expect(category.questions.count >= 18)
+
+            var categoryAnswerCounts: [String: Int] = [:]
+            for question in category.questions {
+                #expect(question.choices.count == 4)
+                let correctChoices = question.choices.filter(\.isCorrect)
+                #expect(correctChoices.count == 1)
+
+                guard let correctChoice = correctChoices.first else { continue }
+                categoryAnswerCounts[correctChoice.id, default: 0] += 1
+                overallAnswerCounts[correctChoice.id, default: 0] += 1
+            }
+
+            #expect((categoryAnswerCounts.values.max() ?? 0) <= 6)
+            #expect(Set(categoryAnswerCounts.keys) == Set(["a", "b", "c", "d"]))
+        }
+
+        #expect(Set(overallAnswerCounts.keys) == Set(["a", "b", "c", "d"]))
+        #expect((overallAnswerCounts.values.max() ?? 0) - (overallAnswerCounts.values.min() ?? 0) <= 6)
+    }
+
+    @Test func trivialPursuitPublishesRoundScoreRecordForLiveProgress() throws {
+        let source = try #require(JSONMathtivityCatalog.source(for: JSONMathtivityCatalog.trivialPursuitParty))
+        let document = try #require(WidgetActivityJSONCodec.decode(source).document)
+        var widget = WidgetObject(
+            name: document.title,
+            codeString: source,
+            frame: CGRect(x: 0, y: 0, width: 820, height: 420)
+        )
+
+        let initialRecord = try #require(widget.activityScoreRecord)
+        #expect(initialRecord.pointsPossible == 1)
+        #expect(initialRecord.attempts == 0)
+        #expect(initialRecord.score == 0)
+
+        let answeredAt = Date(timeIntervalSince1970: 1234.5)
+        widget.activityRuntimeState = WidgetActivityRuntimeState(
+            trivialPursuit: WidgetTrivialPursuitRuntimeState(
+                roundID: "round-1",
+                activeCategoryID: document.categories?.first?.id,
+                activeQuestionIndex: 0,
+                didRevealChoices: true,
+                choicesRevealedAt: Date(timeIntervalSince1970: 1230),
+                localAnswer: WidgetTrivialPursuitAnswer(
+                    participantID: "student-1",
+                    choiceID: "a",
+                    choiceIndex: 0,
+                    isCorrect: true,
+                    answeredAt: answeredAt
+                )
+            )
+        )
+
+        let answeredRecord = try #require(widget.activityScoreRecord)
+        #expect(answeredRecord.pointsPossible == 1)
+        #expect(answeredRecord.attempts == 1)
+        #expect(answeredRecord.score == 1)
+        #expect(answeredRecord.status == .inProgress)
+        #expect(answeredRecord.metadata["trivialPursuitRoundID"] == "round-1")
+        #expect(answeredRecord.metadata["trivialPursuitParticipantID"] == "student-1")
+        #expect(answeredRecord.metadata["trivialPursuitChoiceID"] == "a")
+        #expect(answeredRecord.metadata["trivialPursuitIsCorrect"] == "true")
+        #expect(answeredRecord.metadata["trivialPursuitAnsweredAt"] == "1234.5")
+        #expect(answeredRecord.metadata["trivialPursuitAnswerElapsed"] == "4.5")
+    }
+
+    @Test func trivialPursuitRuntimePersistsAwardedStars() throws {
+        let state = WidgetTrivialPursuitRuntimeState(
+            isGameStarted: true,
+            activePlayerIndex: 1,
+            winnerParticipantID: "student-1",
+            winnerDisplayName: "Ada",
+            earnedCategoryIDsByParticipantID: [
+                "student-1": ["groovy-decades", "legends-rock-pop-soul"],
+                "teacher-local": ["kitchen-comfort-food"]
+            ]
+        )
+
+        let data = try JSONEncoder().encode(state)
+        let decoded = try JSONDecoder().decode(WidgetTrivialPursuitRuntimeState.self, from: data)
+
+        #expect(decoded.isGameStarted)
+        #expect(decoded.activePlayerIndex == 1)
+        #expect(decoded.winnerParticipantID == "student-1")
+        #expect(decoded.earnedCategoryIDsByParticipantID["student-1"] == ["groovy-decades", "legends-rock-pop-soul"])
+        #expect(decoded.earnedCategoryIDsByParticipantID["teacher-local"] == ["kitchen-comfort-food"])
+    }
+
+    @Test func htmlLatexMultipleChoiceUsesHTMLRendererAndLiveScoreState() throws {
+        let source = try #require(JSONMathtivityCatalog.source(for: JSONMathtivityCatalog.htmlLatexMultipleChoice))
+        let document = try #require(WidgetActivityJSONCodec.decode(source).document)
+
+        #expect(document.activity == .multipleChoice)
+        #expect(document.presentation?.renderer == .html)
+        #expect(document.questions.first?.hints.first == "Add or subtract first to get $2x$ alone.")
+        #expect(document.questions.dropFirst().first?.prompt.contains("\\ne") == true)
+
+        var runtimeState = WidgetMultipleChoiceRuntimeState.initial(for: document)
+        guard let firstQuestion = document.questions.first,
+              let correctChoice = firstQuestion.choices.first(where: { $0.isCorrect }) else {
+            Issue.record("HTML LaTeX multiple-choice pilot needs at least one question with a correct choice.")
+            return
+        }
+
+        runtimeState.selectedChoiceID = correctChoice.id
+        runtimeState.submittedChoiceID = correctChoice.id
+        runtimeState.submittedChoiceIDsByQuestionID = [firstQuestion.id: correctChoice.id]
+        runtimeState.attempts = 1
+        runtimeState.questionAttempts[firstQuestion.id] = 1
+        runtimeState.answeredQuestionIDs.insert(firstQuestion.id)
+        runtimeState.correctlyAnsweredQuestionIDs.insert(firstQuestion.id)
+        runtimeState.score = 1
+        runtimeState.streak = 1
+        runtimeState.longestStreak = 1
+
+        let widget = WidgetObject(
+            name: document.title,
+            codeString: source,
+            frame: CGRect(x: 0, y: 0, width: 820, height: 520),
+            activityRuntimeState: WidgetActivityRuntimeState(multipleChoice: runtimeState)
+        )
+        let record = try #require(widget.activityScoreRecord)
+
+        #expect(record.status == .inProgress)
+        #expect(record.score == 1)
+        #expect(record.attempts == 1)
+        #expect(record.pointsPossible == document.questions.count)
+        #expect(record.numberCorrectFirstTry == 1)
+    }
+
     @Test func mathtivityCatalogItemParsesFirestoreDocumentShape() throws {
         let item = try #require(MathtivityCatalogItem(
             id: "linear-equation-fill-in-the-blank",
@@ -2765,6 +2904,52 @@ struct MathBoardTests {
     }
 
     @MainActor
+    @Test func classroomAssignmentStoreUpdatesLessonTitleWithoutChangingScoringIdentity() throws {
+        let rootURL = try makeTemporaryDocumentRoot()
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let store = ClassroomAssignmentStore(rootURL: rootURL) { "ALG012" }
+        let lessonID = UUID()
+        let classroomID = UUID()
+        let studentID = UUID()
+        let widgetID = UUID()
+        let lesson = Lesson(
+            id: lessonID,
+            name: "Original Title",
+            url: rootURL.appendingPathComponent("Original Title.mathboard", isDirectory: true),
+            createdAt: Date(),
+            modifiedAt: Date()
+        )
+        let assignment = try #require(store.createAssignments(
+            for: lesson,
+            classroomIDs: [classroomID],
+            widgetSummaries: [AssignedWidgetSummary(widgetID: widgetID, title: "Exit Ticket", maxScore: 5)]
+        ).first)
+
+        try store.recordWidgetResult(
+            StudentWidgetResult(
+                assignmentID: assignment.id,
+                classroomID: classroomID,
+                studentID: studentID,
+                widgetID: widgetID,
+                numberCorrectFirstTry: 4,
+                numberCorrectAfterRetry: 1,
+                longestStreak: 4,
+                finalPercentScore: 100
+            )
+        )
+        store.updateLessonTitle("Renamed Title", forLessonID: lessonID)
+        let reloadedStore = ClassroomAssignmentStore(rootURL: rootURL)
+        let reloadedAssignment = try #require(reloadedStore.assignments.first)
+
+        #expect(reloadedAssignment.id == assignment.id)
+        #expect(reloadedAssignment.lessonID == lessonID)
+        #expect(reloadedAssignment.lessonTitle == "Renamed Title")
+        #expect(reloadedAssignment.classLessonCode == assignment.classLessonCode)
+        #expect(reloadedStore.widgetResults.first?.assignmentID == assignment.id)
+        #expect(reloadedStore.widgetResults.first?.finalPercentScore == 100)
+    }
+
+    @MainActor
     @Test func classroomAssignmentStoreUpdatesAssignmentVersionWithoutChangingCode() throws {
         let rootURL = try makeTemporaryDocumentRoot()
         defer { try? FileManager.default.removeItem(at: rootURL) }
@@ -3996,6 +4181,7 @@ private final class FakeLiveClassroomSession: LiveClassroomSessioning {
     var onTeacherInkDrawingSnapshot: ((TeacherInkDrawingSnapshot) -> Void)?
     var onTeacherObjectSnapshot: ((TeacherObjectSnapshot) -> Void)?
     var onTeacherSlideManifestSnapshot: ((TeacherSlideManifestSnapshot) -> Void)?
+    var onTeacherPencilHover: ((TeacherPencilHoverEvent) -> Void)?
     private(set) var lastErrorMessage: String?
     private(set) var didStart = false
     private(set) var didStop = false
@@ -4003,6 +4189,7 @@ private final class FakeLiveClassroomSession: LiveClassroomSessioning {
     private(set) var publishedInkDrawingSnapshots: [TeacherInkDrawingSnapshot] = []
     private(set) var publishedObjectSnapshots: [TeacherObjectSnapshot] = []
     private(set) var publishedSlideManifestSnapshots: [TeacherSlideManifestSnapshot] = []
+    private(set) var publishedPencilHoverEvents: [TeacherPencilHoverEvent] = []
 
     func start() {
         didStart = true
@@ -4022,6 +4209,10 @@ private final class FakeLiveClassroomSession: LiveClassroomSessioning {
 
     func publishTeacherSlideManifestSnapshot(_ snapshot: TeacherSlideManifestSnapshot) {
         publishedSlideManifestSnapshots.append(snapshot)
+    }
+
+    func publishTeacherPencilHover(_ event: TeacherPencilHoverEvent) {
+        publishedPencilHoverEvents.append(event)
     }
 
     func stop() {

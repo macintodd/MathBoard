@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "widgetId": "household-classics-01",
+  "activity": "multipleChoice",
+  "title": "Household Classics & Commercials",
+  "description": "Vintage toys, brand names, and nostalgic television commercials.",
+  "learningObjective": "Recall classic household brands and mid-century commercial culture.",
+  "difficulty": "medium",
+  "rules": {
+    "scoreMode": "correctOutOfTotal",
+    "advanceMode": "automaticOnCorrect",
+    "allowRetry": true,
+    "maxRetries": 1,
+    "shuffleQuestions": false,
+    "shuffleChoices": true,
+    "calculatorAllowed": false
+  },
+  "questions": [
+    {
+      "id": "house-01",
+      "prompt": "What classic board game features a rich top-hatted mascot named Rich Uncle Pennybags (or Mr. Monopoly)?",
+      "choices": ["The Game of Life", "Clue", "Monopoly", "Risk"],
+      "correctAnswerIndex": 2,
+      "explanation": "Monopoly has been a family game night staple since the 1930s."
+    },
+    {
+      "id": "house-02",
+      "prompt": "Which cleaning product commercial famously featured a housewife named Josephine the Plumber?",
+      "choices": ["Comet", "Ajax", "Mr. Clean", "Spic and Span"],
+      "correctAnswerIndex": 0,
+      "explanation": "Josephine (played by Jane Withers) promoted Comet cleanser on television for decades."
+    },
+    {
+      "id": "house-03",
+      "prompt": "What nostalgic mechanical drawing toy with two white control knobs was introduced by Ohio Art in 1960?",
+      "choices": ["Etch A Sketch", "Lite-Brite", "Magna Doodle", "Spirograph"],
+      "correctAnswerIndex": 0,
+      "explanation": "The Etch A Sketch allowed children to draw lines using aluminum powder and glass."
+    },
+    {
+      "id": "house-04",
+      "prompt": "Which laundry detergent brand's commercial campaign featured a glowing white shirt and the famous tagline 'Aren't you glad you use Wisk? Don't you wish everybody did?'",
+      "choices": ["Tide", "Bold", "Wisk", "Cheer"],
+      "correctAnswerIndex": 2,
+      "explanation": "Wisk commercials focused heavily on fighting 'ring around the collar'."
+    },
+    {
+      "id": "house-05",
+      "prompt": "What classic Hasbro game involves pulling plastic sticks out of a tube without letting any colorful marbles fall?",
+      "choices": ["KerPlunk", "Connect Four", "Operation", "Jenga"],
+      "correctAnswerIndex": 0,
+      "explanation": "KerPlunk was a suspenseful dexterity game introduced in the 1960s."
+    },
+    {
+      "id": "house-06",
+      "prompt": "Which fast-food chain featured a lovable old lady asking 'Where's the beef?' in a famous 1984 TV commercial?",
+      "choices": ["McDonald's", "Burger King", "Wendy's", "Arby's"],
+      "correctAnswerIndex": 2,
+      "explanation": "Clara Peller's 'Where's the beef?' catchphrase became a massive national pop culture slogan."
+    },
+    {
+      "id": "house-07",
+      "prompt": "What iconic construction toy made of colorful interlocking plastic bricks was patented in Denmark in 1958?",
+      "choices": ["Lincoln Logs", "Tinkertoy", "LEGO", "Erector Set"],
+      "correctAnswerIndex": 2,
+      "explanation": "The LEGO brick system has become one of the most successful toy brands in history."
+    },
+    {
+      "id": "house-08",
+      "prompt": "Which brand of paper towels featured the beloved mascot 'Mr. Owl' and asked how many licks it takes to get to the center of a Tootsie Pop?",
+      "choices": ["Bounty", "Tootsie Roll Pop", "Charmin", "Puffs"],
+      "correctAnswerIndex": 1,
+      "explanation": "While Mr. Owl was in the Tootsie Pop commercial, Bounty was the classic 'quicker picker upper'."
+    },
+    {
+      "id": "house-09",
+      "prompt": "What classic family game challenges players to operate on a buzzing patient named 'Cavity Sam'?",
+      "choices": ["Operation", "Bop It", "Concentration", "Twister"],
+      "correctAnswerIndex": 0,
+      "explanation": "Operation tests steady hands as players remove ailments with tiny tweezers."
+    },
+    {
+      "id": "house-10",
+      "prompt": "What was the name of the cheerful animated tiger who famously told children that Frosted Flakes were 'Gr-r-reat!'?",
+      "choices": ["Chester Cheetah", "Tony the Tiger", "Trix Rabbit", "Toucan Sam"],
+      "correctAnswerIndex": 1,
+      "explanation": "Tony the Tiger has been Kellogg's Frosted Flakes mascot since 1952."
+    },
+    {
+      "id": "house-11",
+      "prompt": "Which doll, introduced by Mattel in 1959, became the best-selling fashion doll of all time?",
+      "choices": ["Betsy Wetsy", "Barbie", "Raggedy Ann", "Cabbage Patch Kids"],
+      "correctAnswerIndex": 1,
+      "explanation": "Named after inventor Ruth Handler's daughter, Barbara, Barbie revolutionized the toy industry."
+    },
+    {
+      "id": "house-12",
+      "prompt": "What classic lawn game introduced by Wham-O in 1957 featured kids sliding across a soapy plastic sheet?",
+      "choices": ["Slip 'N Slide", "Jarts", "Frisbee Golf", "Croquet"],
+      "correctAnswerIndex": 0,
+      "explanation": "The Slip 'N Slide became a quintessential warm-weather backyard childhood memory."
+    },
+    {
+      "id": "house-13",
+      "prompt": "Which insurance company's commercial campaign used a friendly talking gecko to remind people how much they could save?",
+      "choices": ["State Farm", "Allstate", "Geico", "Progressive"],
+      "correctAnswerIndex": 2,
+      "explanation": "The Geico Gecko debuted in 1999 and became one of advertising's longest-running mascots."
+    },
+    {
+      "id": "house-14",
+      "prompt": "What scented plastic dough compound, originally created as a wallpaper cleaner, became a beloved preschool art supply?",
+      "choices": ["Play-Doh", "Silly Putty", "Model Magic", "Claymation"],
+      "correctAnswerIndex": 0,
+      "explanation": "Play-Doh was launched as a toy in the mid-1950s and remains an iconic household item."
+    },
+    {
+      "id": "house-15",
+      "prompt": "Which soft drink brand launched the famous late-70s 'Mean Joe Greene' commercial where a football star shares a bottle?",
+      "choices": ["Pepsi", "Coca-Cola", "7 Up", "Dr Pepper"],
+      "correctAnswerIndex": 1,
+      "explanation": "The 1979 Coca-Cola commercial is widely considered one of the greatest TV ads of all time."
+    }
+  ]
+}

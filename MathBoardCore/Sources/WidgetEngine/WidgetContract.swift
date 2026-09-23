@@ -28,6 +28,8 @@ public struct WidgetObject: MathBoardObject, Codable, Equatable {
     public var hasRecordedLibraryDerivative: Bool
     public var tags: [String]
     public var requiresStudentWork: Bool
+    /// When true, this widget is only visible to the teacher and is stripped from student copies of the canvas.
+    public var isTeacherOnly: Bool
 
     public init(
         id: UUID = UUID(),
@@ -40,7 +42,8 @@ public struct WidgetObject: MathBoardObject, Codable, Equatable {
         librarySourceCodeString: String? = nil,
         hasRecordedLibraryDerivative: Bool = false,
         tags: [String] = [],
-        requiresStudentWork: Bool = false
+        requiresStudentWork: Bool = false,
+        isTeacherOnly: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -53,6 +56,7 @@ public struct WidgetObject: MathBoardObject, Codable, Equatable {
         self.hasRecordedLibraryDerivative = hasRecordedLibraryDerivative
         self.tags = tags
         self.requiresStudentWork = requiresStudentWork
+        self.isTeacherOnly = isTeacherOnly
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -67,6 +71,7 @@ public struct WidgetObject: MathBoardObject, Codable, Equatable {
         case hasRecordedLibraryDerivative
         case tags
         case requiresStudentWork
+        case isTeacherOnly
     }
 
     public init(from decoder: Decoder) throws {
@@ -82,6 +87,7 @@ public struct WidgetObject: MathBoardObject, Codable, Equatable {
         hasRecordedLibraryDerivative = try container.decodeIfPresent(Bool.self, forKey: .hasRecordedLibraryDerivative) ?? false
         tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
         requiresStudentWork = try container.decodeIfPresent(Bool.self, forKey: .requiresStudentWork) ?? false
+        isTeacherOnly = try container.decodeIfPresent(Bool.self, forKey: .isTeacherOnly) ?? false
     }
 }
 
@@ -93,6 +99,15 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
     case functionTransformationExplorer
     case matchGrid
     case actDailyPractice
+    case quadraticWebApplet
+    case domainRangeWebApplet
+    case analizingGraphs1WebApplet
+    case projectileMotionGraphAnalysisWebApplet
+    case constantRateWebApplet
+    case completingTheSquareWebApplet
+    case andOrAttributeFilterWebApplet
+    case andOrInequalityNumberLineWebApplet
+    case compoundInequalityGraphingDemoWebApplet
 
     public var id: String { rawValue }
 
@@ -105,6 +120,15 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
         case .functionTransformationExplorer: return "Function Transformation Explorer"
         case .matchGrid: return "MatchGrid"
         case .actDailyPractice: return "ACT Daily Practice"
+        case .quadraticWebApplet: return WebAppletResource.quadraticSlider.displayName
+        case .domainRangeWebApplet: return WebAppletResource.domainRangeFromGraphs.displayName
+        case .analizingGraphs1WebApplet: return WebAppletResource.analizingGraphs1.displayName
+        case .projectileMotionGraphAnalysisWebApplet: return WebAppletResource.projectileMotionGraphAnalysis.displayName
+        case .constantRateWebApplet: return WebAppletResource.constantRateDemo.displayName
+        case .completingTheSquareWebApplet: return WebAppletResource.completingTheSquareLab.displayName
+        case .andOrAttributeFilterWebApplet: return WebAppletResource.andOrAttributeFilter.displayName
+        case .andOrInequalityNumberLineWebApplet: return WebAppletResource.andOrInequalityNumberLine.displayName
+        case .compoundInequalityGraphingDemoWebApplet: return WebAppletResource.compoundInequalityGraphingDemo.displayName
         }
     }
 
@@ -124,6 +148,24 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
             return "Teacher-led 6 x 6 classroom matching game with equations, formulas, All Play prompts, and local scoring."
         case .actDailyPractice:
             return "Daily ACT Math practice problem bank with topic browsing, search, and scoreable live-progress reporting."
+        case .quadraticWebApplet:
+            return WebAppletResource.quadraticSlider.description
+        case .domainRangeWebApplet:
+            return WebAppletResource.domainRangeFromGraphs.description
+        case .analizingGraphs1WebApplet:
+            return WebAppletResource.analizingGraphs1.description
+        case .projectileMotionGraphAnalysisWebApplet:
+            return WebAppletResource.projectileMotionGraphAnalysis.description
+        case .constantRateWebApplet:
+            return WebAppletResource.constantRateDemo.description
+        case .completingTheSquareWebApplet:
+            return WebAppletResource.completingTheSquareLab.description
+        case .andOrAttributeFilterWebApplet:
+            return WebAppletResource.andOrAttributeFilter.description
+        case .andOrInequalityNumberLineWebApplet:
+            return WebAppletResource.andOrInequalityNumberLine.description
+        case .compoundInequalityGraphingDemoWebApplet:
+            return WebAppletResource.compoundInequalityGraphingDemo.description
         }
     }
 
@@ -143,6 +185,24 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
             return ["built-in", "interactive", "matching game", "linear equations", "formulas", "local scoring"]
         case .actDailyPractice:
             return ["built-in", "interactive", "ACT", "daily practice", "test prep", "scoreable"]
+        case .quadraticWebApplet:
+            return WebAppletResource.quadraticSlider.tags
+        case .domainRangeWebApplet:
+            return WebAppletResource.domainRangeFromGraphs.tags
+        case .analizingGraphs1WebApplet:
+            return WebAppletResource.analizingGraphs1.tags
+        case .projectileMotionGraphAnalysisWebApplet:
+            return WebAppletResource.projectileMotionGraphAnalysis.tags
+        case .constantRateWebApplet:
+            return WebAppletResource.constantRateDemo.tags
+        case .completingTheSquareWebApplet:
+            return WebAppletResource.completingTheSquareLab.tags
+        case .andOrAttributeFilterWebApplet:
+            return WebAppletResource.andOrAttributeFilter.tags
+        case .andOrInequalityNumberLineWebApplet:
+            return WebAppletResource.andOrInequalityNumberLine.tags
+        case .compoundInequalityGraphingDemoWebApplet:
+            return WebAppletResource.compoundInequalityGraphingDemo.tags
         }
     }
 
@@ -155,6 +215,15 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
         case .functionTransformationExplorer: return CGSize(width: 640, height: 520)
         case .matchGrid: return CGSize(width: 940, height: 680)
         case .actDailyPractice: return CGSize(width: 760, height: 620)
+        case .quadraticWebApplet: return CGSize(width: 900, height: 560)
+        case .domainRangeWebApplet: return CGSize(width: 900, height: 620)
+        case .analizingGraphs1WebApplet: return CGSize(width: 900, height: 620)
+        case .projectileMotionGraphAnalysisWebApplet: return CGSize(width: 960, height: 680)
+        case .constantRateWebApplet: return CGSize(width: 960, height: 660)
+        case .completingTheSquareWebApplet: return CGSize(width: 960, height: 660)
+        case .andOrAttributeFilterWebApplet: return CGSize(width: 900, height: 640)
+        case .andOrInequalityNumberLineWebApplet: return CGSize(width: 1040, height: 780)
+        case .compoundInequalityGraphingDemoWebApplet: return CGSize(width: 1040, height: 600)
         }
     }
 
@@ -162,7 +231,7 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
         switch self {
         case .inequalitiesExplorer: return 50
         case .actDailyPractice: return 1
-        case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator, .functionTransformationExplorer, .matchGrid: return 0
+        case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator, .functionTransformationExplorer, .matchGrid, .quadraticWebApplet, .domainRangeWebApplet, .analizingGraphs1WebApplet, .projectileMotionGraphAnalysisWebApplet, .constantRateWebApplet, .completingTheSquareWebApplet, .andOrAttributeFilterWebApplet, .andOrInequalityNumberLineWebApplet, .compoundInequalityGraphingDemoWebApplet: return 0
         }
     }
 
@@ -170,12 +239,16 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
         switch self {
         case .inequalitiesExplorer: return 10
         case .actDailyPractice: return 1
-        case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator, .functionTransformationExplorer, .matchGrid: return 0
+        case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator, .functionTransformationExplorer, .matchGrid, .quadraticWebApplet, .domainRangeWebApplet, .analizingGraphs1WebApplet, .projectileMotionGraphAnalysisWebApplet, .constantRateWebApplet, .completingTheSquareWebApplet, .andOrAttributeFilterWebApplet, .andOrInequalityNumberLineWebApplet, .compoundInequalityGraphingDemoWebApplet: return 0
         }
     }
 
     public var isScoreable: Bool {
         scoreableTaskCount > 0 && pointsPerTask > 0
+    }
+
+    public var isTeacherDemoWebApplet: Bool {
+        WebAppletResource.resource(for: self) != nil
     }
 
     public var pointsPossible: Int {
@@ -212,6 +285,7 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
 public enum WidgetObjectActivityKind: String, Sendable {
     case multipleChoice
     case fillInTheBlank
+    case trivialPursuit
     case builtInInteractive
     case unknown
 
@@ -219,6 +293,7 @@ public enum WidgetObjectActivityKind: String, Sendable {
         switch self {
         case .multipleChoice: return "MC"
         case .fillInTheBlank: return "FIB"
+        case .trivialPursuit: return "TP"
         case .builtInInteractive: return "BI"
         case .unknown: return "W"
         }
@@ -228,6 +303,7 @@ public enum WidgetObjectActivityKind: String, Sendable {
         switch self {
         case .multipleChoice: return "Multiple Choice"
         case .fillInTheBlank: return "Fill in the Blank"
+        case .trivialPursuit: return "Trivial Pursuit Party"
         case .builtInInteractive: return "Built-In Interactive"
         case .unknown: return "Widget"
         }
@@ -252,6 +328,8 @@ extension WidgetObject {
             return .multipleChoice
         case .fillInTheBlank:
             return .fillInTheBlank
+        case .trivialPursuit:
+            return .trivialPursuit
         }
     }
 
@@ -277,10 +355,10 @@ extension WidgetObject {
         if let builtInInteractiveKind {
             switch builtInInteractiveKind {
             case .inequalitiesExplorer:
-                return InequalityExplorerStateRegistry.scoreRecord(for: id, title: name)
+                return InequalityExplorerStateRegistry.scoreRecord(for: self)
             case .actDailyPractice:
-                return ACTDailyPracticeStateRegistry.scoreRecord(for: id, title: name)
-            case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator, .functionTransformationExplorer, .matchGrid:
+                return ACTDailyPracticeStateRegistry.state(for: self).scoreRecord(widgetID: id, title: name)
+            case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator, .functionTransformationExplorer, .matchGrid, .quadraticWebApplet, .domainRangeWebApplet, .analizingGraphs1WebApplet, .projectileMotionGraphAnalysisWebApplet, .constantRateWebApplet, .completingTheSquareWebApplet, .andOrAttributeFilterWebApplet, .andOrInequalityNumberLineWebApplet, .compoundInequalityGraphingDemoWebApplet:
                 return nil
             }
         }
@@ -305,6 +383,8 @@ extension WidgetObject {
                 MatchGridStateRegistry.removeState(for: widget.id)
             case .actDailyPractice:
                 ACTDailyPracticeStateRegistry.removeState(for: widget.id)
+            case .quadraticWebApplet, .domainRangeWebApplet, .analizingGraphs1WebApplet, .projectileMotionGraphAnalysisWebApplet, .constantRateWebApplet, .completingTheSquareWebApplet, .andOrAttributeFilterWebApplet, .andOrInequalityNumberLineWebApplet, .compoundInequalityGraphingDemoWebApplet:
+                WebAppletStateRegistry.removeState(for: widget.id)
             case .none:
                 continue
             }
@@ -353,7 +433,79 @@ public struct WidgetLibraryFolderDescriptor: Identifiable, Sendable {
     }
 }
 
+public enum WidgetClassroomParticipantRole: String, Sendable {
+    case teacher
+    case student
+}
+
+public struct WidgetClassroomParticipant: Identifiable, Equatable, Sendable {
+    public var id: String
+    public var displayName: String
+    public var role: WidgetClassroomParticipantRole
+
+    public init(
+        id: String,
+        displayName: String,
+        role: WidgetClassroomParticipantRole
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.role = role
+    }
+}
+
+public struct WidgetClassroomLiveProgressRecord: Equatable, Sendable {
+    public var widgetID: UUID
+    public var participantID: String
+    public var displayName: String
+    public var correctCount: Int
+    public var attemptedCount: Int
+    public var isActiveOnStudentScreen: Bool
+    public var updatedAt: Date
+    public var metadata: [String: String]
+
+    public init(
+        widgetID: UUID,
+        participantID: String,
+        displayName: String,
+        correctCount: Int,
+        attemptedCount: Int,
+        isActiveOnStudentScreen: Bool = false,
+        updatedAt: Date,
+        metadata: [String: String] = [:]
+    ) {
+        self.widgetID = widgetID
+        self.participantID = participantID
+        self.displayName = displayName
+        self.correctCount = max(0, correctCount)
+        self.attemptedCount = max(0, attemptedCount)
+        self.isActiveOnStudentScreen = isActiveOnStudentScreen
+        self.updatedAt = updatedAt
+        self.metadata = metadata
+    }
+}
+
+public struct WidgetClassroomGameContext: Equatable, Sendable {
+    public var role: WidgetClassroomParticipantRole
+    public var currentParticipantID: String?
+    public var participants: [WidgetClassroomParticipant]
+    public var liveProgressRecords: [WidgetClassroomLiveProgressRecord]
+
+    public init(
+        role: WidgetClassroomParticipantRole,
+        currentParticipantID: String? = nil,
+        participants: [WidgetClassroomParticipant] = [],
+        liveProgressRecords: [WidgetClassroomLiveProgressRecord] = []
+    ) {
+        self.role = role
+        self.currentParticipantID = currentParticipantID
+        self.participants = participants
+        self.liveProgressRecords = liveProgressRecords
+    }
+}
+
 public struct WidgetGearConfiguration {
+    public var widgetID: UUID?
     public var questionCount: Int
     public var tags: [String]
     public var requiresStudentWork: Bool
@@ -372,6 +524,7 @@ public struct WidgetGearConfiguration {
     public var onResetAfterSubmit: (() -> Void)?
 
     public init(
+        widgetID: UUID? = nil,
         questionCount: Int,
         tags: [String] = [],
         requiresStudentWork: Bool = false,
@@ -387,6 +540,7 @@ public struct WidgetGearConfiguration {
         onSubmitWidget: (() -> Void)? = nil,
         onResetAfterSubmit: (() -> Void)? = nil
     ) {
+        self.widgetID = widgetID
         self.questionCount = questionCount
         self.tags = tags
         self.requiresStudentWork = requiresStudentWork
@@ -445,9 +599,18 @@ public struct WidgetSubmitEnvironmentKey: EnvironmentKey {
     public static let defaultValue: WidgetSubmitEnvironment? = nil
 }
 
+public struct WidgetClassroomGameContextKey: EnvironmentKey {
+    public static let defaultValue: WidgetClassroomGameContext? = nil
+}
+
 extension EnvironmentValues {
     public var widgetSubmit: WidgetSubmitEnvironment? {
         get { self[WidgetSubmitEnvironmentKey.self] }
         set { self[WidgetSubmitEnvironmentKey.self] = newValue }
+    }
+
+    public var widgetClassroomGameContext: WidgetClassroomGameContext? {
+        get { self[WidgetClassroomGameContextKey.self] }
+        set { self[WidgetClassroomGameContextKey.self] = newValue }
     }
 }

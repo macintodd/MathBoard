@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "widgetId": "kitchen-comfort-food-02",
+  "activity": "multipleChoice",
+  "title": "Kitchen & Comfort Food",
+  "description": "Classic recipes, retro appliances, diners, and comfort foods.",
+  "learningObjective": "Recall nostalgic foods, iconic kitchen appliances, and culinary traditions.",
+  "difficulty": "medium",
+  "rules": {
+    "scoreMode": "correctOutOfTotal",
+    "advanceMode": "automaticOnCorrect",
+    "allowRetry": true,
+    "maxRetries": 1,
+    "shuffleQuestions": false,
+    "shuffleChoices": true,
+    "calculatorAllowed": false
+  },
+  "questions": [
+    {
+      "id": "food-0201",
+      "prompt": "What classic American diner sandwich features grilled rye bread, Swiss cheese, caramelized onions, and a beef patty?",
+      "choices": ["A BLT", "A Patty Melt", "A Club Sandwich", "A Sloppy Joe"],
+      "correctAnswerIndex": 1,
+      "explanation": "The Patty Melt is a beloved diner comfort food combining a hamburger with grilled cheese styling."
+    },
+    {
+      "id": "food-0202",
+      "prompt": "Which heavy cast-iron cooking skillet has remained a cherished kitchen staple for generations due to its superior heat retention?",
+      "choices": ["Aluminum skillet", "Copper pan", "Cast-iron skillet", "Non-stick wok"],
+      "correctAnswerIndex": 2,
+      "explanation": "Well-seasoned cast-iron skillets are passed down through families for decades of cooking."
+    },
+    {
+      "id": "food-0203",
+      "prompt": "What nostalgic canned meat introduced by Hormel in 1937 became a crucial pantry comfort food during and after World War II?",
+      "choices": ["Tuna fish", "Spam", "Vienna sausages", "Corned beef hash"],
+      "correctAnswerIndex": 1,
+      "explanation": "Spam provided essential shelf-stable protein for millions of households worldwide."
+    },
+    {
+      "id": "food-0204",
+      "prompt": "Which classic American comfort dessert features sliced apples baked underneath a buttery, crumbly oat and flour topping?",
+      "choices": ["Apple Pie", "Apple Crisp (or Apple Crumble)", "Apple Turnover", "Tarte Tatin"],
+      "correctAnswerIndex": 1,
+      "explanation": "Apple crisp served warm with vanilla ice cream is the ultimate comforting homestyle dessert."
+    },
+    {
+      "id": "food-0205",
+      "prompt": "What popular 1970s kitchen appliance made quick work of slicing, shredding, and pureeing vegetables for home cooks?",
+      "choices": ["Electric blender", "The food processor (like Cuisinart)", "Hand mixer", "Mandoline"],
+      "correctAnswerIndex": 1,
+      "explanation": "The introduction of home food processors in the 1970s revolutionized complex meal preparation."
+    },
+    {
+      "id": "food-0206",
+      "prompt": "What traditional Southern comfort dish features seasoned ground cornmeal simmered with broth or milk until thick and creamy?",
+      "choices": ["Grits", "Polenta", "Cream of Wheat", "Oatmeal"],
+      "correctAnswerIndex": 0,
+      "explanation": "Grits topped with butter and cheese are a staple of traditional Southern breakfast culture."
+    },
+    {
+      "id": "food-0207",
+      "prompt": "Which iconic diner pie features a rich, sweet custard filling made from condensed milk, egg yolks, and fresh citrus juice inside a graham cracker crust?",
+      "choices": ["Lemon Meringue Pie", "Key Lime Pie", "Buttermilk Pie", "Chess Pie"],
+      "correctAnswerIndex": 1,
+      "explanation": "Key Lime Pie is celebrated for its refreshing tartness and whipped cream or meringue topping."
+    },
+    {
+      "id": "food-0208",
+      "prompt": "What casual sandwich style features loose ground beef cooked in a sweet, tangy tomato-based sauce served on a hamburger bun?",
+      "choices": ["A sloppy Joe", "A Philly cheesesteak", "A French dip", "A meatball sub"],
+      "correctAnswerIndex": 0,
+      "explanation": "Sloppy Joes were a staple quick weeknight dinner for busy mid-century families."
+    },
+    {
+      "id": "food-0209",
+      "prompt": "Which brand of instant flavored oatmeal packets became a quick-morning breakfast staple for children across North America?",
+      "choices": ["Cream of Wheat", "Quaker Oats", "Malt-O-Meal", "Post Toasties"],
+      "correctAnswerIndex": 1,
+      "explanation": "Quaker Instant Oatmeal introduced fun fruit and spice flavors in packets requiring only hot water."
+    },
+    {
+      "id": "food-0210",
+      "prompt": "What comforting American casserole dish combines green beans, canned cream of mushroom soup, and crispy fried onions?",
+      "choices": ["Potato casserole", "Green bean casserole", "Broccoli cheddar bake", "Corn pudding"],
+      "correctAnswerIndex": 1,
+      "explanation": "Invented by Campbell's test kitchen in 1955, green bean casserole is a holiday dinner fixture."
+    },
+    {
+      "id": "food-0211",
+      "prompt": "What classic breakfast pastry toasted in an electric slot toaster became a booming convenience breakfast item in the late 1960s?",
+      "choices": ["Toaster Strudel", "Pop-Tarts", "English Muffins", "Waffles"],
+      "correctAnswerIndex": 1,
+      "explanation": "Kellogg's Pop-Tarts launched in 1964, offering quick frosted breakfast pastry convenience."
+    },
+    {
+      "id": "food-0212",
+      "prompt": "Which classic Italian-American comfort food pairs long strands of pasta with large seasoned pork or beef meatballs in tomato sauce?",
+      "choices": ["Fettuccine Alfredo", "Spaghetti and Meatballs", "Penne alla Vodka", "Ravioli"],
+      "correctAnswerIndex": 1,
+      "explanation": "Spaghetti and meatballs is an iconic comfort food classic in American-Italian cuisine."
+    },
+    {
+      "id": "food-0213",
+      "prompt": "What popular 1970s party beverage dispenser feature allowed hosts to circulate warm party punch or cheese continuously?",
+      "choices": ["A blender", "A fondue pot", "A beverage fountain", "A percolator"],
+      "correctAnswerIndex": 2,
+      "explanation": "Cascading beverage fountains were glamorous centerpieces for mid-century cocktail and wedding parties."
+    },
+    {
+      "id": "food-0214",
+      "prompt": "What sweet comfort-food bread made from mashed ripe bananas, flour, sugar, and butter is baked in a loaf pan?",
+      "choices": ["Zucchini bread", "Banana bread", "Pound cake", "Pumpkin bread"],
+      "correctAnswerIndex": 1,
+      "explanation": "Banana bread surged in home baking popularity during the mid-century as a delicious way to use overripe fruit."
+    },
+    {
+      "id": "food-0215",
+      "prompt": "Which classic American diner beverage order asks the server for a glass of chocolate milk?",
+      "choices": ["A black and white", "A chocolate cow", "A malted", "A shake"],
+      "correctAnswerIndex": 1,
+      "explanation": "Ordering a 'chocolate cow' or chocolate milk was a quintessential retro diner request."
+    }
+  ]
+}

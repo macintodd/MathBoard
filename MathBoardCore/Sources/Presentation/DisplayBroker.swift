@@ -126,6 +126,28 @@ public final class DisplayBroker {
     public var widgetViewport: WidgetCanvasViewport?
     public var widgetReferenceSize: CGSize?
     public var widgetCanvasIdentity = ""
+    public var widgetAssetBaseURL: URL?
+    public var widgetClassroomGameContext: WidgetClassroomGameContext?
+
+    /// When true, frame, viewport, and live-stroke updates are suppressed so the
+    /// external display holds its last committed frame. Teacher can still write
+    /// normally; students and TV receive nothing new until unfrozen.
+    public var isBroadcastFrozen: Bool = false
+
+    /// Whether the pencil hover/writing indicator is shown on secondary displays.
+    public var isPencilHoverIndicatorEnabled: Bool = false
+
+    /// Latest pencil hover/writing state from the teacher's iPad. Nil when the
+    /// pencil is out of range or the indicator feature is disabled.
+    public var pencilHoverState: CanvasPencilHover?
+
+    public func publishPencilHover(_ state: CanvasPencilHover?) {
+        guard isPencilHoverIndicatorEnabled, !isBroadcastFrozen else {
+            if pencilHoverState != nil { pencilHoverState = nil }
+            return
+        }
+        pencilHoverState = state
+    }
 
     /// Ephemeral teacher-triggered classroom celebrations shown locally and on the external display.
     public var classroomCelebrationEvents: [ClassroomCelebrationEvent] = []
@@ -137,7 +159,7 @@ public final class DisplayBroker {
 
         Task { @MainActor in
             do {
-                try await Task.sleep(for: .seconds(10.6))
+                try await Task.sleep(for: .seconds(9.2))
             } catch {
                 return
             }
@@ -146,6 +168,7 @@ public final class DisplayBroker {
     }
 
     public func publishFrame(_ frame: CGImage, sourceRect: CGRect, viewportSourceRect: CGRect) {
+        guard !isBroadcastFrozen else { return }
         currentFrame = frame
         currentFrameSourceRect = sourceRect
         currentViewportSourceRect = viewportSourceRect
@@ -153,10 +176,12 @@ public final class DisplayBroker {
     }
 
     public func publishViewportSourceRect(_ sourceRect: CGRect) {
+        guard !isBroadcastFrozen else { return }
         currentViewportSourceRect = sourceRect
     }
 
     public func publishLiveStroke(_ stroke: CanvasLiveStroke?) {
+        guard !isBroadcastFrozen else { return }
         if let stroke {
             currentLiveStroke = stroke
             return
@@ -181,10 +206,12 @@ public final class DisplayBroker {
         referenceSize: CGSize,
         canvasIdentity: String
     ) {
+        guard !isBroadcastFrozen else { return }
         widgetObjects = widgets
         widgetViewport = viewport
         widgetReferenceSize = referenceSize
         widgetCanvasIdentity = canvasIdentity
+        widgetAssetBaseURL = WidgetMediaAssetStore.assetDirectoryURL(forDrawingURL: URL(fileURLWithPath: canvasIdentity))
     }
 
     private init() {}

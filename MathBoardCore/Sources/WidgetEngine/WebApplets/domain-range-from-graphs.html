@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>MathBoard - Domain and Range Explorer</title>
+<style>
+  :root{
+    --text-primary:#1a1a18;
+    --text-secondary:#5f5e5a;
+    --text-muted:#8a887f;
+    --border:#d8d6cd;
+    --border-strong:#b4b2a9;
+    --surface-1:#f1efe8;
+    --surface-2:#ffffff;
+    --page-bg:#fbfaf6;
+    --selected-bg:#dcebfa;
+    --amber:#BA7517;
+    --teal:#1D9E75;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --text-primary:#f1efe8;
+      --text-secondary:#c2c0b6;
+      --text-muted:#8a887f;
+      --border:#444441;
+      --border-strong:#5f5e5a;
+      --surface-1:#262624;
+      --surface-2:#1c1c1a;
+      --page-bg:#141413;
+      --selected-bg:#0c447c;
+    }
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;width:100%;background:var(--page-bg);color:var(--text-primary);
+    font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;overflow:hidden;}
+  #app{display:flex;flex-direction:column;height:100%;width:100%;padding:10px;overflow:auto;}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;}
+  button{
+    font-family:inherit;font-size:17px;font-weight:600;color:var(--text-primary);
+    background:var(--surface-2);border:1px solid var(--border-strong);border-radius:8px;
+    padding:10px 14px;min-height:44px;cursor:pointer;user-select:none;-webkit-user-select:none;
+  }
+  button:active{background:var(--surface-1);}
+  button.selected{background:var(--selected-bg);border-color:var(--border-strong);}
+  .graphwrap{flex:1 1 auto;min-height:220px;display:flex;align-items:center;justify-content:center;}
+  svg{width:100%;height:100%;max-height:70vh;touch-action:none;user-select:none;-webkit-user-select:none;}
+  .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;}
+  .readouts{display:flex;gap:24px;flex-wrap:wrap;margin-top:12px;font-size:18px;}
+  .swatch{display:inline-block;width:14px;height:14px;border-radius:3px;margin-right:7px;vertical-align:middle;}
+  .readout-val{font-weight:700;color:var(--text-primary);}
+  [hidden]{display:none !important;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="tabs">
+    <button id="tab0" onclick="dreSelectFunc(0)">Parabola</button>
+    <button id="tab1" onclick="dreSelectFunc(1)">Square root</button>
+    <button id="tab2" onclick="dreSelectFunc(2)">Semicircle</button>
+    <button id="tab3" onclick="dreSelectFunc(3)">Rational (asymptotes)</button>
+  </div>
+  <div class="graphwrap">
+    <svg id="dreSvg" viewBox="0 0 680 535" role="img">
+      <title>Domain and range graph explorer</title>
+      <desc>A coordinate plane with a curve. Drag the vertical line to reveal the domain on the number line below, and drag the horizontal line to reveal the range on the number line to the left.</desc>
+      <defs>
+        <marker id="dreArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="16" markerHeight="16" orient="auto-start-reverse">
+          <path d="M1 0.5L9 5L1 9.5Z" fill="context-stroke" stroke="context-stroke" stroke-width="2" stroke-linejoin="round"/>
+        </marker>
+      </defs>
+      <g id="dreGrid"></g>
+      <g id="dreExcluded"></g>
+      <g id="dreDropLines"></g>
+      <line id="dreDomSeg0" x1="0" y1="0" x2="0" y2="0" stroke="var(--amber)" stroke-width="12" stroke-linecap="round"/>
+      <line id="dreDomSeg1" x1="0" y1="0" x2="0" y2="0" stroke="var(--amber)" stroke-width="12" stroke-linecap="round"/>
+      <line id="dreRanSeg0" x1="0" y1="0" x2="0" y2="0" stroke="var(--teal)" stroke-width="12" stroke-linecap="round"/>
+      <line id="dreRanSeg1" x1="0" y1="0" x2="0" y2="0" stroke="var(--teal)" stroke-width="12" stroke-linecap="round"/>
+      <g id="dreDomCaps"></g>
+      <g id="dreRanCaps"></g>
+      <polyline id="dreCurve0" points="" fill="none" stroke="var(--text-primary)" stroke-width="5"/>
+      <polyline id="dreCurve1" points="" fill="none" stroke="var(--text-primary)" stroke-width="5"/>
+      <g id="dreEndpoints"></g>
+      <line id="dreDomGuide" x1="0" y1="55" x2="0" y2="490" stroke="var(--amber)" stroke-width="3" stroke-dasharray="8 6"/>
+      <line id="dreRanGuide" x1="125" y1="0" x2="610" y2="0" stroke="var(--teal)" stroke-width="3" stroke-dasharray="8 6"/>
+      <g id="dreRanDots"></g>
+      <circle id="dreDomDot" cx="0" cy="0" r="9" fill="var(--text-primary)" opacity="0"/>
+      <g id="dreDomCoord"></g>
+      <circle id="dreDomHandle" cx="0" cy="490" r="18" fill="var(--amber)" stroke="var(--surface-2)" stroke-width="4" style="cursor:grab;touch-action:none;"/>
+      <circle id="dreRanHandle" cx="125" cy="0" r="18" fill="var(--teal)" stroke="var(--surface-2)" stroke-width="4" style="cursor:grab;touch-action:none;"/>
+      <text id="dreDomLabel" x="0" y="45" text-anchor="middle" font-size="18" font-weight="700" fill="var(--amber)">x = -8</text>
+      <text id="dreRanLabel" x="0" y="0" text-anchor="start" font-size="18" font-weight="700" fill="var(--teal)">y = -8</text>
+    </svg>
+  </div>
+  <div class="controls">
+    <button onclick="dreReveal('domain')">Reveal domain</button>
+    <button onclick="dreReveal('range')">Reveal range</button>
+    <button onclick="dreResetFunc()">Reset</button>
+  </div>
+  <div class="readouts">
+    <div><span class="swatch" style="background:var(--amber);"></span>Domain<span id="dreDomOut" class="readout-val" hidden></span></div>
+    <div><span class="swatch" style="background:var(--teal);"></span>Range<span id="dreRanOut" class="readout-val" hidden></span></div>
+  </div>
+</div>
+<script>
+(function(){
+  "use strict";
+
+  var dreX0=160, dreX1=610, dreY0=55, dreY1=460, dreTX=125, dreTY=490;
+  function dreMapX(x){ return dreX0+(x+8)/16*(dreX1-dreX0); }
+  function dreMapY(y){ return dreY1-(y+8)/16*(dreY1-dreY0); }
+  function dreInvX(px){ return (px-dreX0)/(dreX1-dreX0)*16-8; }
+  function dreInvY(py){ return (dreY1-py)/(dreY1-dreY0)*16-8; }
+
+  var dreFuncs=[
+    {name:'Parabola', f:function(x){return 0.25*x*x-3;},
+     branches:[{x0:-6.633,x1:6.633,capStart:'arrow',capEnd:'arrow'}],
+     domainSegs:[{x0:-8,x1:8,capStart:'arrow',capEnd:'arrow'}],
+     rangeSegs:[{y0:-3,y1:8,capStart:'closed',capEnd:'arrow'}],
+     endpoints:[{x:0,y:-3,type:'closed',drop:'y'}],
+     excluded:null,
+     domainText:'All real numbers', domainSub:'(-\u221e, \u221e)',
+     rangeText:'y \u2265 -3', rangeSub:'[-3, \u221e)'},
+    {name:'Square root', f:function(x){return Math.sqrt(Math.max(0,x+2))-2;},
+     branches:[{x0:-2,x1:8,capStart:'closed',capEnd:'arrow'}],
+     domainSegs:[{x0:-2,x1:8,capStart:'closed',capEnd:'arrow'}],
+     rangeSegs:[{y0:-2,y1:8,capStart:'closed',capEnd:'arrow'}],
+     endpoints:[{x:-2,y:-2,type:'closed',drop:'xy'}],
+     excluded:null,
+     domainText:'x \u2265 -2', domainSub:'[-2, \u221e)',
+     rangeText:'y \u2265 -2', rangeSub:'[-2, \u221e)'},
+    {name:'Semicircle', f:function(x){return -2+Math.sqrt(Math.max(0,25-x*x));},
+     branches:[{x0:-5,x1:5,capStart:'closed',capEnd:'closed'}],
+     domainSegs:[{x0:-5,x1:5,capStart:'closed',capEnd:'closed'}],
+     rangeSegs:[{y0:-2,y1:3,capStart:'closed',capEnd:'closed'}],
+     endpoints:[{x:-5,y:-2,type:'closed',drop:'xy'},{x:5,y:-2,type:'closed',drop:'x'},{x:0,y:3,type:'closed',drop:'y'}],
+     excluded:null,
+     domainText:'-5 \u2264 x \u2264 5', domainSub:'[-5, 5]',
+     rangeText:'-2 \u2264 y \u2264 3', rangeSub:'[-2, 3]'},
+    {name:'Rational', f:function(x){return 1/(x-1)+1;},
+     branches:[{x0:-8,x1:0.8889,capStart:'arrow',capEnd:'arrow'},{x0:1.1429,x1:8,capStart:'arrow',capEnd:'arrow'}],
+     domainSegs:[{x0:-8,x1:0.8889,capStart:'arrow',capEnd:'arrow'},{x0:1.1429,x1:8,capStart:'arrow',capEnd:'arrow'}],
+     rangeSegs:[{y0:-8,y1:0.8889,capStart:'arrow',capEnd:'arrow'},{y0:1.1429,y1:8,capStart:'arrow',capEnd:'arrow'}],
+     endpoints:[],
+     excluded:{x:1,y:1},
+     domainText:'All reals except x = 1', domainSub:'(-\u221e,1) \u222a (1,\u221e)',
+     rangeText:'All reals except y = 1', rangeSub:'(-\u221e,1) \u222a (1,\u221e)'}
+  ];
+
+  var dreCurrent=0;
+  var dreDomReachedX=-8, dreRanReachedY=-8;
+  var dreDomComplete=false, dreRanComplete=false;
+  var dreApplyingState=false;
+
+  function $(id){ return document.getElementById(id); }
+
+  function dreDrawGrid(){
+    var g=$('dreGrid'); var s='';
+    for(var v=-8;v<=8;v+=2){
+      var px=dreMapX(v), py=dreMapY(v);
+      s+='<line x1="'+px+'" y1="'+dreY0+'" x2="'+px+'" y2="'+dreY1+'" stroke="var(--border)" stroke-width="1"/>';
+      s+='<line x1="'+dreX0+'" y1="'+py+'" x2="'+dreX1+'" y2="'+py+'" stroke="var(--border)" stroke-width="1"/>';
+    }
+    s+='<line x1="'+dreX0+'" y1="'+dreMapY(0)+'" x2="'+dreX1+'" y2="'+dreMapY(0)+'" stroke="var(--border-strong)" stroke-width="2"/>';
+    s+='<line x1="'+dreMapX(0)+'" y1="'+dreY0+'" x2="'+dreMapX(0)+'" y2="'+dreY1+'" stroke="var(--border-strong)" stroke-width="2"/>';
+    s+='<line x1="'+dreX0+'" y1="'+dreTY+'" x2="'+dreX1+'" y2="'+dreTY+'" stroke="var(--border-strong)" stroke-width="2"/>';
+    s+='<line x1="'+dreTX+'" y1="'+dreY0+'" x2="'+dreTX+'" y2="'+dreY1+'" stroke="var(--border-strong)" stroke-width="2"/>';
+    for(var v2=-8;v2<=8;v2+=2){
+      if(v2!==0){
+        s+='<text x="'+dreMapX(v2)+'" y="'+(dreTY+22)+'" text-anchor="middle" font-size="16" font-weight="600" fill="var(--text-secondary)">'+v2+'</text>';
+        s+='<text x="'+(dreTX-12)+'" y="'+(dreMapY(v2)+5)+'" text-anchor="end" font-size="16" font-weight="600" fill="var(--text-secondary)">'+v2+'</text>';
+      }
+    }
+    g.innerHTML=s;
+  }
+
+  function dreCapMarker(cap,px,py,col){
+    if(cap==='closed') return '<circle cx="'+px+'" cy="'+py+'" r="8" fill="'+col+'"/>';
+    if(cap==='open') return '<circle cx="'+px+'" cy="'+py+'" r="8" fill="var(--surface-2)" stroke="'+col+'" stroke-width="4"/>';
+    return '';
+  }
+  function dreDomArrow(px,dir){
+    var tip=px+dir*28;
+    return '<polygon points="'+tip+','+dreTY+' '+px+','+(dreTY-14)+' '+px+','+(dreTY+14)+'" fill="var(--amber)"/>';
+  }
+  function dreRanArrow(py,dir){
+    var tip=py+dir*28;
+    return '<polygon points="'+dreTX+','+tip+' '+(dreTX-14)+','+py+' '+(dreTX+14)+','+py+'" fill="var(--teal)"/>';
+  }
+  function dreCoordText(px,py,xVal,yVal,anchor){
+    return '<text x="'+px+'" y="'+py+'" text-anchor="'+anchor+'" font-size="18" font-weight="700">'+
+      '<tspan fill="var(--text-secondary)">(</tspan>'+
+      '<tspan fill="var(--amber)">'+xVal+'</tspan>'+
+      '<tspan fill="var(--text-secondary)">, </tspan>'+
+      '<tspan fill="var(--teal)">'+yVal+'</tspan>'+
+      '<tspan fill="var(--text-secondary)">)</tspan></text>';
+  }
+
+  function dreInBranch(fn,mathX){
+    for(var i=0;i<fn.branches.length;i++){
+      var b=fn.branches[i];
+      if(mathX>=Math.min(b.x0,b.x1)-0.001 && mathX<=Math.max(b.x0,b.x1)+0.001) return b;
+    }
+    return null;
+  }
+
+  function dreDomainSegCoverage(seg){
+    return Math.max(0, Math.min(dreDomReachedX,seg.x1)-seg.x0);
+  }
+  function dreRangeSegCoverage(seg){
+    return Math.max(0, Math.min(dreRanReachedY,seg.y1)-seg.y0);
+  }
+
+  function dreRender(idx){
+    dreCurrent=idx;
+    dreDomReachedX=-8; dreRanReachedY=-8;
+    dreDomComplete=false; dreRanComplete=false;
+    var fn=dreFuncs[idx];
+    for(var i=0;i<4;i++){ $('tab'+i).classList.toggle('selected', i===idx); }
+
+    var c0=$('dreCurve0'), c1=$('dreCurve1');
+    [c0,c1].forEach(function(el){ el.setAttribute('points',''); el.removeAttribute('marker-start'); el.removeAttribute('marker-end'); });
+    var capsSvg='';
+    fn.branches.forEach(function(b,bi){
+      var el=(bi===0)?c0:c1;
+      var pts=[]; var N=70;
+      for(var k=0;k<=N;k++){
+        var x=b.x0+(b.x1-b.x0)*k/N;
+        var y=fn.f(x);
+        if(y>8)y=8; if(y<-8)y=-8;
+        pts.push(dreMapX(x)+','+dreMapY(y));
+      }
+      el.setAttribute('points',pts.join(' '));
+      if(b.capStart==='arrow') el.setAttribute('marker-start','url(#dreArrow)');
+      if(b.capEnd==='arrow') el.setAttribute('marker-end','url(#dreArrow)');
+      if(b.capStart!=='arrow'){ var y0=Math.max(-8,Math.min(8,fn.f(b.x0))); capsSvg+=dreCapMarker(b.capStart,dreMapX(b.x0),dreMapY(y0),'var(--text-primary)'); }
+      if(b.capEnd!=='arrow'){ var y1=Math.max(-8,Math.min(8,fn.f(b.x1))); capsSvg+=dreCapMarker(b.capEnd,dreMapX(b.x1),dreMapY(y1),'var(--text-primary)'); }
+    });
+    $('dreEndpoints').innerHTML=capsSvg;
+
+    var domSegs=[$('dreDomSeg0'),$('dreDomSeg1')];
+    var ranSegs=[$('dreRanSeg0'),$('dreRanSeg1')];
+    var domCapsSvg='', ranCapsSvg='';
+    fn.domainSegs.forEach(function(s,i){
+      var el=domSegs[i];
+      var px0=dreMapX(s.x0), px1=dreMapX(s.x1);
+      el.setAttribute('x1',px0); el.setAttribute('x2',px0);
+      el.setAttribute('y1',dreTY); el.setAttribute('y2',dreTY);
+      var startShape=s.capStart==='arrow'?dreDomArrow(px0,-1):dreCapMarker(s.capStart,px0,dreTY,'var(--amber)');
+      var endShape=s.capEnd==='arrow'?dreDomArrow(px1,1):dreCapMarker(s.capEnd,px1,dreTY,'var(--amber)');
+      domCapsSvg+='<g id="dreDomCapStart'+i+'" opacity="0">'+startShape+'</g>';
+      domCapsSvg+='<g id="dreDomCapEnd'+i+'" opacity="0">'+endShape+'</g>';
+    });
+    for(var i2=fn.domainSegs.length;i2<2;i2++){ domSegs[i2].setAttribute('x1',0); domSegs[i2].setAttribute('x2',0); }
+    fn.rangeSegs.forEach(function(s,i){
+      var el=ranSegs[i];
+      var py0=dreMapY(s.y0), py1=dreMapY(s.y1);
+      el.setAttribute('y1',py0); el.setAttribute('y2',py0);
+      el.setAttribute('x1',dreTX); el.setAttribute('x2',dreTX);
+      var lowCap=(py0>py1)?s.capStart:s.capEnd;
+      var highCap=(py0>py1)?s.capEnd:s.capStart;
+      var pyLow=Math.max(py0,py1), pyHigh=Math.min(py0,py1);
+      var lowShape=lowCap==='arrow'?dreRanArrow(pyLow,1):dreCapMarker(lowCap,dreTX,pyLow,'var(--teal)');
+      var highShape=highCap==='arrow'?dreRanArrow(pyHigh,-1):dreCapMarker(highCap,dreTX,pyHigh,'var(--teal)');
+      ranCapsSvg+='<g id="dreRanCapLow'+i+'" opacity="0">'+lowShape+'</g>';
+      ranCapsSvg+='<g id="dreRanCapHigh'+i+'" opacity="0">'+highShape+'</g>';
+    });
+    for(var i3=fn.rangeSegs.length;i3<2;i3++){ ranSegs[i3].setAttribute('y1',0); ranSegs[i3].setAttribute('y2',0); }
+    $('dreDomCaps').innerHTML=domCapsSvg;
+    $('dreRanCaps').innerHTML=ranCapsSvg;
+
+    var dropSvg='';
+    fn.endpoints.forEach(function(ep){
+      var px=dreMapX(ep.x), py=dreMapY(ep.y);
+      if(ep.drop==='x'||ep.drop==='xy') dropSvg+='<line x1="'+px+'" y1="'+py+'" x2="'+px+'" y2="'+dreTY+'" stroke="var(--text-muted)" stroke-width="2" stroke-dasharray="6 6"/>';
+      if(ep.drop==='y'||ep.drop==='xy') dropSvg+='<line x1="'+px+'" y1="'+py+'" x2="'+dreTX+'" y2="'+py+'" stroke="var(--text-muted)" stroke-width="2" stroke-dasharray="6 6"/>';
+    });
+    $('dreDropLines').innerHTML=dropSvg;
+
+    var exSvg='';
+    if(fn.excluded){
+      var ex=fn.excluded;
+      var pxE=dreMapX(ex.x), pyE=dreMapY(ex.y);
+      exSvg+='<line x1="'+pxE+'" y1="'+dreY0+'" x2="'+pxE+'" y2="'+dreY1+'" stroke="var(--text-muted)" stroke-width="2" stroke-dasharray="4 8"/>';
+      exSvg+='<line x1="'+dreX0+'" y1="'+pyE+'" x2="'+dreX1+'" y2="'+pyE+'" stroke="var(--text-muted)" stroke-width="2" stroke-dasharray="4 8"/>';
+      exSvg+='<text x="'+(pxE+8)+'" y="'+(dreY0+18)+'" font-size="16" font-weight="600" fill="var(--text-secondary)">x = '+ex.x+'</text>';
+      exSvg+='<text x="'+(dreX1-50)+'" y="'+(pyE-10)+'" font-size="16" font-weight="600" fill="var(--text-secondary)">y = '+ex.y+'</text>';
+    }
+    $('dreExcluded').innerHTML=exSvg;
+
+    $('dreDomOut').textContent='drag the vertical line';
+    $('dreRanOut').textContent='drag the horizontal line';
+
+    dreDrawDomainVisual(dreX0);
+    dreDrawRangeVisual(dreY1);
+    drePublish();
+  }
+
+  function dreDrawDomainVisual(px){
+    px=Math.max(dreX0,Math.min(dreX1,px));
+    var fn=dreFuncs[dreCurrent];
+    $('dreDomGuide').setAttribute('x1',px); $('dreDomGuide').setAttribute('x2',px);
+    $('dreDomHandle').setAttribute('cx',px);
+    var mathX=dreInvX(px);
+    $('dreDomLabel').setAttribute('x',px);
+    $('dreDomLabel').textContent='x = '+mathX.toFixed(1);
+
+    var branch=dreInBranch(fn,mathX);
+    var dot=$('dreDomDot');
+    var coordSvg='';
+    if(branch){
+      var y=fn.f(mathX); if(y>8)y=8; if(y<-8)y=-8;
+      var dotPy=dreMapY(y);
+      dot.setAttribute('cx',px); dot.setAttribute('cy',dotPy); dot.setAttribute('opacity',1);
+      $('dreDomHandle').setAttribute('fill','var(--amber)');
+      var labelAbove=dotPy>dreY0+34;
+      coordSvg=dreCoordText(px, labelAbove?dotPy-18:dotPy+32, mathX.toFixed(1), y.toFixed(1), 'middle');
+    } else {
+      dot.setAttribute('opacity',0);
+      $('dreDomHandle').setAttribute('fill','var(--text-muted)');
+    }
+    $('dreDomCoord').innerHTML=coordSvg;
+
+    fn.domainSegs.forEach(function(s,i){
+      var el=$('dreDomSeg'+i);
+      var px0=dreMapX(s.x0);
+      var covMath=dreDomainSegCoverage(s);
+      var covPx=dreMapX(s.x0+covMath)-px0;
+      el.setAttribute('x2', px0+covPx);
+      var len=s.x1-s.x0;
+      var capStartEl=$('dreDomCapStart'+i), capEndEl=$('dreDomCapEnd'+i);
+      if(capStartEl) capStartEl.setAttribute('opacity', covMath>0.02?1:0);
+      if(capEndEl) capEndEl.setAttribute('opacity', len>0 && covMath>=len-0.05 ?1:0);
+    });
+
+    var total=0, covered=0;
+    fn.domainSegs.forEach(function(s){ total+=(s.x1-s.x0); covered+=dreDomainSegCoverage(s); });
+    var isComplete = total>0 && covered/total>0.97;
+    if(!dreDomComplete && isComplete){
+      dreDomComplete=true;
+      $('dreDomOut').textContent=fn.domainText+'  '+fn.domainSub;
+    } else if(!dreDomComplete){
+      $('dreDomOut').textContent='x = '+mathX.toFixed(1)+(branch?' \u2014 on the graph':' \u2014 not on the graph');
+    } else {
+      $('dreDomOut').textContent=fn.domainText+'  '+fn.domainSub;
+    }
+  }
+
+  function dreDrawRangeVisual(py){
+    py=Math.max(dreY0,Math.min(dreY1,py));
+    var fn=dreFuncs[dreCurrent];
+    $('dreRanGuide').setAttribute('y1',py); $('dreRanGuide').setAttribute('y2',py);
+    $('dreRanHandle').setAttribute('cy',py);
+    var mathY=dreInvY(py);
+    $('dreRanLabel').setAttribute('y',py-16);
+    $('dreRanLabel').setAttribute('x',dreTX+14);
+    $('dreRanLabel').textContent='y = '+mathY.toFixed(1);
+
+    var dotsSvg=''; var found=false;
+    fn.branches.forEach(function(b){
+      var N=200; var prevDiff=null, prevX=null;
+      for(var k=0;k<=N;k++){
+        var x=b.x0+(b.x1-b.x0)*k/N;
+        var diff=fn.f(x)-mathY;
+        if(prevDiff!==null && ((prevDiff<0&&diff>=0)||(prevDiff>0&&diff<=0))){
+          var t=Math.abs(prevDiff)/(Math.abs(prevDiff)+Math.abs(diff)+1e-9);
+          var ix=prevX+(x-prevX)*t;
+          var ipx=dreMapX(ix);
+          dotsSvg+='<circle cx="'+ipx+'" cy="'+py+'" r="9" fill="var(--text-primary)"/>';
+          var anchor=ipx>dreX1-110?'end':'start';
+          var lx=anchor==='end'?ipx-16:ipx+16;
+          dotsSvg+=dreCoordText(lx, py-16, ix.toFixed(1), mathY.toFixed(1), anchor);
+          found=true;
+        }
+        prevDiff=diff; prevX=x;
+      }
+    });
+    $('dreRanDots').innerHTML=dotsSvg;
+    $('dreRanHandle').setAttribute('fill', found?'var(--teal)':'var(--text-muted)');
+
+    fn.rangeSegs.forEach(function(s,i){
+      var el=$('dreRanSeg'+i);
+      var py0=dreMapY(s.y0);
+      var covMath=dreRangeSegCoverage(s);
+      var covPy=dreMapY(s.y0+covMath);
+      el.setAttribute('y2', covPy);
+      var len=s.y1-s.y0;
+      var capLowEl=$('dreRanCapLow'+i), capHighEl=$('dreRanCapHigh'+i);
+      if(capLowEl) capLowEl.setAttribute('opacity', covMath>0.02?1:0);
+      if(capHighEl) capHighEl.setAttribute('opacity', len>0 && covMath>=len-0.05 ?1:0);
+    });
+
+    var total=0, covered=0;
+    fn.rangeSegs.forEach(function(s){ total+=(s.y1-s.y0); covered+=dreRangeSegCoverage(s); });
+    var isComplete = total>0 && covered/total>0.97;
+    if(!dreRanComplete && isComplete){
+      dreRanComplete=true;
+      $('dreRanOut').textContent=fn.rangeText+'  '+fn.rangeSub;
+    } else if(!dreRanComplete){
+      $('dreRanOut').textContent='y = '+mathY.toFixed(1)+(found?' \u2014 on the graph':' \u2014 not on the graph');
+    } else {
+      $('dreRanOut').textContent=fn.rangeText+'  '+fn.rangeSub;
+    }
+  }
+
+  function dreDomainDrag(px){
+    var mathX=dreInvX(Math.max(dreX0,Math.min(dreX1,px)));
+    dreDomReachedX=Math.max(dreDomReachedX,mathX);
+    dreDrawDomainVisual(px);
+    drePublish();
+  }
+  function dreRangeDrag(py){
+    var mathY=dreInvY(Math.max(dreY0,Math.min(dreY1,py)));
+    dreRanReachedY=Math.max(dreRanReachedY,mathY);
+    dreDrawRangeVisual(py);
+    drePublish();
+  }
+
+  function dreClientToSvg(evt){
+    var svg=$('dreSvg');
+    var pt=svg.createSVGPoint();
+    pt.x=evt.clientX; pt.y=evt.clientY;
+    var ctm=svg.getScreenCTM().inverse();
+    return pt.matrixTransform(ctm);
+  }
+
+  var dreDragMode=null;
+  function dreOnMove(evt){
+    if(!dreDragMode) return;
+    var p=dreClientToSvg(evt);
+    if(dreDragMode==='domain') dreDomainDrag(p.x);
+    else dreRangeDrag(p.y);
+  }
+  function dreOnUp(){ dreDragMode=null; }
+  function dreStartDrag(mode){
+    return function(evt){
+      evt.preventDefault();
+      dreDragMode=mode;
+    };
+  }
+  $('dreDomHandle').addEventListener('pointerdown', dreStartDrag('domain'));
+  $('dreRanHandle').addEventListener('pointerdown', dreStartDrag('range'));
+  $('dreDomGuide').addEventListener('pointerdown', dreStartDrag('domain'));
+  $('dreRanGuide').addEventListener('pointerdown', dreStartDrag('range'));
+  document.addEventListener('pointermove', dreOnMove, {passive:false});
+  document.addEventListener('pointerup', dreOnUp);
+  document.addEventListener('pointercancel', dreOnUp);
+
+  function dreSelectFunc(idx){ dreRender(idx); }
+  function dreResetFunc(){ dreRender(dreCurrent); }
+  function dreReveal(kind){
+    if(kind==='domain') dreDomainDrag(dreX1);
+    else dreRangeDrag(dreY0);
+  }
+
+  function dreGetState(){
+    return {
+      funcIndex: dreCurrent,
+      domainX: Number(dreInvX(parseFloat($('dreDomHandle').getAttribute('cx')))),
+      rangeY: Number(dreInvY(parseFloat($('dreRanHandle').getAttribute('cy')))),
+      domReachedX: Number(dreDomReachedX),
+      ranReachedY: Number(dreRanReachedY),
+      domComplete: !!dreDomComplete,
+      ranComplete: !!dreRanComplete
+    };
+  }
+
+  function drePublish(){
+    if(dreApplyingState) return;
+    if(window.MathBoardApplet && typeof window.MathBoardApplet.publishState==='function'){
+      window.MathBoardApplet.publishState(dreGetState());
+    }
+  }
+
+  window.mathBoardAppletSetState = function(state){
+    if(!state || typeof state!=='object') return;
+    dreApplyingState=true;
+    try{
+      var idx = (typeof state.funcIndex==='number' && state.funcIndex>=0 && state.funcIndex<dreFuncs.length) ? state.funcIndex : dreCurrent;
+      if(idx!==dreCurrent){ dreRender(idx); }
+      dreDomReachedX = (typeof state.domReachedX==='number') ? state.domReachedX : -8;
+      dreRanReachedY = (typeof state.ranReachedY==='number') ? state.ranReachedY : -8;
+      dreDomComplete = !!state.domComplete;
+      dreRanComplete = !!state.ranComplete;
+      var dx = (typeof state.domainX==='number') ? state.domainX : -8;
+      var ry = (typeof state.rangeY==='number') ? state.rangeY : -8;
+      dreDrawDomainVisual(dreMapX(dx));
+      dreDrawRangeVisual(dreMapY(ry));
+    } finally {
+      dreApplyingState=false;
+    }
+  };
+
+  window.dreSelectFunc=dreSelectFunc;
+  window.dreResetFunc=dreResetFunc;
+  window.dreReveal=dreReveal;
+
+  dreDrawGrid();
+  dreRender(0);
+})();
+</script>
+</body>
+</html>

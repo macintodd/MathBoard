@@ -134,7 +134,8 @@ let package = Package(
                 .product(name: "SwiftUIMath", package: "swiftui-math")
             ],
             resources: [
-                .process("JSONMathtivities")
+                .process("JSONMathtivities"),
+                .process("WebApplets")
             ]
         ),
         .testTarget(name: "WidgetEngineTests", dependencies: ["WidgetEngine"]),

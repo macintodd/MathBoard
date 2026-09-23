@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Completing the Square Lab</title>
+<style>
+  :root{
+    --text-primary:#1a1a18;
+    --text-secondary:#5f5e5a;
+    --border:#d8d6cd;
+    --border-strong:#aaa79d;
+    --surface-1:#f1efe8;
+    --surface-2:#ffffff;
+    --page-bg:#fbfaf6;
+    --selected-bg:#dcebfa;
+    --x2:#2A6FB0;
+    --x:#B8791E;
+    --square:#2B8A67;
+    --shift:#6B4FBB;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --text-primary:#f1efe8;
+      --text-secondary:#c2c0b6;
+      --border:#444441;
+      --border-strong:#5f5e5a;
+      --surface-1:#262624;
+      --surface-2:#1c1c1a;
+      --page-bg:#141413;
+      --selected-bg:#0c447c;
+      --x2:#7FB4E8;
+      --x:#E8B85C;
+      --square:#76D2A8;
+      --shift:#B3A0F5;
+    }
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;width:100%;background:var(--page-bg);color:var(--text-primary);
+    font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;overflow:hidden;}
+  #app{display:flex;flex-direction:column;height:100%;width:100%;padding:14px;gap:10px;overflow:auto;}
+  h1{font-size:25px;line-height:1.1;font-weight:800;margin:0;color:var(--text-primary);}
+  .top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+  .formula{font-size:30px;font-weight:800;line-height:1.25;background:var(--surface-2);border:2px solid var(--border);
+    border-radius:14px;padding:12px 16px;box-shadow:0 2px 0 rgba(0,0,0,.04);}
+  .formula .x2{color:var(--x2);}.formula .x{color:var(--x);}.formula .sq{color:var(--square);}.formula .shift{color:var(--shift);}
+  .main{display:grid;grid-template-columns:minmax(300px,1fr) minmax(300px,.9fr);gap:14px;flex:1 1 auto;min-height:430px;}
+  .panel{background:var(--surface-2);border:2px solid var(--border);border-radius:16px;padding:12px;min-height:0;}
+  .visual{display:flex;align-items:center;justify-content:center;min-height:0;}
+  svg{width:100%;height:100%;min-height:360px;touch-action:none;user-select:none;-webkit-user-select:none;}
+  .controls{display:flex;flex-direction:column;gap:12px;}
+  .control{background:var(--surface-1);border:1px solid var(--border);border-radius:12px;padding:12px;}
+  .controlhead{display:flex;justify-content:space-between;gap:10px;font-size:18px;font-weight:800;margin-bottom:8px;}
+  .sub{font-size:15px;color:var(--text-secondary);line-height:1.35;margin-top:6px;}
+  input[type=range]{width:100%;height:34px;}
+  .buttons{display:flex;gap:8px;flex-wrap:wrap;}
+  button{font-family:inherit;font-size:16px;font-weight:700;color:var(--text-primary);background:var(--surface-2);
+    border:2px solid var(--border-strong);border-radius:10px;padding:10px 14px;min-height:46px;cursor:pointer;}
+  button:active{background:var(--surface-1);} button.selected{background:var(--selected-bg);border-color:var(--shift);}
+  .readout{display:grid;gap:8px;font-size:18px;line-height:1.35;}
+  .line{background:var(--surface-1);border-radius:10px;padding:10px 12px;}
+  .label{color:var(--text-secondary);font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;}
+  .value{font-weight:800;color:var(--text-primary);}
+  .value.square{color:var(--square);}.value.shift{color:var(--shift);}
+  .legend{display:flex;gap:8px;flex-wrap:wrap;font-size:14px;color:var(--text-secondary);}
+  .chip{display:inline-flex;align-items:center;gap:6px;background:var(--surface-1);border:1px solid var(--border);border-radius:999px;padding:6px 9px;}
+  .dot{width:12px;height:12px;border-radius:50%;display:inline-block;}
+  @media (max-width:760px){
+    #app{padding:10px;}.main{grid-template-columns:1fr;min-height:0}.formula{font-size:24px}svg{min-height:310px}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top">
+    <h1>Completing the Square Lab</h1>
+    <div class="formula" aria-live="polite">
+      <span class="x2">x<sup>2</sup></span> <span id="bTerm" class="x">+ 6x</span> <span id="cTerm">+ 5</span>
+      = <span class="sq" id="squareForm">(x + 3)<sup>2</sup></span> <span class="shift" id="shiftTerm">- 4</span>
+    </div>
+  </div>
+  <div class="main">
+    <div class="panel visual">
+      <svg id="svg" viewBox="0 0 640 470" role="img" aria-label="Area model for completing the square">
+        <rect x="0" y="0" width="640" height="470" fill="transparent"/>
+        <g id="grid"></g>
+        <g id="model"></g>
+        <g id="labels"></g>
+      </svg>
+    </div>
+    <div class="panel controls">
+      <div class="control">
+        <div class="controlhead"><span>b coefficient</span><span id="bOut">6</span></div>
+        <input id="bSlider" type="range" min="-10" max="10" step="2" value="6">
+        <div class="sub">Split bx into two equal strips. Each strip has width b/2.</div>
+      </div>
+      <div class="control">
+        <div class="controlhead"><span>constant c</span><span id="cOut">5</span></div>
+        <input id="cSlider" type="range" min="-12" max="20" step="1" value="5">
+        <div class="sub">Compare c to the corner square (b/2)<sup>2</sup>. The difference becomes the vertical shift.</div>
+      </div>
+      <div class="buttons">
+        <button id="ex1" onclick="setExample(6,5)">x^2 + 6x + 5</button>
+        <button id="ex2" onclick="setExample(-8,3)">x^2 - 8x + 3</button>
+        <button id="ex3" onclick="setExample(4,9)">x^2 + 4x + 9</button>
+        <button onclick="resetLab()">Reset</button>
+      </div>
+      <div class="readout">
+        <div class="line"><div class="label">Half of b</div><div class="value" id="halfOut">b/2 = 3</div></div>
+        <div class="line"><div class="label">Corner needed</div><div class="value square" id="cornerOut">(b/2)^2 = 9</div></div>
+        <div class="line"><div class="label">Rewrite</div><div class="value shift" id="rewriteOut">x^2 + 6x + 5 = (x + 3)^2 - 4</div></div>
+      </div>
+      <div class="legend">
+        <span class="chip"><span class="dot" style="background:var(--x2)"></span>x^2 square</span>
+        <span class="chip"><span class="dot" style="background:var(--x)"></span>two x-strips</span>
+        <span class="chip"><span class="dot" style="background:var(--square)"></span>corner square</span>
+        <span class="chip"><span class="dot" style="background:var(--shift)"></span>leftover shift</span>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  "use strict";
+  var state={b:6,c:5};
+  var applying=false;
+  function $(id){return document.getElementById(id);}
+  function signTerm(value, suffix){
+    if(value===0){return suffix?"":"+ 0";}
+    var sign=value<0?"-":"+";
+    var n=Math.abs(value);
+    return sign+" "+(n===1&&suffix?"":n)+suffix;
+  }
+  function signedPlain(value){
+    if(value===0){return "+ 0";}
+    return (value<0?"- ":"+ ")+Math.abs(value);
+  }
+  function expressionLeft(){
+    return "x^2 "+signTerm(state.b,"x")+" "+signedPlain(state.c);
+  }
+  function squareText(){
+    var h=state.b/2;
+    if(h===0){return "x^2";}
+    return "(x "+(h<0?"- ":"+ ")+Math.abs(h)+")^2";
+  }
+  function shift(){return state.c-(state.b/2)*(state.b/2);}
+  function draw(){
+    var b=state.b, c=state.c, h=b/2, corner=h*h, k=shift();
+    $("bOut").textContent=b; $("cOut").textContent=c;
+    $("bSlider").value=b; $("cSlider").value=c;
+    $("bTerm").textContent=signTerm(b,"x");
+    $("cTerm").textContent=signedPlain(c);
+    $("squareForm").innerHTML=squareText().replace("^2","<sup>2</sup>");
+    $("shiftTerm").textContent=signedPlain(k);
+    $("halfOut").textContent="b/2 = "+h;
+    $("cornerOut").textContent="(b/2)^2 = "+corner;
+    $("rewriteOut").textContent=expressionLeft()+" = "+squareText()+" "+signedPlain(k);
+    drawModel(h, corner, k);
+    ["ex1","ex2","ex3"].forEach(function(id){$(id).classList.remove("selected");});
+    if(b===6&&c===5){$("ex1").classList.add("selected");}
+    if(b===-8&&c===3){$("ex2").classList.add("selected");}
+    if(b===4&&c===9){$("ex3").classList.add("selected");}
+    publish();
+  }
+  function drawModel(h, corner, k){
+    var grid="";
+    for(var x=40;x<=600;x+=40){grid+='<line x1="'+x+'" y1="40" x2="'+x+'" y2="430" stroke="var(--border)" stroke-width="1"/>';}
+    for(var y=40;y<=430;y+=40){grid+='<line x1="40" y1="'+y+'" x2="600" y2="'+y+'" stroke="var(--border)" stroke-width="1"/>';}
+    $("grid").innerHTML=grid;
+    var x0=145,y0=86,s=230, strip=Math.min(96,Math.max(22,Math.abs(h)*18));
+    var rightX=h>=0?x0+s:x0-strip;
+    var bottomY=y0+s;
+    var cornerX=h>=0?x0+s:x0-strip;
+    var textH=(h<0?"-":"+")+Math.abs(h);
+    var model='';
+    model+='<rect x="'+x0+'" y="'+y0+'" width="'+s+'" height="'+s+'" rx="8" fill="var(--x2)" opacity=".82" stroke="var(--text-primary)" stroke-width="2"/>';
+    model+='<rect x="'+rightX+'" y="'+y0+'" width="'+strip+'" height="'+s+'" rx="8" fill="var(--x)" opacity=".82" stroke="var(--text-primary)" stroke-width="2"/>';
+    model+='<rect x="'+x0+'" y="'+bottomY+'" width="'+s+'" height="'+strip+'" rx="8" fill="var(--x)" opacity=".82" stroke="var(--text-primary)" stroke-width="2"/>';
+    model+='<rect x="'+cornerX+'" y="'+bottomY+'" width="'+strip+'" height="'+strip+'" rx="8" fill="var(--square)" opacity=".9" stroke="var(--text-primary)" stroke-width="2"/>';
+    var barX=455, barW=70, zeroY=275, unit=8;
+    model+='<line x1="'+barX+'" y1="'+zeroY+'" x2="'+(barX+barW)+'" y2="'+zeroY+'" stroke="var(--border-strong)" stroke-width="3"/>';
+    model+='<rect x="'+barX+'" y="'+(k>=0?zeroY-k*unit:zeroY)+'" width="'+barW+'" height="'+Math.max(4,Math.abs(k)*unit)+'" rx="8" fill="var(--shift)" opacity=".82" stroke="var(--text-primary)" stroke-width="2"/>';
+    model+='<text x="'+(barX+barW+14)+'" y="'+(zeroY-(k*unit)/2+6)+'" font-size="22" font-weight="800" fill="var(--shift)">'+(k===0?'0':(k>0?'+':'')+k)+'</text>';
+    $("model").innerHTML=model;
+    var labels='';
+    labels+='<text x="'+(x0+s/2)+'" y="'+(y0+s/2+8)+'" text-anchor="middle" font-size="34" font-weight="800" fill="#fff">x^2</text>';
+    labels+='<text x="'+(rightX+strip/2)+'" y="'+(y0+s/2+8)+'" text-anchor="middle" font-size="24" font-weight="800" fill="#fff">'+textH+'x/2</text>';
+    labels+='<text x="'+(x0+s/2)+'" y="'+(bottomY+strip/2+8)+'" text-anchor="middle" font-size="24" font-weight="800" fill="#fff">'+textH+'x/2</text>';
+    labels+='<text x="'+(cornerX+strip/2)+'" y="'+(bottomY+strip/2+7)+'" text-anchor="middle" font-size="18" font-weight="800" fill="#fff">'+corner+'</text>';
+    labels+='<text x="'+(x0+s/2)+'" y="'+(bottomY+strip+46)+'" text-anchor="middle" font-size="20" font-weight="800" fill="var(--text-primary)">Add the corner: '+corner+'</text>';
+    labels+='<text x="'+(x0+s/2)+'" y="'+(bottomY+strip+76)+'" text-anchor="middle" font-size="18" font-weight="700" fill="var(--text-secondary)">Then compensate with c - '+corner+' = '+k+'</text>';
+    labels+='<text x="'+barX+'" y="89" font-size="20" font-weight="800" fill="var(--shift)">leftover shift</text>';
+    $("labels").innerHTML=labels;
+  }
+  function publish(){
+    if(applying){return;}
+    if(window.MathBoardApplet&&typeof window.MathBoardApplet.publishState==='function'){
+      window.MathBoardApplet.publishState({b:state.b,c:state.c});
+    }
+  }
+  window.setExample=function(b,c){state.b=b;state.c=c;draw();};
+  window.resetLab=function(){window.setExample(6,5);};
+  $("bSlider").addEventListener("input",function(e){state.b=parseInt(e.target.value,10);draw();});
+  $("cSlider").addEventListener("input",function(e){state.c=parseInt(e.target.value,10);draw();});
+  window.mathBoardAppletSetState=function(next){
+    applying=true;
+    state.b=typeof next.b==='number'?Math.max(-10,Math.min(10,Math.round(next.b/2)*2)):6;
+    state.c=typeof next.c==='number'?Math.max(-12,Math.min(20,Math.round(next.c))):5;
+    draw();
+    applying=false;
+  };
+  draw();
+})();
+</script>
+</body>
+</html>

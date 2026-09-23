@@ -397,6 +397,22 @@ public final class ClassroomAssignmentStore {
             || localWidgetScores.contains { $0.assignmentID == assignment.id }
     }
 
+    func updateLessonTitle(_ lessonTitle: String, forLessonID lessonID: UUID) {
+        let trimmedTitle = lessonTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else { return }
+
+        var didUpdate = false
+        for index in assignments.indices where assignments[index].lessonID == lessonID {
+            guard assignments[index].lessonTitle != trimmedTitle else { continue }
+            assignments[index].lessonTitle = trimmedTitle
+            didUpdate = true
+        }
+
+        if didUpdate {
+            save()
+        }
+    }
+
     @discardableResult
     func updateAssignment(
         _ assignment: ClassroomAssignment,

@@ -285,6 +285,7 @@ private extension PKStroke {
 
 struct PencilKitCanvasContainer: View {
     let drawingURL: URL
+    let widgetAssetBaseURL: URL?
     let background: CanvasBackground?
     let canvasDeskColor: CanvasStrokeColor
     let presentationMode: CanvasPresentationMode
@@ -300,6 +301,7 @@ struct PencilKitCanvasContainer: View {
     let onViewportSourceRectChange: (@MainActor (CGRect) -> Void)?
     let onLiveStrokeUpdate: (@MainActor (CanvasLiveStroke?) -> Void)?
     let onLiveTransformedStrokesUpdate: (@MainActor ([CanvasLiveStroke]) -> Void)?
+    let onPencilHoverUpdate: (@MainActor (CanvasPencilHover?) -> Void)?
     let onDrawingDataChange: (@MainActor (Data) -> Void)?
     let onWidgetObjectsChange: (@MainActor ([WidgetObject], WidgetCanvasViewport, CGSize, String) -> Void)?
     let onCanvasObjectStateChange: (@MainActor () -> Void)?
@@ -317,6 +319,8 @@ struct PencilKitCanvasContainer: View {
     let onWidgetMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)?
     let onWidgetImageInsertionRequested: (@MainActor (WidgetCanvasImageInsertionRequest) -> Void)?
     let allowsWidgetAuthoring: Bool
+    let showsTeacherDemoWebApplets: Bool
+    let hidesStudentInk: Bool
 
     @State private var drawing: PKDrawing = PKDrawing()
     @State private var textObjects: [CanvasTextObject] = []
@@ -349,6 +353,7 @@ struct PencilKitCanvasContainer: View {
     @State private var undoStack: [CanvasUndoSnapshot] = []
     @State private var redoStack: [CanvasUndoSnapshot] = []
     @State private var isApplyingEditCommand = false
+    @State private var objectDragUndoStartSnapshot: CanvasUndoSnapshot?
     @State private var appliedEditCommandID: CanvasEditCommand.ID?
 
     private static let saveDebounce: Duration = .milliseconds(400)
@@ -411,6 +416,7 @@ struct PencilKitCanvasContainer: View {
     private var representable: PencilKitCanvasRepresentable {
         PencilKitCanvasRepresentable(
             drawingURL: drawingURL,
+            widgetAssetBaseURL: widgetAssetBaseURL,
             drawing: $drawing,
             textObjects: $textObjects,
             imageObjects: $imageObjects,
@@ -434,11 +440,19 @@ struct PencilKitCanvasContainer: View {
             onViewportSourceRectChange: onViewportSourceRectChange,
             onLiveStrokeUpdate: onLiveStrokeUpdate,
             onLiveTransformedStrokesUpdate: onLiveTransformedStrokesUpdate,
+            onPencilHoverUpdate: onPencilHoverUpdate,
             onDrawingDataChange: onDrawingDataChange,
             onWidgetObjectsChange: onWidgetObjectsChange,
             onCanvasObjectStateChange: onCanvasObjectStateChange,
             onViewportStateChange: onViewportStateChange,
             onInteractionBegan: onInteractionBegan,
+            onObjectDragUndoBatchChanged: { isActive in
+                if isActive {
+                    beginObjectDragUndoBatch()
+                } else {
+                    endObjectDragUndoBatch()
+                }
+            },
             onTextEditingBegan: onTextEditingBegan,
             onTextEditingEnded: onTextEditingEnded,
             onTextPlacementRequested: onTextPlacementRequested,
@@ -449,7 +463,9 @@ struct PencilKitCanvasContainer: View {
             onWidgetEditRequested: onWidgetEditRequested,
             onWidgetMathInputRequested: onWidgetMathInputRequested,
             onWidgetImageInsertionRequested: onWidgetImageInsertionRequested,
-            allowsWidgetAuthoring: allowsWidgetAuthoring
+            allowsWidgetAuthoring: allowsWidgetAuthoring,
+            showsTeacherDemoWebApplets: showsTeacherDemoWebApplets,
+            hidesStudentInk: hidesStudentInk
         )
     }
 
@@ -492,6 +508,7 @@ struct PencilKitCanvasContainer: View {
         undoStack = []
         redoStack = []
         isApplyingEditCommand = false
+        objectDragUndoStartSnapshot = nil
         appliedEditCommandID = nil
         await Task.yield()
         didLoad = true
@@ -512,7 +529,7 @@ struct PencilKitCanvasContainer: View {
 
     private func handleDrawingChange(from oldDrawing: PKDrawing, to newDrawing: PKDrawing) {
         guard didLoad else { return }
-        if !isApplyingEditCommand, oldDrawing != newDrawing {
+        if shouldRecordImmediateUndo, oldDrawing != newDrawing {
             pushUndoSnapshot(snapshot(drawing: oldDrawing))
         }
         publishEditState()
@@ -522,7 +539,7 @@ struct PencilKitCanvasContainer: View {
 
     private func handleTextObjectsChange(from oldTextObjects: [CanvasTextObject], to newTextObjects: [CanvasTextObject]) {
         guard didLoad else { return }
-        if !isApplyingEditCommand, oldTextObjects != newTextObjects {
+        if shouldRecordImmediateUndo, oldTextObjects != newTextObjects {
             pushUndoSnapshot(snapshot(textObjects: oldTextObjects))
         }
         scheduleTextSave(of: newTextObjects)
@@ -530,7 +547,7 @@ struct PencilKitCanvasContainer: View {
 
     private func handleImageObjectsChange(from oldImageObjects: [CanvasImageObject], to newImageObjects: [CanvasImageObject]) {
         guard didLoad else { return }
-        if !isApplyingEditCommand, oldImageObjects != newImageObjects {
+        if shouldRecordImmediateUndo, oldImageObjects != newImageObjects {
             pushUndoSnapshot(snapshot(imageObjects: oldImageObjects))
         }
         scheduleImageObjectSave(of: newImageObjects)
@@ -538,7 +555,7 @@ struct PencilKitCanvasContainer: View {
 
     private func handleLaTeXObjectsChange(from oldLaTeXObjects: [CanvasLaTeXObject], to newLaTeXObjects: [CanvasLaTeXObject]) {
         guard didLoad else { return }
-        if !isApplyingEditCommand, oldLaTeXObjects != newLaTeXObjects {
+        if shouldRecordImmediateUndo, oldLaTeXObjects != newLaTeXObjects {
             pushUndoSnapshot(snapshot(latexObjects: oldLaTeXObjects))
         }
         scheduleLaTeXObjectSave(of: newLaTeXObjects)
@@ -546,7 +563,7 @@ struct PencilKitCanvasContainer: View {
 
     private func handleGeometryObjectsChange(from oldGeometryObjects: [CanvasGeometryObject], to newGeometryObjects: [CanvasGeometryObject]) {
         guard didLoad else { return }
-        if !isApplyingEditCommand, oldGeometryObjects != newGeometryObjects {
+        if shouldRecordImmediateUndo, oldGeometryObjects != newGeometryObjects {
             pushUndoSnapshot(snapshot(geometryObjects: oldGeometryObjects))
         }
         scheduleGeometryObjectSave(of: newGeometryObjects)
@@ -554,7 +571,7 @@ struct PencilKitCanvasContainer: View {
 
     private func handleCoverObjectsChange(from oldCoverObjects: [CanvasCoverObject], to newCoverObjects: [CanvasCoverObject]) {
         guard didLoad else { return }
-        if !isApplyingEditCommand, oldCoverObjects != newCoverObjects {
+        if shouldRecordImmediateUndo, oldCoverObjects != newCoverObjects {
             pushUndoSnapshot(snapshot(coverObjects: oldCoverObjects))
         }
         scheduleCoverObjectSave(of: newCoverObjects)
@@ -562,7 +579,7 @@ struct PencilKitCanvasContainer: View {
 
     private func handleWidgetObjectsChange(from oldWidgetObjects: [WidgetObject], to newWidgetObjects: [WidgetObject]) {
         guard didLoad else { return }
-        if !isApplyingEditCommand, oldWidgetObjects != newWidgetObjects {
+        if shouldRecordImmediateUndo, oldWidgetObjects != newWidgetObjects {
             pushUndoSnapshot(snapshot(widgetObjects: oldWidgetObjects))
         }
         scheduleWidgetObjectSave(of: newWidgetObjects)
@@ -570,7 +587,7 @@ struct PencilKitCanvasContainer: View {
 
     private func handleObjectLayerStateChange(from oldObjectLayerState: CanvasObjectLayerState, to newObjectLayerState: CanvasObjectLayerState) {
         guard didLoad else { return }
-        if !isApplyingEditCommand, oldObjectLayerState != newObjectLayerState {
+        if shouldRecordImmediateUndo, oldObjectLayerState != newObjectLayerState {
             pushUndoSnapshot(snapshot(objectLayerState: oldObjectLayerState))
         }
         scheduleObjectLayerSave(of: newObjectLayerState)
@@ -578,7 +595,7 @@ struct PencilKitCanvasContainer: View {
 
     private func handleAnimationStateChange(from oldAnimationState: CanvasAnimationState, to newAnimationState: CanvasAnimationState) {
         guard didLoad else { return }
-        if !isApplyingEditCommand, oldAnimationState != newAnimationState {
+        if shouldRecordImmediateUndo, oldAnimationState != newAnimationState {
             pushUndoSnapshot(snapshot(animationState: oldAnimationState))
         }
         scheduleAnimationSave(of: newAnimationState)
@@ -635,6 +652,24 @@ struct PencilKitCanvasContainer: View {
             undoStack.removeFirst(undoStack.count - Self.maximumUndoDepth)
         }
         redoStack = []
+    }
+
+    private var shouldRecordImmediateUndo: Bool {
+        !isApplyingEditCommand && objectDragUndoStartSnapshot == nil
+    }
+
+    private func beginObjectDragUndoBatch() {
+        guard didLoad, !isApplyingEditCommand, objectDragUndoStartSnapshot == nil else { return }
+        objectDragUndoStartSnapshot = snapshot()
+    }
+
+    private func endObjectDragUndoBatch() {
+        guard let startSnapshot = objectDragUndoStartSnapshot else { return }
+        objectDragUndoStartSnapshot = nil
+        if snapshot() != startSnapshot {
+            pushUndoSnapshot(startSnapshot)
+        }
+        publishEditState()
     }
 
     private func applyEditCommandIfNeeded(_ command: CanvasEditCommand?) {
@@ -1027,7 +1062,7 @@ struct PencilKitCanvasContainer: View {
     }
 }
 
-private struct CanvasUndoSnapshot {
+private struct CanvasUndoSnapshot: Equatable {
     var drawing: PKDrawing
     var textObjects: [CanvasTextObject]
     var imageObjects: [CanvasImageObject]
@@ -1155,6 +1190,7 @@ private final class PencilKitCanvasHostView: UIView {
     private var widgetOverlayController: UIHostingController<WidgetCanvasOverlayView>?
     private var widgetObjectsBinding: Binding<[WidgetObject]>?
     private var widgetScoreSheet = WidgetActivityScoreSheet(records: [])
+    private var widgetAssetBaseURL: URL?
     private var widgetInteractiveFrames: [CGRect] = []
     private var widgetResizeHandleFrames: [CGRect] = []
     private var activeWidgetDisplayFrames: [WidgetObject.ID: CGRect] = [:]
@@ -1164,6 +1200,7 @@ private final class PencilKitCanvasHostView: UIView {
     private var onWidgetMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)?
     private var onWidgetImageInsertionRequested: (@MainActor (WidgetCanvasImageInsertionRequest) -> Void)?
     private var allowsWidgetAuthoring = true
+    private var showsTeacherDemoWebApplets = true
     // Tracks whether any widget gesture is active so the deferred scroll
     // re-enable (in onWidgetInteractionChanged) can abort if a new
     // interaction started before the Task had a chance to fire.
@@ -1388,15 +1425,27 @@ private final class PencilKitCanvasHostView: UIView {
     }
 
     func configureCoverObjectActions(
+        onSelect: @escaping (CanvasCoverObject.ID) -> Void,
         onToggleReveal: @escaping (CanvasCoverObject.ID) -> Void,
         onDelete: @escaping (CanvasCoverObject.ID) -> Void,
+        onDuplicate: @escaping (CanvasCoverObject.ID) -> Void,
+        onAlphaChange: @escaping (CanvasCoverObject.ID, CGFloat) -> Void,
+        onColorChange: @escaping (CanvasCoverObject.ID, CGFloat, CGFloat, CGFloat) -> Void,
+        onLockToggle: @escaping (CanvasCoverObject.ID) -> Void,
         onMove: @escaping (CanvasCoverObject.ID, CGPoint) -> Void,
-        onResize: @escaping (CanvasCoverObject.ID, CGPoint) -> Void
+        onResize: @escaping (CanvasCoverObject.ID, CGPoint) -> Void,
+        onInteractionChanged: @escaping (Bool) -> Void
     ) {
+        coverObjectsView.onSelect = onSelect
         coverObjectsView.onToggleReveal = onToggleReveal
         coverObjectsView.onDelete = onDelete
+        coverObjectsView.onDuplicate = onDuplicate
+        coverObjectsView.onAlphaChange = onAlphaChange
+        coverObjectsView.onColorChange = onColorChange
+        coverObjectsView.onLockToggle = onLockToggle
         coverObjectsView.onMove = onMove
         coverObjectsView.onResize = onResize
+        coverObjectsView.onInteractionChanged = onInteractionChanged
     }
 
     func updateCoverObjects(
@@ -1414,8 +1463,10 @@ private final class PencilKitCanvasHostView: UIView {
         scoreSheet: WidgetActivityScoreSheet,
         using canvas: PKCanvasView,
         canvasIdentity: String,
+        widgetAssetBaseURL: URL? = nil,
         onEditWidget: (@MainActor (WidgetObject) -> Void)? = nil,
         allowsWidgetAuthoring: Bool = true,
+        showsTeacherDemoWebApplets: Bool = true,
         onWidgetInteractionChanged: (@MainActor (Bool) -> Void)? = nil,
         onWidgetMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)? = nil,
         onWidgetImageInsertionRequested: (@MainActor (WidgetCanvasImageInsertionRequest) -> Void)? = nil
@@ -1426,8 +1477,10 @@ private final class PencilKitCanvasHostView: UIView {
         }
         widgetObjectsBinding = widgets
         widgetScoreSheet = scoreSheet
+        self.widgetAssetBaseURL = widgetAssetBaseURL
         self.onEditWidget = onEditWidget
         self.allowsWidgetAuthoring = allowsWidgetAuthoring
+        self.showsTeacherDemoWebApplets = showsTeacherDemoWebApplets
         self.onWidgetInteractionChanged = onWidgetInteractionChanged
         self.onWidgetMathInputRequested = onWidgetMathInputRequested
         self.onWidgetImageInsertionRequested = onWidgetImageInsertionRequested
@@ -1436,12 +1489,15 @@ private final class PencilKitCanvasHostView: UIView {
             contentOffset: canvas.contentOffset,
             canvasOrigin: PencilKitCanvasGeometry.drawingOriginOffset
         )
-        let interactiveFrames = widgets.wrappedValue.map { widget in
+        let renderableWidgets = widgets.wrappedValue.filter { widget in
+            showsTeacherDemoWebApplets || widget.builtInInteractiveKind?.isTeacherDemoWebApplet != true
+        }
+        let interactiveFrames = renderableWidgets.map { widget in
             widget.isPinnedToCanvas
                 ? viewport.pinnedDisplayFrame(for: widget.frame)
                 : viewport.displayFrame(for: widget.frame)
         }
-        let resizeHandleFrames = widgets.wrappedValue
+        let resizeHandleFrames = renderableWidgets
             .filter { !$0.isPinnedToCanvas }
             .map { Self.resizeHandleFrame(for: viewport.displayFrame(for: $0.frame)) }
         updateWidgetInteractiveFrames(interactiveFrames)
@@ -1450,6 +1506,7 @@ private final class PencilKitCanvasHostView: UIView {
             widgets: widgets,
             viewport: viewport,
             canvasIdentity: canvasIdentity,
+            widgetAssetBaseURL: widgetAssetBaseURL,
             scoreSheet: scoreSheet,
             onEditWidget: onEditWidget,
             allowsWidgetAuthoring: allowsWidgetAuthoring,
@@ -1458,7 +1515,8 @@ private final class PencilKitCanvasHostView: UIView {
                 self?.updateActiveWidgetDisplayFrame(id: id, frame: frame)
             },
             onMathInputRequested: onWidgetMathInputRequested,
-            onImageInsertionRequested: onWidgetImageInsertionRequested
+            onImageInsertionRequested: onWidgetImageInsertionRequested,
+            showsTeacherDemoWebApplets: showsTeacherDemoWebApplets
         )
 
         if let widgetOverlayController {
@@ -1480,12 +1538,15 @@ private final class PencilKitCanvasHostView: UIView {
             contentOffset: canvas.contentOffset,
             canvasOrigin: PencilKitCanvasGeometry.drawingOriginOffset
         )
-        let interactiveFrames = widgetObjectsBinding.wrappedValue.map { widget in
+        let renderableWidgets = widgetObjectsBinding.wrappedValue.filter { widget in
+            showsTeacherDemoWebApplets || widget.builtInInteractiveKind?.isTeacherDemoWebApplet != true
+        }
+        let interactiveFrames = renderableWidgets.map { widget in
             widget.isPinnedToCanvas
                 ? viewport.pinnedDisplayFrame(for: widget.frame)
                 : viewport.displayFrame(for: widget.frame)
         }
-        let resizeHandleFrames = widgetObjectsBinding.wrappedValue
+        let resizeHandleFrames = renderableWidgets
             .filter { !$0.isPinnedToCanvas }
             .map { Self.resizeHandleFrame(for: viewport.displayFrame(for: $0.frame)) }
         updateWidgetInteractiveFrames(interactiveFrames)
@@ -1494,6 +1555,7 @@ private final class PencilKitCanvasHostView: UIView {
             widgets: widgetObjectsBinding,
             viewport: viewport,
             canvasIdentity: widgetCanvasIdentity,
+            widgetAssetBaseURL: widgetAssetBaseURL,
             scoreSheet: widgetScoreSheet,
             onEditWidget: onEditWidget,
             allowsWidgetAuthoring: allowsWidgetAuthoring,
@@ -1502,7 +1564,8 @@ private final class PencilKitCanvasHostView: UIView {
                 self?.updateActiveWidgetDisplayFrame(id: id, frame: frame)
             },
             onMathInputRequested: onWidgetMathInputRequested,
-            onImageInsertionRequested: onWidgetImageInsertionRequested
+            onImageInsertionRequested: onWidgetImageInsertionRequested,
+            showsTeacherDemoWebApplets: showsTeacherDemoWebApplets
         )
     }
 
@@ -1567,10 +1630,16 @@ private extension CGRect {
 }
 
 private final class CanvasCoverObjectsView: UIView {
+    var onSelect: ((CanvasCoverObject.ID) -> Void)?
     var onToggleReveal: ((CanvasCoverObject.ID) -> Void)?
     var onDelete: ((CanvasCoverObject.ID) -> Void)?
+    var onDuplicate: ((CanvasCoverObject.ID) -> Void)?
+    var onAlphaChange: ((CanvasCoverObject.ID, CGFloat) -> Void)?
+    var onColorChange: ((CanvasCoverObject.ID, CGFloat, CGFloat, CGFloat) -> Void)?
+    var onLockToggle: ((CanvasCoverObject.ID) -> Void)?
     var onMove: ((CanvasCoverObject.ID, CGPoint) -> Void)?
     var onResize: ((CanvasCoverObject.ID, CGPoint) -> Void)?
+    var onInteractionChanged: ((Bool) -> Void)?
     var showsControls = true {
         didSet {
             guard showsControls != oldValue else { return }
@@ -1578,13 +1647,12 @@ private final class CanvasCoverObjectsView: UIView {
             syncControlViews()
         }
     }
-
-    private static let teacherHiddenAlpha: CGFloat = 0.42
     private var coverObjects: [CanvasCoverObject] = []
     private var zoomScale: CGFloat = 1
     private var contentOffset: CGPoint = .zero
     private var canvasOrigin: CGPoint = .zero
     private var selectedCoverID: CanvasCoverObject.ID?
+    var hasSelection: Bool { selectedCoverID != nil }
     private var controlViews: [CanvasCoverObject.ID: CanvasCoverControlView] = [:]
 
     override init(frame: CGRect) {
@@ -1613,6 +1681,18 @@ private final class CanvasCoverObjectsView: UIView {
         setNeedsDisplay()
     }
 
+    func clearSelection() {
+        guard selectedCoverID != nil else { return }
+        selectedCoverID = nil
+        syncControlViews()
+    }
+
+    private func selectCover(_ id: CanvasCoverObject.ID) {
+        selectedCoverID = id
+        syncControlViews()
+        onSelect?(id)
+    }
+
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let hitView = super.hitTest(point, with: event)
         return hitView === self ? nil : hitView
@@ -1621,23 +1701,24 @@ private final class CanvasCoverObjectsView: UIView {
     override func draw(_ rect: CGRect) {
         UIColor.clear.setFill()
         UIRectFill(rect)
-
-            for object in coverObjects where !object.isRevealed {
-                guard object.points.count >= 2 else { continue }
-                let path = UIBezierPath()
-                path.move(to: screenPoint(object.points[0]))
+        for object in coverObjects where !object.isRevealed {
+            guard object.points.count >= 2 else { continue }
+            let path = UIBezierPath()
+            path.move(to: screenPoint(object.points[0]))
             for point in object.points.dropFirst() {
                 path.addLine(to: screenPoint(point))
             }
             path.close()
-                UIColor(
-                    red: object.red,
-                    green: object.green,
-                    blue: object.blue,
-                    alpha: showsControls ? Self.teacherHiddenAlpha : object.alpha
-                ).setFill()
-                path.fill()
-            }
+            UIColor(red: object.red, green: object.green, blue: object.blue, alpha: 0.5).setFill()
+            path.fill()
+
+            let box = object.boundingBox
+            let topLeft = screenPoint(CGPoint(x: box.minX, y: box.minY))
+            let topRight = screenPoint(CGPoint(x: box.maxX, y: box.minY))
+            let headerRect = CGRect(x: topLeft.x, y: topLeft.y, width: topRight.x - topLeft.x, height: 10)
+            UIColor.systemRed.setFill()
+            UIRectFill(headerRect)
+        }
     }
 
     private func syncControlViews() {
@@ -1659,25 +1740,31 @@ private final class CanvasCoverObjectsView: UIView {
             let controlView = controlViews[object.id] ?? CanvasCoverControlView()
             if controlViews[object.id] == nil {
                 controlView.onSelect = { [weak self] id in
-                    self?.selectedCoverID = id
-                    self?.syncControlViews()
+                    self?.selectCover(id)
                 }
                 controlView.onToggleReveal = { [weak self] id in self?.onToggleReveal?(id) }
                 controlView.onDelete = { [weak self] id in self?.onDelete?(id) }
+                controlView.onDuplicate = { [weak self] id in self?.onDuplicate?(id) }
+                controlView.onAlphaChange = { [weak self] id, alpha in self?.onAlphaChange?(id, alpha) }
+                controlView.onColorChange = { [weak self] id, r, g, b in self?.onColorChange?(id, r, g, b) }
+                controlView.onLockToggle = { [weak self] id in self?.onLockToggle?(id) }
                 controlView.onMove = { [weak self] id, displayDelta in
                     guard let self else { return }
-                    self.selectedCoverID = id
+                    self.selectCover(id)
                     self.onMove?(id, self.sourceDelta(fromDisplayDelta: displayDelta))
                 }
                 controlView.onResize = { [weak self] id, displayDelta in
                     guard let self else { return }
-                    self.selectedCoverID = id
+                    self.selectCover(id)
                     self.onResize?(id, self.sourceDelta(fromDisplayDelta: displayDelta))
+                }
+                controlView.onInteractionChanged = { [weak self] isInteracting in
+                    self?.onInteractionChanged?(isInteracting)
                 }
                 addSubview(controlView)
                 controlViews[object.id] = controlView
             }
-            controlView.configure(id: object.id, isRevealed: object.isRevealed, isSelected: object.id == selectedCoverID)
+            controlView.configure(id: object.id, cover: object, isSelected: object.id == selectedCoverID)
             controlView.frame = displayFrame(for: object.boundingBox)
         }
     }
@@ -1690,7 +1777,7 @@ private final class CanvasCoverObjectsView: UIView {
             x: min(minPoint.x, maxPoint.x),
             y: min(minPoint.y, maxPoint.y),
             width: max(abs(maxPoint.x - minPoint.x), CanvasCoverControlView.minimumWidth),
-            height: max(abs(maxPoint.y - minPoint.y), CanvasCoverControlView.headerHeight + 12)
+            height: max(abs(maxPoint.y - minPoint.y), CanvasCoverControlView.minimumHeight)
         )
     }
 
@@ -1710,139 +1797,251 @@ private final class CanvasCoverObjectsView: UIView {
 }
 
 private final class CanvasCoverControlView: UIView {
-    static let headerHeight: CGFloat = 30
-    static let minimumWidth: CGFloat = 116
+    static let minimumWidth: CGFloat = 60
+    static let minimumHeight: CGFloat = 40
+    private static let hudHeight: CGFloat = 48
+    private static let buttonSize: CGFloat = 34
+    private static let resizeHandleSize: CGFloat = 14
 
     var onSelect: ((CanvasCoverObject.ID) -> Void)?
     var onToggleReveal: ((CanvasCoverObject.ID) -> Void)?
     var onDelete: ((CanvasCoverObject.ID) -> Void)?
+    var onDuplicate: ((CanvasCoverObject.ID) -> Void)?
+    var onAlphaChange: ((CanvasCoverObject.ID, CGFloat) -> Void)?
+    var onColorChange: ((CanvasCoverObject.ID, CGFloat, CGFloat, CGFloat) -> Void)?
+    var onLockToggle: ((CanvasCoverObject.ID) -> Void)?
     var onMove: ((CanvasCoverObject.ID, CGPoint) -> Void)?
     var onResize: ((CanvasCoverObject.ID, CGPoint) -> Void)?
+    var onInteractionChanged: ((Bool) -> Void)?
 
-    private let headerView = UIView()
-    private let visibilityButton = UIButton(type: .system)
-    private let deleteButton = UIButton(type: .system)
-    private let resizeHandleView = UIView()
     private var coverID: CanvasCoverObject.ID?
+    private var isLocked = false
+
+    // Floating HUD styled to match FloatingActionHUD
+    private let hudView = UIView()
+    private let revealButton = UIButton()
+    private let duplicateButton = UIButton()
+    private let colorWell = UIColorWell()
+    private let lockButton = UIButton()
+    private let deleteButton = UIButton()
+    private let separators: [UIView] = (0..<4).map { _ in
+        let v = UIView()
+        v.backgroundColor = UIColor.black.withAlphaComponent(0.12)
+        return v
+    }
+    private let resizeHandleView = UIView()
+    private var bodyPanRecognizer = UIPanGestureRecognizer()
+    private var resizePanRecognizer = UIPanGestureRecognizer()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
         isOpaque = false
-        layer.borderColor = UIColor(red: 0.05, green: 0.26, blue: 0.62, alpha: 0.95).cgColor
-        layer.borderWidth = 1.5
-        layer.cornerRadius = 6
-        layer.masksToBounds = true
+        clipsToBounds = false
 
-        headerView.backgroundColor = UIColor(red: 0.05, green: 0.20, blue: 0.48, alpha: 0.78)
-        addSubview(headerView)
+        // HUD container — matches FloatingActionHUD gradient/border/shadow style
+        hudView.backgroundColor = UIColor(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.97)
+        hudView.layer.cornerRadius = 18
+        hudView.layer.cornerCurve = .continuous
+        hudView.layer.borderColor = UIColor.white.withAlphaComponent(0.72).cgColor
+        hudView.layer.borderWidth = 1
+        hudView.layer.shadowColor = UIColor.black.cgColor
+        hudView.layer.shadowOpacity = 0.24
+        hudView.layer.shadowRadius = 12
+        hudView.layer.shadowOffset = CGSize(width: 0, height: 6)
+        hudView.isHidden = true
+        addSubview(hudView)
 
-        configureButton(visibilityButton)
-        configureButton(deleteButton)
-        visibilityButton.addTarget(self, action: #selector(toggleReveal), for: .touchUpInside)
-        deleteButton.addTarget(self, action: #selector(deleteCover), for: .touchUpInside)
-        headerView.addSubview(visibilityButton)
-        headerView.addSubview(deleteButton)
+        let symCfg = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
+        let eyeCfg = UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+        setupCircleButton(revealButton, image: "eye.slash", tint: .systemBlue, symConfig: eyeCfg, action: #selector(tapToggleReveal))
+        setupCircleButton(duplicateButton, image: "doc.on.doc", tint: .label, symConfig: symCfg, action: #selector(tapDuplicate))
+        setupCircleButton(lockButton, image: "lock.open", tint: .systemGreen, symConfig: symCfg, action: #selector(tapLockToggle))
+        setupCircleButton(deleteButton, image: "trash", tint: .systemRed, symConfig: symCfg, action: #selector(tapDelete))
 
-        resizeHandleView.backgroundColor = UIColor(red: 0.05, green: 0.26, blue: 0.62, alpha: 0.95)
-        resizeHandleView.layer.cornerRadius = 5
-        resizeHandleView.layer.borderColor = UIColor.white.withAlphaComponent(0.9).cgColor
-        resizeHandleView.layer.borderWidth = 1.5
+        colorWell.supportsAlpha = false
+        colorWell.addTarget(self, action: #selector(colorWellChanged), for: .valueChanged)
+
+        [revealButton, duplicateButton, colorWell, lockButton, deleteButton].forEach { hudView.addSubview($0) }
+        separators.forEach { hudView.addSubview($0) }
+
+        resizeHandleView.backgroundColor = UIColor.white.withAlphaComponent(0.9)
+        resizeHandleView.layer.cornerRadius = 3
+        resizeHandleView.layer.borderColor = UIColor.systemGray3.cgColor
+        resizeHandleView.layer.borderWidth = 1
         addSubview(resizeHandleView)
 
-        let headerPan = UIPanGestureRecognizer(target: self, action: #selector(handleHeaderPan(_:)))
-        headerPan.cancelsTouchesInView = false
-        headerView.addGestureRecognizer(headerPan)
+        resizePanRecognizer.cancelsTouchesInView = true
+        resizePanRecognizer.addTarget(self, action: #selector(handleResizePan(_:)))
+        resizeHandleView.addGestureRecognizer(resizePanRecognizer)
 
-        let headerTap = UITapGestureRecognizer(target: self, action: #selector(selectCover))
-        headerTap.cancelsTouchesInView = false
-        headerView.addGestureRecognizer(headerTap)
+        bodyPanRecognizer.cancelsTouchesInView = false
+        bodyPanRecognizer.addTarget(self, action: #selector(handleBodyPan(_:)))
+        addGestureRecognizer(bodyPanRecognizer)
 
-        let resizePan = UIPanGestureRecognizer(target: self, action: #selector(handleResizePan(_:)))
-        resizePan.cancelsTouchesInView = true
-        resizeHandleView.addGestureRecognizer(resizePan)
+        let bodyTap = UITapGestureRecognizer(target: self, action: #selector(tapSelect))
+        bodyTap.cancelsTouchesInView = false
+        addGestureRecognizer(bodyTap)
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(id: CanvasCoverObject.ID, isRevealed: Bool, isSelected: Bool) {
+    private func setupCircleButton(_ button: UIButton, image: String, tint: UIColor, symConfig: UIImage.SymbolConfiguration, action: Selector) {
+        var cfg = UIButton.Configuration.filled()
+        cfg.image = UIImage(systemName: image, withConfiguration: symConfig)
+        cfg.baseBackgroundColor = UIColor(red: 0.84, green: 0.90, blue: 0.96, alpha: 0.96)
+        cfg.baseForegroundColor = tint
+        cfg.background.cornerRadius = Self.buttonSize / 2
+        cfg.background.strokeColor = UIColor.white.withAlphaComponent(0.72)
+        cfg.background.strokeWidth = 1
+        cfg.contentInsets = .zero
+        button.configuration = cfg
+        button.addTarget(self, action: action, for: .touchUpInside)
+        button.configurationUpdateHandler = { btn in btn.alpha = btn.isEnabled ? 1.0 : 0.38 }
+    }
+
+    func configure(id: CanvasCoverObject.ID, cover: CanvasCoverObject, isSelected: Bool) {
         coverID = id
-        layer.borderWidth = isSelected ? 2.5 : 1.5
-        resizeHandleView.isHidden = !isSelected
-        let visibilityImage = UIImage(systemName: isRevealed ? "eye" : "eye.slash")
-        visibilityButton.setTitle(nil, for: .normal)
-        visibilityButton.setImage(visibilityImage, for: .normal)
-        visibilityButton.accessibilityLabel = isRevealed ? "Tape shown" : "Tape hidden"
-        deleteButton.setImage(UIImage(systemName: "trash"), for: .normal)
-        deleteButton.accessibilityLabel = "Delete tape"
+        isLocked = cover.isLocked
+        hudView.isHidden = !isSelected
+        resizeHandleView.isHidden = !isSelected || cover.isLocked
+
+        let symCfg = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
+        let eyeCfg = UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+
+        var revealCfg = revealButton.configuration ?? UIButton.Configuration.filled()
+        revealCfg.image = UIImage(systemName: cover.isRevealed ? "eye" : "eye.slash", withConfiguration: eyeCfg)
+        revealCfg.baseForegroundColor = .systemBlue
+        revealButton.configuration = revealCfg
+
+        var lockCfg = lockButton.configuration ?? UIButton.Configuration.filled()
+        lockCfg.image = UIImage(systemName: cover.isLocked ? "lock.fill" : "lock.open", withConfiguration: symCfg)
+        lockCfg.baseForegroundColor = cover.isLocked ? .systemRed : .systemGreen
+        lockButton.configuration = lockCfg
+
+        colorWell.selectedColor = UIColor(red: cover.red, green: cover.green, blue: cover.blue, alpha: 1)
+
+        deleteButton.isEnabled = !cover.isLocked
+        bodyPanRecognizer.isEnabled = !cover.isLocked
+        resizePanRecognizer.isEnabled = !cover.isLocked
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        headerView.frame = CGRect(x: 0, y: 0, width: bounds.width, height: Self.headerHeight)
-        visibilityButton.frame = CGRect(x: 4, y: 2, width: 30, height: 26)
-        deleteButton.frame = CGRect(x: bounds.width - 32, y: 2, width: 28, height: 26)
-        resizeHandleView.frame = CGRect(x: bounds.width - 18, y: bounds.height - 18, width: 16, height: 16)
+        let h = Self.hudHeight
+        let padding: CGFloat = 7
+        let buttonW = Self.buttonSize
+        let colorW: CGFloat = 30
+        let totalW = buttonW * 4 + colorW + 10 + padding * 2 + 4
+        let hudX = (bounds.width - totalW) / 2
+        hudView.frame = CGRect(x: hudX, y: -h - 8, width: totalW, height: h)
+
+        func sep(_ x: CGFloat) -> CGRect { CGRect(x: x, y: 8, width: 1, height: h - 16) }
+        let midY = h / 2
+        var x = padding
+        revealButton.frame = CGRect(x: x, y: midY - buttonW / 2, width: buttonW, height: buttonW); x += buttonW
+        separators[0].frame = sep(x); x += 1
+        duplicateButton.frame = CGRect(x: x, y: midY - buttonW / 2, width: buttonW, height: buttonW); x += buttonW
+        separators[1].frame = sep(x); x += 1
+        colorWell.frame = CGRect(x: x + 5, y: midY - 15, width: colorW, height: 30); x += colorW + 10
+        separators[2].frame = sep(x); x += 1
+        lockButton.frame = CGRect(x: x, y: midY - buttonW / 2, width: buttonW, height: buttonW); x += buttonW
+        separators[3].frame = sep(x); x += 1
+        deleteButton.frame = CGRect(x: x, y: midY - buttonW / 2, width: buttonW, height: buttonW)
+
+        resizeHandleView.frame = CGRect(
+            x: bounds.maxX - Self.resizeHandleSize - 2,
+            y: bounds.maxY - Self.resizeHandleSize - 2,
+            width: Self.resizeHandleSize,
+            height: Self.resizeHandleSize
+        )
     }
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        if !hudView.isHidden {
+            let hp = convert(point, to: hudView)
+            if hudView.bounds.contains(hp), let hit = hudView.hitTest(hp, with: event) {
+                return hit
+            }
+        }
         if !resizeHandleView.isHidden {
-            let handlePoint = convert(point, to: resizeHandleView)
-            if resizeHandleView.bounds.insetBy(dx: -10, dy: -10).contains(handlePoint) {
+            let rp = convert(point, to: resizeHandleView)
+            if resizeHandleView.bounds.insetBy(dx: -12, dy: -12).contains(rp) {
                 return resizeHandleView
             }
         }
-        let headerPoint = convert(point, to: headerView)
-        guard headerView.bounds.contains(headerPoint) else { return nil }
-        return super.hitTest(point, with: event)
+        guard bounds.contains(point) else { return nil }
+        if event?.allTouches?.first?.type == .pencil { return nil }
+        return self
     }
 
-    private func configureButton(_ button: UIButton) {
-        button.tintColor = .white
-        button.setTitleColor(.white, for: .normal)
-        button.titleLabel?.font = .systemFont(ofSize: 11, weight: .semibold)
-        button.semanticContentAttribute = .forceLeftToRight
-        button.contentHorizontalAlignment = .center
-    }
-
-    @objc private func selectCover() {
+    @objc private func tapSelect() {
         guard let coverID else { return }
         onSelect?(coverID)
     }
 
-    @objc private func toggleReveal() {
+    @objc private func tapToggleReveal() {
         guard let coverID else { return }
         onSelect?(coverID)
         onToggleReveal?(coverID)
     }
 
-    @objc private func deleteCover() {
+    @objc private func tapDelete() {
         guard let coverID else { return }
         onDelete?(coverID)
     }
 
-    @objc private func handleHeaderPan(_ recognizer: UIPanGestureRecognizer) {
+    @objc private func tapDuplicate() {
+        guard let coverID else { return }
+        onDuplicate?(coverID)
+    }
+
+    @objc private func tapLockToggle() {
+        guard let coverID else { return }
+        onLockToggle?(coverID)
+    }
+
+    @objc private func colorWellChanged(_ well: UIColorWell) {
+        guard let coverID, let color = well.selectedColor else { return }
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        onColorChange?(coverID, r, g, b)
+    }
+
+    @objc private func handleBodyPan(_ recognizer: UIPanGestureRecognizer) {
         guard let coverID else { return }
         if recognizer.state == .began {
             onSelect?(coverID)
+            onInteractionChanged?(true)
         }
+        let isEnding = recognizer.state == .ended || recognizer.state == .cancelled || recognizer.state == .failed
         let translation = recognizer.translation(in: self)
-        guard translation != .zero else { return }
-        onMove?(coverID, translation)
-        recognizer.setTranslation(.zero, in: self)
+        if translation != .zero {
+            onMove?(coverID, translation)
+            recognizer.setTranslation(.zero, in: self)
+        }
+        if isEnding {
+            onInteractionChanged?(false)
+        }
     }
 
     @objc private func handleResizePan(_ recognizer: UIPanGestureRecognizer) {
         guard let coverID else { return }
         if recognizer.state == .began {
             onSelect?(coverID)
+            onInteractionChanged?(true)
         }
+        let isEnding = recognizer.state == .ended || recognizer.state == .cancelled || recognizer.state == .failed
         let translation = recognizer.translation(in: self)
-        guard translation != .zero else { return }
-        onResize?(coverID, translation)
-        recognizer.setTranslation(.zero, in: self)
+        if translation != .zero {
+            onResize?(coverID, translation)
+            recognizer.setTranslation(.zero, in: self)
+        }
+        if isEnding {
+            onInteractionChanged?(false)
+        }
     }
 }
 
@@ -3452,6 +3651,7 @@ private enum PDFCanvasBackgroundRenderer {
 
 private struct PencilKitCanvasRepresentable: UIViewRepresentable {
     let drawingURL: URL
+    let widgetAssetBaseURL: URL?
     @Binding var drawing: PKDrawing
     @Binding var textObjects: [CanvasTextObject]
     @Binding var imageObjects: [CanvasImageObject]
@@ -3475,11 +3675,13 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
     let onViewportSourceRectChange: (@MainActor (CGRect) -> Void)?
     let onLiveStrokeUpdate: (@MainActor (CanvasLiveStroke?) -> Void)?
     let onLiveTransformedStrokesUpdate: (@MainActor ([CanvasLiveStroke]) -> Void)?
+    let onPencilHoverUpdate: (@MainActor (CanvasPencilHover?) -> Void)?
     let onDrawingDataChange: (@MainActor (Data) -> Void)?
     let onWidgetObjectsChange: (@MainActor ([WidgetObject], WidgetCanvasViewport, CGSize, String) -> Void)?
     let onCanvasObjectStateChange: (@MainActor () -> Void)?
     let onViewportStateChange: (@MainActor (CanvasViewportState) -> Void)?
     let onInteractionBegan: (@MainActor () -> Void)?
+    let onObjectDragUndoBatchChanged: (@MainActor (Bool) -> Void)?
     let onTextEditingBegan: (@MainActor () -> Void)?
     let onTextEditingEnded: (@MainActor () -> Void)?
     let onTextPlacementRequested: (@MainActor (CGPoint) -> Void)?
@@ -3491,6 +3693,8 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
     let onWidgetMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)?
     let onWidgetImageInsertionRequested: (@MainActor (WidgetCanvasImageInsertionRequest) -> Void)?
     let allowsWidgetAuthoring: Bool
+    let showsTeacherDemoWebApplets: Bool
+    let hidesStudentInk: Bool
 
     func makeUIView(context: Context) -> PencilKitCanvasHostView {
         let hostView = PencilKitCanvasHostView()
@@ -3506,14 +3710,23 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
 
         coordinator.hostView = hostView
         hostView.configureCoverObjectActions(
+            onSelect: { [weak coordinator] id in coordinator?.selectCover(id: id) },
             onToggleReveal: { [weak coordinator] id in coordinator?.toggleCoverReveal(id: id) },
             onDelete: { [weak coordinator] id in coordinator?.deleteCover(id: id) },
+            onDuplicate: { [weak coordinator] id in coordinator?.duplicateCover(id: id) },
+            onAlphaChange: { [weak coordinator] id, alpha in coordinator?.setCoverAlpha(id: id, alpha: alpha) },
+            onColorChange: { [weak coordinator] id, r, g, b in coordinator?.setCoverColor(id: id, red: r, green: g, blue: b) },
+            onLockToggle: { [weak coordinator] id in coordinator?.toggleCoverLock(id: id) },
             onMove: { [weak coordinator] id, delta in coordinator?.moveCover(id: id, by: delta) },
-            onResize: { [weak coordinator] id, delta in coordinator?.resizeCover(id: id, by: delta) }
+            onResize: { [weak coordinator] id, delta in coordinator?.resizeCover(id: id, by: delta) },
+            onInteractionChanged: { [weak coordinator] isInteracting in
+                coordinator?.setObjectDragUndoBatchActive(isInteracting)
+            }
         )
         coordinator.configureViewport(for: canvas)
         context.coordinator.canvas = canvas
         context.coordinator.installLiveStrokeRecognizer(on: canvas)
+        context.coordinator.installHoverRecognizer(on: canvas)
         context.coordinator.installLaserStrokeRecognizer(on: hostView.laserOverlayView, canvas: canvas)
         context.coordinator.installTextPlacementRecognizer(on: hostView.textPlacementOverlayView, canvas: canvas)
         context.coordinator.installTextSelectionRecognizers(on: canvas)
@@ -3542,8 +3755,10 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             scoreSheet: WidgetActivityScoreSheet(widgets: widgetObjects),
             using: canvas,
             canvasIdentity: drawingURL.path,
+            widgetAssetBaseURL: widgetAssetBaseURL,
             onEditWidget: onWidgetEditRequested,
             allowsWidgetAuthoring: allowsWidgetAuthoring,
+            showsTeacherDemoWebApplets: showsTeacherDemoWebApplets,
             onWidgetInteractionChanged: { [weak hostView, weak canvas] isInteracting in
                 if isInteracting {
                     hostView?.widgetIsInteracting = true
@@ -3602,8 +3817,10 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 scoreSheet: WidgetActivityScoreSheet(widgets: self.widgetObjects),
                 using: canvas,
                 canvasIdentity: self.drawingURL.path,
+                widgetAssetBaseURL: self.widgetAssetBaseURL,
                 onEditWidget: self.onWidgetEditRequested,
                 allowsWidgetAuthoring: self.allowsWidgetAuthoring,
+                showsTeacherDemoWebApplets: self.showsTeacherDemoWebApplets,
                 onWidgetInteractionChanged: { isInteracting in
                     // hostView and canvas are already strongly captured by the
                     // enclosing DispatchQueue.main.async block — no capture list needed.
@@ -3640,14 +3857,23 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         let canvas = hostView.canvas
         hostView.overrideUserInterfaceStyle = .light
         canvas.overrideUserInterfaceStyle = .light
+        canvas.alpha = hidesStudentInk ? 0 : 1
         let coordinator = context.coordinator
         coordinator.parent = self
         coordinator.hostView = hostView
         hostView.configureCoverObjectActions(
+            onSelect: { [weak coordinator] id in coordinator?.selectCover(id: id) },
             onToggleReveal: { [weak coordinator] id in coordinator?.toggleCoverReveal(id: id) },
             onDelete: { [weak coordinator] id in coordinator?.deleteCover(id: id) },
+            onDuplicate: { [weak coordinator] id in coordinator?.duplicateCover(id: id) },
+            onAlphaChange: { [weak coordinator] id, alpha in coordinator?.setCoverAlpha(id: id, alpha: alpha) },
+            onColorChange: { [weak coordinator] id, r, g, b in coordinator?.setCoverColor(id: id, red: r, green: g, blue: b) },
+            onLockToggle: { [weak coordinator] id in coordinator?.toggleCoverLock(id: id) },
             onMove: { [weak coordinator] id, delta in coordinator?.moveCover(id: id, by: delta) },
-            onResize: { [weak coordinator] id, delta in coordinator?.resizeCover(id: id, by: delta) }
+            onResize: { [weak coordinator] id, delta in coordinator?.resizeCover(id: id, by: delta) },
+            onInteractionChanged: { [weak coordinator] isInteracting in
+                coordinator?.setObjectDragUndoBatchActive(isInteracting)
+            }
         )
         coordinator.canvas = canvas
         context.coordinator.configureViewport(for: canvas)
@@ -3674,10 +3900,13 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             scoreSheet: WidgetActivityScoreSheet(widgets: widgetObjects),
             using: canvas,
             canvasIdentity: drawingURL.path,
+            widgetAssetBaseURL: widgetAssetBaseURL,
             onEditWidget: onWidgetEditRequested,
             allowsWidgetAuthoring: allowsWidgetAuthoring,
+            showsTeacherDemoWebApplets: showsTeacherDemoWebApplets,
             onWidgetInteractionChanged: { [weak hostView, weak canvas] isInteracting in
                 if isInteracting {
+                    onObjectDragUndoBatchChanged?(true)
                     hostView?.widgetIsInteracting = true
                     canvas?.isScrollEnabled = false
                 } else {
@@ -3686,6 +3915,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                         guard hostView?.widgetIsInteracting == false else { return }
                         canvas?.isScrollEnabled = true
                     }
+                    onObjectDragUndoBatchChanged?(false)
                 }
             },
             onWidgetMathInputRequested: onWidgetMathInputRequested,
@@ -3779,6 +4009,12 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private var toolPicker: PKToolPicker?
         private var liveStrokeRecognizer: PencilLiveStrokeGestureRecognizer?
         private var laserStrokeRecognizer: PencilLiveStrokeGestureRecognizer?
+        private var hoverRecognizer: PencilHoverGestureRecognizer?
+        private var writeRecognizer: PencilWriteGestureRecognizer?
+        private var lastHoverPoint: CGPoint?
+        private var lastHoverAltitude: CGFloat = .pi / 2
+        private var lastHoverAzimuth: CGFloat = 0
+        private var pendingHoverLiftWorkItem: DispatchWorkItem?
         private var textPlacementRecognizer: UITapGestureRecognizer?
         private var textSelectionTapRecognizer: UITapGestureRecognizer?
         private var textSelectionDoubleTapRecognizer: UITapGestureRecognizer?
@@ -3947,6 +4183,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
 
         private enum ActiveLiveStrokeTool {
             case pen
+            case fountainPen
             case marker
             case laser
         }
@@ -4221,6 +4458,28 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 updateHostTextObjects(using: canvas)
                 clearLaserOverlay()
                 canvas.tool = PKInkingTool(inkType, color: color.uiColor, width: clampedWidth)
+            case .fountainPen(let color, let width):
+                finishTextEditing()
+                let clampedWidth = clampedWidth(width, for: .fountainPen)
+                activeLiveStrokeColor = color
+                activeLiveStrokeWidth = clampedWidth
+                activeLiveStrokeTool = .fountainPen
+                activeTextColor = nil
+                isTextSelectionEnabled = false
+                isRegionSelectionEnabled = false
+                setSelectedTextObjectID(nil)
+                activeLaserDuration = 0
+                liveStrokeRecognizer?.isEnabled = true
+                liveStrokeRecognizer?.cancelsTouchesInView = false
+                canvas.drawingGestureRecognizer.isEnabled = true
+                canvas.panGestureRecognizer.minimumNumberOfTouches = 1
+                hostView?.laserOverlayView.acceptsLaserInput = false
+                hostView?.textPlacementOverlayView.acceptsTextPlacement = false
+                hostView?.regionSelectionOverlayView.acceptsRegionSelectionInput = false
+                clearRegionSelection()
+                updateHostTextObjects(using: canvas)
+                clearLaserOverlay()
+                canvas.tool = PKInkingTool(.fountainPen, color: color.uiColor, width: clampedWidth)
             case .marker(let color, let width):
                 finishTextEditing()
                 let clampedWidth = clampedWidth(width, for: .marker)
@@ -4933,6 +5192,71 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             liveStrokeRecognizer = recognizer
         }
 
+        func installHoverRecognizer(on canvas: PKCanvasView) {
+            guard hoverRecognizer == nil else { return }
+            let hover = PencilHoverGestureRecognizer { [weak self] viewPoint, altitude, azimuth, phase in
+                self?.handlePencilHover(viewPoint: viewPoint, altitudeAngle: altitude, azimuthAngle: azimuth, phase: phase, on: canvas)
+            }
+            canvas.addGestureRecognizer(hover)
+            hoverRecognizer = hover
+
+            let write = PencilWriteGestureRecognizer { [weak self] viewPoint, altitude, azimuth, phase in
+                self?.handlePencilHover(viewPoint: viewPoint, altitudeAngle: altitude, azimuthAngle: azimuth, phase: phase, on: canvas)
+            }
+            canvas.addGestureRecognizer(write)
+            writeRecognizer = write
+        }
+
+        private func handlePencilHover(
+            viewPoint: CGPoint,
+            altitudeAngle: CGFloat,
+            azimuthAngle: CGFloat,
+            phase: PencilHoverPhase,
+            on canvas: PKCanvasView
+        ) {
+            guard let onPencilHoverUpdate = parent.onPencilHoverUpdate else { return }
+            let zoomScale = max(canvas.zoomScale, 0.001)
+            let drawingPoint = CGPoint(
+                x: viewPoint.x / zoomScale,
+                y: viewPoint.y / zoomScale
+            )
+
+            switch phase {
+            case .hovering:
+                pendingHoverLiftWorkItem?.cancel()
+                pendingHoverLiftWorkItem = nil
+                lastHoverPoint = drawingPoint
+                lastHoverAltitude = altitudeAngle
+                lastHoverAzimuth = azimuthAngle
+                onPencilHoverUpdate(CanvasPencilHover(
+                    canvasPoint: drawingPoint, altitudeAngle: altitudeAngle,
+                    azimuthAngle: azimuthAngle, isWriting: false
+                ))
+            case .writing:
+                // Belt-and-suspenders: PencilWriteGestureRecognizer fired (real-time position)
+                pendingHoverLiftWorkItem?.cancel()
+                pendingHoverLiftWorkItem = nil
+                lastHoverPoint = drawingPoint
+                lastHoverAltitude = altitudeAngle
+                lastHoverAzimuth = azimuthAngle
+                onPencilHoverUpdate(CanvasPencilHover(
+                    canvasPoint: drawingPoint, altitudeAngle: altitudeAngle,
+                    azimuthAngle: azimuthAngle, isWriting: true
+                ))
+            case .lifted:
+                // Delay clearing: pen may be touching screen; canvasViewDidBeginUsingTool
+                // fires next and will cancel this work item to show the writing indicator.
+                pendingHoverLiftWorkItem?.cancel()
+                let work = DispatchWorkItem { [weak self] in
+                    guard let self else { return }
+                    self.pendingHoverLiftWorkItem = nil
+                    MainActor.assumeIsolated { onPencilHoverUpdate(nil) }
+                }
+                pendingHoverLiftWorkItem = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+            }
+        }
+
         func installLaserStrokeRecognizer(on overlayView: CanvasLaserOverlayView, canvas: PKCanvasView) {
             guard laserStrokeRecognizer == nil else { return }
 
@@ -5182,6 +5506,25 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             publishImageFromModel()
         }
 
+        func selectCover(id: CanvasCoverObject.ID) {
+            guard parent.coverObjects.contains(where: { $0.id == id }) else { return }
+            finishTextEditing()
+            selectedTextObjectID = nil
+            selectedImageObjectID = nil
+            selectedGeometryObjectID = nil
+            lastSelectedTextObjectID = nil
+            lastSelectedImageObjectID = nil
+            lastSelectedGeometryObjectID = nil
+            clearObjectDragState()
+            clearRegionSelection()
+            updateSharedSelectionState()
+            if let canvas {
+                updateHostTextObjects(using: canvas)
+                updateHostImageObjects(using: canvas)
+                updateHostGeometryObjects(using: canvas)
+            }
+        }
+
         func toggleCoverReveal(id: CanvasCoverObject.ID) {
             guard parent.allowsWidgetAuthoring else { return }
             guard let index = parent.coverObjects.firstIndex(where: { $0.id == id }) else { return }
@@ -5196,6 +5539,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
 
         func deleteCover(id: CanvasCoverObject.ID) {
             guard parent.allowsWidgetAuthoring else { return }
+            guard parent.coverObjects.first(where: { $0.id == id })?.isLocked != true else { return }
             let originalCount = parent.coverObjects.count
             parent.coverObjects.removeAll { $0.id == id }
             guard parent.coverObjects.count != originalCount else { return }
@@ -5208,7 +5552,8 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         func moveCover(id: CanvasCoverObject.ID, by sourceDelta: CGPoint) {
             guard parent.allowsWidgetAuthoring else { return }
             guard sourceDelta != .zero,
-                  let index = parent.coverObjects.firstIndex(where: { $0.id == id }) else { return }
+                  let index = parent.coverObjects.firstIndex(where: { $0.id == id }),
+                  parent.coverObjects[index].isLocked == false else { return }
             var coverObjects = parent.coverObjects
             coverObjects[index].points = coverObjects[index].points.map { point in
                 CGPoint(x: point.x + sourceDelta.x, y: point.y + sourceDelta.y)
@@ -5223,7 +5568,8 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         func resizeCover(id: CanvasCoverObject.ID, by sourceDelta: CGPoint) {
             guard parent.allowsWidgetAuthoring else { return }
             guard sourceDelta != .zero,
-                  let index = parent.coverObjects.firstIndex(where: { $0.id == id }) else { return }
+                  let index = parent.coverObjects.firstIndex(where: { $0.id == id }),
+                  parent.coverObjects[index].isLocked == false else { return }
             let object = parent.coverObjects[index]
             let bounds = object.boundingBox
             guard !bounds.isNull, bounds.width > 0, bounds.height > 0 else { return }
@@ -5238,6 +5584,64 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     y: bounds.minY + (point.y - bounds.minY) * scaleY
                 )
             }
+            parent.coverObjects = coverObjects
+            if let canvas {
+                updateHostCoverObjects(using: canvas)
+                publishImageFromModel()
+            }
+        }
+
+        func toggleCoverLock(id: CanvasCoverObject.ID) {
+            guard parent.allowsWidgetAuthoring else { return }
+            guard let index = parent.coverObjects.firstIndex(where: { $0.id == id }) else { return }
+            var coverObjects = parent.coverObjects
+            coverObjects[index].isLocked.toggle()
+            parent.coverObjects = coverObjects
+            if let canvas {
+                updateHostCoverObjects(using: canvas)
+                publishImageFromModel()
+            }
+        }
+
+        func duplicateCover(id: CanvasCoverObject.ID) {
+            guard parent.allowsWidgetAuthoring else { return }
+            guard let original = parent.coverObjects.first(where: { $0.id == id }) else { return }
+            let offset: CGFloat = 20
+            let dupe = CanvasCoverObject(
+                points: original.points.map { CGPoint(x: $0.x + offset, y: $0.y + offset) },
+                red: original.red, green: original.green, blue: original.blue,
+                alpha: original.alpha,
+                isRevealed: original.isRevealed,
+                isLocked: false,
+                inkData: original.inkData
+            )
+            var coverObjects = parent.coverObjects
+            coverObjects.append(dupe)
+            parent.coverObjects = coverObjects
+            if let canvas {
+                updateHostCoverObjects(using: canvas)
+                publishImageFromModel()
+            }
+        }
+
+        func setCoverAlpha(id: CanvasCoverObject.ID, alpha: CGFloat) {
+            guard parent.allowsWidgetAuthoring else { return }
+            guard let index = parent.coverObjects.firstIndex(where: { $0.id == id }) else { return }
+            var coverObjects = parent.coverObjects
+            coverObjects[index].alpha = alpha
+            parent.coverObjects = coverObjects
+            if let canvas {
+                updateHostCoverObjects(using: canvas)
+            }
+        }
+
+        func setCoverColor(id: CanvasCoverObject.ID, red: CGFloat, green: CGFloat, blue: CGFloat) {
+            guard parent.allowsWidgetAuthoring else { return }
+            guard let index = parent.coverObjects.firstIndex(where: { $0.id == id }) else { return }
+            var coverObjects = parent.coverObjects
+            coverObjects[index].red = red
+            coverObjects[index].green = green
+            coverObjects[index].blue = blue
             parent.coverObjects = coverObjects
             if let canvas {
                 updateHostCoverObjects(using: canvas)
@@ -5427,7 +5831,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         }
 
         private func handleObjectSingleSelectionTap(at canvasPoint: CGPoint, on canvas: PKCanvasView) {
-            if activeObjectRegionSelectionCount > 1,
+            if hasActiveObjectRegionSelection,
                groupTransformHit(at: canvasPoint, on: canvas) != nil {
                 return
             }
@@ -5463,7 +5867,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         }
 
         private func handleObjectMultiSelectionTap(at canvasPoint: CGPoint, on canvas: PKCanvasView) {
-            if activeObjectRegionSelectionCount > 1,
+            if hasActiveObjectRegionSelection,
                groupTransformHit(at: canvasPoint, on: canvas) != nil {
                 return
             }
@@ -5565,6 +5969,15 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             updateHostTextObjects(using: canvas)
         }
 
+        func setObjectDragUndoBatchActive(_ isActive: Bool) {
+            parent.onObjectDragUndoBatchChanged?(isActive)
+        }
+
+        private func beginObjectDragInteraction() {
+            parent.onInteractionBegan?()
+            parent.onObjectDragUndoBatchChanged?(true)
+        }
+
         @objc private func handleTextSelectionPan(_ recognizer: CanvasObjectDragGestureRecognizer) {
             guard isTextSelectionEnabled,
                   activeTextEditor == nil,
@@ -5583,7 +5996,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 pendingGeometryHandleHit = nil
                 if let handle = textHandleHit(at: startLocation, on: canvas),
                    let object = parent.textObjects.first(where: { $0.id == handle.id }) {
-                    parent.onInteractionBegan?()
+                    beginObjectDragInteraction()
                     clearRegionSelection()
                     setSelectedTextObjectID(handle.id)
                     clearObjectDragState()
@@ -5610,7 +6023,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
 
                 if let handle = geometryHandleAtStart,
                    let object = parent.geometryObjects.first(where: { $0.id == handle.id }) {
-                    parent.onInteractionBegan?()
+                    beginObjectDragInteraction()
                     clearRegionSelection()
                     setSelectedGeometryObjectID(handle.id)
                     clearObjectDragState()
@@ -5657,7 +6070,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
 
                 if let handle = imageHandleHit(at: startLocation, on: canvas),
                    let object = parent.imageObjects.first(where: { $0.id == handle.id }) {
-                    parent.onInteractionBegan?()
+                    beginObjectDragInteraction()
                     clearRegionSelection()
                     setSelectedImageObjectID(handle.id)
                     clearObjectDragState()
@@ -5694,7 +6107,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     let geometryObjectHitID = hitSelectedGeometryObjectID(at: startLocation, on: canvas)
                     if let id = geometryObjectHitID,
                        let object = parent.geometryObjects.first(where: { $0.id == id }) {
-                        parent.onInteractionBegan?()
+                        beginObjectDragInteraction()
                         clearRegionSelection()
                         setSelectedGeometryObjectID(id)
                         clearObjectDragState()
@@ -5709,7 +6122,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     let imageObjectHitID = hitSelectedImageObjectID(at: startLocation, on: canvas)
                     if let id = imageObjectHitID,
                        let object = parent.imageObjects.first(where: { $0.id == id }) {
-                        parent.onInteractionBegan?()
+                        beginObjectDragInteraction()
                         clearRegionSelection()
                         setSelectedImageObjectID(id)
                         clearObjectDragState()
@@ -5722,7 +6135,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                     clearObjectDragState()
                     return
                 }
-                parent.onInteractionBegan?()
+                beginObjectDragInteraction()
                 clearRegionSelection()
                 setSelectedTextObjectID(id)
                 clearObjectDragState()
@@ -6020,6 +6433,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 // equal-sided diagonal) clears now that no resize is in progress.
                 updateHostGeometryObjects(using: canvas)
                 publishImageFromModel()
+                parent.onObjectDragUndoBatchChanged?(false)
             default:
                 break
             }
@@ -6036,15 +6450,14 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 return
             }
 
-            parent.onInteractionBegan?()
-            clearRegionSelection()
-            clearLastSingleObjectSelection()
-            clearObjectDragState()
-
             switch object {
             case .text(let id):
                 guard let object = parent.textObjects.first(where: { $0.id == id }),
                       object.isLocked != true else { return }
+                beginObjectDragInteraction()
+                clearRegionSelection()
+                clearLastSingleObjectSelection()
+                clearObjectDragState()
                 setSelectedTextObjectID(id)
                 movingTextObjectID = id
                 movingTextObjectStartOrigin = CGPoint(x: object.x, y: object.y)
@@ -6053,6 +6466,10 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             case .image(let id):
                 guard let object = parent.imageObjects.first(where: { $0.id == id }),
                       object.isLocked != true else { return }
+                beginObjectDragInteraction()
+                clearRegionSelection()
+                clearLastSingleObjectSelection()
+                clearObjectDragState()
                 setSelectedImageObjectID(id)
                 movingImageObjectID = id
                 movingImageObjectStartOrigin = CGPoint(x: object.x, y: object.y)
@@ -6061,6 +6478,10 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             case .geometry(let id):
                 guard let object = parent.geometryObjects.first(where: { $0.id == id }),
                       object.isLocked != true else { return }
+                beginObjectDragInteraction()
+                clearRegionSelection()
+                clearLastSingleObjectSelection()
+                clearObjectDragState()
                 setSelectedGeometryObjectID(id)
                 movingGeometryObjectID = id
                 movingGeometryObjectStartOrigin = CGPoint(x: object.x, y: object.y)
@@ -6072,7 +6493,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
 
         private func beginGroupTransform(_ kind: GroupTransformKind, at canvasPoint: CGPoint, on canvas: PKCanvasView) {
             guard let groupScreenRect = selectedObjectGroupScreenRect(on: canvas) else { return }
-            parent.onInteractionBegan?()
+            beginObjectDragInteraction()
             clearObjectDragState()
             activeGroupTransform = kind
             activeGroupStartSourcePoint = sourcePoint(forCanvasPoint: canvasPoint, on: canvas)
@@ -7474,12 +7895,14 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             guard selectedTextObjectID != id
                     || selectedImageObjectID != nil
                     || selectedGeometryObjectID != nil
+                    || hostView?.coverObjectsView.hasSelection == true
                     || parent.selectionState.selectedObject != id.map(CanvasSelectionState.Object.text) else {
                 return
             }
             selectedTextObjectID = id
             selectedImageObjectID = nil
             selectedGeometryObjectID = nil
+            hostView?.coverObjectsView.clearSelection()
             if let id {
                 lastSelectedTextObjectID = id
             }
@@ -7490,6 +7913,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             selectedTextObjectID = nil
             selectedImageObjectID = nil
             selectedGeometryObjectID = nil
+            hostView?.coverObjectsView.clearSelection()
             parent.selectionState = CanvasSelectionState()
         }
 
@@ -7503,12 +7927,14 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             guard selectedImageObjectID != id
                     || selectedTextObjectID != nil
                     || selectedGeometryObjectID != nil
+                    || hostView?.coverObjectsView.hasSelection == true
                     || parent.selectionState.selectedObject != id.map(CanvasSelectionState.Object.image) else {
                 return
             }
             selectedImageObjectID = id
             selectedTextObjectID = nil
             selectedGeometryObjectID = nil
+            hostView?.coverObjectsView.clearSelection()
             if let id {
                 lastSelectedImageObjectID = id
             }
@@ -7519,12 +7945,14 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             guard selectedGeometryObjectID != id
                     || selectedTextObjectID != nil
                     || selectedImageObjectID != nil
+                    || hostView?.coverObjectsView.hasSelection == true
                     || parent.selectionState.selectedObject != id.map(CanvasSelectionState.Object.geometry) else {
                 return
             }
             selectedGeometryObjectID = id
             selectedTextObjectID = nil
             selectedImageObjectID = nil
+            hostView?.coverObjectsView.clearSelection()
             if let id {
                 lastSelectedGeometryObjectID = id
             }
@@ -7674,6 +8102,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             lastSelectedImageObjectID = nil
             lastSelectedGeometryObjectID = nil
             clearObjectDragState()
+            hostView?.coverObjectsView.clearSelection()
             clearRegionSelection()
             updateSharedSelectionState()
             updateHostTextObjects(using: canvas)
@@ -8813,6 +9242,10 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             forWidgetInsertion insertion: CanvasWidgetInsertion,
             on canvas: PKCanvasView
         ) -> CGRect {
+            if insertion.isPinnedToCanvas {
+                return centeredPinnedWidgetFrame(for: insertion, on: canvas)
+            }
+
             let containerSize = insertion.containerSize ?? canvas.bounds.size
             let margin = max(insertion.margin, 0)
             let displaySize = CGSize(
@@ -8851,6 +9284,45 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 y: sourceOrigin.y,
                 width: overlayFrame.width,
                 height: overlayFrame.height
+            )
+        }
+
+        private func centeredPinnedWidgetFrame(
+            for insertion: CanvasWidgetInsertion,
+            on canvas: PKCanvasView
+        ) -> CGRect {
+            let boardSize = usableCanvasSize
+            let output = outputRect(in: canvas.bounds.size)
+            guard boardSize.width > 0, boardSize.height > 0, output.width > 0 else {
+                return CGRect(origin: .zero, size: insertion.displaySize)
+            }
+
+            let paperTopScreenOffset: CGFloat = 10
+            let widgetTopScreenInset: CGFloat = 5
+            let targetZoom = min(max((output.width * 0.9) / boardSize.width, canvas.minimumZoomScale), canvas.maximumZoomScale)
+            let targetOffset = CGPoint(
+                x: (PencilKitCanvasGeometry.drawingOriginOffset.x + boardSize.width / 2) * targetZoom - output.midX,
+                y: PencilKitCanvasGeometry.drawingOriginOffset.y * targetZoom - output.minY - paperTopScreenOffset
+            )
+
+            canvas.setZoomScale(targetZoom, animated: true)
+            canvas.setContentOffset(targetOffset, animated: true)
+            hostView?.updateBackgroundFrame(using: canvas)
+            hostView?.updateCanvasEdgeFrame(using: canvas)
+            hostView?.updateTextObjectFrame(using: canvas)
+            hostView?.updateWidgetObjectFrame(using: canvas)
+            publishViewportState(from: canvas)
+
+            let sourceWidth = min((output.width * 0.7) / targetZoom, boardSize.width)
+            let sourceHeight = boardSize.height / 2
+            let sourceX = min(max((boardSize.width - sourceWidth) / 2, 0), max(boardSize.width - sourceWidth, 0))
+            let sourceY = widgetTopScreenInset / targetZoom
+
+            return CGRect(
+                x: sourceX,
+                y: sourceY,
+                width: sourceWidth,
+                height: sourceHeight
             )
         }
 
@@ -9720,10 +10192,13 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 scoreSheet: WidgetActivityScoreSheet(widgets: parent.widgetObjects),
                 using: canvas,
                 canvasIdentity: parent.drawingURL.path,
+                widgetAssetBaseURL: parent.widgetAssetBaseURL,
                 onEditWidget: parent.onWidgetEditRequested,
                 allowsWidgetAuthoring: parent.allowsWidgetAuthoring,
+                showsTeacherDemoWebApplets: parent.showsTeacherDemoWebApplets,
                 onWidgetInteractionChanged: { [weak self, weak canvas] isInteracting in
                     if isInteracting {
+                        self?.parent.onObjectDragUndoBatchChanged?(true)
                         self?.hostView?.widgetIsInteracting = true
                         canvas?.isScrollEnabled = false
                     } else {
@@ -9732,6 +10207,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                             guard self?.hostView?.widgetIsInteracting == false else { return }
                             canvas?.isScrollEnabled = true
                         }
+                        self?.parent.onObjectDragUndoBatchChanged?(false)
                     }
                 },
                 onWidgetMathInputRequested: parent.onWidgetMathInputRequested,
@@ -9958,6 +10434,8 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 switch activeLiveStrokeTool {
                 case .pen:
                     return activeLiveStrokeWidth * liveStrokeWidthPreviewScale(forWidth: activeLiveStrokeWidth, inkType: .pen)
+                case .fountainPen:
+                    return activeLiveStrokeWidth * liveStrokeWidthPreviewScale(forWidth: activeLiveStrokeWidth, inkType: .fountainPen)
                 case .marker:
                     return activeLiveStrokeWidth
                 case .laser:
@@ -10297,6 +10775,16 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             isUsingPencilKitTool = true
             cancelPendingViewportFramePublish()
             parent.onInteractionBegan?()
+            if let point = lastHoverPoint, let onUpdate = parent.onPencilHoverUpdate {
+                pendingHoverLiftWorkItem?.cancel()
+                pendingHoverLiftWorkItem = nil
+                onUpdate(CanvasPencilHover(
+                    canvasPoint: point,
+                    altitudeAngle: lastHoverAltitude,
+                    azimuthAngle: lastHoverAzimuth,
+                    isWriting: true
+                ))
+            }
         }
 
         func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
@@ -11534,10 +12022,96 @@ private final class CanvasObjectDragGestureRecognizer: UIGestureRecognizer {
     }
 }
 
+// MARK: - PencilHoverGestureRecognizer
+
+private enum PencilHoverPhase {
+    case hovering  // pencil above screen, not touching
+    case writing   // pencil is touching the screen
+    case lifted    // pencil left hover range
+}
+
+/// UIHoverGestureRecognizer subclass that fires when Apple Pencil is hovering
+/// above the screen. Hover events do NOT arrive through UITouch — they require
+/// UIHoverGestureRecognizer (introduced in iOS 13, Pencil hover in iOS 16.1).
+private final class PencilHoverGestureRecognizer: UIHoverGestureRecognizer {
+    let onUpdate: (CGPoint, CGFloat, CGFloat, PencilHoverPhase) -> Void
+
+    init(onUpdate: @escaping (CGPoint, CGFloat, CGFloat, PencilHoverPhase) -> Void) {
+        self.onUpdate = onUpdate
+        super.init(target: nil, action: nil)
+        addTarget(self, action: #selector(handleHover(_:)))
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+    }
+
+    @objc private func handleHover(_ recognizer: UIHoverGestureRecognizer) {
+        guard let view = recognizer.view else { return }
+        let point = recognizer.location(in: view)
+        let altitude = recognizer.altitudeAngle
+        let azimuth = recognizer.azimuthAngle(in: view)
+        switch recognizer.state {
+        case .began, .changed:
+            onUpdate(point, altitude, azimuth, .hovering)
+        case .ended, .cancelled, .failed:
+            onUpdate(point, altitude, azimuth, .lifted)
+        default:
+            break
+        }
+    }
+
+    override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+    override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+}
+
+/// Passthrough gesture recognizer that detects Apple Pencil touching the screen
+/// (writing state). Stays in .possible so PencilKit handles the actual drawing.
+private final class PencilWriteGestureRecognizer: UIGestureRecognizer {
+    let onUpdate: (CGPoint, CGFloat, CGFloat, PencilHoverPhase) -> Void
+
+    init(onUpdate: @escaping (CGPoint, CGFloat, CGFloat, PencilHoverPhase) -> Void) {
+        self.onUpdate = onUpdate
+        super.init(target: nil, action: nil)
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+        requiresExclusiveTouchType = false
+        allowedTouchTypes = [NSNumber(value: UITouch.TouchType.pencil.rawValue)]
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        if let touch = touches.first(where: { $0.type == .pencil }), let view {
+            onUpdate(touch.location(in: view), touch.altitudeAngle, touch.azimuthAngle(in: view), .writing)
+        }
+        state = .possible
+        super.touchesBegan(touches, with: event)
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        if let touch = touches.first(where: { $0.type == .pencil }), let view {
+            onUpdate(touch.location(in: view), touch.altitudeAngle, touch.azimuthAngle(in: view), .writing)
+        }
+        state = .possible
+        super.touchesMoved(touches, with: event)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        state = .possible
+        super.touchesEnded(touches, with: event)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        state = .possible
+        super.touchesCancelled(touches, with: event)
+    }
+
+    override func canPrevent(_ preventedGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+    override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool { false }
+}
+
 private extension CanvasToolCommand.Action {
     var isAllowedWithoutObjectAuthoring: Bool {
         switch self {
-        case .idle, .pen, .marker, .eraser, .geometry:
+        case .idle, .pen, .fountainPen, .marker, .eraser, .geometry:
             return true
         case .select,
              .copySelection,

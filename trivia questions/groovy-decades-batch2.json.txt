@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "widgetId": "groovy-decades-02",
+  "activity": "multipleChoice",
+  "title": "Groovy Decades (1960s & 1970s Culture)",
+  "description": "Test your knowledge of 1960s and 1970s pop culture.",
+  "learningObjective": "Recall iconic milestones from the 60s and 70s.",
+  "difficulty": "medium",
+  "rules": {
+    "scoreMode": "correctOutOfTotal",
+    "advanceMode": "automaticOnCorrect",
+    "allowRetry": true,
+    "maxRetries": 1,
+    "shuffleQuestions": false,
+    "shuffleChoices": true,
+    "calculatorAllowed": false
+  },
+  "questions": [
+    {
+      "id": "groovy-0201",
+      "prompt": "Which U.S. President announced the historic goal of landing a man on the Moon before the end of the 1960s?",
+      "choices": ["Dwight D. Eisenhower", "John F. Kennedy", "Lyndon B. Johnson", "Richard Nixon"],
+      "correctAnswerIndex": 1,
+      "explanation": "President John F. Kennedy challenged the nation in 1961, setting the stage for the Apollo missions."
+    },
+    {
+      "id": "groovy-0202",
+      "prompt": "What was the name of the fictional suburban home address for Mike and Carol Brady in the hit 1970s sitcom?",
+      "choices": ["742 Evergreen Terrace", "4222 Clinton Way", "1313 Mockingbird Lane", "734 Coronado Terrace"],
+      "correctAnswerIndex": 1,
+      "explanation": "The Brady Bunch lived at 4222 Clinton Way in a fictional Los Angeles suburb."
+    },
+    {
+      "id": "groovy-0203",
+      "prompt": "Which iconic summer blockbuster film series kicked off in 1977 and introduced audiences to a galaxy far, far away?",
+      "choices": ["Star Trek", "Star Wars", "Close Encounters of the Third Kind", "Alien"],
+      "correctAnswerIndex": 1,
+      "explanation": "George Lucas's Star Wars changed cinema history and modern pop culture forever."
+    },
+    {
+      "id": "groovy-0204",
+      "prompt": "What famous plastic construction blocks released in 1958 captured children's imaginations throughout the 1960s and 70s?",
+      "choices": ["Lincoln Logs", "LEGO bricks", "Erector Sets", "Tinkertoys"],
+      "correctAnswerIndex": 1,
+      "explanation": "LEGO blocks became a cornerstone of creative mid-century play worldwide."
+    },
+    {
+      "id": "groovy-0205",
+      "prompt": "Which 1970s television detective drove a beat-up 1959 Peugeot convertible and loved his wife, 'Mrs. Columbo'?",
+      "choices": ["Kojak", "Mannix", "Columbo", "Cannon"],
+      "correctAnswerIndex": 2,
+      "explanation": "Peter Falk starred as the brilliant, trenchcoat-wearing Lieutenant Columbo."
+    },
+    {
+      "id": "groovy-0206",
+      "prompt": "What lightweight, synthetic fashion fabric took over 1970s wardrobes for leisure suits and colorful shirts?",
+      "choices": ["Denim", "Polyester", "Wool", "Flannel"],
+      "correctAnswerIndex": 1,
+      "explanation": "Polyester was the defining, low-maintenance fabric of the 1970s style landscape."
+    },
+    {
+      "id": "groovy-0207",
+      "prompt": "Which music icon released the groundbreaking concept album 'The Rise and Fall of Ziggy Stardust' in 1972?",
+      "choices": ["Elton John", "David Bowie", "Mick Jagger", "Freddie Mercury"],
+      "correctAnswerIndex": 1,
+      "explanation": "David Bowie's glam-rock alter ego Ziggy Stardust became an immortal cultural touchstone."
+    },
+    {
+      "id": "groovy-0208",
+      "prompt": "What high-speed passenger jet made its first commercial supersonic flights across the Atlantic in 1976?",
+      "choices": ["Boeing 747", "Airbus A300", "Concorde", "Lockheed L-1011"],
+      "correctAnswerIndex": 2,
+      "explanation": "The Concorde halved flight times between Europe and New York at twice the speed of sound."
+    },
+    {
+      "id": "groovy-0209",
+      "prompt": "Which game show hosted by Richard Dawson became a massive daytime and syndicated hit starting in 1976?",
+      "choices": ["The Price Is Right", "Family Feud", "Match Game", "Wheel of Fortune"],
+      "correctAnswerIndex": 1,
+      "explanation": "Family Feud pitted families against each other to guess survey results."
+    },
+    {
+      "id": "groovy-0210",
+      "prompt": "What legendary 1960s spy spoof television series featured secret agents working for 'CONTROL' against 'KAOS'?",
+      "choices": ["The Man from U.N.C.L.E.", "Get Smart", "Mission: Impossible", "The Avengers"],
+      "correctAnswerIndex": 1,
+      "explanation": "Get Smart starred Don Adams as the comedic Agent 86."
+    },
+    {
+      "id": "groovy-0211",
+      "prompt": "Which pop group dominated the mid-1970s charts with Swedish harmony hits like 'Dancing Queen'?",
+      "choices": ["Bee Gees", "ABBA", "Fleetwood Mac", "The Carpenters"],
+      "correctAnswerIndex": 1,
+      "explanation": "ABBA won the Eurovision Song Contest in 1974 and launched global pop superstardom."
+    },
+    {
+      "id": "groovy-0212",
+      "prompt": "What popular handheld electronic game, released by Milton Bradley in 1978, challenged players to repeat flashing light sequences?",
+      "choices": ["Merlin", "Simon", "Speak & Spell", "Battleship"],
+      "correctAnswerIndex": 1,
+      "explanation": "Simon became an instant holiday must-have toy in late 1978."
+    },
+    {
+      "id": "groovy-0213",
+      "prompt": "Which historical space mission experienced a near-fatal oxygen tank explosion in 1970 before safely returning to Earth?",
+      "choices": ["Apollo 8", "Apollo 11", "Apollo 13", "Apollo 17"],
+      "correctAnswerIndex": 2,
+      "explanation": "Apollo 13 inspired the famous phrase 'Houston, we have a problem' and a masterclass in crisis management."
+    },
+    {
+      "id": "groovy-0214",
+      "prompt": "What groovy vehicle interior accessory consisting of wooden beads became a ubiquitous 1970s car upgrade?",
+      "choices": ["Furry dice", "Wooden bead seat covers", "Dashboard hula girl", "8-track holder"],
+      "correctAnswerIndex": 1,
+      "explanation": "Beaded seat covers provided ventilation and a massaging feel on long drives."
+    },
+    {
+      "id": "groovy-0215",
+      "prompt": "Which iconic daily newspaper comic strip chronicled the philosophical beagle Snoopy and his owner Charlie Brown?",
+      "choices": ["Garfield", "Peanuts", "Calvin and Hobbes", "Blondie"],
+      "correctAnswerIndex": 1,
+      "explanation": "Charles Schulz's Peanuts was a daily newspaper favorite for decades."
+    }
+  ]
+}

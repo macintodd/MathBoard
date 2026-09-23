@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "widgetId": "global-landmarks-03",
+  "activity": "multipleChoice",
+  "title": "Global Landmarks & Travel",
+  "description": "Explore world wonders, geography, and famous travel spots.",
+  "learningObjective": "Identify famous international landmarks and tourist destinations.",
+  "difficulty": "medium",
+  "rules": {
+    "scoreMode": "correctOutOfTotal",
+    "advanceMode": "automaticOnCorrect",
+    "allowRetry": true,
+    "maxRetries": 1,
+    "shuffleQuestions": false,
+    "shuffleChoices": true,
+    "calculatorAllowed": false
+  },
+  "questions": [
+    {
+      "id": "travel-0301",
+      "prompt": "Which ancient Greek temple complex dedicated to the goddess Athena sits atop the hill overlooking Athens?",
+      "choices": ["The Parthenon", "The Temple of Apollo", "The Olympieion", "The Erechtheion"],
+      "correctAnswerIndex": 0,
+      "explanation": "The Parthenon is the enduring architectural symbol of classical ancient Greece."
+    },
+    {
+      "id": "travel-0302",
+      "prompt": "What massive sandstone monolith rises out of the desert in Australia's Northern Territory, sacred to indigenous Australians?",
+      "choices": ["The Three Sisters", "Uluru (Ayers Rock)", "The Devil's Marbles", "Mount Kosciuszko"],
+      "correctAnswerIndex": 1,
+      "explanation": "Uluru glows a brilliant red color during sunrise and sunset."
+    },
+    {
+      "id": "travel-0303",
+      "prompt": "In which city would you find St. Mark's Basilica and the Doge's Palace adjacent to a sweeping grand piazza?",
+      "choices": ["Florence", "Milan", "Venice", "Naples"],
+      "correctAnswerIndex": 2,
+      "explanation": "Piazza San Marco in Venice serves as the historical political and cultural hub of the lagoon city."
+    },
+    {
+      "id": "travel-0304",
+      "prompt": "What famous 13th-century Gothic cathedral in Paris suffered a devastating fire in 2019 before restoration?",
+      "choices": ["Sacré-Cœur", "Notre-Dame de Paris", "Sainte-Chapelle", "Cathedral of Reims"],
+      "correctAnswerIndex": 1,
+      "explanation": "Notre-Dame is a masterwork of French Gothic architecture on the Île de la Cité."
+    },
+    {
+      "id": "travel-0305",
+      "prompt": "Which magnificent Moorish palace and fortress complex in Granada, Spain, is renowned for its stunning gardens and tilework?",
+      "choices": ["The Mezquita", "The Alhambra", "The Alcázar of Seville", "Royal Palace of Madrid"],
+      "correctAnswerIndex": 1,
+      "explanation": "The Alhambra reflects the height of Islamic art and architecture in medieval Spain."
+    },
+    {
+      "id": "travel-0306",
+      "prompt": "What is the name of the active stratovolcano that looms over the Bay of Naples and Naples itself?",
+      "choices": ["Mount Stromboli", "Mount Etna", "Mount Vesuvius", "Mount Solitario"],
+      "correctAnswerIndex": 2,
+      "explanation": "Mount Vesuvius remains one of the world's most closely studied volcanoes due to nearby populations."
+    },
+    {
+      "id": "travel-0307",
+      "prompt": "Which sprawling museum housed inside a former royal fortress in Paris holds the Mona Lisa?",
+      "choices": ["The Musée d'Orsay", "The Louvre", "The Centre Pompidou", "The Rodin Museum"],
+      "correctAnswerIndex": 1,
+      "explanation": "The Louvre is the world's largest art museum and historic monument."
+    },
+    {
+      "id": "travel-0308",
+      "prompt": "What famous landmark bridge spans the East River to connect Manhattan and Brooklyn in New York City?",
+      "choices": ["The George Washington Bridge", "The Verrazzano Bridge", "The Brooklyn Bridge", "The Manhattan Bridge"],
+      "correctAnswerIndex": 2,
+      "explanation": "Completed in 1883, the Brooklyn Bridge is one of the oldest suspension bridges in the U.S."
+    },
+    {
+      "id": "travel-0309",
+      "prompt": "Which breathtaking national park in California features granite cliffs like El Capitan and Half Dome?",
+      "choices": ["Yellowstone", "Yosemite", "Glacier National Park", "Grand Teton"],
+      "correctAnswerIndex": 1,
+      "explanation": "Yosemite National Park is celebrated for its waterfalls, giant sequoias, and glacial valleys."
+    },
+    {
+      "id": "travel-0310",
+      "prompt": "What historical stone circle and passage tomb in County Meath, Ireland, dates back over 5,000 years?",
+      "choices": ["Newgrange", "The Rock of Cashel", "Blarney Castle", "Clonmacnoise"],
+      "correctAnswerIndex": 0,
+      "explanation": "Newgrange is engineered so that sunlight illuminates its inner chamber during the winter solstice."
+    },
+    {
+      "id": "travel-0311",
+      "prompt": "Which glittering city in the United Arab Emirates is famous for indoor ski slopes, luxury shopping, and palm-shaped artificial islands?",
+      "choices": ["Abu Dhabi", "Dubai", "Doha", "Manama"],
+      "correctAnswerIndex": 1,
+      "explanation": "Dubai is a global tourism hub known for ultramodern architecture and ambition."
+    },
+    {
+      "id": "travel-0312",
+      "prompt": "What ancient cliffside city carved into rose-red rock formations in Jordan served as the capital of the Nabataean Kingdom?",
+      "choices": ["Jerash", "Petra", "Amman", "Aqaba"],
+      "correctAnswerIndex": 1,
+      "explanation": "Petra is an iconic archaeological wonderland hidden amidst rugged desert canyons."
+    },
+    {
+      "id": "travel-0313",
+      "prompt": "Which famous alpine railway route travels through scenic Swiss mountain passes between Zermatt and St. Moritz?",
+      "choices": ["The Orient Express", "The Glacier Express", "The Rocky Mountaineer", "The Trans-Siberian"],
+      "correctAnswerIndex": 1,
+      "explanation": "Known as the slowest express train in the world, the Glacier Express offers panoramic mountain views."
+    },
+    {
+      "id": "travel-0314",
+      "prompt": "What magnificent royal residence outside Paris served as the primary seat of French kings before the French Revolution?",
+      "choices": ["The Palace of Fontainebleau", "The Palace of Versailles", "Château de Chambord", "Château de Chantilly"],
+      "correctAnswerIndex": 1,
+      "explanation": "Versailles is world-famous for its opulent Hall of Mirrors and sprawling geometric gardens."
+    },
+    {
+      "id": "travel-0315",
+      "prompt": "Which volcanic island group in the Pacific Ocean, administered by Ecuador, inspired Charles Darwin's theory of evolution?",
+      "choices": ["Hawaii", "The Galápagos Islands", "Fiji", "Tahiti"],
+      "correctAnswerIndex": 1,
+      "explanation": "The Galápagos Islands feature unique endemic wildlife found nowhere else on Earth."
+    }
+  ]
+}

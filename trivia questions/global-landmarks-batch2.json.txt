@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "widgetId": "global-landmarks-02",
+  "activity": "multipleChoice",
+  "title": "Global Landmarks & Travel",
+  "description": "Explore world wonders, geography, and famous travel spots.",
+  "learningObjective": "Identify famous international landmarks and tourist destinations.",
+  "difficulty": "medium",
+  "rules": {
+    "scoreMode": "correctOutOfTotal",
+    "advanceMode": "automaticOnCorrect",
+    "allowRetry": true,
+    "maxRetries": 1,
+    "shuffleQuestions": false,
+    "shuffleChoices": true,
+    "calculatorAllowed": false
+  },
+  "questions": [
+    {
+      "id": "travel-0201",
+      "prompt": "Which ancient Egyptian monument features the body of a lion and the head of a human?",
+      "choices": ["The Great Sphinx of Giza", "The Colossi of Memnon", "The Luxor Temple", "The Karnak Obelisk"],
+      "correctAnswerIndex": 0,
+      "explanation": "The Great Sphinx is one of the world's largest and oldest monolithic statues."
+    },
+    {
+      "id": "travel-0202",
+      "prompt": "What famous statue stands on Liberty Island in New York Harbor, welcoming immigrants to the U.S.?",
+      "choices": ["The Statue of Freedom", "The Statue of Liberty", "The Columbia Monument", "The torch of Hope"],
+      "correctAnswerIndex": 1,
+      "explanation": "A gift from France, the Statue of Liberty was dedicated in October 1886."
+    },
+    {
+      "id": "travel-0203",
+      "prompt": "In which city can you ride traditional gondolas through historic water canals lined with Gothic palaces?",
+      "choices": ["Vienna", "Venice", "Stockholm", "Copenhagen"],
+      "correctAnswerIndex": 1,
+      "explanation": "Venice is world-famous for its web of canals and historic bridges."
+    },
+    {
+      "id": "travel-0204",
+      "prompt": "What is the name of the majestic waterfall system situated on the border between the United States and Canada?",
+      "choices": ["Iguazu Falls", "Victoria Falls", "Niagara Falls", "Angel Falls"],
+      "correctAnswerIndex": 2,
+      "explanation": "Niagara Falls consists of three massive waterfalls drawing millions of tourists annually."
+    },
+    {
+      "id": "travel-0205",
+      "prompt": "Which towering skyscraper in Dubai, United Arab Emirates, stands as the tallest building in the world?",
+      "choices": ["Burj Khalifa", "Shanghai Tower", "Taipei 101", "One World Trade Center"],
+      "correctAnswerIndex": 0,
+      "explanation": "The Burj Khalifa reaches a staggering height of 828 meters."
+    },
+    {
+      "id": "travel-0206",
+      "prompt": "What massive religious temple complex carved out of stone in Cambodia is the largest spiritual monument in the world?",
+      "choices": ["Borobudur", "Angkor Wat", "Ayutthaya", "Prambanan"],
+      "correctAnswerIndex": 1,
+      "explanation": "Angkor Wat was originally constructed as a Hindu temple before becoming Buddhist."
+    },
+    {
+      "id": "travel-0207",
+      "prompt": "Which famous suspension bridge with a striking international orange color connects San Francisco to Marin County?",
+      "choices": ["Brooklyn Bridge", "Golden Gate Bridge", "Tower Bridge", "Sydney Harbour Bridge"],
+      "correctAnswerIndex": 1,
+      "explanation": "The Golden Gate Bridge opened in 1937 and spans the Golden Gate strait."
+    },
+    {
+      "id": "travel-0208",
+      "prompt": "What is the capital city of Italy, home to the Trevi Fountain and the Spanish Steps?",
+      "choices": ["Milan", "Florence", "Naples", "Rome"],
+      "correctAnswerIndex": 3,
+      "explanation": "Rome is known as the Eternal City, steeped in thousands of years of global history."
+    },
+    {
+      "id": "travel-0209",
+      "prompt": "Which colossal canyon carved by the Colorado River is located in the state of Arizona?",
+      "choices": ["Bryce Canyon", "Zion Canyon", "Grand Canyon", "Antelope Canyon"],
+      "correctAnswerIndex": 2,
+      "explanation": "The Grand Canyon is celebrated for its immense size and breathtaking multicolored rock layers."
+    },
+    {
+      "id": "travel-0210",
+      "prompt": "What landmark clock tower at the Palace of Westminster in London is colloquially known as Big Ben?",
+      "choices": ["The Elizabeth Tower", "The Victoria Tower", "The Millennium Dome", "The London Eye"],
+      "correctAnswerIndex": 0,
+      "explanation": "The great bell inside was officially named the Elizabeth Tower in 2012."
+    },
+    {
+      "id": "travel-0211",
+      "prompt": "Which vast desert region covers much of North Africa and is the largest hot desert in the world?",
+      "choices": ["The Gobi Desert", "The Mojave Desert", "The Sahara Desert", "The Kalahari Desert"],
+      "correctAnswerIndex": 2,
+      "explanation": "The Sahara spans across multiple North African countries with immense sand dunes and rocky plateaus."
+    },
+    {
+      "id": "travel-0212",
+      "prompt": "What famous domed basilica sits at the center of Vatican City?",
+      "choices": ["St. Peter's Basilica", "St. Paul's Cathedral", "Notre-Dame de Paris", "Basilica of Sacré-Cœur"],
+      "correctAnswerIndex": 0,
+      "explanation": "St. Peter's Basilica is renowned as a masterpiece of Renaissance architecture."
+    },
+    {
+      "id": "travel-0213",
+      "prompt": "Which active volcano near Naples, Italy, famously buried the ancient Roman city of Pompeii in 79 AD?",
+      "choices": ["Mount Etna", "Mount Stromboli", "Mount Vesuvius", "Mount Vulcano"],
+      "correctAnswerIndex": 2,
+      "explanation": "Mount Vesuvius remains one of the most heavily monitored and dangerous volcanoes in the world."
+    },
+    {
+      "id": "travel-0214",
+      "prompt": "What white sand coral atoll and island nation in the Indian Ocean is famous for luxury overwater bungalows?",
+      "choices": ["The Maldives", "Fiji", "Bora Bora", "Seychelles"],
+      "correctAnswerIndex": 0,
+      "explanation": "The Maldives is a premier luxury travel destination famed for crystal-clear turquoise waters."
+    },
+    {
+      "id": "travel-0215",
+      "prompt": "Which mountain peak in the Alps sits on the border between Switzerland and Italy, recognized for its pyramid shape?",
+      "choices": ["Mont Blanc", "The Matterhorn", "Eiger", "Grossglockner"],
+      "correctAnswerIndex": 1,
+      "explanation": "The Matterhorn is one of the deadliest and most recognizable mountaineering summits in Europe."
+    }
+  ]
+}

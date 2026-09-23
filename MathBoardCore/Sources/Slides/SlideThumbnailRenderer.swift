@@ -18,7 +18,7 @@ import UIKit
 import AppKit
 #endif
 
-struct SlideThumbnailContent {
+struct SlideThumbnailContent: Sendable {
     let image: Image?
     let widgetKind: WidgetObjectActivityKind?
 
@@ -30,23 +30,38 @@ struct SlideThumbnailContent {
 enum SlideThumbnailRenderer {
     static let pixelSize = CGSize(width: 232, height: 174)
 
-    @MainActor
-    static func content(
+    /// Asynchronously renders a slide thumbnail on a background thread.
+    /// Returns a `SlideNavigatorThumbnail` suitable for storing in the cache.
+    /// Accepts a pre-resolved `resolvedBackgroundURL` so the caller can resolve it
+    /// on `@MainActor` before passing a Sendable `URL?` to the background task.
+    nonisolated static func renderAsync(
         for slide: SlideMetadata,
         drawingURL: URL,
-        backgroundURL: (SlideBackground) -> URL
-    ) -> SlideThumbnailContent {
-        let widgets = WidgetObject.load(from: WidgetObject.sidecarURL(forDrawingURL: drawingURL))
-        let widgetKind = widgets.first?.activityKind
-        let image = renderedImage(for: slide, drawingURL: drawingURL, backgroundURL: backgroundURL)
-        return SlideThumbnailContent(image: image, widgetKind: widgetKind)
+        resolvedBackgroundURL: URL?
+    ) async -> SlideNavigatorThumbnail {
+        await withCheckedContinuation { continuation in
+            Task.detached(priority: .userInitiated) {
+                let widgets = WidgetObject.load(from: WidgetObject.sidecarURL(forDrawingURL: drawingURL))
+                let image = renderedImage(
+                    for: slide,
+                    drawingURL: drawingURL,
+                    resolvedBackgroundURL: resolvedBackgroundURL
+                )
+                continuation.resume(returning: SlideNavigatorThumbnail(
+                    image: image,
+                    widgetKind: widgets.first?.activityKind
+                ))
+            }
+        }
     }
 
-    @MainActor
-    static func cacheKey(
+    /// Cache key derived from file fingerprints. Safe to call from any thread.
+    /// Pass a pre-resolved `resolvedBackgroundURL` (computed on `@MainActor`) rather
+    /// than a store closure so this can be called from background contexts.
+    nonisolated static func cacheKey(
         for slide: SlideMetadata,
         drawingURL: URL,
-        backgroundURL: (SlideBackground) -> URL
+        resolvedBackgroundURL: URL?
     ) -> String {
         var pieces = [
             slide.id.uuidString,
@@ -54,8 +69,8 @@ enum SlideThumbnailRenderer {
             String(slide.background?.pageIndex ?? -1)
         ]
 
-        if let background = slide.background {
-            pieces.append(fingerprint(for: backgroundURL(background)))
+        if let url = resolvedBackgroundURL {
+            pieces.append(fingerprint(for: url))
         }
 
         let relatedURLs = [
@@ -70,10 +85,12 @@ enum SlideThumbnailRenderer {
         return pieces.joined(separator: "|")
     }
 
-    private static func renderedImage(
+    // MARK: - Rendering (nonisolated — safe on background threads)
+
+    private nonisolated static func renderedImage(
         for slide: SlideMetadata,
         drawingURL: URL,
-        backgroundURL: (SlideBackground) -> URL
+        resolvedBackgroundURL: URL?
     ) -> Image? {
         let drawing = loadDrawing(at: drawingURL)
         let textObjects = PresentationCanvasTextObject.load(from: PresentationCanvasTextObject.sidecarURL(forDrawingURL: drawingURL))
@@ -96,7 +113,7 @@ enum SlideThumbnailRenderer {
             textObjects: textObjects,
             imageObjects: imageObjects,
             geometryObjects: geometryObjects,
-            backgroundURL: backgroundURL
+            resolvedBackgroundURL: resolvedBackgroundURL
         )
 
         return makePlatformImage(size: pixelSize) { context in
@@ -104,8 +121,9 @@ enum SlideThumbnailRenderer {
             context.setFillColor(CGColor(gray: 1, alpha: 1))
             context.fill(destinationRect)
 
-            if let background = slide.background,
-               let document = CGPDFDocument(backgroundURL(background) as CFURL),
+            if let backgroundURL = resolvedBackgroundURL,
+               let background = slide.background,
+               let document = CGPDFDocument(backgroundURL as CFURL),
                let page = document.page(at: background.pageIndex + 1) {
                 drawPDFPage(page, sourceRect: sourceRect, destinationRect: destinationRect, in: context)
             }
@@ -123,7 +141,7 @@ enum SlideThumbnailRenderer {
         }
     }
 
-    private static func hasRenderableContent(
+    private nonisolated static func hasRenderableContent(
         slide: SlideMetadata,
         drawing: PKDrawing,
         textObjects: [PresentationCanvasTextObject],
@@ -137,16 +155,17 @@ enum SlideThumbnailRenderer {
             || !geometryObjects.isEmpty
     }
 
-    private static func thumbnailSourceRect(
+    private nonisolated static func thumbnailSourceRect(
         for slide: SlideMetadata,
         drawing: PKDrawing,
         textObjects: [PresentationCanvasTextObject],
         imageObjects: [PresentationCanvasImageObject],
         geometryObjects: [PresentationCanvasGeometryObject],
-        backgroundURL: (SlideBackground) -> URL
+        resolvedBackgroundURL: URL?
     ) -> CGRect {
-        if let background = slide.background,
-           let document = CGPDFDocument(backgroundURL(background) as CFURL),
+        if let backgroundURL = resolvedBackgroundURL,
+           let background = slide.background,
+           let document = CGPDFDocument(backgroundURL as CFURL),
            let page = document.page(at: background.pageIndex + 1) {
             return page.getBoxRect(.mediaBox)
         }
@@ -168,7 +187,7 @@ enum SlideThumbnailRenderer {
         return fourByThreeRect(containing: usableBounds)
     }
 
-    private static func fourByThreeRect(containing rect: CGRect) -> CGRect {
+    private nonisolated static func fourByThreeRect(containing rect: CGRect) -> CGRect {
         let targetAspect: CGFloat = 4 / 3
         var result = rect.standardized
         let aspect = result.width / max(result.height, 0.001)
@@ -184,13 +203,13 @@ enum SlideThumbnailRenderer {
         return result
     }
 
-    private static func union(_ existing: CGRect, _ next: CGRect) -> CGRect {
+    private nonisolated static func union(_ existing: CGRect, _ next: CGRect) -> CGRect {
         guard !next.isEmpty, !next.isNull else { return existing }
         guard !existing.isEmpty, !existing.isNull else { return next }
         return existing.union(next)
     }
 
-    private static func loadDrawing(at url: URL) -> PKDrawing {
+    private nonisolated static func loadDrawing(at url: URL) -> PKDrawing {
         guard let data = try? Data(contentsOf: url),
               let drawing = try? PKDrawing(data: data) else {
             return PKDrawing()
@@ -198,7 +217,7 @@ enum SlideThumbnailRenderer {
         return drawing
     }
 
-    private static func drawPDFPage(
+    private nonisolated static func drawPDFPage(
         _ page: CGPDFPage,
         sourceRect: CGRect,
         destinationRect: CGRect,
@@ -213,7 +232,7 @@ enum SlideThumbnailRenderer {
         context.restoreGState()
     }
 
-    private static func drawInk(
+    private nonisolated static func drawInk(
         _ drawing: PKDrawing,
         sourceRect: CGRect,
         destinationRect: CGRect,
@@ -235,7 +254,7 @@ enum SlideThumbnailRenderer {
         #endif
     }
 
-    private static func drawImageObjects(
+    private nonisolated static func drawImageObjects(
         _ imageObjects: [PresentationCanvasImageObject],
         assetDirectoryURL: URL,
         sourceRect: CGRect,
@@ -278,7 +297,7 @@ enum SlideThumbnailRenderer {
         context.restoreGState()
     }
 
-    private static func drawGeometryObjects(
+    private nonisolated static func drawGeometryObjects(
         _ geometryObjects: [PresentationCanvasGeometryObject],
         sourceRect: CGRect,
         destinationRect: CGRect,
@@ -319,7 +338,7 @@ enum SlideThumbnailRenderer {
         context.restoreGState()
     }
 
-    private static func drawTextObjects(
+    private nonisolated static func drawTextObjects(
         _ textObjects: [PresentationCanvasTextObject],
         sourceRect: CGRect,
         destinationRect: CGRect,
@@ -331,10 +350,19 @@ enum SlideThumbnailRenderer {
 
         context.saveGState()
         context.clip(to: destinationRect)
+        context.textMatrix = .identity
+        // CoreText requires a y-UP coordinate system. Both UIGraphicsImageRenderer (iOS)
+        // and CGBitmapContextCreate-backed NSBitmapImageRep (macOS) are y-DOWN bitmaps.
+        // Flip once around destinationRect.maxY; all drawing below uses the y-UP ctRect
+        // formula — identical to what SlidePDFExporter uses in its native y-UP PDF context.
+        context.translateBy(x: 0, y: destinationRect.maxY)
+        context.scaleBy(x: 1, y: -1)
+
         for object in textObjects where !object.text.isEmpty {
-            let textRect = CGRect(
+            // ctRect origin is the BOTTOM-LEFT of the text box in the flipped y-UP space.
+            let ctRect = CGRect(
                 x: destinationRect.minX + (object.x - sourceRect.minX) * scaleX,
-                y: destinationRect.minY + (object.y - sourceRect.minY) * scaleY,
+                y: destinationRect.maxY - (object.y - sourceRect.minY + object.height) * scaleY,
                 width: object.width * scaleX,
                 height: object.height * scaleY
             )
@@ -345,38 +373,33 @@ enum SlideThumbnailRenderer {
                     blue: background.blue,
                     alpha: background.alpha
                 ))
-                context.fill(textRect)
+                context.fill(ctRect)
             }
-            #if canImport(UIKit)
-            // CTFrameDraw assumes y-UP and renders upside down in the y-DOWN UIKit context.
-            // NSAttributedString.draw handles UIKit context orientation natively.
-            let font = UIFont(name: object.fontName ?? "Helvetica", size: max(object.fontSize * scaleY, 4))
-                ?? .systemFont(ofSize: max(object.fontSize * scaleY, 4))
+            let ctFont = CTFontCreateWithName(
+                (object.fontName ?? "Helvetica") as CFString,
+                max(object.fontSize * scaleY, 4),
+                nil
+            )
             let attrs: [NSAttributedString.Key: Any] = [
-                .font: font,
-                .foregroundColor: UIColor(red: object.red, green: object.green, blue: object.blue, alpha: object.alpha)
+                .font: ctFont,
+                .foregroundColor: CGColor(
+                    red: object.red, green: object.green,
+                    blue: object.blue, alpha: object.alpha
+                )
             ]
-            UIGraphicsPushContext(context)
-            NSAttributedString(string: object.text, attributes: attrs).draw(in: textRect)
-            UIGraphicsPopContext()
-            #else
-            context.textMatrix = .identity
-            let path = CGMutablePath()
-            path.addRect(textRect)
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: CTFontCreateWithName((object.fontName ?? "Helvetica") as CFString, max(object.fontSize * scaleY, 4), nil),
-                .foregroundColor: CGColor(red: object.red, green: object.green, blue: object.blue, alpha: object.alpha)
-            ]
-            let attributedString = NSAttributedString(string: object.text, attributes: attributes)
-            let framesetter = CTFramesetterCreateWithAttributedString(attributedString)
-            let frame = CTFramesetterCreateFrame(framesetter, CFRange(location: 0, length: attributedString.length), path, nil)
-            CTFrameDraw(frame, context)
-            #endif
+            let ctPath = CGMutablePath()
+            ctPath.addRect(ctRect)
+            let attrStr = NSAttributedString(string: object.text, attributes: attrs)
+            let framesetter = CTFramesetterCreateWithAttributedString(attrStr)
+            let ctFrame = CTFramesetterCreateFrame(
+                framesetter, CFRange(location: 0, length: attrStr.length), ctPath, nil
+            )
+            CTFrameDraw(ctFrame, context)
         }
         context.restoreGState()
     }
 
-    private static func fingerprint(for url: URL) -> String {
+    private nonisolated static func fingerprint(for url: URL) -> String {
         guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]) else {
             return "missing:\(url.lastPathComponent)"
         }
@@ -386,7 +409,7 @@ enum SlideThumbnailRenderer {
     }
 
     #if canImport(UIKit)
-    private static func makePlatformImage(size: CGSize, draw: (CGContext) -> Void) -> Image? {
+    private nonisolated static func makePlatformImage(size: CGSize, draw: (CGContext) -> Void) -> Image? {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true
@@ -396,15 +419,15 @@ enum SlideThumbnailRenderer {
         return Image(uiImage: image)
     }
 
-    private static func cgImage(from image: UIImage) -> CGImage? {
+    private nonisolated static func cgImage(from image: UIImage) -> CGImage? {
         image.cgImage
     }
 
-    private static func cgImage(fromImageAt url: URL) -> CGImage? {
+    private nonisolated static func cgImage(fromImageAt url: URL) -> CGImage? {
         UIImage(contentsOfFile: url.path)?.cgImage
     }
     #elseif canImport(AppKit)
-    private static func makePlatformImage(size: CGSize, draw: (CGContext) -> Void) -> Image? {
+    private nonisolated static func makePlatformImage(size: CGSize, draw: (CGContext) -> Void) -> Image? {
         guard let representation = NSBitmapImageRep(
             bitmapDataPlanes: nil,
             pixelsWide: Int(size.width.rounded(.up)),
@@ -434,12 +457,12 @@ enum SlideThumbnailRenderer {
         return Image(nsImage: image)
     }
 
-    private static func cgImage(from image: NSImage) -> CGImage? {
+    private nonisolated static func cgImage(from image: NSImage) -> CGImage? {
         var rect = CGRect(origin: .zero, size: image.size)
         return image.cgImage(forProposedRect: &rect, context: nil, hints: nil)
     }
 
-    private static func cgImage(fromImageAt url: URL) -> CGImage? {
+    private nonisolated static func cgImage(fromImageAt url: URL) -> CGImage? {
         guard let image = NSImage(contentsOf: url) else { return nil }
         var rect = CGRect(origin: .zero, size: image.size)
         return image.cgImage(forProposedRect: &rect, context: nil, hints: nil)

@@ -56,16 +56,27 @@ struct WidgetActivityRenderer: View {
 
         switch document.activity {
         case .multipleChoice:
-            MultipleChoiceActivityView(
-                document: document,
-                runtimeState: activityRuntimeState.multipleChoice,
-                interactivePartsRuntimeState: activityRuntimeState.interactiveParts,
-                scoreSheet: scoreSheet,
-                onEditWidget: onEditWidget,
-                theme: resolvedTheme,
-                experience: experienceOverride ?? document.presentation?.preferredExperience,
-                gearConfiguration: gearConfiguration
-            )
+            if document.presentation?.renderer == .html {
+                ScoredHTMLMultipleChoiceActivityView(
+                    document: document,
+                    runtimeState: activityRuntimeState.multipleChoice,
+                    scoreSheet: scoreSheet,
+                    onEditWidget: onEditWidget,
+                    gearConfiguration: gearConfiguration,
+                    theme: resolvedTheme
+                )
+            } else {
+                MultipleChoiceActivityView(
+                    document: document,
+                    runtimeState: activityRuntimeState.multipleChoice,
+                    interactivePartsRuntimeState: activityRuntimeState.interactiveParts,
+                    scoreSheet: scoreSheet,
+                    onEditWidget: onEditWidget,
+                    theme: resolvedTheme,
+                    experience: experienceOverride ?? document.presentation?.preferredExperience,
+                    gearConfiguration: gearConfiguration
+                )
+            }
         case .fillInTheBlank:
             FillInTheBlankActivityView(
                 document: document,
@@ -75,6 +86,14 @@ struct WidgetActivityRenderer: View {
                 onEditWidget: onEditWidget,
                 theme: resolvedTheme,
                 onMathInputRequested: onMathInputRequested,
+                gearConfiguration: gearConfiguration
+            )
+        case .trivialPursuit:
+            TrivialPursuitActivityView(
+                document: document,
+                runtimeState: activityRuntimeState.trivialPursuit,
+                scoreSheet: scoreSheet,
+                onEditWidget: onEditWidget,
                 gearConfiguration: gearConfiguration
             )
         }
@@ -713,13 +732,18 @@ private struct MultipleChoiceActivityView: View {
                 Text("Question:")
                     .font(.system(size: 26, weight: .black, design: .rounded))
                     .foregroundStyle(theme.accent)
-                Text(displayedPrompt.isEmpty && !isQuestionTyping ? currentQuestion?.prompt ?? "" : displayedPrompt)
-                    .font(.system(size: 26, weight: .bold, design: .rounded))
-                    .foregroundStyle(theme.primaryText)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .animation(.easeOut(duration: 0.12), value: displayedPrompt)
+                WidgetInlineMathTextView(
+                    source: displayedPrompt.isEmpty && !isQuestionTyping ? currentQuestion?.prompt ?? "" : displayedPrompt,
+                    fontSize: 26,
+                    weight: .bold,
+                    foregroundColor: theme.primaryText,
+                    alignment: .leading,
+                    lineLimit: nil,
+                    minimumScaleFactor: 0.82
+                )
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .animation(.easeOut(duration: 0.12), value: displayedPrompt)
             }
 
             if isExpressionRevealed, let expression = currentQuestion?.expression, !expression.isEmpty {
@@ -2035,12 +2059,17 @@ private struct FillInTheBlankActivityView: View {
                 Text("Question:")
                     .font(.system(size: 26, weight: .black, design: .rounded))
                     .foregroundStyle(theme.accent)
-                Text(currentQuestion?.prompt ?? "")
-                    .font(.system(size: 26, weight: .bold, design: .rounded))
-                    .foregroundStyle(theme.primaryText)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                WidgetInlineMathTextView(
+                    source: currentQuestion?.prompt ?? "",
+                    fontSize: 26,
+                    weight: .bold,
+                    foregroundColor: theme.primaryText,
+                    alignment: .leading,
+                    lineLimit: nil,
+                    minimumScaleFactor: 0.82
+                )
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             if let expression = currentQuestion?.expression, !expression.isEmpty {
@@ -4101,6 +4130,21 @@ private struct WidgetActivityNumberLineInput: View {
                     .padding(.vertical, 6)
                     .background(theme.choice.opacity(0.65), in: Capsule())
 
+                if part.features.openClosedEndpoints {
+                    Button {
+                        toggleSelectedEndpointClosed()
+                    } label: {
+                        Label(endpointIsClosed(at: selectedPointValue) ? "Closed" : "Open", systemImage: endpointIsClosed(at: selectedPointValue) ? "circle.fill" : "circle")
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .labelStyle(.titleAndIcon)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 6)
+                            .foregroundStyle(theme.primaryText)
+                            .background(theme.choice.opacity(0.7), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(endpointIsClosed(at: selectedPointValue) ? "Set endpoint open" : "Set endpoint closed")
+                }
             }
 
             Spacer(minLength: 4)

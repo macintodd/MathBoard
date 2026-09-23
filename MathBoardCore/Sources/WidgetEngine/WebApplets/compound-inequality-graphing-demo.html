@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Compound Inequality Graphing Demo</title>
+<style>
+  :root{
+    --text:#1b1b1b;
+    --muted:#66645f;
+    --border:#d8d5cc;
+    --axis:#77756f;
+    --panel:#f4f2eb;
+    --bg:#fbfaf6;
+    --white:#fff;
+    --line1:#2a6fb0;
+    --line2:#c5861e;
+    --line3:#2e8b4f;
+  }
+
+  *{
+    box-sizing:border-box;
+    -webkit-tap-highlight-color:transparent;
+  }
+
+  html,body{
+    margin:0;
+    width:100%;
+    background:var(--bg);
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;
+    overscroll-behavior:none;
+  }
+
+  body{
+    touch-action:manipulation;
+  }
+
+  #app{
+    width:100%;
+    max-width:1100px;
+    margin:0 auto;
+    padding:12px;
+  }
+
+  .topbar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    flex-wrap:wrap;
+    margin-bottom:10px;
+  }
+
+  h1{
+    margin:0;
+    font-size:20px;
+    font-weight:800;
+  }
+
+  .controls{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    flex-wrap:wrap;
+  }
+
+  label{
+    font-size:15px;
+    font-weight:700;
+  }
+
+  select,button{
+    min-height:42px;
+    padding:8px 12px;
+    border-radius:9px;
+    border:2px solid #aaa79f;
+    background:#fff;
+    color:#1b1b1b;
+    font:700 15px -apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;
+    cursor:pointer;
+  }
+
+  .linewrap{
+    background:var(--panel);
+    border:2px solid var(--border);
+    border-radius:14px;
+    margin-bottom:10px;
+    padding:6px 6px 2px;
+  }
+
+  .linelabel{
+    padding:2px 10px 0;
+    color:var(--muted);
+    font-size:14px;
+    font-weight:800;
+  }
+
+  svg.numberline{
+    display:block;
+    width:100%;
+    height:auto;
+    touch-action:none;
+    user-select:none;
+    -webkit-user-select:none;
+  }
+
+  .help{
+    margin:8px 4px 0;
+    color:var(--muted);
+    font-size:12px;
+    line-height:1.35;
+    text-align:center;
+  }
+
+  .grab{
+    cursor:grab;
+  }
+
+  .grab:active{
+    cursor:grabbing;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="topbar">
+    <h1>Graphing Compound Inequalities</h1>
+    <div class="controls">
+      <label for="andOrSel">Combine with:</label>
+      <select id="andOrSel">
+        <option value="AND">AND</option>
+        <option value="OR">OR</option>
+      </select>
+      <button id="resetBtn" type="button">Reset all</button>
+    </div>
+  </div>
+
+  <div class="linewrap">
+    <div class="linelabel">Condition A</div>
+    <svg class="numberline" id="nl1" viewBox="0 0 1000 120" aria-label="Condition A number line"></svg>
+  </div>
+
+  <div class="linewrap">
+    <div class="linelabel">Condition B</div>
+    <svg class="numberline" id="nl2" viewBox="0 0 1000 120" aria-label="Condition B number line"></svg>
+  </div>
+
+  <div class="linewrap">
+    <div class="linelabel" id="solutionLabel">Solution — AND</div>
+    <svg class="numberline" id="nl3" viewBox="0 0 1000 120" aria-label="Solution number line"></svg>
+  </div>
+
+  <div class="help">
+    Tap a number line to place a boundary point. Tap the point to switch open/closed.
+    Drag the point to move it. Drag the arrow tip to resize the ray; drag it past the boundary point to reverse the ray.
+    On the Solution line, tap the arrow tip to cycle Arrow → Closed Point → Open Point → Arrow.
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const VMIN = -10;
+  const VMAX = 10;
+  const VBW = 1000;
+  const LEFT = 55;
+  const RIGHT = 55;
+  const AXIS_Y = 54;
+  const USABLE = VBW - LEFT - RIGHT;
+  const HILITE_Y = 19;
+  const SVGNS = "http://www.w3.org/2000/svg";
+
+  const mapX = value =>
+    LEFT + ((value - VMIN) / (VMAX - VMIN)) * USABLE;
+
+  const invX = px =>
+    VMIN + ((px - LEFT) / USABLE) * (VMAX - VMIN);
+
+  const clamp = (value, min, max) =>
+    Math.max(min, Math.min(max, value));
+
+  const snap = value =>
+    clamp(Math.round(value), VMIN, VMAX);
+
+  function svgPointFromClient(svg, clientX) {
+    const rect = svg.getBoundingClientRect();
+    const fraction = clamp((clientX - rect.left) / rect.width, 0, 1);
+    return fraction * VBW;
+  }
+
+  function node(tag, attrs = {}) {
+    const el = document.createElementNS(SVGNS, tag);
+    Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v));
+    return el;
+  }
+
+  function arrowPolygon(tipX, direction) {
+    const back = 22;
+    const halfHeight = 12;
+    const baseX = tipX - direction * back;
+    return [
+      `${tipX},${AXIS_Y}`,
+      `${baseX},${AXIS_Y-halfHeight}`,
+      `${baseX},${AXIS_Y+halfHeight}`
+    ].join(" ");
+  }
+
+  function createNumberLine(svgId, color, solutionMode = false, onChange = null) {
+    const svg = document.getElementById(svgId);
+
+    let state = {
+      placed: false,
+      boundary: 0,
+      boundaryOpen: true,
+      rayTip: 7,
+      tipMode: "arrow" // solution line only: arrow | closed | open
+    };
+
+    let drag = null;
+
+    const clear = () => {
+      while (svg.firstChild) svg.removeChild(svg.firstChild);
+    };
+
+    function drawBase() {
+      const axis = node("line", {
+        x1: LEFT,
+        y1: AXIS_Y,
+        x2: VBW - RIGHT,
+        y2: AXIS_Y,
+        stroke: "var(--axis)",
+        "stroke-width": 3
+      });
+      svg.appendChild(axis);
+
+      for (let v = VMIN; v <= VMAX; v++) {
+        const x = mapX(v);
+        const major = v % 5 === 0;
+
+        svg.appendChild(node("line", {
+          x1: x,
+          y1: AXIS_Y - (major ? 9 : 6),
+          x2: x,
+          y2: AXIS_Y + (major ? 9 : 6),
+          stroke: "var(--axis)",
+          "stroke-width": major ? 2.5 : 1.5
+        }));
+
+        const label = node("text", {
+          x,
+          y: AXIS_Y + 34,
+          "text-anchor": "middle",
+          "font-size": 18,
+          fill: "var(--muted)"
+        });
+        label.textContent = v;
+        svg.appendChild(label);
+      }
+    }
+
+    function drawHighlight(x1, x2) {
+      const leftX = Math.min(x1, x2);
+      const rightX = Math.max(x1, x2);
+
+      const band1 = node("line", {
+        x1: leftX,
+        y1: HILITE_Y,
+        x2: rightX,
+        y2: HILITE_Y,
+        stroke: color,
+        "stroke-width": 28,
+        "stroke-linecap": "round",
+        "stroke-opacity": 0.28
+      });
+      svg.appendChild(band1);
+
+      const band2 = node("line", {
+        x1: leftX + 3,
+        y1: HILITE_Y + 2,
+        x2: Math.max(leftX + 3, rightX - 3),
+        y2: HILITE_Y - 1,
+        stroke: color,
+        "stroke-width": 22,
+        "stroke-linecap": "round",
+        "stroke-opacity": 0.16
+      });
+      svg.appendChild(band2);
+    }
+
+    function makeVisiblePoint(x, open, radius = 13) {
+      return node("circle", {
+        cx: x,
+        cy: AXIS_Y,
+        r: radius,
+        fill: open ? "var(--white)" : color,
+        stroke: color,
+        "stroke-width": 4
+      });
+    }
+
+    function makeHitCircle(x, radius = 28) {
+      const hit = node("circle", {
+        cx: x,
+        cy: AXIS_Y,
+        r: radius,
+        fill: "transparent",
+        stroke: "transparent",
+        "stroke-width": 1
+      });
+      hit.style.touchAction = "none";
+      hit.style.cursor = "grab";
+      return hit;
+    }
+
+    function rayDirection() {
+      return state.rayTip >= state.boundary ? 1 : -1;
+    }
+
+    function ensureTipNotOnBoundary() {
+      if (state.rayTip === state.boundary) {
+        state.rayTip = clamp(
+          state.boundary + (state.boundary < VMAX ? 1 : -1),
+          VMIN,
+          VMAX
+        );
+      }
+    }
+
+    function render() {
+      clear();
+      drawBase();
+
+      if (!state.placed) return;
+
+      ensureTipNotOnBoundary();
+
+      const bx = mapX(state.boundary);
+      const tx = mapX(state.rayTip);
+      const direction = rayDirection();
+
+      drawHighlight(bx, tx);
+
+      svg.appendChild(node("line", {
+        x1: bx,
+        y1: AXIS_Y,
+        x2: tx,
+        y2: AXIS_Y,
+        stroke: color,
+        "stroke-width": 7,
+        "stroke-linecap": "round"
+      }));
+
+      const boundaryPoint = makeVisiblePoint(bx, state.boundaryOpen);
+      svg.appendChild(boundaryPoint);
+
+      const boundaryHit = makeHitCircle(bx);
+      boundaryHit.classList.add("grab");
+      svg.appendChild(boundaryHit);
+      wireDrag(boundaryHit, "boundary");
+
+      if (solutionMode && state.tipMode !== "arrow") {
+        const tipPoint = makeVisiblePoint(tx, state.tipMode === "open");
+        svg.appendChild(tipPoint);
+
+        const tipHit = makeHitCircle(tx);
+        tipHit.classList.add("grab");
+        svg.appendChild(tipHit);
+        wireDrag(tipHit, "tipPoint");
+      } else {
+        const arrow = node("polygon", {
+          points: arrowPolygon(tx, direction),
+          fill: color
+        });
+        svg.appendChild(arrow);
+
+        const arrowHit = makeHitCircle(tx, 34);
+        arrowHit.classList.add("grab");
+        svg.appendChild(arrowHit);
+        wireDrag(arrowHit, "arrowTip");
+      }
+    }
+
+    // Pointermove/up/cancel live on the persistent svg element, not on the
+    // hit circle (el). render() calls clear() which removes el from the DOM,
+    // which silently releases setPointerCapture — meaning pointerup would
+    // never reach el's listener and finish() would never fire.
+    svg.addEventListener("pointermove", e => {
+      if (!drag || drag.pointerId !== e.pointerId) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      drag.lastClientX = e.clientX;
+
+      if (Math.abs(e.clientX - drag.startX) > 5) {
+        drag.moved = true;
+      }
+
+      if (!drag.moved) return;
+
+      const raw = invX(svgPointFromClient(svg, e.clientX));
+      const v = clamp(raw, VMIN, VMAX);
+
+      if (drag.kind === "boundary") {
+        state.boundary = v;
+
+        if (Math.abs(state.rayTip - state.boundary) < 0.15) {
+          state.rayTip = clamp(
+            state.boundary + (rayDirection() >= 0 ? 1 : -1),
+            VMIN,
+            VMAX
+          );
+        }
+      } else {
+        state.rayTip = v;
+      }
+
+      render();
+    });
+
+    const finish = e => {
+      if (!drag || drag.pointerId !== e.pointerId) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      const kind = drag.kind;
+      const moved = drag.moved;
+
+      if (moved) {
+        if (kind === "boundary") {
+          state.boundary = snap(state.boundary);
+        } else {
+          state.rayTip = snap(state.rayTip);
+
+          if (state.rayTip === state.boundary) {
+            const pointerValue = invX(svgPointFromClient(svg, drag.lastClientX));
+            state.rayTip = clamp(
+              state.boundary + (pointerValue >= state.boundary ? 1 : -1),
+              VMIN,
+              VMAX
+            );
+          }
+        }
+      } else {
+        if (kind === "boundary") {
+          state.boundaryOpen = !state.boundaryOpen;
+        } else if (solutionMode && kind === "arrowTip") {
+          state.tipMode = "closed";
+        } else if (solutionMode && kind === "tipPoint") {
+          state.tipMode =
+            state.tipMode === "closed"
+              ? "open"
+              : "arrow";
+        }
+      }
+
+      drag = null;
+      render();
+      if (onChange) onChange();
+    };
+
+    svg.addEventListener("pointerup", finish);
+    svg.addEventListener("pointercancel", finish);
+
+    function wireDrag(el, kind) {
+      el.addEventListener("pointerdown", e => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        // Capture on svg (persistent), not el (destroyed each render()).
+        try { svg.setPointerCapture(e.pointerId); } catch (_) {}
+
+        drag = {
+          pointerId: e.pointerId,
+          kind,
+          startX: e.clientX,
+          moved: false,
+          lastClientX: e.clientX
+        };
+      });
+    }
+
+    svg.addEventListener("pointerdown", e => {
+      if (state.placed) return;
+
+      e.preventDefault();
+
+      const value = snap(invX(svgPointFromClient(svg, e.clientX)));
+
+      state.placed = true;
+      state.boundary = value;
+      state.boundaryOpen = true;
+      state.tipMode = "arrow";
+
+      state.rayTip = value <= VMAX - 4 ? value + 4 : value - 4;
+
+      render();
+      if (onChange) onChange();
+    });
+
+    svg.style.touchAction = "none";
+    render();
+
+    return {
+      getState() {
+        return Object.assign({}, state);
+      },
+      setState(s) {
+        state = Object.assign({}, state, s);
+        render();
+      },
+      reset() {
+        state = {
+          placed: false,
+          boundary: 0,
+          boundaryOpen: true,
+          rayTip: 7,
+          tipMode: "arrow"
+        };
+        drag = null;
+        render();
+      }
+    };
+  }
+
+  // Prevent feedback loop: when the external display receives state and
+  // re-renders, its render calls onChange which would try to re-publish.
+  let applyingState = false;
+
+  function publishState() {
+    if (applyingState) return;
+    if (window.MathBoardApplet) {
+      window.MathBoardApplet.publishState({
+        andOr: selector.value,
+        line1: line1.getState(),
+        line2: line2.getState(),
+        line3: line3.getState()
+      });
+    }
+  }
+
+  const line1 = createNumberLine("nl1", "var(--line1)", false, publishState);
+  const line2 = createNumberLine("nl2", "var(--line2)", false, publishState);
+  const line3 = createNumberLine("nl3", "var(--line3)", true, publishState);
+
+  const selector = document.getElementById("andOrSel");
+  selector.addEventListener("change", () => {
+    document.getElementById("solutionLabel").textContent =
+      `Solution — ${selector.value}`;
+    publishState();
+  });
+
+  document.getElementById("resetBtn").addEventListener("click", () => {
+    line1.reset();
+    line2.reset();
+    line3.reset();
+    publishState();
+  });
+
+  window.mathBoardAppletSetState = function(s) {
+    if (!s) return;
+    applyingState = true;
+    try {
+      if (s.andOr && (s.andOr === "AND" || s.andOr === "OR")) {
+        selector.value = s.andOr;
+        document.getElementById("solutionLabel").textContent =
+          `Solution — ${s.andOr}`;
+      }
+      if (s.line1) line1.setState(s.line1);
+      if (s.line2) line2.setState(s.line2);
+      if (s.line3) line3.setState(s.line3);
+    } finally {
+      applyingState = false;
+    }
+  };
+})();
+</script>
+</body>
+</html>

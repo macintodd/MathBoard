@@ -69,14 +69,25 @@ public enum JSONMathtivityTestContract {
         validateDefaultScoreRecord(widget.activityScoreRecord, document: document, errors: &errors)
         validateActivitySpecificBehavior(document, errors: &errors)
 
+        let questionCount = questionCount(for: document)
+
         return JSONMathtivityTestContractReport(
             widgetID: document.widgetId,
             title: document.title,
             activityKind: activityKind,
-            questionCount: document.questions.count,
-            pointsPossible: document.questions.count,
+            questionCount: questionCount,
+            pointsPossible: questionCount,
             errors: errors
         )
+    }
+
+    private static func questionCount(for document: ActivityWidgetDocument) -> Int {
+        switch document.activity {
+        case .multipleChoice, .fillInTheBlank:
+            return document.questions.count
+        case .trivialPursuit:
+            return document.categories?.reduce(0) { $0 + $1.questions.count } ?? 0
+        }
     }
 
     private static func validateDefaultScoreRecord(
@@ -129,6 +140,8 @@ public enum JSONMathtivityTestContract {
                     }
                 }
             }
+        case .trivialPursuit:
+            break
         }
     }
 }

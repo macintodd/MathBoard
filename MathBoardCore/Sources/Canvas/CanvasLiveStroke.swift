@@ -38,6 +38,27 @@ public struct CanvasStrokeColor: Sendable, Equatable {
     }
 }
 
+/// Position and tilt of the teacher's Apple Pencil while hovering above or
+/// touching the iPad screen. Published to external displays and student views
+/// so they can show a directional shadow indicator anticipating the next stroke.
+public struct CanvasPencilHover: Sendable, Equatable {
+    /// Point in canvas drawing-coordinate space (same space as live stroke samples).
+    public var canvasPoint: CGPoint
+    /// 0 = pencil lying flat against screen, π/2 = pencil held perfectly upright.
+    public var altitudeAngle: CGFloat
+    /// Direction the pencil leans, in radians (0 = pointing right, π/2 = pointing down).
+    public var azimuthAngle: CGFloat
+    /// True when the pencil tip is actually touching the screen, false while hovering.
+    public var isWriting: Bool
+
+    public init(canvasPoint: CGPoint, altitudeAngle: CGFloat, azimuthAngle: CGFloat, isWriting: Bool) {
+        self.canvasPoint = canvasPoint
+        self.altitudeAngle = altitudeAngle
+        self.azimuthAngle = azimuthAngle
+        self.isWriting = isWriting
+    }
+}
+
 public struct CanvasLiveStroke: Sendable, Equatable {
     public enum Kind: Sendable, Equatable {
         case ink

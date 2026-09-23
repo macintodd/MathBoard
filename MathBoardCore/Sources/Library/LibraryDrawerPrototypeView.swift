@@ -63,6 +63,7 @@ public struct LibraryDrawerPrototypeView: View {
 
     private let recentLessonURL: URL?
     private let recentRefreshID: UUID
+    private let showsCatalogButton: Bool
     private let onInsertItem: (@MainActor (LibraryCanvasDragPayload) -> Void)?
     private let onPreviewCatalogMathtivity: (@MainActor (DownloadedMathtivityCatalogItem) -> Void)?
     private let onOpenStateChange: (@MainActor (Bool) -> Void)?
@@ -76,12 +77,14 @@ public struct LibraryDrawerPrototypeView: View {
         startOpen: Bool = true,
         recentLessonURL: URL? = nil,
         recentRefreshID: UUID = UUID(),
+        showsCatalogButton: Bool = true,
         onInsertItem: (@MainActor (LibraryCanvasDragPayload) -> Void)? = nil,
         onPreviewCatalogMathtivity: (@MainActor (DownloadedMathtivityCatalogItem) -> Void)? = nil,
         onOpenStateChange: (@MainActor (Bool) -> Void)? = nil
     ) {
         self.recentLessonURL = recentLessonURL
         self.recentRefreshID = recentRefreshID
+        self.showsCatalogButton = showsCatalogButton
         self.onInsertItem = onInsertItem
         self.onPreviewCatalogMathtivity = onPreviewCatalogMathtivity
         self.onOpenStateChange = onOpenStateChange
@@ -297,21 +300,23 @@ public struct LibraryDrawerPrototypeView: View {
                 .font(.system(size: 20, weight: .bold))
                 .foregroundStyle(LibraryTheme.ink)
             Spacer()
-            Button {
-                isCatalogPresented = true
-            } label: {
-                Label("Catalog", systemImage: "square.grid.2x2.badge.plus")
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(LibraryTheme.accent)
-                    .padding(.horizontal, 9)
-                    .frame(height: 30)
-                    .background(
-                        Capsule()
-                            .fill(LibraryTheme.accent.opacity(0.10))
-                    )
+            if showsCatalogButton {
+                Button {
+                    isCatalogPresented = true
+                } label: {
+                    Label("Catalog", systemImage: "square.grid.2x2.badge.plus")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(LibraryTheme.accent)
+                        .padding(.horizontal, 9)
+                        .frame(height: 30)
+                        .background(
+                            Capsule()
+                                .fill(LibraryTheme.accent.opacity(0.10))
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("View MathBoard Catalog")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("View MathBoard Catalog")
             Button {
                 withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
                     isOpen = false
@@ -1345,7 +1350,7 @@ private extension LibraryRecentKind {
             frame: CGRect(origin: .zero, size: CGSize(width: 1, height: 1))
         ).activityKind
         switch activityKind {
-        case .multipleChoice, .fillInTheBlank:
+        case .multipleChoice, .fillInTheBlank, .trivialPursuit:
             return .premadeMathtivity
         case .builtInInteractive:
             return .builtInInteractive(nil)
@@ -1685,6 +1690,24 @@ private struct BuiltInInteractiveGlyph: View {
             return "grid"
         case .functionTransformationExplorer:
             return "function"
+        case .quadraticWebApplet:
+            return "safari"
+        case .domainRangeWebApplet:
+            return "safari"
+        case .analizingGraphs1WebApplet:
+            return "safari"
+        case .projectileMotionGraphAnalysisWebApplet:
+            return "safari"
+        case .constantRateWebApplet:
+            return "safari"
+        case .completingTheSquareWebApplet:
+            return "safari"
+        case .andOrAttributeFilterWebApplet:
+            return "circle.grid.3x3"
+        case .andOrInequalityNumberLineWebApplet:
+            return "number.line"
+        case .compoundInequalityGraphingDemoWebApplet:
+            return "number.line"
         case .matchGrid:
             return "rectangle.grid.3x2.fill"
         case .actDailyPractice:
@@ -1702,6 +1725,24 @@ private struct BuiltInInteractiveGlyph: View {
             return "GRID"
         case .functionTransformationExplorer:
             return "FUNCTION"
+        case .quadraticWebApplet:
+            return "WEB"
+        case .domainRangeWebApplet:
+            return "DOMAIN"
+        case .analizingGraphs1WebApplet:
+            return "GRAPH"
+        case .projectileMotionGraphAnalysisWebApplet:
+            return "PROJECTILE"
+        case .constantRateWebApplet:
+            return "RATE"
+        case .completingTheSquareWebApplet:
+            return "SQUARE"
+        case .andOrAttributeFilterWebApplet:
+            return "AND OR"
+        case .andOrInequalityNumberLineWebApplet:
+            return "NUMBER LINE"
+        case .compoundInequalityGraphingDemoWebApplet:
+            return "COMPOUND"
         case .matchGrid:
             return "MATCHGRID"
         case .actDailyPractice:

@@ -1,6 +1,6 @@
 # Library Drawer — Status
 
-Status: **Prototype (live insertions + five-tab Catalog utilities)** · Live canvas overlay · Last updated 2026-09-05
+Status: **Prototype (live insertions + five-tab Catalog utilities)** · Live canvas overlay · Last updated 2026-09-12
 
 ## Purpose
 
@@ -163,6 +163,11 @@ Sticker, and Axis (`AddItemKind` + `.addItem`).
   **Delete Library** with confirmation.
 - **Stable geometry** (panel 366 pt, thumbnail 118 pt, 2-column grids) so layout
   never jumps.
+
+## Recent changes (2026-09-12) — Student mode support
+
+- **`showsCatalogButton: Bool = true`** added to `LibraryDrawerPrototypeView.init`. When `false`, the "Catalog" button in the drawer header is hidden so students cannot open the teacher's Mathtivity Catalog.
+- **`showsCatalogInLibraryDrawer: Bool = true`** added to `PresentingCanvasView.init` and threaded to `LibraryDrawerPrototypeView`. `SlidesView` passes `showsCatalogInLibraryDrawer: classroomMode != .student`, so student canvases never show the Catalog button.
 
 ## Intentionally NOT wired yet
 

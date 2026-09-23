@@ -100,12 +100,16 @@ public struct ExternalCanvasView: View {
                                 widgets: widgetObjectsBinding,
                                 viewport: widgetViewport,
                                 canvasIdentity: broker.widgetCanvasIdentity,
+                                widgetAssetBaseURL: broker.widgetAssetBaseURL,
                                 scoreSheet: WidgetActivityScoreSheet(widgets: broker.widgetObjects),
                                 onEditWidget: { _ in },
                                 allowsWidgetAuthoring: false,
                                 onWidgetInteractionChanged: nil,
-                                onWidgetDisplayFrameChanged: nil
+                                onWidgetDisplayFrameChanged: nil,
+                                showsTeacherDemoWebApplets: true,
+                                isExternalDisplay: true
                             )
+                            .environment(\.widgetClassroomGameContext, broker.widgetClassroomGameContext)
                             .frame(width: referenceSize.width, height: referenceSize.height)
                             .offset(x: -visibleReferenceRect.minX, y: -visibleReferenceRect.minY)
                             .scaleEffect(widgetScale, anchor: .topLeading)
@@ -149,6 +153,20 @@ public struct ExternalCanvasView: View {
                         if !laserStrokes.isEmpty {
                             LiveStrokeOverlay(
                                 strokes: laserStrokes,
+                                viewportSourceRect: broker.currentViewportSourceRect,
+                                fallbackSourceSize: Self.liveStrokeSourceSize(
+                                    frame: frame,
+                                    frameSourceRect: broker.currentFrameSourceRect,
+                                    viewportSourceRect: broker.currentViewportSourceRect
+                                ),
+                                fittedSize: fitted
+                            )
+                        }
+
+                        if broker.isPencilHoverIndicatorEnabled,
+                           let hoverState = broker.pencilHoverState {
+                            PencilHoverIndicatorOverlay(
+                                hoverState: hoverState,
                                 viewportSourceRect: broker.currentViewportSourceRect,
                                 fallbackSourceSize: Self.liveStrokeSourceSize(
                                     frame: frame,
@@ -699,16 +717,28 @@ private struct LiveStrokeOverlay: View {
 
 private struct ExternalDisplayPlaceholder: View {
     var body: some View {
-        VStack(spacing: 24) {
-            Image(systemName: "graduationcap.fill")
-                .font(.system(size: 144, weight: .regular))
-                .foregroundStyle(.white.opacity(0.5))
-            Text("MathBoard")
-                .font(.system(size: 96, weight: .semibold))
-                .foregroundStyle(.white)
-            Text("Open a lesson on the iPad to begin.")
-                .font(.title)
-                .foregroundStyle(.white.opacity(0.7))
+        GeometryReader { proxy in
+            ZStack(alignment: .bottom) {
+                Image("ExternalDisplaySplash")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .clipped()
+
+                Text("Open Lesson to Begin")
+                    .font(.system(size: 54, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.9), radius: 8, x: 0, y: 3)
+                    .padding(.horizontal, 36)
+                    .padding(.vertical, 18)
+                    .background(
+                        Capsule()
+                            .fill(.black.opacity(0.42))
+                            .shadow(color: .black.opacity(0.35), radius: 12, x: 0, y: 6)
+                    )
+                    .padding(.bottom, max(40, proxy.size.height * 0.055))
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
     }
 }

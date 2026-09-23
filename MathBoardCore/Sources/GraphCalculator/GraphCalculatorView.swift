@@ -60,13 +60,15 @@ public struct GraphCalculatorView: View {
     @State private var functionMenuCategory: FunctionMenuCategory = .basic
     @State private var stylingExpressionIndex: Int?
     @State private var swatchActionExpressionIndex: Int?
-    @State private var isAlphabetKeypadVisible: Bool = false
     @State private var editingSliderBound: SliderBoundEdit?
     @State private var editingSliderBoundText: String = ""
     @State private var editingSliderBoundReplacesOnInput: Bool = false
     @State private var editingPointCell: PointTableCellEdit?
     @State private var editingPointCellText: String = ""
     @State private var editingPointCellReplacesOnInput: Bool = false
+    @State private var editingPointHeader: PointTableHeaderEdit?
+    @State private var editingPointHeaderText: String = ""
+    @State private var editingPointHeaderReplacesOnInput: Bool = false
     @State private var playingSliders: Set<String> = []
     @State private var sliderPlayDirections: [String: Double] = [:]
     @State private var sliderPlaybackTask: Task<Void, Never>?
@@ -95,8 +97,9 @@ public struct GraphCalculatorView: View {
     private let expandedHeaderHeight: CGFloat = 58
     private let compactHeaderHeight: CGFloat = 18
     private let expandedFloatingHeaderHeight: CGFloat = 42
-    private let preferredDockedGraphHeight: CGFloat = 440
+    private let preferredDockedGraphHeight: CGFloat = 320
     private let baseEntryHeight: CGFloat = 58
+    private let dockedAttachedEntryHeight: CGFloat = 124
     private let baseDetachedEntryHeight: CGFloat = 170
     private let entryHandleHeight: CGFloat = 22
     private let visibleTraceTableRows = 10
@@ -181,7 +184,6 @@ public struct GraphCalculatorView: View {
                 sliderPlaybackTask = nil
             }
             .onAppear {
-                applyInitialGraphWindowIfNeeded()
                 safeAreaTop = proxy.safeAreaInsets.top
             }
             .onChange(of: proxy.safeAreaInsets.top) { _, v in safeAreaTop = v }
@@ -333,7 +335,7 @@ public struct GraphCalculatorView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.white)
             } else {
-                graphCanvas(keepsSquarePlot: true)
+                graphCanvas(keepsSquarePlot: false)
             }
         }
         .overlay(alignment: .topTrailing) {
@@ -361,9 +363,11 @@ public struct GraphCalculatorView: View {
             .background(state.isHandDrawnStyle ? GraphPaperPalette.paper : Color.white)
             .onAppear {
                 currentGraphPlotSize = plotSize
+                applyInitialGraphWindowIfNeeded(for: plotSize)
             }
             .onChange(of: plotSize) { _, newValue in
                 currentGraphPlotSize = newValue
+                applyInitialGraphWindowIfNeeded(for: newValue)
             }
         }
     }
@@ -407,8 +411,9 @@ public struct GraphCalculatorView: View {
     private func captureGraphSnapshot(placementRect: CGRect?, containerSize: CGSize?) {
         guard let onGraphSnapshot else { return }
         #if os(iOS)
-        let side = max(1, min(currentGraphPlotSize.width, currentGraphPlotSize.height).rounded())
-        let size = CGSize(width: side, height: side)
+        let snapshotWidth = max(1, currentGraphPlotSize.width.rounded())
+        let snapshotHeight = max(1, currentGraphPlotSize.height.rounded())
+        let size = CGSize(width: snapshotWidth, height: snapshotHeight)
         let renderer = ImageRenderer(content: graphSnapshotView(size: size))
         renderer.scale = 3
         guard let image = renderer.uiImage,
@@ -450,6 +455,11 @@ public struct GraphCalculatorView: View {
                 Image(systemName: "gearshape.fill")
                     .foregroundStyle(state.isGraphSettingsVisible ? GraphCalculatorTheme.blue : .black.opacity(0.62))
             }
+            .popover(isPresented: $state.isGraphSettingsVisible, arrowEdge: .bottom) {
+                graphSettingsPanel
+                    .frame(width: 300)
+                    .presentationCompactAdaptation(.popover)
+            }
 
         }
         .font(.title2.weight(.semibold))
@@ -465,12 +475,9 @@ public struct GraphCalculatorView: View {
                 addMenuPanel
             } else if state.isFunctionMenuVisible {
                 functionMenuPanel
-            } else if state.isGraphSettingsVisible {
-                graphSettingsPanel
             } else {
                 expressionList
             }
-
         }
     }
 
@@ -579,9 +586,9 @@ public struct GraphCalculatorView: View {
         }
     }
 
-    /// Docked entry-panel height. With the keypad shown it is the base height; when the keypad is
-    /// hidden the entry area expands into the freed keypad space (drag-adjustable) so it fills to a
-    /// clean bottom edge instead of leaving empty white space.
+    /// Docked entry-panel height. With the attached keypad shown, keep two expression rows visible;
+    /// when the keypad is hidden the entry area expands into the freed keypad space (drag-adjustable)
+    /// so it fills to a clean bottom edge instead of leaving empty white space.
     private var usesDockedCalculator: Bool {
         state.graphSectionPlacement == .attached &&
         state.equationSectionPlacement == .attached &&
@@ -617,7 +624,11 @@ public struct GraphCalculatorView: View {
 
     private var dockedEntryHeight: CGFloat {
         guard isAttachedKeyboardVisibleHere else { return baseEntryHeight + min(max(keypadHiddenEntryExtra, 0), keypadHeight) }
-        return baseEntryHeight
+        return dockedAttachedEntryHeight
+    }
+
+    private var dockedKeypadHeight: CGFloat {
+        isAttachedKeyboardVisibleHere ? keypadHeight : 0
     }
 
     private var detachedVisibleEntryExtra: CGFloat {
@@ -739,30 +750,32 @@ public struct GraphCalculatorView: View {
             .padding(.horizontal, 14)
             .frame(height: 34)
 
-            HStack(spacing: 10) {
-                addMenuButton("Function", systemName: "function") { state.addExpression() }
-                addMenuButton("Folder", systemName: "folder") { state.addFolder() }
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(spacing: 0) {
+                    addMenuButton("function", systemName: "function") { state.addExpression() }
+                    addMenuButton("table", systemName: "tablecells") { addTableRowAndBeginEditing() }
+                    addMenuButton("folder", systemName: "folder.fill") { state.addFolder() }
+                }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 10)
             }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 10)
-
-            Spacer(minLength: 0)
         }
         .background(Color.white)
     }
 
     private func addMenuButton(_ label: String, systemName: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(spacing: 7) {
+            HStack(spacing: 14) {
                 Image(systemName: systemName)
-                    .font(.title3.weight(.semibold))
+                    .font(.system(size: 25, weight: .semibold))
+                    .foregroundStyle(.black.opacity(0.48))
+                    .frame(width: 42)
                 Text(label)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(.black.opacity(0.62))
+                Spacer(minLength: 0)
             }
-            .foregroundStyle(.black.opacity(0.78))
-            .frame(maxWidth: .infinity, minHeight: 72)
-            .background(Color.black.opacity(0.055), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.black.opacity(0.14), lineWidth: 0.5))
+            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
         }
         .buttonStyle(.plain)
     }
@@ -1359,10 +1372,25 @@ public struct GraphCalculatorView: View {
         return (x * scale).rounded() / scale
     }
 
-    private func applyInitialGraphWindowIfNeeded() {
-        guard !didApplyInitialWindow else { return }
+    private func applyInitialGraphWindowIfNeeded(for size: CGSize) {
+        guard !didApplyInitialWindow, size.width > 0 else { return }
         didApplyInitialWindow = true
-        state.graphWindow = .default
+        state.graphWindow = graphWindowFitting(size)
+    }
+
+    private func graphWindowFitting(_ size: CGSize) -> GraphWindow {
+        let xRange = 10.0
+        // Fall back to known docked-calculator defaults if the canvas hasn't reported its
+        // real size yet (GeometryReader may give zero or the @State default 400×400 on
+        // the first pass before onAppear fires with a valid measurement).
+        let w = size.width > 10 ? size.width : 440.0
+        let h = size.height > 10 ? size.height : preferredDockedGraphHeight
+        let yRange = xRange * (h / w)
+        return GraphWindow(xMin: -xRange, xMax: xRange, yMin: -yRange, yMax: yRange)
+    }
+
+    private func resetGraphWindow() {
+        state.graphWindow = graphWindowFitting(currentGraphPlotSize)
     }
 
     private func decimalPlaces(for value: Double) -> Int {
@@ -1415,7 +1443,7 @@ public struct GraphCalculatorView: View {
         state.pointRows.compactMap { id, pairs in
             guard let index = state.expressions.firstIndex(where: { $0.id == id }) else { return nil }
             let points = pairs.compactMap { pair -> CGPoint? in
-                guard let x = pair.x, let y = pair.y else { return nil }
+                guard let x = pair.x, let y = tableYValue(for: pair, equationID: id) else { return nil }
                 return CGPoint(x: x, y: y)
             }
             guard !points.isEmpty else { return nil }
@@ -1434,6 +1462,8 @@ public struct GraphCalculatorView: View {
         let color = graphColor(for: index)
         let promptNames = sliderPromptNames(forExpression: text)
         let equationID = state.expressions.indices.contains(index) ? state.expressions[index].id : nil
+        let inlinePointRows = equationID.flatMap { state.pointRows[$0] }
+        let isInlinePointTable = inlinePointRows != nil && text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let formalFraction = formalFractionExpression(text)
         let fractionCandidate = fractionConversionCandidate(source: text, resolved: resolved)
         let isFractionResultShown = equationID.map { state.fractionResultRowIDs.contains($0) } ?? false
@@ -1445,12 +1475,20 @@ public struct GraphCalculatorView: View {
                 return false
             } ?? false)
             || isFractionResultShown
-        let baseRowHeight: CGFloat = promptNames.isEmpty ? (hasStackedMath ? 74 : 50) : 82
+        let hasResultAnnotation = shouldShowResultAnnotation(text: text, displayValue: displayValue, isFractionResultShown: isFractionResultShown)
+        let inlineTableRowCount = max(inlinePointRows?.count ?? 0, 2)
+        let baseRowHeight: CGFloat = if isInlinePointTable {
+            38 + CGFloat(inlineTableRowCount) * 44
+        } else {
+            promptNames.isEmpty ? (hasStackedMath ? 74 : (hasResultAnnotation ? 74 : 50)) : 82
+        }
         let rowHeight: CGFloat = regressionRow == nil ? baseRowHeight : max(baseRowHeight, 72)
         let tableKind = tableKind(for: resolved?.plot)
         let hasExtraPoints = equationID.map { !state.extraPoints(for: $0).isEmpty } ?? false
         let completePointCount = equationID.map { completePointTablePoints(for: $0).count } ?? 0
+        let isPointTableBacked = tableKind == .points || isInlinePointTable
         let pasteDownValue = pasteDownCalculationValue(for: text, resolved: resolved)
+        let resultColumnWidth: CGFloat = hasResultAnnotation ? 118 : 44
 
         return HStack(spacing: 0) {
             expressionStyleCell(index: index, isSelected: isSelected, isInvalid: isInvalid, color: color)
@@ -1458,31 +1496,30 @@ public struct GraphCalculatorView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
-                            if isPureNumericCalculation(text), let displayValue {
-                                numericExpressionLine(
-                                    text: text,
-                                    displayText: displayText,
-                                    displayValue: displayValue,
-                                    isSelected: isSelected,
-                                    formalFraction: formalFraction,
-                                    tokens: expressionTokens,
-                                    fractionResult: isFractionResultShown ? fractionCandidate ?? numericValue(for: text).flatMap(rationalFraction(for:)) : nil
-                                )
-                            } else {
-                                expressionText(text, displayText: displayText, isSelected: isSelected, formalFraction: formalFraction)
-                                if let displayValue {
-                                    Text("= \(displayValue)")
-                                        .font(.system(size: 17, weight: .medium, design: .serif))
-                                        .foregroundStyle(.black.opacity(0.62))
-                                        .lineLimit(1)
+                    if let equationID, isInlinePointTable {
+                        inlinePointsTable(equationID: equationID)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                if isPureNumericCalculation(text), let displayValue {
+                                    numericExpressionLine(
+                                        text: text,
+                                        displayText: displayText,
+                                        displayValue: displayValue,
+                                        isSelected: isSelected,
+                                        formalFraction: formalFraction,
+                                        tokens: expressionTokens,
+                                        fractionResult: isFractionResultShown ? fractionCandidate ?? numericValue(for: text).flatMap(rationalFraction(for:)) : nil
+                                    )
+                                } else {
+                                    expressionText(text, displayText: displayText, isSelected: isSelected, formalFraction: formalFraction)
                                 }
                             }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .clipped()
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .clipped()
                     // A point row with attached table points shows an ellipsis to signal "more points".
                     if tableKind == .points, hasExtraPoints {
                         Text("…")
@@ -1510,11 +1547,11 @@ public struct GraphCalculatorView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 8)
 
-            if let equationID, let tableKind {
-                if tableKind == .points, completePointCount >= 2 {
+            if let equationID, isPointTableBacked {
+                if completePointCount >= 2 {
                     fitPointDataButton(equationID: equationID, rowHeight: rowHeight)
                 }
-                if tableKind == .points, canShowRegressionMenu(equationID: equationID) {
+                if canShowRegressionMenu(equationID: equationID) {
                     regressionMenuButton(equationID: equationID, sourceIndex: index, rowHeight: rowHeight)
                 }
             }
@@ -1539,13 +1576,26 @@ public struct GraphCalculatorView: View {
                 tableIconButton(equationID: equationID, kind: tableKind, rowHeight: rowHeight)
             }
 
-            Button { deleteExpression(index) } label: {
-                Image(systemName: "xmark")
-                    .font(.title2.weight(.bold))
-                    .foregroundStyle(.black.opacity(0.22))
-                    .frame(width: 44, height: rowHeight)
+            VStack(alignment: .trailing, spacing: 0) {
+                Button { deleteExpression(index) } label: {
+                    Image(systemName: "xmark")
+                        .font(.title2.weight(.bold))
+                        .foregroundStyle(.black.opacity(0.22))
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                if hasResultAnnotation, let displayValue {
+                    Spacer(minLength: 0)
+                    Text("= \(displayValue)")
+                        .font(.system(size: 36, weight: .semibold, design: .serif))
+                        .foregroundStyle(Color(red: 0.07, green: 0.63, blue: 0.36))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.55)
+                        .padding(.trailing, 6)
+                        .padding(.bottom, 5)
+                }
             }
-            .buttonStyle(.plain)
+            .frame(width: resultColumnWidth, height: rowHeight)
         }
         .frame(height: rowHeight)
         .background(Color.white)
@@ -1793,6 +1843,17 @@ public struct GraphCalculatorView: View {
         return source.unicodeScalars.allSatisfy { allowed.contains($0) }
             && !source.contains(",")
             && !source.contains("=")
+    }
+
+    // Show a result annotation below the delete button only for non-trivial scalar expressions.
+    // Bare literals ("3", "-3.14") are self-evident; scalar definitions ("a=5", "y=x") already
+    // show the value in the expression; fraction-toggled rows show the result inline instead.
+    private func shouldShowResultAnnotation(text: String, displayValue: String?, isFractionResultShown: Bool) -> Bool {
+        guard let _ = displayValue, !isFractionResultShown else { return false }
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        if Double(trimmed) != nil { return false }  // plain number literal
+        if trimmed.contains("=") { return false }   // definition or equation row
+        return true
     }
 
     private func numericValue(for source: String) -> Double? {
@@ -2223,18 +2284,11 @@ public struct GraphCalculatorView: View {
                     .frame(width: 2, height: 24)
             }
 
-            Text("=")
-                .font(.system(size: 20, weight: .semibold, design: .serif))
-                .foregroundStyle(.red.opacity(0.82))
-
             if let fractionResult {
+                Text("=")
+                    .font(.system(size: 20, weight: .semibold, design: .serif))
+                    .foregroundStyle(.red.opacity(0.82))
                 formalFractionView(fractionResult, color: Color(red: 0.07, green: 0.63, blue: 0.36))
-            } else {
-                Text(displayValue)
-                    .font(.system(size: 18, weight: .medium, design: .serif))
-                    .foregroundStyle(Color(red: 0.07, green: 0.63, blue: 0.36))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.55)
             }
         }
         .lineLimit(1)
@@ -2668,7 +2722,7 @@ public struct GraphCalculatorView: View {
         GeometryReader { proxy in
             let metrics = keypadMetrics(for: proxy.size)
             Group {
-                if isAlphabetKeypadVisible {
+                if state.isAlphabetKeypadVisible {
                     alphabetKeypad(metrics: metrics)
                 } else {
                     numberKeypad(metrics: metrics)
@@ -2743,7 +2797,7 @@ public struct GraphCalculatorView: View {
                 key("⌫", wide: true, emphasized: true, metrics: metrics) { keypadDelete() }
             }
             HStack(spacing: metrics.spacing) {
-                key("ABC", metrics: metrics) { isAlphabetKeypadVisible = true }
+                key("ABC", metrics: metrics) { state.isAlphabetKeypadVisible = true }
                 functionKey(metrics: metrics)
                 key("√", metrics: metrics) { insert("sqrt(") }
                 key("π", metrics: metrics) { insert("pi") }
@@ -2775,7 +2829,7 @@ public struct GraphCalculatorView: View {
             alphabetRow(["a", "s", "d", "f", "g", "h", "j", "k", "l"], metrics: metrics, leadingIndent: step * 0.5)
             alphabetRow(["z", "x", "c", "v", "b", "n", "m", "{", "}"], metrics: metrics, leadingIndent: step)
             HStack(spacing: metrics.spacing) {
-                key("123", metrics: metrics) { isAlphabetKeypadVisible = false }
+                key("123", metrics: metrics) { state.isAlphabetKeypadVisible = false }
                 fractionKey(metrics: metrics) { insert("()/()") }
                 key("!", metrics: metrics) { insert("!") }
                 key("_", metrics: metrics) { insert("_") }
@@ -2827,7 +2881,7 @@ public struct GraphCalculatorView: View {
 
     private func keyLabel(_ label: String, wide: Bool = false, emphasized: Bool = false, metrics: KeypadMetrics) -> some View {
         Text(label)
-            .font(.system(size: keyFontSize(for: label, metrics: metrics), weight: .medium, design: .serif))
+            .font(.system(size: keyFontSize(for: label, metrics: metrics), weight: .medium))
             .lineLimit(1)
             .minimumScaleFactor(0.5)
             .foregroundStyle(emphasized ? .white : .black.opacity(0.88))
@@ -2856,7 +2910,7 @@ public struct GraphCalculatorView: View {
                     .frame(width: metrics.columnWidth * 0.5, height: 1.4)
                 Text("b")
             }
-            .font(.system(size: min(metrics.rowHeight * 0.32, 17), weight: .semibold, design: .serif))
+            .font(.system(size: min(metrics.rowHeight * 0.32, 17), weight: .semibold))
             .foregroundStyle(.black.opacity(0.88))
             .frame(width: keyWidth(wide: false, metrics: metrics), height: metrics.rowHeight)
         }
@@ -3873,6 +3927,79 @@ public struct GraphCalculatorView: View {
         }
     }
 
+    private func inlinePointsTable(equationID: UUID) -> some View {
+        let rows = state.extraPoints(for: equationID)
+        let columns = state.pointTableColumns(for: equationID)
+        let yIsComputed = isComputedYColumn(equationID: equationID)
+
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 0) {
+                inlineTableHeader(equationID: equationID, column: .x, title: columns.xHeader)
+                inlineTableHeader(equationID: equationID, column: .y, title: columns.yHeader)
+                Spacer(minLength: 0)
+            }
+            ForEach(rows) { pair in
+                HStack(spacing: 0) {
+                    pointsEditCell(
+                        equationID: equationID,
+                        pairID: pair.id,
+                        column: .x,
+                        value: pair.x,
+                        placeholder: "x"
+                    )
+                    .frame(width: 88)
+                    if yIsComputed {
+                        computedPointCell(value: tableYValue(for: pair, equationID: equationID), placeholder: "y")
+                            .frame(width: 88)
+                    } else {
+                        pointsEditCell(
+                            equationID: equationID,
+                            pairID: pair.id,
+                            column: .y,
+                            value: pair.y,
+                            placeholder: "y"
+                        )
+                        .frame(width: 88)
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func inlineTableHeader(equationID: UUID, column: PointTableHeaderEdit.Column, title: String) -> some View {
+        let edit = PointTableHeaderEdit(equationID: equationID, column: column)
+        let isEditing = editingPointHeader == edit
+        let display = isEditing ? editingPointHeaderText : title
+        return Button {
+            beginPointHeaderEdit(edit, currentValue: title)
+        } label: {
+            Text(GraphCalculatorExpressionDisplay.string(for: display))
+                .font(.system(size: 22, weight: isEditing ? .bold : .semibold, design: .serif))
+                .foregroundStyle(isEditing ? GraphCalculatorTheme.blue : .black.opacity(0.82))
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+                .frame(width: 88, height: 38)
+                .background(isEditing ? GraphCalculatorTheme.blue.opacity(0.12) : Color.white.opacity(0.001))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .overlay(Rectangle().stroke(isEditing ? GraphCalculatorTheme.blue.opacity(0.95) : .black.opacity(0.18), lineWidth: isEditing ? 1.5 : 0.5))
+    }
+
+    private func computedPointCell(value: Double?, placeholder: String) -> some View {
+        Text(value.map { CalculatorResultFormatter.string(for: $0) } ?? placeholder)
+            .font(.system(size: 18, weight: value == nil ? .regular : .semibold, design: .serif))
+            .foregroundStyle(value == nil ? .black.opacity(0.30) : Color(red: 0.07, green: 0.63, blue: 0.36))
+            .lineLimit(1)
+            .minimumScaleFactor(0.55)
+            .padding(.horizontal, 2)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .background(Color.black.opacity(0.025))
+            .overlay(Rectangle().stroke(.black.opacity(0.16), lineWidth: 0.75))
+    }
+
     private func pointsTableEditRow(equationID: UUID, pair: GraphOrderedPair) -> some View {
         HStack(spacing: 0) {
             pointsEditCell(
@@ -3914,29 +4041,102 @@ public struct GraphCalculatorView: View {
         return Button {
             beginPointCellEdit(cell, currentValue: value)
         } label: {
-            Text(display.isEmpty ? placeholder : display)
-                .font(.system(size: 18, weight: isEditing ? .semibold : .regular, design: .serif))
-                .foregroundStyle(display.isEmpty ? .black.opacity(0.30) : .black.opacity(0.82))
-                .lineLimit(1)
-                .minimumScaleFactor(0.55)
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .padding(.horizontal, 2)
-                .background(isEditing ? GraphCalculatorTheme.blue.opacity(0.16) : Color.clear)
+            ZStack {
+                Rectangle()
+                    .fill(isEditing ? GraphCalculatorTheme.blue.opacity(0.16) : Color.white.opacity(0.001))
+                Text(display.isEmpty ? placeholder : display)
+                    .font(.system(size: 18, weight: isEditing ? .semibold : .regular, design: .serif))
+                    .foregroundStyle(display.isEmpty ? .black.opacity(0.30) : .black.opacity(0.82))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.55)
+                    .padding(.horizontal, 2)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .simultaneousGesture(TapGesture().onEnded {
+            beginPointCellEdit(cell, currentValue: value)
+        })
         .overlay(
             Rectangle()
-                .stroke(isEditing ? GraphCalculatorTheme.blue.opacity(0.95) : .black.opacity(0.10), lineWidth: isEditing ? 1.5 : 0.5)
+                .stroke(isEditing ? GraphCalculatorTheme.blue.opacity(0.95) : .black.opacity(0.16), lineWidth: isEditing ? 1.5 : 0.75)
         )
     }
 
     private func beginPointCellEdit(_ cell: PointTableCellEdit, currentValue: Double?) {
+        if editingPointHeader != nil {
+            commitPointHeaderEdit()
+            cancelPointHeaderEdit()
+        }
         if editingPointCell != nil {
             commitPointCellEdit()
         }
         editingPointCell = cell
         editingPointCellText = currentValue.map { CalculatorResultFormatter.string(for: $0) } ?? ""
         editingPointCellReplacesOnInput = true
+    }
+
+    private func beginPointHeaderEdit(_ header: PointTableHeaderEdit, currentValue: String) {
+        if editingPointCell != nil {
+            finishPointCellEdit()
+        }
+        if editingPointHeader != nil {
+            commitPointHeaderEdit()
+        }
+        editingPointHeader = header
+        editingPointHeaderText = currentValue
+        editingPointHeaderReplacesOnInput = false
+    }
+
+    private func commitPointHeaderEdit() {
+        guard let editingPointHeader else { return }
+        switch editingPointHeader.column {
+        case .x:
+            state.setPointTableXHeader(editingPointHeaderText, for: editingPointHeader.equationID)
+        case .y:
+            state.setPointTableYHeader(editingPointHeaderText, for: editingPointHeader.equationID)
+        }
+    }
+
+    private func cancelPointHeaderEdit() {
+        editingPointHeader = nil
+        editingPointHeaderText = ""
+        editingPointHeaderReplacesOnInput = false
+    }
+
+    private func finishPointHeaderEdit() {
+        commitPointHeaderEdit()
+        cancelPointHeaderEdit()
+    }
+
+    private func appendPointHeaderInput(_ text: String) {
+        guard editingPointHeader != nil else { return }
+        if editingPointHeaderReplacesOnInput {
+            editingPointHeaderText = text
+        } else {
+            editingPointHeaderText += text
+        }
+        editingPointHeaderReplacesOnInput = false
+    }
+
+    private func deletePointHeaderInput() {
+        guard editingPointHeader != nil else { return }
+        if editingPointHeaderReplacesOnInput {
+            editingPointHeaderText = ""
+            editingPointHeaderReplacesOnInput = false
+        } else if !editingPointHeaderText.isEmpty {
+            editingPointHeaderText.removeLast()
+        }
+    }
+
+    private func commitPointHeaderEditAndAdvance() {
+        guard let header = editingPointHeader else { return }
+        finishPointHeaderEdit()
+        if header.column == .y {
+            beginSelectedInlineTableCellIfNeeded()
+        }
     }
 
     private func commitPointCellEdit() {
@@ -4010,16 +4210,15 @@ public struct GraphCalculatorView: View {
 
         switch cell.column {
         case .x:
-            beginNextPointCellEdit(equationID: cell.equationID, after: index, column: .x)
-        case .y:
-            let nextIndex = rows.index(after: index)
-            if rows.indices.contains(nextIndex) {
-                let nextRow = rows[nextIndex]
-                let next = PointTableCellEdit(equationID: cell.equationID, pairID: nextRow.id, column: .y)
-                beginPointCellEdit(next, currentValue: nextRow.y)
+            if isComputedYColumn(equationID: cell.equationID) {
+                beginNextPointCellEdit(equationID: cell.equationID, after: index, column: .x)
             } else {
-                cancelPointCellEdit()
+                let row = rows[index]
+                let next = PointTableCellEdit(equationID: cell.equationID, pairID: row.id, column: .y)
+                beginPointCellEdit(next, currentValue: row.y)
             }
+        case .y:
+            beginNextPointCellEdit(equationID: cell.equationID, after: index, column: .x)
         }
     }
 
@@ -4041,6 +4240,40 @@ public struct GraphCalculatorView: View {
         guard let newRow = state.pointRows[equationID]?.last else { return }
         let cell = PointTableCellEdit(equationID: equationID, pairID: newRow.id, column: .x)
         beginPointCellEdit(cell, currentValue: newRow.x)
+    }
+
+    private func addTableRowAndBeginEditing() {
+        let equationID = state.addTable()
+        guard let firstRow = state.pointRows[equationID]?.first else { return }
+        let cell = PointTableCellEdit(equationID: equationID, pairID: firstRow.id, column: .x)
+        beginPointCellEdit(cell, currentValue: firstRow.x)
+    }
+
+    private var selectedInlineTableEquationID: UUID? {
+        guard state.expressions.indices.contains(state.selectedExpressionIndex) else { return nil }
+        let equation = state.expressions[state.selectedExpressionIndex]
+        guard equation.expression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              state.pointRows[equation.id] != nil else {
+            return nil
+        }
+        return equation.id
+    }
+
+    @discardableResult
+    private func beginSelectedInlineTableCellIfNeeded() -> Bool {
+        guard editingPointCell == nil,
+              let equationID = selectedInlineTableEquationID else {
+            return editingPointCell != nil
+        }
+        let yIsComputed = isComputedYColumn(equationID: equationID)
+        if let incomplete = state.pointRows[equationID]?.first(where: { $0.x == nil || (!yIsComputed && $0.y == nil) }) {
+            let column: PointTableCellEdit.Column = incomplete.x == nil ? .x : .y
+            let value = column == .x ? incomplete.x : incomplete.y
+            beginPointCellEdit(PointTableCellEdit(equationID: equationID, pairID: incomplete.id, column: column), currentValue: value)
+            return true
+        }
+        addPointRowAndBeginEditing(equationID: equationID)
+        return true
     }
 
     private func beginNextPointCellEdit(equationID: UUID, after index: Int, column: PointTableCellEdit.Column) {
@@ -4070,6 +4303,44 @@ public struct GraphCalculatorView: View {
         beginPointCellEdit(next, currentValue: value)
     }
 
+    private func tableYValue(for pair: GraphOrderedPair, equationID: UUID) -> Double? {
+        if let computed = computedYValue(forX: pair.x, equationID: equationID) {
+            return computed
+        }
+        return isComputedYColumn(equationID: equationID) ? nil : pair.y
+    }
+
+    private func computedYValue(forX x: Double?, equationID: UUID) -> Double? {
+        guard let x else { return nil }
+        let source = state.pointTableColumns(for: equationID).yHeader.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isComputedYHeader(source) else { return nil }
+        let normalized = GraphCalculatorExpressionResolver.normalizedExpressionForEvaluation(source)
+        guard let compiled = try? engine.compile(normalized),
+              let value = try? engine.evaluate(compiled: compiled, angleMode: .radians, variables: ["x": x]),
+              value.isFinite else {
+            return nil
+        }
+        return value
+    }
+
+    private func isComputedYColumn(equationID: UUID) -> Bool {
+        isComputedYHeader(state.pointTableColumns(for: equationID).yHeader)
+    }
+
+    private func isComputedYHeader(_ source: String) -> Bool {
+        let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        if isSimpleTableVariableName(trimmed) { return false }
+        let normalized = GraphCalculatorExpressionResolver.normalizedExpressionForEvaluation(trimmed)
+        return (try? engine.compile(normalized)) != nil
+    }
+
+    private func isSimpleTableVariableName(_ source: String) -> Bool {
+        let normalized = source.replacingOccurrences(of: "_", with: "")
+        guard let first = normalized.first, first.isLetter else { return false }
+        return normalized.allSatisfy { $0.isLetter || $0.isNumber }
+    }
+
     private func pointTableXValuesInDisplayOrder(for equationID: UUID) -> [Double] {
         var values: [Double] = []
         if let typed = typedPoint(for: equationID) {
@@ -4096,15 +4367,16 @@ public struct GraphCalculatorView: View {
             points.append(CGPoint(x: typed.0, y: typed.1))
         }
         points.append(contentsOf: state.extraPoints(for: equationID).compactMap { pair in
-            guard let x = pair.x, let y = pair.y else { return nil }
+            guard let x = pair.x, let y = tableYValue(for: pair, equationID: equationID) else { return nil }
             return CGPoint(x: x, y: y)
         })
         return points
     }
 
     private func hasIncompletePointRows(for equationID: UUID) -> Bool {
-        state.extraPoints(for: equationID).contains { pair in
-            pair.x == nil || pair.y == nil
+        let yIsComputed = isComputedYColumn(equationID: equationID)
+        return state.extraPoints(for: equationID).contains { pair in
+            pair.x == nil || (!yIsComputed && pair.y == nil) || (yIsComputed && tableYValue(for: pair, equationID: equationID) == nil)
         }
     }
 
@@ -4636,7 +4908,7 @@ public struct GraphCalculatorView: View {
 
             graphIconButton("plus") { zoom(by: 1.35) }
             graphIconButton("minus") { zoom(by: 1 / 1.35) }
-            graphIconButton("house.fill") { (onHome ?? state.resetWindow)() }
+            graphIconButton("house.fill") { (onHome ?? resetGraphWindow)() }
         }
         .padding(10)
     }
@@ -4666,7 +4938,9 @@ public struct GraphCalculatorView: View {
     }
 
     private func insert(_ text: String) {
-        if editingPointCell != nil {
+        if editingPointHeader != nil {
+            appendPointHeaderInput(text)
+        } else if editingPointCell != nil || beginSelectedInlineTableCellIfNeeded() {
             appendPointCellInput(text)
         } else if editingSliderBound != nil {
             appendSliderBoundInput(text)
@@ -4777,7 +5051,9 @@ public struct GraphCalculatorView: View {
 
     /// Keypad delete: edits the active slider bound if one is open, otherwise the expression.
     private func keypadDelete() {
-        if editingPointCell != nil {
+        if editingPointHeader != nil {
+            deletePointHeaderInput()
+        } else if editingPointCell != nil || beginSelectedInlineTableCellIfNeeded() {
             deletePointCellInput()
         } else if editingSliderBound != nil {
             deleteSliderBoundInput()
@@ -4788,7 +5064,9 @@ public struct GraphCalculatorView: View {
 
     /// Keypad return: commits an active slider-bound edit, otherwise adds a new expression row.
     private func keypadReturn() {
-        if editingPointCell != nil {
+        if editingPointHeader != nil {
+            commitPointHeaderEditAndAdvance()
+        } else if editingPointCell != nil || beginSelectedInlineTableCellIfNeeded() {
             commitPointCellEditAndAdvance()
         } else if editingSliderBound != nil {
             commitSliderBoundEdit()
@@ -5205,7 +5483,7 @@ public struct GraphCalculatorView: View {
         guard let readout = nearestGraphReadout(
             at: viewPoint,
             size: size,
-            including: [.xIntercept, .yIntercept, .intersection]
+            including: [.xIntercept, .yIntercept, .intersection, .localMax, .localMin]
         ) else {
             state.selectedPoints = []
             return
@@ -5216,14 +5494,15 @@ public struct GraphCalculatorView: View {
 
     private func appendSelectedGraphReadout(_ readout: GraphCalculatorPointReadout) {
         let minimumSeparation = max(state.graphWindow.width, state.graphWindow.height) * 1e-6
-        guard !state.selectedPoints.contains(where: { existing in
+        if let existingIndex = state.selectedPoints.firstIndex(where: { existing in
             existing.kind == readout.kind &&
             existing.expressionIndex == readout.expressionIndex &&
             graphDistanceSquared(from: existing, to: readout) <= minimumSeparation * minimumSeparation
-        }) else {
-            return
+        }) {
+            state.selectedPoints.remove(at: existingIndex)
+        } else {
+            state.selectedPoints.append(readout)
         }
-        state.selectedPoints.append(readout)
     }
 
     private func refreshSelectedInterceptReadout() {
@@ -5238,6 +5517,9 @@ public struct GraphCalculatorView: View {
                 candidates = intersectionReadouts()
             case .plottedPoint:
                 return selected
+            case .localMax, .localMin:
+                guard let expressionIndex = selected.expressionIndex else { return nil }
+                candidates = localExtremaReadouts(forExpressionIndex: expressionIndex, kind: selected.kind)
             }
 
             return candidates.min(by: { lhs, rhs in
@@ -5264,7 +5546,7 @@ public struct GraphCalculatorView: View {
             case .yIntercept:
                 guard let yValue = evaluate(compiled: compiled, at: 0, variableValues: variables) else { return [] }
                 return [GraphCalculatorPointReadout(x: 0, y: yValue, expressionIndex: expressionIndex, kind: .yIntercept)]
-            case .intersection, .plottedPoint:
+            case .intersection, .plottedPoint, .localMax, .localMin:
                 return []
             }
         }
@@ -5283,7 +5565,7 @@ public struct GraphCalculatorView: View {
             return implicitAxisRoots(of: compiled, fixedX: 0, in: window, variableValues: variables).map { root in
                 GraphCalculatorPointReadout(x: 0, y: root, expressionIndex: expressionIndex, kind: .yIntercept)
             }
-        case .intersection, .plottedPoint:
+        case .intersection, .plottedPoint, .localMax, .localMin:
             return []
         }
     }
@@ -5402,6 +5684,11 @@ public struct GraphCalculatorView: View {
             // y-intercept: the single point (0, f(0)), if the curve is defined at x = 0.
             if let yValue = evaluate(compiled: curve.compiled, at: 0, variableValues: variables) {
                 consider(x: 0, y: yValue, index: curve.index, kind: .yIntercept)
+            }
+
+            // Local maxima and minima.
+            for ext in localExtrema(of: curve.compiled, in: window, variableValues: variables) {
+                consider(x: ext.x, y: ext.y, index: curve.index, kind: ext.isMax ? .localMax : .localMin)
             }
         }
 
@@ -5751,6 +6038,80 @@ public struct GraphCalculatorView: View {
         return (low + high) / 2
     }
 
+    /// Finds local maxima and minima of `compiled` in `window` by detecting sign changes in
+    /// the numerical first derivative. Returns each extremum as (x, y, isMax).
+    private func localExtrema(
+        of compiled: CalculatorExpression,
+        in window: GraphWindow,
+        variableValues: [String: Double]
+    ) -> [(x: Double, y: Double, isMax: Bool)] {
+        let h = window.width * 1e-5
+
+        func evalY(_ x: Double) -> Double? {
+            evaluate(compiled: compiled, at: x, variableValues: variableValues)
+        }
+
+        func derivative(_ x: Double) -> Double? {
+            guard let y1 = evalY(x - h), let y2 = evalY(x + h),
+                  y1.isFinite, y2.isFinite else { return nil }
+            return (y2 - y1) / (2 * h)
+        }
+
+        let samples = CalculatorGraphGeometry.sample(window: window, count: 600, eval: evalY)
+        var extrema: [(x: Double, y: Double, isMax: Bool)] = []
+        var prevX: Double?
+        var prevDy: Double?
+
+        for sample in samples {
+            guard let _ = sample.y else { prevX = nil; prevDy = nil; continue }
+            let x = sample.x
+            guard let dy = derivative(x), dy.isFinite else { prevX = x; prevDy = nil; continue }
+            defer { prevX = x; prevDy = dy }
+            guard let px = prevX, let pdx = prevDy, pdx.isFinite else { continue }
+            guard (pdx > 0) != (dy > 0) else { continue }
+            let xExtreme = bisectDerivative(x0: px, x1: x, derivative: derivative)
+            guard let yExtreme = evalY(xExtreme), yExtreme.isFinite else { continue }
+            appendExtremum((x: xExtreme, y: yExtreme, isMax: pdx > 0), to: &extrema, window: window)
+        }
+        return extrema
+    }
+
+    private func bisectDerivative(x0: Double, x1: Double, derivative: (Double) -> Double?) -> Double {
+        var low = x0
+        var high = x1
+        guard var lowDy = derivative(low) else { return (x0 + x1) / 2 }
+        for _ in 0..<40 {
+            let mid = (low + high) / 2
+            guard let midDy = derivative(mid) else { return mid }
+            if midDy == 0 { return mid }
+            if (lowDy < 0) == (midDy < 0) { low = mid; lowDy = midDy } else { high = mid }
+        }
+        return (low + high) / 2
+    }
+
+    private func appendExtremum(
+        _ point: (x: Double, y: Double, isMax: Bool),
+        to extrema: inout [(x: Double, y: Double, isMax: Bool)],
+        window: GraphWindow
+    ) {
+        let minimumSeparation = window.width * 1e-3
+        if extrema.contains(where: { abs($0.x - point.x) <= minimumSeparation }) { return }
+        extrema.append(point)
+    }
+
+    private func localExtremaReadouts(
+        forExpressionIndex expressionIndex: Int,
+        kind: GraphCalculatorPointReadout.Kind
+    ) -> [GraphCalculatorPointReadout] {
+        guard let row = resolvedRows.first(where: { $0.index == expressionIndex }),
+              let source = interceptSourceExpression(for: row.plot),
+              let compiled = try? engine.compile(source) else { return [] }
+        return localExtrema(of: compiled, in: state.graphWindow, variableValues: graphVariableValues).compactMap { ext in
+            guard (kind == .localMax && ext.isMax) || (kind == .localMin && !ext.isMax) else { return nil }
+            return GraphCalculatorPointReadout(x: ext.x, y: ext.y, expressionIndex: expressionIndex, kind: kind)
+        }
+    }
+
     private func graphMagnifyGesture(size: CGSize) -> some Gesture {
         MagnifyGesture()
             .onChanged { value in
@@ -5793,7 +6154,7 @@ public struct GraphCalculatorView: View {
     private func dockedCalculatorExpandedSize(in containerSize: CGSize) -> CGSize {
         let verticalMargin: CGFloat = 28
         let graphHeight = dockedGraphHeight(in: containerSize)
-        let preferredHeight = expandedHeaderHeight + graphHeight + 48 + baseEntryHeight + keypadHeight
+        let preferredHeight = expandedHeaderHeight + graphHeight + 48 + dockedEntryHeight + dockedKeypadHeight
         return CGSize(
             width: min(containerSize.width, 440),
             height: min(max(containerSize.height - verticalMargin * 2, 0), preferredHeight)
@@ -5822,7 +6183,7 @@ public struct GraphCalculatorView: View {
 
     private func dockedGraphHeight(in containerSize: CGSize) -> CGFloat {
         let verticalMargin: CGFloat = 28
-        let fixedHeight = dockedHeaderHeight + 48 + baseEntryHeight + keypadHeight
+        let fixedHeight = dockedHeaderHeight + 48 + dockedEntryHeight + dockedKeypadHeight
         let availableHeight = max(containerSize.height - verticalMargin * 2 - fixedHeight, 220)
         let availableWidth = min(containerSize.width, 440)
         return min(preferredDockedGraphHeight, availableWidth, availableHeight)
@@ -7030,6 +7391,20 @@ private struct PointTableCellEdit: Identifiable, Equatable {
 
     var id: String {
         "\(equationID)-\(pairID)-\(column)"
+    }
+}
+
+private struct PointTableHeaderEdit: Identifiable, Equatable {
+    enum Column {
+        case x
+        case y
+    }
+
+    let equationID: UUID
+    let column: Column
+
+    var id: String {
+        "\(equationID)-header-\(column)"
     }
 }
 

@@ -11,6 +11,32 @@ import CoreGraphics
 import CoreText
 import UniformTypeIdentifiers
 
+#if os(macOS)
+import AppKit
+#endif
+
+private extension Color {
+    static var matchGridSystemBackground: Color {
+        #if os(macOS)
+        Color(nsColor: .windowBackgroundColor)
+        #elseif os(iOS)
+        Color(.systemBackground)
+        #else
+        Color(.background)
+        #endif
+    }
+
+    static var matchGridSecondarySystemBackground: Color {
+        #if os(macOS)
+        Color(nsColor: .controlBackgroundColor)
+        #elseif os(iOS)
+        Color(.secondarySystemBackground)
+        #else
+        Color(.secondary.opacity(0.08))
+        #endif
+    }
+}
+
 @MainActor
 @Observable
 final class MatchGridState {
@@ -517,7 +543,7 @@ private struct MatchGridAnswerSheetView: View {
                 .padding(20)
             }
         }
-        .background(Color(.systemBackground))
+        .background(Color.matchGridSystemBackground)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -565,7 +591,7 @@ private struct MatchGridAnswerSheetView: View {
             Text("Answer Key")
                 .font(.title3.weight(.bold))
 
-            ForEach(pairs) { pair in
+            ForEach(pairs, id: \.id) { pair in
                 let matchingCards = cards.filter { $0.pairID == pair.id }.sorted { $0.number < $1.number }
                 HStack(alignment: .top, spacing: 10) {
                     Text(matchingCards.map { "\($0.number)" }.joined(separator: " & "))
@@ -580,7 +606,7 @@ private struct MatchGridAnswerSheetView: View {
                 }
                 .padding(8)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(.secondarySystemBackground))
+                .background(Color.matchGridSecondarySystemBackground)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             }
         }
@@ -612,7 +638,7 @@ private struct MatchGridAnswerSheetView: View {
                 }
                 .padding(8)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(.secondarySystemBackground))
+                .background(Color.matchGridSecondarySystemBackground)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             }
         }

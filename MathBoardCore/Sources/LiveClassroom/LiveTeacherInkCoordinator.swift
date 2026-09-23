@@ -25,9 +25,11 @@ public final class LiveTeacherInkCoordinator {
     public var onReceivedTeacherInkDrawingSnapshot: ((TeacherInkDrawingSnapshot) -> Void)?
     public var onReceivedTeacherObjectSnapshot: ((TeacherObjectSnapshot) -> Void)?
     public var onReceivedTeacherSlideManifestSnapshot: ((TeacherSlideManifestSnapshot) -> Void)?
+    public var onReceivedTeacherPencilHover: ((CanvasPencilHover?) -> Void)?
 
     public static let defaultPublishInterval: Duration = .milliseconds(85)
     public static let maximumTransportPointCount = TeacherInkStrokeChunk.maximumPointCount
+    private static let hoverPublishInterval: Duration = .milliseconds(60)
 
     private static let maximumReceivedStrokeCount = 800
 
@@ -42,6 +44,9 @@ public final class LiveTeacherInkCoordinator {
     private var pendingStroke: CanvasLiveStroke?
     private var pendingSlideID: UUID?
     private var pendingPublishTask: Task<Void, Never>?
+    private var pendingHover: CanvasPencilHover?
+    private var pendingHoverSlideID: UUID?
+    private var pendingHoverPublishTask: Task<Void, Never>?
 
     public init(
         publishInterval: Duration = LiveTeacherInkCoordinator.defaultPublishInterval,
@@ -70,6 +75,10 @@ public final class LiveTeacherInkCoordinator {
         pendingSlideID = nil
         pendingPublishTask?.cancel()
         pendingPublishTask = nil
+        pendingHover = nil
+        pendingHoverSlideID = nil
+        pendingHoverPublishTask?.cancel()
+        pendingHoverPublishTask = nil
 
         guard let newConfiguration else { return }
         let newSession = sessionFactory(newConfiguration)
@@ -84,6 +93,9 @@ public final class LiveTeacherInkCoordinator {
         }
         newSession.onTeacherSlideManifestSnapshot = { [weak self] snapshot in
             self?.receive(snapshot)
+        }
+        newSession.onTeacherPencilHover = { [weak self] event in
+            self?.receive(event)
         }
         session = newSession
         newSession.start()
@@ -130,6 +142,28 @@ public final class LiveTeacherInkCoordinator {
         }
         lastPublishedStroke = nil
         lastPublishedSlideID = nil
+    }
+
+    public func publishTeacherPencilHover(_ hover: CanvasPencilHover?, slideID: UUID) {
+        guard let configuration, configuration.role == .teacher, let session else { return }
+
+        guard let hover else {
+            pendingHoverPublishTask?.cancel()
+            pendingHoverPublishTask = nil
+            pendingHover = nil
+            pendingHoverSlideID = nil
+            let event = TeacherPencilHoverEvent(
+                lessonCode: configuration.lessonCode,
+                x: 0, y: 0, altitudeAngle: 0, azimuthAngle: 0,
+                isWriting: false, isActive: false
+            )
+            session.publishTeacherPencilHover(event)
+            return
+        }
+
+        pendingHover = hover
+        pendingHoverSlideID = slideID
+        schedulePendingHoverPublish(session: session, configuration: configuration)
     }
 
     public func seedInitialInkDrawingSnapshots(_ snapshots: [TeacherInkDrawingSnapshot]) {
@@ -201,7 +235,8 @@ public final class LiveTeacherInkCoordinator {
         revision: Int,
         slides: [TeacherSlideMetadata],
         activeSlideID: UUID? = nil,
-        isFollowMeEnabled: Bool = false
+        isFollowMeEnabled: Bool = false,
+        deletedSlideIDs: [UUID] = []
     ) {
         guard let configuration,
               configuration.role == .teacher,
@@ -214,7 +249,8 @@ public final class LiveTeacherInkCoordinator {
             revision: revision,
             slides: slides,
             activeSlideID: activeSlideID,
-            isFollowMeEnabled: isFollowMeEnabled
+            isFollowMeEnabled: isFollowMeEnabled,
+            deletedSlideIDs: deletedSlideIDs
         )
         let liveSnapshot = snapshot.withoutEmbeddedBackgroundAssets()
         latestSlideManifestSnapshot = liveSnapshot
@@ -288,6 +324,40 @@ public final class LiveTeacherInkCoordinator {
         if chunk.isFinalChunk {
             onPublishedTeacherInkChunk?(chunk)
         }
+    }
+
+    private func schedulePendingHoverPublish(session: any LiveClassroomSessioning, configuration: LiveClassroomSessionConfiguration) {
+        guard pendingHoverPublishTask == nil else { return }
+        pendingHoverPublishTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: Self.hoverPublishInterval)
+            } catch {
+                return
+            }
+            self?.publishPendingHover(session: session, configuration: configuration)
+        }
+    }
+
+    private func publishPendingHover(session: any LiveClassroomSessioning, configuration: LiveClassroomSessionConfiguration) {
+        pendingHoverPublishTask = nil
+        guard let hover = pendingHover else { return }
+        pendingHover = nil
+        pendingHoverSlideID = nil
+
+        let event = TeacherPencilHoverEvent(
+            lessonCode: configuration.lessonCode,
+            x: Double(hover.canvasPoint.x),
+            y: Double(hover.canvasPoint.y),
+            altitudeAngle: Double(hover.altitudeAngle),
+            azimuthAngle: Double(hover.azimuthAngle),
+            isWriting: hover.isWriting,
+            isActive: true
+        )
+        session.publishTeacherPencilHover(event)
+    }
+
+    private func receive(_ event: TeacherPencilHoverEvent) {
+        onReceivedTeacherPencilHover?(event.canvasPencilHover)
     }
 
     private func receive(_ chunk: TeacherInkStrokeChunk) {

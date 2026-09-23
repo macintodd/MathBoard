@@ -70,6 +70,7 @@ public struct WidgetCanvasOverlayView: View {
     @Binding private var widgets: [WidgetObject]
     private let viewport: WidgetCanvasViewport
     private let canvasIdentity: String
+    private let widgetAssetBaseURL: URL?
     private let scoreSheet: WidgetActivityScoreSheet
     private let onEditWidget: ((WidgetObject) -> Void)?
     private let allowsWidgetAuthoring: Bool
@@ -77,22 +78,28 @@ public struct WidgetCanvasOverlayView: View {
     private let onWidgetDisplayFrameChanged: ((WidgetObject.ID, CGRect?) -> Void)?
     private let onMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)?
     private let onImageInsertionRequested: (@MainActor (WidgetCanvasImageInsertionRequest) -> Void)?
+    private let showsTeacherDemoWebApplets: Bool
+    private let isExternalDisplay: Bool
 
     public init(
         widgets: Binding<[WidgetObject]>,
         viewport: WidgetCanvasViewport,
         canvasIdentity: String = "",
+        widgetAssetBaseURL: URL? = nil,
         scoreSheet: WidgetActivityScoreSheet,
         onEditWidget: ((WidgetObject) -> Void)? = nil,
         allowsWidgetAuthoring: Bool = true,
         onWidgetInteractionChanged: ((Bool) -> Void)? = nil,
         onWidgetDisplayFrameChanged: ((WidgetObject.ID, CGRect?) -> Void)? = nil,
         onMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)? = nil,
-        onImageInsertionRequested: (@MainActor (WidgetCanvasImageInsertionRequest) -> Void)? = nil
+        onImageInsertionRequested: (@MainActor (WidgetCanvasImageInsertionRequest) -> Void)? = nil,
+        showsTeacherDemoWebApplets: Bool = true,
+        isExternalDisplay: Bool = false
     ) {
         _widgets = widgets
         self.viewport = viewport
         self.canvasIdentity = canvasIdentity
+        self.widgetAssetBaseURL = widgetAssetBaseURL
         self.scoreSheet = scoreSheet
         self.onEditWidget = onEditWidget
         self.allowsWidgetAuthoring = allowsWidgetAuthoring
@@ -100,12 +107,14 @@ public struct WidgetCanvasOverlayView: View {
         self.onWidgetDisplayFrameChanged = onWidgetDisplayFrameChanged
         self.onMathInputRequested = onMathInputRequested
         self.onImageInsertionRequested = onImageInsertionRequested
+        self.showsTeacherDemoWebApplets = showsTeacherDemoWebApplets
+        self.isExternalDisplay = isExternalDisplay
     }
 
     public var body: some View {
         ZStack(alignment: .topLeading) {
             ForEach(widgets) { widget in
-                if let widgetBinding = sourceBinding(for: widget.id) {
+                if shouldRender(widget), let widgetBinding = sourceBinding(for: widget.id) {
                     WidgetContainerView(
                         widget: displayBinding(for: widgetBinding),
                         scoreSheet: scoreSheet,
@@ -117,13 +126,19 @@ public struct WidgetCanvasOverlayView: View {
                             onWidgetDisplayFrameChanged?(widget.id, frame)
                         },
                         onMathInputRequested: onMathInputRequested,
-                        onImageInsertionRequested: onImageInsertionRequested
+                        onImageInsertionRequested: onImageInsertionRequested,
+                        widgetAssetBaseURL: widgetAssetBaseURL,
+                        isExternalDisplay: isExternalDisplay
                     )
                     .id("\(canvasIdentity)-\(widget.id.uuidString)")
                 }
             }
         }
         .ignoresSafeArea()
+    }
+
+    private func shouldRender(_ widget: WidgetObject) -> Bool {
+        showsTeacherDemoWebApplets || widget.builtInInteractiveKind?.isTeacherDemoWebApplet != true
     }
 
     private func deleteWidget(id: WidgetObject.ID) {

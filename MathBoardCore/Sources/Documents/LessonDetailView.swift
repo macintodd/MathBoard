@@ -21,7 +21,6 @@ struct LessonDetailView: View {
     @Environment(ClassroomAssignmentStore.self) private var assignmentStore
     @Environment(MathBoardTeacherAuthStore.self) private var teacherAuthStore
     @AppStorage(LiveClassroomSettings.enabledKey) private var isLiveTeacherInkEnabled = false
-    @AppStorage(LiveClassroomSettings.ablyAPIKeyKey) private var liveTeacherInkAblyAPIKey = ""
     @State private var classroomMode: MathBoardClassroomMode = .teacher
     @State private var selectedTeachingAssignmentID: UUID?
     @State private var isLiveProgressDrawerOpen = false
@@ -57,7 +56,17 @@ struct LessonDetailView: View {
             onLessonContentChanged: propagateMasterLessonChanges,
             isEditingLocked: isMasterLessonEditingLocked
         )
-            .onAppear { DisplayBroker.shared.lessonURL = lesson.url }
+            .environment(\.widgetClassroomGameContext, teacherWidgetClassroomGameContext)
+            .onAppear {
+                DisplayBroker.shared.lessonURL = lesson.url
+                DisplayBroker.shared.widgetClassroomGameContext = teacherWidgetClassroomGameContext
+            }
+            .onChange(of: teacherWidgetClassroomGameContext) { _, newContext in
+                DisplayBroker.shared.widgetClassroomGameContext = newContext
+            }
+            .onDisappear {
+                DisplayBroker.shared.widgetClassroomGameContext = nil
+            }
             .overlay(alignment: .trailing) {
                 liveProgressOverlay
             }
@@ -90,6 +99,10 @@ struct LessonDetailView: View {
             }
             .onChange(of: selectedTeachingAssignmentID) { _, newAssignmentID in
                 selectedLiveProgressAssignmentID = newAssignmentID
+                if let newAssignmentID,
+                   let assignment = lessonAssignments.first(where: { $0.id == newAssignmentID }) {
+                    insertClassCodeWidgetIfNeeded(for: assignment)
+                }
             }
             .onChange(of: selectedLiveProgressAssignmentID) { _, _ in
                 selectedLiveProgressWidgetID = nil
@@ -103,7 +116,10 @@ struct LessonDetailView: View {
             .sheet(isPresented: $isLiveTeacherInkSettingsPresented) {
                 LiveTeacherInkSettingsView(
                     isEnabled: $isLiveTeacherInkEnabled,
-                    apiKey: $liveTeacherInkAblyAPIKey
+                    apiKey: Binding(
+                        get: { LiveClassroomSettings.shared.ablyAPIKey },
+                        set: { LiveClassroomSettings.shared.ablyAPIKey = $0 }
+                    )
                 )
             }
             #if canImport(UIKit)
@@ -158,9 +174,13 @@ struct LessonDetailView: View {
             // No widget selected — manual scoring is the default for all slides.
             return true
         }
-        // Auto-scored widgets (isScoreable = true) provide Firebase scores.
-        // Everything else (MatchGrid, timers, tools, unknown widgets) uses manual scoring.
-        return !(widget.builtInKind?.isScoreable ?? false)
+        if let builtInKind = widget.builtInKind {
+            // Built-in demos such as MatchGrid, timers, and tools do not publish score records.
+            return !builtInKind.isScoreable
+        }
+        // JSON/HTML activity widgets do not have a built-in kind, but a positive max score
+        // means the widget publishes its own Firebase score record.
+        return widget.maxScore <= 0
     }
 
     private var liveProgressTaskKey: String {
@@ -190,7 +210,7 @@ struct LessonDetailView: View {
             lessonCode: selectedTeachingAssignment.classLessonCode,
             role: .teacher,
             clientID: clientID,
-            apiKey: liveTeacherInkAblyAPIKey
+            apiKey: LiveClassroomSettings.shared.ablyAPIKey
         )
         return configuration.isUsable ? configuration : nil
     }
@@ -202,10 +222,66 @@ struct LessonDetailView: View {
         if lessonAssignments.isEmpty || selectedTeachingAssignment == nil {
             return .missingLessonCode
         }
-        if liveTeacherInkAblyAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if LiveClassroomSettings.shared.ablyAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return .missingAPIKey
         }
         return .ready
+    }
+
+    private var teacherWidgetClassroomGameContext: WidgetClassroomGameContext? {
+        guard classroomMode == .teacher,
+              let classroom = selectedTeachingClassroom else { return nil }
+        let teacherID = teacherAuthStore.state.userID ?? "local"
+        let teacher = WidgetClassroomParticipant(
+            id: "teacher-\(teacherID)",
+            displayName: "Teacher",
+            role: .teacher
+        )
+        let students = classroom.students.map { student in
+            WidgetClassroomParticipant(
+                id: student.id.uuidString,
+                displayName: student.displayName,
+                role: .student
+            )
+        }
+        return WidgetClassroomGameContext(
+            role: .teacher,
+            currentParticipantID: teacher.id,
+            participants: [teacher] + students,
+            liveProgressRecords: classroomLiveProgressRecords(for: classroom)
+        )
+    }
+
+    private func classroomLiveProgressRecords(for classroom: Classroom) -> [WidgetClassroomLiveProgressRecord] {
+        liveProgressRows.compactMap { progress in
+            guard progress.classroomID == classroom.id,
+                  progress.widgetID != StudentWidgetLiveProgress.lessonPresenceWidgetID,
+                  let student = classroom.students.first(where: { matches(progress, student: $0) }) else {
+                return nil
+            }
+            return WidgetClassroomLiveProgressRecord(
+                widgetID: progress.widgetID,
+                participantID: student.id.uuidString,
+                displayName: progress.studentPreferredFirstName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                    ? progress.studentPreferredFirstName ?? student.displayName
+                    : student.displayName,
+                correctCount: progress.correctCount,
+                attemptedCount: progress.attemptedCount,
+                isActiveOnStudentScreen: progress.isActiveOnStudentScreen,
+                updatedAt: progress.updatedAt,
+                metadata: progress.metadata
+            )
+        }
+    }
+
+    private func matches(_ progress: StudentWidgetLiveProgress, student: RosterStudent) -> Bool {
+        progress.studentID == student.id ||
+        normalizedStudentIdentifier(progress.studentIdentifier) == normalizedStudentIdentifier(student.officialStudentID) ||
+        normalizedStudentIdentifier(progress.studentIdentifier) == normalizedStudentIdentifier(student.alternateStudentID)
+    }
+
+    private func normalizedStudentIdentifier(_ identifier: String) -> String {
+        identifier.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
     }
 
     @ViewBuilder
@@ -434,12 +510,12 @@ struct LessonDetailView: View {
     }
 
     private func pollLiveProgressIfNeeded() async {
-        guard isLiveProgressDrawerOpen else { return }
+        guard isLiveProgressDrawerOpen || selectedTeachingAssignment != nil else { return }
         await refreshLiveProgress()
 
-        while !Task.isCancelled && isLiveProgressDrawerOpen {
+        while !Task.isCancelled && (isLiveProgressDrawerOpen || selectedTeachingAssignment != nil) {
             do {
-                try await Task.sleep(for: .seconds(5))
+                try await Task.sleep(for: .seconds(1))
             } catch {
                 return
             }
@@ -595,6 +671,100 @@ struct LessonDetailView: View {
         )
     }
 
+    private func insertClassCodeWidgetIfNeeded(for assignment: ClassroomAssignment) {
+        guard let classroom = rosterStore.classrooms.first(where: { $0.id == assignment.classroomID }) else { return }
+
+        let sessionCode = assignment.classLessonCode
+        let slideStore = SlideStore(lessonURL: lesson.url, classroomSessionCode: sessionCode)
+        guard let slide1 = slideStore.slides.first else { return }
+
+        let drawingURL = slideStore.drawingURL(for: slide1)
+
+        // Marker lives in the class-session root (one level above strokes/)
+        let markerURL = drawingURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent(".code-widget-placed")
+        guard !FileManager.default.fileExists(atPath: markerURL.path) else { return }
+
+        let widget = WidgetObject(
+            name: "Class Code",
+            codeString: classCodeWidgetHTML(
+                code: sessionCode,
+                className: classroom.name,
+                colorHex: classroom.color.hexString
+            ),
+            frame: CGRect(x: 60, y: 60, width: 320, height: 120),
+            isPinnedToCanvas: true,
+            isTeacherOnly: true
+        )
+
+        let sidecarURL = WidgetObject.sidecarURL(forDrawingURL: drawingURL)
+        var existing = WidgetObject.load(from: sidecarURL)
+        existing.append(widget)
+        try? WidgetObject.save(existing, to: sidecarURL)
+        try? "1".write(to: markerURL, atomically: true, encoding: .utf8)
+    }
+
+    private func classCodeWidgetHTML(code: String, className: String, colorHex: String) -> String {
+        let escapedCode = escapeHTML(code)
+        let escapedName = escapeHTML(className)
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+          body {
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background: \(colorHex);
+            font-family: -apple-system, sans-serif;
+            color: #1a1a1a;
+            overflow: hidden;
+          }
+          .label {
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            opacity: 0.65;
+            margin-bottom: 6px;
+          }
+          .code {
+            font-family: ui-monospace, monospace;
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+          }
+          .class-name {
+            font-size: 13px;
+            margin-top: 6px;
+            opacity: 0.65;
+          }
+        </style>
+        </head>
+        <body>
+          <div class="label">Join Code</div>
+          <div class="code">\(escapedCode)</div>
+          <div class="class-name">\(escapedName)</div>
+        </body>
+        </html>
+        """
+    }
+
+    private func escapeHTML(_ string: String) -> String {
+        string
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+    }
+
     #if canImport(UIKit)
     // Floating back button + lesson title rendered over the whiteboard so the
     // canvas can extend to the very top of the screen. Tapping the title opens
@@ -605,15 +775,15 @@ struct LessonDetailView: View {
                 dismiss()
             } label: {
                 Image(systemName: "chevron.backward")
-                    .font(.system(size: 18, weight: .semibold))
-                    .frame(width: 40, height: 40)
+                    .font(.system(size: 20, weight: .semibold))
+                    .frame(width: 48, height: 48)
                     .background(.ultraThinMaterial, in: Circle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Back")
 
             Menu {
-                Section("Classroom Mode") {
+                Section(lesson.name) {
                     Picker("Classroom Mode", selection: $classroomMode) {
                         ForEach(MathBoardClassroomMode.allCases) { mode in
                             Label(mode.displayName, systemImage: mode.systemImage).tag(mode)
@@ -624,14 +794,14 @@ struct LessonDetailView: View {
                     Label(liveTeacherInkStatus.title, systemImage: liveTeacherInkStatus.systemImage)
                         .foregroundStyle(liveTeacherInkStatus.color)
                     Toggle("Sync teacher ink", isOn: $isLiveTeacherInkEnabled)
-                    Button(liveTeacherInkAblyAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Set Ably API Key" : "Edit Ably API Key") {
+                    Button(LiveClassroomSettings.shared.ablyAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Set Ably API Key" : "Edit Ably API Key") {
                         isLiveTeacherInkSettingsPresented = true
                     }
                     .disabled(lessonAssignments.isEmpty)
                 }
             } label: {
                 HStack(spacing: 8) {
-                    Text(lesson.name)
+                    Text(lesson.name.count > 20 ? String(lesson.name.prefix(20)) + "…" : lesson.name)
                         .font(.headline)
                         .lineLimit(1)
                     Image(systemName: classroomMode.systemImage)
@@ -647,8 +817,20 @@ struct LessonDetailView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Lesson menu")
+
+            Button {
+                DisplayBroker.shared.isBroadcastFrozen.toggle()
+            } label: {
+                Image(systemName: DisplayBroker.shared.isBroadcastFrozen ? "snowflake" : "dot.radiowaves.right")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(DisplayBroker.shared.isBroadcastFrozen ? Color.red : Color.primary)
+                    .frame(width: 40, height: 40)
+                    .background(.ultraThinMaterial, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(DisplayBroker.shared.isBroadcastFrozen ? "Unfreeze broadcast" : "Freeze broadcast")
         }
-        .padding(.top, 8)
+        .padding(.top, 26)
         .padding(.leading, 12)
     }
     #endif
@@ -708,7 +890,9 @@ private struct LiveTeacherInkSettingsView: View {
                 Section {
                     Toggle("Sync teacher ink", isOn: $isEnabled)
                     SecureField("Ably API key", text: $apiKey)
+                        #if os(iOS)
                         .textInputAutocapitalization(.never)
+                        #endif
                         .autocorrectionDisabled()
                 } footer: {
                     Text("This proof of concept stores the key locally on this device. Production should replace this with short-lived Ably tokens from a server.")
@@ -809,13 +993,20 @@ private struct LiveProgressDrawerView: View {
         }
     }
 
+    private var autoScoredWidgets: [AssignedWidgetSummary] {
+        assignment.widgetSummaries.filter { widget in
+            if let kind = widget.builtInKind { return kind.isScoreable }
+            return widget.maxScore > 0
+        }
+    }
+
     private var controls: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if !assignment.widgetSummaries.isEmpty {
+            if !autoScoredWidgets.isEmpty {
                 Picker("Scoring", selection: $selectedWidgetID) {
                     Text("Manual scoring")
                         .tag(Optional<UUID>.none)
-                    ForEach(assignment.widgetSummaries) { widget in
+                    ForEach(autoScoredWidgets) { widget in
                         Text(widget.title)
                             .tag(Optional(widget.widgetID))
                     }

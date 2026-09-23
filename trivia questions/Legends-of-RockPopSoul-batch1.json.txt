@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "widgetId": "legends-music-02",
+  "activity": "multipleChoice",
+  "title": "Legends of Rock, Pop, & Soul",
+  "description": "Unforgettable musical artists, chart-topping hits, and vinyl milestones.",
+  "learningObjective": "Identify classic musicians and legendary hit songs from the golden era of radio.",
+  "difficulty": "medium",
+  "rules": {
+    "scoreMode": "correctOutOfTotal",
+    "advanceMode": "automaticOnCorrect",
+    "allowRetry": true,
+    "maxRetries": 1,
+    "shuffleQuestions": false,
+    "shuffleChoices": true,
+    "calculatorAllowed": false
+  },
+  "questions": [
+    {
+      "id": "music-0201",
+      "prompt": "Which legendary singer-songwriter released the iconic 1971 folk-pop masterpiece album 'Tapestry'?",
+      "choices": ["Joni Mitchell", "Carole King", "Carly Simon", "Stevie Nicks"],
+      "correctAnswerIndex": 1,
+      "explanation": "Carole King's 'Tapestry' spent 15 weeks at number one on the Billboard 200."
+    },
+    {
+      "id": "music-0202",
+      "prompt": "What was the name of the groundbreaking MTV music video channel's very first music video broadcast in August 1981?",
+      "choices": ["Billie Jean by Michael Jackson", "Video Killed the Radio Star by The Buggles", "You Better You Bet by The Who", "Rock with You by Michael Jackson"],
+      "correctAnswerIndex": 1,
+      "explanation": "The Buggles' 'Video Killed the Radio Star' appropriately inaugurated the 24-hour music television era."
+    },
+    {
+      "id": "music-0203",
+      "prompt": "Which rock band led by singer Steven Tyler rose to fame in the 1970s with hits like 'Dream On' and 'Walk This Way'?",
+      "choices": ["AC/DC", "Aerosmith", "Kiss", "Van Halen"],
+      "correctAnswerIndex": 1,
+      "explanation": "Aerosmith became one of America's all-time greatest rock and roll bands."
+    },
+    {
+      "id": "music-0204",
+      "prompt": "Who earned global acclaim as the 'Godfather of Soul' and electrified stages with legendary dance moves and hits like 'I Got You (I Feel Good)'?",
+      "choices": ["Otis Redding", "James Brown", "Wilson Pickett", "Sam Cooke"],
+      "correctAnswerIndex": 1,
+      "explanation": "James Brown was a primary force in the creation of funk music and soul."
+    },
+    {
+      "id": "music-0205",
+      "prompt": "Which iconic British rock band released the dark, psychological masterpiece album 'The Dark Side of the Moon' in 1973?",
+      "choices": ["Led Zeppelin", "The Who", "Pink Floyd", "Genesis"],
+      "correctAnswerIndex": 2,
+      "explanation": "Pink Floyd's album remained on the Billboard charts for a record-breaking number of weeks."
+    },
+    {
+      "id": "music-0206",
+      "prompt": "What legendary California rock band released the 1977 masterpiece album 'Rumours', driven by interpersonal band dynamics?",
+      "choices": ["The Eagles", "Fleetwood Mac", "The Doobie Brothers", "Creedence Clearwater Revival"],
+      "correctAnswerIndex": 1,
+      "explanation": "Fleetwood Mac's 'Rumours' produced timeless hits like 'Go Your Own Way' and 'Dreams'."
+    },
+    {
+      "id": "music-0207",
+      "prompt": "Who performed the legendary opening acoustic guitar chords to the 1971 rock epic 'Stairway to Heaven'?",
+      "choices": ["Eric Clapton", "Jimmy Page", "Tony Iommi", "Ritchie Blackmore"],
+      "correctAnswerIndex": 1,
+      "explanation": "Led Zeppelin's 'Stairway to Heaven' is one of rock radio's most requested songs ever."
+    },
+    {
+      "id": "music-0208",
+      "prompt": "Which powerhouse vocalist fronted Fleetwood Mac before launching a hugely successful mystical solo career with 'Edge of Seventeen'?",
+      "choices": ["Christine McVie", "Stevie Nicks", "Linda Ronstadt", "Pat Benatar"],
+      "correctAnswerIndex": 1,
+      "explanation": "Stevie Nicks is renowned for her signature shawl-wearing stage presence and distinctive raspy voice."
+    },
+    {
+      "id": "music-0209",
+      "prompt": "What was the name of Elvis Presley's sprawling and famous mansion located in Memphis, Tennessee?",
+      "choices": ["Neverland", "Graceland", "Monticello", "The Hit Factory"],
+      "correctAnswerIndex": 1,
+      "explanation": "Graceland remains one of the most visited historic home museums in the United States."
+    },
+    {
+      "id": "music-0210",
+      "prompt": "Which legendary soul singer recorded the poignant anti-war and civil rights anthem 'A Change Is Gonna Come' in 1964?",
+      "choices": ["Sam Cooke", "Marvin Gaye", "Curtis Mayfield", "Jackie Wilson"],
+      "correctAnswerIndex": 0,
+      "explanation": "Sam Cooke's timeless recording became a defining civil rights anthem."
+    },
+    {
+      "id": "music-0211",
+      "prompt": "Which guitar virtuoso formed Derek and the Dominos and recorded the passionate rock ballad 'Layla'?",
+      "choices": ["Jimi Hendrix", "Eric Clapton", "Jeff Beck", "Mark Knopfler"],
+      "correctAnswerIndex": 1,
+      "explanation": "Eric Clapton's blistering guitar work on 'Layla' is rock history legend."
+    },
+    {
+      "id": "music-0212",
+      "prompt": "What musical artist known as 'The Boss' released the working-class heartland rock anthem 'Born to Run' in 1975?",
+      "choices": ["Bob Seger", "Bruce Springsteen", "Tom Petty", "John Mellencamp"],
+      "correctAnswerIndex": 1,
+      "explanation": "Bruce Springsteen and the E Street Band defined energetic American stadium rock."
+    },
+    {
+      "id": "music-0213",
+      "prompt": "Which legendary reggae musician popularized Caribbean music and Rastafarian culture worldwide with anthems like 'No Woman, No Cry'?",
+      "choices": ["Jimmy Cliff", "Peter Tosh", "Bob Marley", "Toots Hibbert"],
+      "correctAnswerIndex": 2,
+      "explanation": "Bob Marley and the Wailers brought roots reggae to global mainstream prominence."
+    },
+    {
+      "id": "music-0214",
+      "prompt": "Who was the charismatic lead singer of the pioneering 1960s psychedelic rock band The Doors?",
+      "choices": ["Janis Joplin", "Jim Morrison", "Grace Slick", "Roger Daltrey"],
+      "correctAnswerIndex": 1,
+      "explanation": "Jim Morrison captivated audiences with poetic lyrics and mesmerizing stage performances."
+    },
+    {
+      "id": "music-0215",
+      "prompt": "What iconic 1976 Eagles rock anthem tells the tale of a luxurious hotel where 'you can check out any time you like, but you can never leave'?",
+      "choices": ["Take It Easy", "Hotel California", "Desperado", "Life in the Fast Lane"],
+      "correctAnswerIndex": 1,
+      "explanation": "Hotel California features one of the most celebrated dual-guitar ending solos in rock history."
+    }
+  ]
+}

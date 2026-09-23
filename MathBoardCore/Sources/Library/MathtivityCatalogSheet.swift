@@ -18,12 +18,13 @@ struct MathtivityCatalogSheet: View {
     let onOpen: @MainActor (MathtivityCatalogItem) async -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var selectedWorkflow: MathtivityCatalogWorkflow = .bellRingerExitTicket
+    @State private var selectedWorkflow: CatalogWorkflowSelection = .all
     @State private var selectedKind: MathtivityCatalogKind?
     @State private var selectedTopic: String?
     @State private var selectedActivityType: MathtivityCatalogActivityType?
     @State private var selectedDifficulty: String?
     @State private var selectedQuestionCount: CatalogQuestionCountFilter = .any
+    @State private var previewItem: MathtivityCatalogItem?
 
     private var filteredItems: [MathtivityCatalogItem] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -47,6 +48,12 @@ struct MathtivityCatalogSheet: View {
         }
     }
 
+    private var selectedItems: [MathtivityCatalogItem] {
+        filteredItems
+            .filter { selectedWorkflow.matches($0) }
+            .sorted(by: mathtivitySort)
+    }
+
     private var availableTopics: [String] {
         sortedUnique(items.map(\.topic))
     }
@@ -63,79 +70,46 @@ struct MathtivityCatalogSheet: View {
             || selectedQuestionCount != .any
     }
 
-    private var selectedItems: [MathtivityCatalogItem] {
-        filteredItems
-            .filter { $0.resolvedPedagogicalWorkflow == selectedWorkflow }
-            .sorted(by: mathtivitySort)
-    }
-
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                catalogSearchField
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 8)
+                catalogHeader
+                    .padding(.horizontal, 28)
+                    .padding(.top, 18)
+                    .padding(.bottom, 14)
 
-                catalogFilterBar
-                    .padding(.bottom, 8)
+                Divider()
+
+                catalogSearchTools
+                    .padding(.horizontal, 28)
+                    .padding(.top, 18)
+                    .padding(.bottom, 14)
 
                 workflowTabs
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 28)
                     .padding(.bottom, 10)
 
-                if let errorMessage {
-                    catalogStatus(errorMessage, systemImage: "exclamationmark.triangle")
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 10)
-                }
+                Divider()
 
-                if isLoading && items.isEmpty {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if selectedItems.isEmpty {
-                    catalogStatus("No catalog items found in \(selectedWorkflow.displayName).", systemImage: "magnifyingglass")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    List {
-                        Section {
-                            ForEach(selectedItems) { item in
-                                catalogRow(item)
-                            }
-                        } header: {
-                            catalogSectionHeader(
-                                title: selectedWorkflow.displayName,
-                                subtitle: selectedWorkflow.sectionSubtitle
-                            )
-                        }
-                    }
-                    .listStyle(.insetGrouped)
-                    .refreshable {
-                        await onRefresh()
-                    }
+                HStack(alignment: .top, spacing: 24) {
+                    filterSidebar
+                        .frame(width: 250)
+
+                    resultPane
                 }
+                .padding(.horizontal, 28)
+                .padding(.top, 18)
+                .padding(.bottom, 24)
             }
-            .navigationTitle("Catalog")
+            .background(catalogBackground)
             #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .navigationBar)
             #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") {
-                        dismiss()
-                    }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        Task { await onRefresh() }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .disabled(isLoading)
-                    .accessibilityLabel("Refresh Mathtivity Catalog")
-                }
-            }
         }
-        .frame(minWidth: 760, idealWidth: 940, minHeight: 620, idealHeight: 760)
+        .frame(minWidth: 980, idealWidth: 1180, minHeight: 700, idealHeight: 840)
+        .sheet(item: $previewItem) { item in
+            CatalogStaticPreviewSheet(item: item)
+        }
         .task {
             if items.isEmpty {
                 await onRefresh()
@@ -143,12 +117,66 @@ struct MathtivityCatalogSheet: View {
         }
     }
 
-    private var catalogSearchField: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
+    private var catalogHeader: some View {
+        HStack(spacing: 16) {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 17, weight: .semibold))
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close Catalog")
+
+            Text("Activity Catalog")
+                .font(.system(size: 31, weight: .heavy, design: .rounded))
+                .foregroundStyle(catalogInk)
+
+            Spacer()
+
+            Button {
+                Task { await onRefresh() }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 17, weight: .semibold))
+                    .frame(width: 36, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(isLoading)
+            .accessibilityLabel("Refresh Activity Catalog")
+        }
+    }
+
+    private var catalogSearchTools: some View {
+        HStack(alignment: .center, spacing: 18) {
+            catalogSearchField
+                .frame(width: 340)
+
+            Label("Filters combine together", systemImage: "checkmark")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color(red: 0.25, green: 0.36, blue: 0.18))
+
+            Spacer()
+
+            Text("Sorted by relevance")
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
-            TextField("Search catalog", text: $searchText)
+        }
+    }
+
+    private var catalogSearchField: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(.secondary)
+            TextField("Search activities, topics, or skills", text: $searchText)
+                .font(.system(size: 16))
+                #if os(iOS)
                 .textInputAutocapitalization(.never)
+                #endif
                 .disableAutocorrection(true)
             if !searchText.isEmpty {
                 Button {
@@ -161,274 +189,309 @@ struct MathtivityCatalogSheet: View {
                 .accessibilityLabel("Clear Search")
             }
         }
-        .font(.system(size: 15))
-        .padding(.horizontal, 12)
-        .frame(height: 40)
+        .padding(.horizontal, 16)
+        .frame(height: 52)
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.secondary.opacity(0.12))
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.white.opacity(0.76))
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.black.opacity(0.10), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.07), radius: 5, y: 2)
     }
 
-    private var catalogFilterBar: some View {
+    private var workflowTabs: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                filterMenu(
-                    title: selectedKind?.displayName ?? "All Formats",
-                    systemImage: "square.grid.2x2"
-                ) {
-                    Button("All Formats") { selectedKind = nil }
-                    Divider()
-                    ForEach(MathtivityCatalogKind.allCases, id: \.self) { kind in
-                        Button(kind.displayName) { selectedKind = kind }
-                    }
+                ForEach(CatalogWorkflowSelection.allCases, id: \.self) { workflow in
+                    workflowTabButton(for: workflow)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    private func workflowTabButton(for workflow: CatalogWorkflowSelection) -> some View {
+        Button {
+            selectedWorkflow = workflow
+        } label: {
+            Label(workflow.displayName, systemImage: workflow.iconName)
+                .font(.system(size: 14, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
+                .padding(.horizontal, 14)
+                .frame(height: 38)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(selectedWorkflow == workflow ? catalogAccent : Color.white.opacity(0.72))
+                )
+                .foregroundStyle(selectedWorkflow == workflow ? .white : catalogInk)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(selectedWorkflow == workflow ? Color.clear : Color.black.opacity(0.10), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(workflow.displayName), \(count(for: workflow)) activities")
+    }
+
+    private var filterSidebar: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 20) {
+                Text("Refine results")
+                    .font(.system(size: 17, weight: .heavy, design: .rounded))
+                    .foregroundStyle(catalogInk)
+
+                Divider()
+
+                filterSection("Topic") {
+                    filterOptionGrid(availableTopics, selectedValue: $selectedTopic)
                 }
 
-                filterMenu(
-                    title: selectedTopic ?? "All Topics",
-                    systemImage: "tag"
-                ) {
-                    Button("All Topics") { selectedTopic = nil }
-                    Divider()
-                    ForEach(availableTopics, id: \.self) { topic in
-                        Button(topic) { selectedTopic = topic }
-                    }
+                filterSection("Activity type") {
+                    filterOptionGrid(MathtivityCatalogActivityType.allCases.map(\.displayName), selectedValue: activityTypeBinding)
                 }
 
-                filterMenu(
-                    title: selectedActivityType?.displayName ?? "All Activity Types",
-                    systemImage: "checklist"
-                ) {
-                    Button("All Activity Types") { selectedActivityType = nil }
-                    Divider()
-                    ForEach(MathtivityCatalogActivityType.allCases, id: \.self) { activityType in
-                        Button(activityType.displayName) { selectedActivityType = activityType }
-                    }
+                filterSection("Difficulty") {
+                    filterOptionGrid(availableDifficulties.map { $0.capitalized }, selectedValue: difficultyBinding)
                 }
 
-                filterMenu(
-                    title: selectedDifficulty?.capitalized ?? "All Difficulty",
-                    systemImage: "speedometer"
-                ) {
-                    Button("All Difficulty") { selectedDifficulty = nil }
-                    Divider()
-                    ForEach(availableDifficulties, id: \.self) { difficulty in
-                        Button(difficulty.capitalized) { selectedDifficulty = difficulty }
-                    }
+                filterSection("Format") {
+                    filterOptionGrid(MathtivityCatalogKind.allCases.map(\.displayName), selectedValue: kindBinding)
                 }
 
-                filterMenu(
-                    title: selectedQuestionCount.displayName,
-                    systemImage: "number"
-                ) {
-                    ForEach(CatalogQuestionCountFilter.allCases) { filter in
-                        Button(filter.displayName) { selectedQuestionCount = filter }
-                    }
+                filterSection("Length") {
+                    filterOptionGrid(CatalogQuestionCountFilter.allCases.map(\.displayName), selectedValue: questionCountBinding)
                 }
 
                 if hasActiveFilters {
                     Button {
                         clearFilters()
                     } label: {
-                        Label("Clear", systemImage: "xmark.circle")
+                        Label("Clear filters", systemImage: "xmark.circle")
+                            .font(.system(size: 14, weight: .semibold))
                     }
                     .buttonStyle(.bordered)
-                    .controlSize(.small)
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.bottom, 20)
         }
     }
 
-    private func filterMenu<Content: View>(
-        title: String,
-        systemImage: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        Menu {
-            content()
-        } label: {
-            Label(title, systemImage: systemImage)
-                .lineLimit(1)
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-    }
-
-    private var workflowTabs: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 8) {
-                workflowTabButtons
+    private var resultPane: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("\(selectedItems.count) matching \(selectedItems.count == 1 ? "activity" : "activities")")
+                    .font(.system(size: 25, weight: .heavy, design: .rounded))
+                    .foregroundStyle(catalogInk)
+                Spacer()
             }
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    workflowTabButtons
+            if let errorMessage {
+                catalogStatus(errorMessage, systemImage: "exclamationmark.triangle")
+            }
+
+            if isLoading && items.isEmpty {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if selectedItems.isEmpty {
+                catalogStatus("No catalog items found.", systemImage: "magnifyingglass")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(selectedItems) { item in
+                            catalogRow(item)
+                            Divider()
+                        }
+                    }
+                }
+                .refreshable {
+                    await onRefresh()
                 }
             }
         }
-    }
-
-    private var workflowTabButtons: some View {
-        ForEach(MathtivityCatalogWorkflow.allCases, id: \.self) { workflow in
-            workflowTabButton(for: workflow)
-        }
-    }
-
-    @ViewBuilder
-    private func workflowTabButton(for workflow: MathtivityCatalogWorkflow) -> some View {
-        if selectedWorkflow == workflow {
-            Button {
-                selectedWorkflow = workflow
-            } label: {
-                workflowTabLabel(for: workflow)
-            }
-            .buttonStyle(.borderedProminent)
-            .accessibilityLabel("\(workflow.displayName), \(count(for: workflow)) items")
-        } else {
-            Button {
-                selectedWorkflow = workflow
-            } label: {
-                workflowTabLabel(for: workflow)
-            }
-            .buttonStyle(.bordered)
-            .accessibilityLabel("\(workflow.displayName), \(count(for: workflow)) items")
-        }
-    }
-
-    private func workflowTabLabel(for workflow: MathtivityCatalogWorkflow) -> some View {
-        VStack(spacing: 2) {
-            Label(workflow.displayName, systemImage: workflowIconName(for: workflow))
-                .font(.system(size: 13, weight: .semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.78)
-            Text("\(count(for: workflow))")
-                .font(.system(size: 10, weight: .bold))
-                .monospacedDigit()
-        }
-        .frame(width: 144, height: 46)
     }
 
     private func catalogRow(_ item: MathtivityCatalogItem) -> some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: 14) {
             Image(systemName: iconName(for: item))
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 38, height: 38)
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(catalogAccent)
+                .frame(width: 46, height: 46)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(iconColor(for: item))
+                        .fill(iconColor(for: item).opacity(0.22))
                 )
 
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(item.resolvedPedagogicalWorkflow.displayName)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(catalogAccent)
+
                 Text(item.title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.primary)
-                catalogBadges(for: item)
+                    .font(.system(size: 21, weight: .heavy, design: .rounded))
+                    .foregroundStyle(catalogInk)
+                    .lineLimit(2)
+
                 if let description = item.description, !description.isEmpty {
                     Text(description)
-                        .font(.system(size: 12))
+                        .font(.system(size: 16))
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                 }
+
+                catalogMetadataLine(for: item)
             }
-            Spacer(minLength: 10)
-            Button {
-                Task { await onOpen(item) }
-            } label: {
-                if openingItemIDs.contains(item.id) {
-                    ProgressView()
-                        .controlSize(.small)
-                        .frame(width: 54, height: 30)
-                } else {
-                    Text(buttonTitle(for: item))
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(width: 54, height: 30)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(spacing: 8) {
+                Button {
+                    Task { await onOpen(item) }
+                } label: {
+                    if openingItemIDs.contains(item.id) {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(width: 92, height: 34)
+                    } else {
+                        Text("Add")
+                            .font(.system(size: 15, weight: .bold))
+                            .frame(width: 92, height: 34)
+                    }
                 }
+                .buttonStyle(.borderedProminent)
+                .tint(catalogAccent)
+                .disabled(openingItemIDs.contains(item.id))
+                .accessibilityLabel("Add \(item.title)")
+
+                Button {
+                    previewItem = item
+                } label: {
+                    Text("Preview")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 92, height: 34)
+                }
+                .buttonStyle(.bordered)
+                .tint(catalogInk)
+                .accessibilityLabel("Preview \(item.title)")
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(openingItemIDs.contains(item.id))
-            .accessibilityLabel("Open \(item.title) in the Widget Engine")
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 20)
     }
 
-    private func catalogSectionHeader(title: String, subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(.primary)
-            Text(subtitle)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-        }
-        .textCase(nil)
-        .padding(.top, 6)
-    }
-
-    private func catalogBadges(for item: MathtivityCatalogItem) -> some View {
-        FlowLayout(spacing: 6, lineSpacing: 6) {
-            catalogBadge(item.source.displayName)
-            catalogBadge(item.resolvedPedagogicalWorkflow.displayName)
-            if item.catalogKind != .premadeMathtivity {
-                catalogBadge(item.catalogKind.displayName)
+    private func catalogMetadataLine(for item: MathtivityCatalogItem) -> some View {
+        FlowLayout(spacing: 16, lineSpacing: 6) {
+            metadataText(item.topic)
+            if let course = item.course, course != item.topic {
+                metadataText(course)
             }
-            if item.catalogKind != .builtInInteractive {
-                catalogBadge(item.activityType.displayName)
-            }
-            if let answerMode = item.answerMode {
-                catalogBadge(answerMode.displayName)
+            metadataText(item.activityType.displayName)
+            if let difficulty = item.difficulty {
+                metadataText(difficulty.capitalized)
             }
             if let questionCount = item.questionCount {
-                catalogBadge("\(questionCount) \(questionCount == 1 ? "question" : "questions")")
+                metadataText("\(questionCount) \(questionCount == 1 ? "question" : "questions")")
             }
             if let topicLevel = item.topicLevel {
-                catalogBadge("Level \(topicLevel)")
+                metadataText("Level \(topicLevel)")
             }
-            if let difficulty = item.difficulty {
-                catalogBadge(difficulty.capitalized)
-            }
-            catalogBadge(item.topic)
             ForEach(item.tags.prefix(2), id: \.self) { tag in
-                catalogBadge(tag)
+                metadataText(tag)
             }
         }
     }
 
-    private func catalogBadge(_ text: String) -> some View {
+    private func metadataText(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 10.5, weight: .semibold))
+            .font(.system(size: 13, weight: .semibold))
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(
-                Capsule()
-                    .fill(Color.secondary.opacity(0.12))
-            )
+            .lineLimit(1)
+    }
+
+    private func filterSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.system(size: 15, weight: .heavy, design: .rounded))
+                .foregroundStyle(catalogInk)
+            content()
+        }
+    }
+
+    private func filterOptionGrid(_ values: [String], selectedValue: Binding<String?>) -> some View {
+        LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)], alignment: .leading, spacing: 12) {
+            ForEach(values, id: \.self) { value in
+                filterCheckbox(title: value, isSelected: selectedValue.wrappedValue == value) {
+                    selectedValue.wrappedValue = selectedValue.wrappedValue == value ? nil : value
+                }
+            }
+        }
+    }
+
+    private func filterCheckbox(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: isSelected ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(isSelected ? catalogAccent : .secondary)
+                Text(title)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(catalogInk)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.82)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var kindBinding: Binding<String?> {
+        Binding(
+            get: { selectedKind?.displayName },
+            set: { newValue in
+                selectedKind = MathtivityCatalogKind.allCases.first { $0.displayName == newValue }
+            }
+        )
+    }
+
+    private var activityTypeBinding: Binding<String?> {
+        Binding(
+            get: { selectedActivityType?.displayName },
+            set: { newValue in
+                selectedActivityType = MathtivityCatalogActivityType.allCases.first { $0.displayName == newValue }
+            }
+        )
+    }
+
+    private var difficultyBinding: Binding<String?> {
+        Binding(
+            get: { selectedDifficulty?.capitalized },
+            set: { newValue in
+                selectedDifficulty = availableDifficulties.first { $0.capitalized == newValue }
+            }
+        )
+    }
+
+    private var questionCountBinding: Binding<String?> {
+        Binding(
+            get: { selectedQuestionCount == .any ? nil : selectedQuestionCount.displayName },
+            set: { newValue in
+                selectedQuestionCount = CatalogQuestionCountFilter.allCases.first { $0.displayName == newValue } ?? .any
+            }
+        )
     }
 
     private func catalogStatus(_ message: String, systemImage: String) -> some View {
         Label(message, systemImage: systemImage)
-            .font(.system(size: 13))
+            .font(.system(size: 14, weight: .medium))
             .foregroundStyle(.secondary)
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.secondary.opacity(0.10))
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.white.opacity(0.64))
             )
-    }
-
-    private func rowSubtitle(for item: MathtivityCatalogItem) -> String {
-        [
-            item.course,
-            item.topic,
-            item.activityType.displayName,
-            item.difficulty
-        ]
-        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-        .filter { !$0.isEmpty }
-        .joined(separator: " - ")
     }
 
     private func iconName(for item: MathtivityCatalogItem) -> String {
@@ -440,11 +503,11 @@ struct MathtivityCatalogSheet: View {
                 return "hand.point.up.left"
             }
         case .assessment:
-            return "checkmark.seal"
+            return "checkmark.clipboard"
         case .tools:
             return "wrench.and.screwdriver"
         case .classPlay:
-            return "person.3"
+            return "gamecontroller"
         }
 
         switch item.catalogKind {
@@ -461,6 +524,8 @@ struct MathtivityCatalogSheet: View {
             return item.mode == .scored ? "checklist" : "rectangle.on.rectangle"
         case .fillInTheBlank:
             return item.mode == .scored ? "text.cursor" : "text.alignleft"
+        case .trivialPursuit:
+            return "star.circle"
         case .numericAnswer:
             return "number"
         case .expressionAnswer:
@@ -477,7 +542,7 @@ struct MathtivityCatalogSheet: View {
     private func iconColor(for item: MathtivityCatalogItem) -> Color {
         switch item.resolvedPedagogicalWorkflow {
         case .bellRingerExitTicket:
-            return Color(red: 0.76, green: 0.42, blue: 0.24)
+            return Color(red: 0.82, green: 0.40, blue: 0.20)
         case .conceptualInteractive:
             return Color(red: 0.35, green: 0.70, blue: 0.48)
         case .assessment:
@@ -489,14 +554,6 @@ struct MathtivityCatalogSheet: View {
         }
     }
 
-    private func buttonTitle(for item: MathtivityCatalogItem) -> String {
-        item.catalogKind == .builtInInteractive ? "Add" : "Open"
-    }
-
-    private func catalogSort(_ lhs: MathtivityCatalogItem, _ rhs: MathtivityCatalogItem) -> Bool {
-        lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
-    }
-
     private func mathtivitySort(_ lhs: MathtivityCatalogItem, _ rhs: MathtivityCatalogItem) -> Bool {
         let lhsCourse = lhs.course ?? ""
         let rhsCourse = rhs.course ?? ""
@@ -506,7 +563,7 @@ struct MathtivityCatalogSheet: View {
         if lhs.topic.localizedCaseInsensitiveCompare(rhs.topic) != .orderedSame {
             return lhs.topic.localizedCaseInsensitiveCompare(rhs.topic) == .orderedAscending
         }
-        return catalogSort(lhs, rhs)
+        return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
     }
 
     private func clearFilters() {
@@ -517,29 +574,236 @@ struct MathtivityCatalogSheet: View {
         selectedQuestionCount = .any
     }
 
-    private func count(for workflow: MathtivityCatalogWorkflow) -> Int {
-        filteredItems.filter { $0.resolvedPedagogicalWorkflow == workflow }.count
-    }
-
-    private func workflowIconName(for workflow: MathtivityCatalogWorkflow) -> String {
-        switch workflow {
-        case .bellRingerExitTicket:
-            return "bell"
-        case .conceptualInteractive:
-            return "hand.point.up.left"
-        case .assessment:
-            return "checkmark.seal"
-        case .tools:
-            return "wrench.and.screwdriver"
-        case .classPlay:
-            return "person.3"
-        }
+    private func count(for workflow: CatalogWorkflowSelection) -> Int {
+        filteredItems.filter { workflow.matches($0) }.count
     }
 
     private func sortedUnique(_ values: [String]) -> [String] {
         Array(Set(values.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }))
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
+
+    private var catalogBackground: some ShapeStyle {
+        Color(red: 0.98, green: 0.95, blue: 0.89)
+    }
+
+    private var catalogInk: Color {
+        Color(red: 0.17, green: 0.12, blue: 0.09)
+    }
+
+    private var catalogAccent: Color {
+        Color(red: 0.73, green: 0.28, blue: 0.17)
+    }
+}
+
+private enum CatalogWorkflowSelection: Hashable, CaseIterable {
+    case all
+    case workflow(MathtivityCatalogWorkflow)
+
+    static var allCases: [CatalogWorkflowSelection] {
+        [.all] + MathtivityCatalogWorkflow.allCases.map { .workflow($0) }
+    }
+
+    var displayName: String {
+        switch self {
+        case .all:
+            return "All categories"
+        case .workflow(let workflow):
+            return workflow.displayName
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .all:
+            return "square.grid.2x2"
+        case .workflow(let workflow):
+            switch workflow {
+            case .bellRingerExitTicket:
+                return "bell"
+            case .conceptualInteractive:
+                return "hand.point.up.left"
+            case .assessment:
+                return "checkmark.clipboard"
+            case .tools:
+                return "wrench.and.screwdriver"
+            case .classPlay:
+                return "gamecontroller"
+            }
+        }
+    }
+
+    func matches(_ item: MathtivityCatalogItem) -> Bool {
+        switch self {
+        case .all:
+            return true
+        case .workflow(let workflow):
+            return item.resolvedPedagogicalWorkflow == workflow
+        }
+    }
+}
+
+private struct CatalogStaticPreviewSheet: View {
+    let item: MathtivityCatalogItem
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedPage = 0
+
+    private var pages: [CatalogPreviewPage] {
+        var result: [CatalogPreviewPage] = [
+            CatalogPreviewPage(
+                title: item.title,
+                subtitle: item.resolvedPedagogicalWorkflow.displayName,
+                body: item.description ?? "Preview this activity before adding it to the board."
+            )
+        ]
+
+        if let questionCount = item.questionCount, questionCount > 0 {
+            let cappedCount = min(questionCount, 8)
+            for index in 1...cappedCount {
+                result.append(
+                    CatalogPreviewPage(
+                        title: "Question \(index)",
+                        subtitle: item.topic,
+                        body: staticQuestionPreviewText(for: index, total: questionCount)
+                    )
+                )
+            }
+        } else {
+            result.append(
+                CatalogPreviewPage(
+                    title: "Activity View",
+                    subtitle: item.topic,
+                    body: "This preview is static. Add the activity to interact with the live widget on the canvas."
+                )
+            )
+        }
+
+        return result
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 18) {
+                TabView(selection: $selectedPage) {
+                    ForEach(Array(pages.enumerated()), id: \.offset) { index, page in
+                        previewPage(page)
+                            .tag(index)
+                    }
+                }
+                #if os(iOS)
+                .tabViewStyle(.page(indexDisplayMode: .always))
+                #endif
+                .frame(minHeight: 430)
+
+                HStack {
+                    Button {
+                        selectedPage = max(selectedPage - 1, 0)
+                    } label: {
+                        Label("Previous", systemImage: "chevron.left")
+                    }
+                    .disabled(selectedPage == 0)
+
+                    Spacer()
+
+                    Text("\(selectedPage + 1) of \(pages.count)")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    Button {
+                        selectedPage = min(selectedPage + 1, pages.count - 1)
+                    } label: {
+                        Label("Next", systemImage: "chevron.right")
+                    }
+                    .disabled(selectedPage == pages.count - 1)
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding(24)
+            .navigationTitle("Preview")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .frame(minWidth: 520, idealWidth: 620, minHeight: 560, idealHeight: 640)
+    }
+
+    private func previewPage(_ page: CatalogPreviewPage) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text(page.subtitle)
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(Color(red: 0.73, green: 0.28, blue: 0.17))
+
+            Text(page.title)
+                .font(.system(size: 30, weight: .heavy, design: .rounded))
+                .foregroundStyle(Color(red: 0.17, green: 0.12, blue: 0.09))
+                .lineLimit(3)
+
+            Text(page.body)
+                .font(.system(size: 20, weight: .medium))
+                .foregroundStyle(.secondary)
+                .lineSpacing(4)
+
+            Spacer()
+
+            FlowLayout(spacing: 10, lineSpacing: 10) {
+                previewBadge(item.source.displayName)
+                previewBadge(item.activityType.displayName)
+                if let difficulty = item.difficulty {
+                    previewBadge(difficulty.capitalized)
+                }
+                if let questionCount = item.questionCount {
+                    previewBadge("\(questionCount) questions")
+                }
+                ForEach(item.tags.prefix(4), id: \.self) { tag in
+                    previewBadge(tag)
+                }
+            }
+        }
+        .padding(28)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color(red: 0.99, green: 0.97, blue: 0.92))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.black.opacity(0.10), lineWidth: 1)
+        )
+    }
+
+    private func previewBadge(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 12, weight: .bold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(
+                Capsule()
+                    .fill(Color.black.opacity(0.07))
+            )
+    }
+
+    private func staticQuestionPreviewText(for index: Int, total: Int) -> String {
+        if total == 1 {
+            return "Static preview of the single prompt. Add it to the board to show the full interactive student version."
+        }
+        return "Static preview of prompt \(index). Add the activity to the board to interact with the full question set."
+    }
+}
+
+private struct CatalogPreviewPage: Hashable {
+    var title: String
+    var subtitle: String
+    var body: String
 }
 
 private enum CatalogQuestionCountFilter: String, CaseIterable, Identifiable {

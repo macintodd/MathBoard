@@ -263,7 +263,7 @@ public struct MathInputKeyboardView: View {
                     .frame(width: min(width * 0.42, 38), height: 1.4)
                 Text("b")
             }
-            .font(.system(size: min(metrics.rowHeight * 0.32, 17), weight: .semibold, design: .serif))
+            .font(.system(size: min(metrics.rowHeight * 0.32, 17), weight: .semibold))
             .foregroundStyle(.black.opacity(0.88))
             .frame(width: width, height: metrics.rowHeight)
         } else if let icon = key.icon {
@@ -276,7 +276,7 @@ public struct MathInputKeyboardView: View {
                 .frame(width: width, height: metrics.rowHeight)
         } else {
             Text(key.label)
-                .font(.system(size: keyFontSize(for: key.label, metrics: metrics), weight: .medium, design: .serif))
+                .font(.system(size: keyFontSize(for: key.label, metrics: metrics), weight: .medium))
                 .lineLimit(1)
                 .minimumScaleFactor(0.5)
                 .foregroundStyle(key.style == .returnKey ? .white : .black.opacity(0.88))

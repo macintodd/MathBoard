@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "widgetId": "silver-screen-01",
+  "activity": "multipleChoice",
+  "title": "Blockbuster Silver Screen",
+  "description": "Classic films, blockbusters, and cinema milestones.",
+  "learningObjective": "Recall classic movie moments from the 1970s through the 1990s.",
+  "difficulty": "medium",
+  "rules": {
+    "scoreMode": "correctOutOfTotal",
+    "advanceMode": "automaticOnCorrect",
+    "allowRetry": true,
+    "maxRetries": 1,
+    "shuffleQuestions": false,
+    "shuffleChoices": true,
+    "calculatorAllowed": false
+  },
+  "questions": [
+    {
+      "id": "screen-01",
+      "prompt": "Which 1975 thriller directed by Steven Spielberg terrorized beachgoers and created the modern summer blockbuster?",
+      "choices": ["Close Encounters", "Jaws", "Duel", "The Deep"],
+      "correctAnswerIndex": 1,
+      "explanation": "Jaws became the highest-grossing film of all time up to that point."
+    },
+    {
+      "id": "screen-02",
+      "prompt": "What is the name of the fictional luxury ocean liner that sinks in James Cameron's 1997 epic film?",
+      "choices": ["The Lusitania", "The Britannic", "The Titanic", "The Olympic"],
+      "correctAnswerIndex": 2,
+      "explanation": "Titanic won a record-tying 11 Academy Awards, including Best Picture."
+    },
+    {
+      "id": "screen-03",
+      "prompt": "In the 1977 sci-fi classic 'Star Wars', who is revealed to be Luke Skywalker's father?",
+      "choices": ["Obi-Wan Kenobi", "Emperor Palpatine", "Han Solo", "Darth Vader"],
+      "correctAnswerIndex": 3,
+      "explanation": "The plot twist in 'The Empire Strikes Back' is one of cinema's most famous reveals."
+    },
+    {
+      "id": "screen-04",
+      "prompt": "Which 1993 Steven Spielberg movie brought dinosaurs back to life using preserved DNA in amber?",
+      "choices": ["Jurassic Park", "The Lost World", "Congo", "Godzilla"],
+      "correctAnswerIndex": 0,
+      "explanation": "Jurassic Park set new benchmarks for computer-generated visual effects in cinema."
+    },
+    {
+      "id": "screen-05",
+      "prompt": "What was the name of the DeLorean time machine's inventor in the 1985 classic 'Back to the Future'?",
+      "choices": ["Dr. Emmett Brown", "George McFly", "Biff Tannen", "Clint Eastwood"],
+      "correctAnswerIndex": 0,
+      "explanation": "Doc Brown, played by Christopher Lloyd, sent Marty McFly back to 1955."
+    },
+    {
+      "id": "screen-06",
+      "prompt": "Which boxing underdog character, played by Sylvester Stallone, went the distance against Apollo Creed in 1976?",
+      "choices": ["Jake LaMotta", "Rocky Balboa", "Mickey Goldmill", "Clubber Lang"],
+      "correctAnswerIndex": 1,
+      "explanation": "Rocky won Best Picture at the Academy Awards and launched a multi-decade franchise."
+    },
+    {
+      "id": "screen-07",
+      "prompt": "Who directed the 1982 heartwarming sci-fi masterpiece about an extraterrestrial stranded on Earth who wants to 'phone home'?",
+      "choices": ["George Lucas", "Steven Spielberg", "Ridley Scott", "James Cameron"],
+      "correctAnswerIndex": 1,
+      "explanation": "E.T. the Extra-Terrestrial captured the hearts of audiences worldwide."
+    },
+    {
+      "id": "screen-08",
+      "prompt": "In the 1984 action comedy 'Ghostbusters', what iconic giant marshmallow monster attacks New York City?",
+      "choices": ["Stay Puft", "Marshmallow Man", "Puffly", "Sweetie Marsh"],
+      "correctAnswerIndex": 0,
+      "explanation": "Ray Stanz accidentally chose the form of the Stay Puft Marshmallow Man."
+    },
+    {
+      "id": "screen-09",
+      "prompt": "Which 1994 Tom Hanks film features a gentle Alabama man who accidentally influences major historical events?",
+      "choices": ["Big", "Cast Away", "Forrest Gump", "Apollo 13"],
+      "correctAnswerIndex": 2,
+      "explanation": "Forrest Gump won six Academy Awards, including Best Actor for Tom Hanks."
+    },
+    {
+      "id": "screen-10",
+      "prompt": "What is the name of Harrison Ford's iconic fedora-wearing archaeologist character who fights Nazis and uncovers ancient artifacts?",
+      "choices": ["Jack Ryan", "Han Solo", "Rick Deckard", "Indiana Jones"],
+      "correctAnswerIndex": 3,
+      "explanation": "Indiana Jones debuted in 'Raiders of the Lost Ark' in 1981."
+    },
+    {
+      "id": "screen-11",
+      "prompt": "Which 1979 Ridley Scott sci-fi horror film introduced the terrifying tagline 'In space no one can hear you scream'?",
+      "choices": ["Blade Runner", "Alien", "The Thing", "Event Horizon"],
+      "correctAnswerIndex": 1,
+      "explanation": "Alien starred Sigourney Weaver as the iconic survivor Ellen Ripley."
+    },
+    {
+      "id": "screen-12",
+      "prompt": "Which 1991 action sequel starring Arnold Schwarzenegger featured liquid-metal Terminator technology (the T-1000)?",
+      "choices": ["Terminator 2: Judgment Day", "Total Recall", "Predator", "True Lies"],
+      "correctAnswerIndex": 0,
+      "explanation": "T2 was praised for groundbreaking computer-generated imagery and action sequences."
+    },
+    {
+      "id": "screen-13",
+      "prompt": "What was the name of the high-flying fighter pilot school featured in the 1986 Tom Cruise blockbuster 'Top Gun'?",
+      "choices": ["Top Flight", "TOPGUN", "Naval Fighter Weapons School", "Air Elite"],
+      "correctAnswerIndex": 1,
+      "explanation": "The formal school name is the United States Navy Strike Fighter Tactics Instructor program, popularly called TOPGUN."
+    },
+    {
+      "id": "screen-14",
+      "prompt": "Which 1988 Christmas action classic features Bruce Willis fighting terrorists inside the Nakatomi Plaza tower?",
+      "choices": ["Lethal Weapon", "Die Hard", "Under Siege", "Speed"],
+      "correctAnswerIndex": 1,
+      "explanation": "Die Hard redefined the modern action movie genre with hero John McClane."
+    },
+    {
+      "id": "screen-15",
+      "prompt": "Which 1997 disaster comedy spoof featured Leslie Nielsen as an incompetent detective solving a high-profile case?",
+      "choices": ["Airplane!", "The Naked Gun", "Hot Shots!", "Spy Hard"],
+      "correctAnswerIndex": 1,
+      "explanation": "Although Airplane! came out in 1980, The Naked Gun franchise continued Nielsen's legendary spoof career through the late 80s and 90s."
+    }
+  ]
+}

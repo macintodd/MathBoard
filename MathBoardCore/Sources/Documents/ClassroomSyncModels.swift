@@ -174,6 +174,7 @@ public struct StudentWidgetLiveProgress: Codable, Hashable, Identifiable {
     /// Persists across Reset so the teacher always sees green "Submitted" text after a student has submitted at least once.
     public var hasEverBeenSubmitted: Bool
     public var updatedAt: Date
+    public var metadata: [String: String]
 
     public init(
         assignmentID: UUID,
@@ -188,7 +189,8 @@ public struct StudentWidgetLiveProgress: Codable, Hashable, Identifiable {
         status: WidgetActivityScoreStatus,
         isActiveOnStudentScreen: Bool = false,
         hasEverBeenSubmitted: Bool = false,
-        updatedAt: Date = Date()
+        updatedAt: Date = Date(),
+        metadata: [String: String] = [:]
     ) {
         self.assignmentID = assignmentID
         self.classroomID = classroomID
@@ -203,6 +205,7 @@ public struct StudentWidgetLiveProgress: Codable, Hashable, Identifiable {
         self.isActiveOnStudentScreen = isActiveOnStudentScreen
         self.hasEverBeenSubmitted = hasEverBeenSubmitted
         self.updatedAt = updatedAt
+        self.metadata = metadata
     }
 
     public var percentScore: Double? {

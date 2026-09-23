@@ -11,7 +11,8 @@ enum WidgetJSONRepair {
     private static let latexCommands: Set<String> = [
         "cdot", "frac", "sqrt", "pi", "theta", "alpha", "beta",
         "left", "right", "times", "div", "pm", "le", "ge", "neq",
-        "lt", "gt", "sin", "cos", "tan", "log", "ln", "quad"
+        "lt", "gt", "sin", "cos", "tan", "log", "ln", "quad", "qquad",
+        "text", "mathrm", "mathbf", "mathit", "overline", "underline"
     ]
 
     static func escapingUnescapedLaTeXCommands(in source: String) -> String {

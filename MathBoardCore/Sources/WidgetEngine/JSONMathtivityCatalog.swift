@@ -51,6 +51,16 @@ public enum JSONMathtivityCatalog {
         resourceName: "quadratic-features-multiple-choice"
     )
 
+    public static let htmlLatexMultipleChoice = Entry(
+        title: "HTML LaTeX Multiple Choice",
+        topic: "Algebra 1",
+        topicLevel: 1,
+        activityType: .multipleChoice,
+        mode: .scored,
+        tags: ["multiple choice", "latex", "html widget", "scoreable"],
+        resourceName: "html-latex-multiple-choice"
+    )
+
     public static let exponentRulesFillInTheBlank = Entry(
         title: "Exponent Rule Blanks",
         topic: "Algebra 2",
@@ -111,15 +121,27 @@ public enum JSONMathtivityCatalog {
         resourceName: "absolute-value-inequality-number-line"
     )
 
+    public static let trivialPursuitParty = Entry(
+        title: "Trivial Pursuit Party",
+        topic: "Class Play",
+        topicLevel: 1,
+        activityType: .trivialPursuit,
+        mode: .demo,
+        tags: ["party game", "trivia", "class play", "multiplayer", "nostalgia"],
+        resourceName: "trivial-pursuit-party"
+    )
+
     public static let bundledEntries: [Entry] = [
         linearEquationFillInTheBlank,
         quadraticFeaturesMultipleChoice,
+        htmlLatexMultipleChoice,
         exponentRulesFillInTheBlank,
         inequalityMatchNumberLine,
         graphTheInequalityNumberLine,
         compoundInequalityNumberLine,
         whichGraphIsCorrectNumberLine,
-        absoluteValueInequalityNumberLine
+        absoluteValueInequalityNumberLine,
+        trivialPursuitParty
     ]
 
     public static func source(for entry: Entry) -> String? {

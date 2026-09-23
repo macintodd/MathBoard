@@ -25,7 +25,7 @@
 import SwiftUI
 import WidgetEngine
 
-struct SlideNavigatorThumbnail {
+struct SlideNavigatorThumbnail: Sendable {
     var image: Image?
     var widgetKind: WidgetObjectActivityKind?
 
@@ -55,9 +55,6 @@ struct SlideNavigatorView: View {
 
     /// Filmstrip multi-selection, tracked by ID so it survives reorders.
     @State private var selectedIDs: Set<UUID> = []
-    /// Scroll target of the thumbnail strip (see `scrollPosition` below).
-    @State private var scrolledSlideID: UUID?
-
     init(
         slides: [SlideMetadata],
         currentIndex: Int,
@@ -407,11 +404,6 @@ struct SlideNavigatorView: View {
                 .padding(.horizontal, 4)
                 .padding(.vertical, 6)
             }
-            // Belt and suspenders: the `scrollPosition` binding handles initial
-            // placement declaratively, and the ScrollViewReader proxy performs
-            // explicit runtime scrolls. Driving both tolerates either API
-            // dropping a request.
-            .scrollPosition(id: $scrolledSlideID, anchor: .center)
             .onAppear { scrollToCurrent(proxy: proxy, animated: false) }
             .onChange(of: currentIndex) { _, _ in
                 scrollToCurrent(proxy: proxy, animated: true)
@@ -435,11 +427,9 @@ struct SlideNavigatorView: View {
         guard let id = currentSlide?.id else { return }
         if animated {
             withAnimation(.snappy(duration: 0.2)) {
-                scrolledSlideID = id
                 proxy.scrollTo(id, anchor: .center)
             }
         } else {
-            scrolledSlideID = id
             proxy.scrollTo(id, anchor: .center)
         }
     }

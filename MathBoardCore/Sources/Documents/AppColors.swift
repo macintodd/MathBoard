@@ -14,4 +14,5 @@ enum AppColors {
     static let canvasBackground = Color(red: 0.94, green: 0.90, blue: 0.82)
     static let folderTint = Color(red: 0.96, green: 0.78, blue: 0.45)
     static let accent = Color(red: 0.91, green: 0.45, blue: 0.32)
+    static let sidebarBackground = Color(red: 0.16, green: 0.14, blue: 0.12)
 }

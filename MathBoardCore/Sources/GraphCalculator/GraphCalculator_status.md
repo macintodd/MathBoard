@@ -28,6 +28,75 @@ Acceptance standard:
 - Expression rows must preserve what the student typed, even when invalid.
 - Invalid rows should not crash or disappear; they should show row-level feedback.
 
+## 2026-09-15 Non-Square Graph Canvas (Desmos Layout)
+
+Completed:
+
+- **Full-width non-square canvas**: The docked graph canvas now fills the full panel width instead of being forced square. Previously, `graphCanvas(keepsSquarePlot: true)` computed `plotSize = CGSize(min(width,height), min(width,height))`, which made the canvas as narrow as it was tall (320×320 instead of 440×320). Changed to `graphCanvas(keepsSquarePlot: false)` so `plotSize = proxy.size` — the canvas fills all available width and the shorter panel height.
+- **Aspect-ratio-aware default window**: Added `graphWindowFitting(_ size: CGSize) -> GraphWindow` that sets x ±10 (like Desmos) and computes y range as `±10 × (height / width)`. For a 440×300pt canvas this gives roughly ±6.8 on y, producing square gridlines in a wider-than-tall graph — matching Desmos's default view.
+- **Window set from actual canvas size**: Moved `applyInitialGraphWindowIfNeeded` call from the outer `GeometryReader.onAppear` (where size was `400×400`) into `graphCanvas.onAppear` where the real `plotSize` is known. The function now takes `for size: CGSize` and uses `graphWindowFitting`.
+- **Aspect-ratio-aware home/reset button**: Added `resetGraphWindow()` helper in `GraphCalculatorView` that calls `graphWindowFitting(currentGraphPlotSize)`. The docked home button now uses `(onHome ?? resetGraphWindow)()` instead of `state.resetWindow()`, so pressing home in the docked calculator restores a proportional Desmos-like window rather than a square one.
+- **Detached graph reset unchanged**: `GraphCalculatorState.resetWindow()` is now restored to `graphWindow = .default` (±10×±10, square). The detached home button still calls `squareDetachedGraphWindow` which resizes the panel to be square before resetting, so the detached reset remains correct.
+- `GraphWindow.default` (±10×±10) left unchanged — it is shared with the TI-84 calculator.
+- **Zero-size guard fix**: SwiftUI's `GeometryReader` sometimes reports `(0, 0)` on the first layout pass before `onAppear` fires. Added `size.width > 0` guard in `applyInitialGraphWindowIfNeeded(for:)` so it never latches `didApplyInitialWindow = true` with a zero-size input (which would fall back to the square ±10×±10 window). Also added a call in `onChange(of: plotSize)` so the window is set on the first valid non-zero size even if `onAppear` fired early. The home button (`resetGraphWindow`) reads `currentGraphPlotSize` which is also updated by both `onAppear` and `onChange`.
+- **Renderer: unified grid step**: `GraphCalculatorRenderer.drawGrid` previously computed an independent `niceStep` for each axis using that axis's canvas dimension as the target count. On a 440×320 canvas with the correct ±10×±7.27 window, y's `targetCount` of 2 caused `niceStep(14.54, 2)` → step 10, which had zero complete intervals in the visible y-range. Changed to derive one shared `majorStep` from the x-axis (`niceStep(window.width, width/120)`) and apply it to both axes. With window ±10×±7.27 this gives step 5 for both, producing cells of 110×110pt (square). ✓
+- **graphWindowFitting fallback**: Updated to use 440×`preferredDockedGraphHeight` as the fallback dimensions when the canvas size hasn't been properly reported (e.g., `currentGraphPlotSize` still at default `400×400`). This ensures the home button always produces a proportional, square-gridline window even before the GeometryReader has reported its real size.
+- **Graph settings → popover**: Removed `graphSettingsPanel` from the `entryPanel` expression-list override. The gear button now shows the settings in a `.popover(arrowEdge: .bottom)` floating window (width 300pt) so teachers can adjust settings while watching the graph update in place. The expression list remains always visible behind the popover.
+- Xcode live diagnostics clean on `GraphCalculatorView.swift` and `GraphCalculatorState.swift` (one pre-existing iOS 26 UIScreen deprecation warning, unrelated).
+
+## 2026-09-15 Graph Panel Height & Default Window (superseded above)
+
+Completed:
+
+- **Shorter graph panel**: Reduced `preferredDockedGraphHeight` from 440 → 320 in `GraphCalculatorView`. The docked calculator's graph section is now ~120pt shorter, making the overall calculator less tall on screen.
+
+## 2026-09-15 Implicit Multiplication Fix & Font Polish
+
+Completed:
+
+- **Bug fix — `f(x)=(x-2)(x+5)^4(x+7)` graphed incorrectly**: The `CalculatorEngine` was seeing `^4((x)+7)` and treating `4*((x)+7)` as the entire exponent, so the `(x+7)` factor had no visible effect on the curve (no zero at x=−7). Fixed by adding `insertImplicitMultiplication()` to `GraphCalculatorExpressionResolver` — this inserts explicit `*` between a digit and `(`, and between `)` and `(`, so the pipeline now produces `^4*((x)+7)` before handing the expression to the engine. The exponent is unambiguously `4`; the trailing factor multiplies normally.
+- **Scope of fix**: `insertImplicitMultiplication` runs as the final step in the normalization pipeline for curve/relation plots, scalar variable bodies, and function-definition bodies. Cases handled: digit→`(` and `)→(`. This resolves the stated regression and also makes all similar polynomial-product forms (e.g. `2(x+3)`, `(x-1)(x+2)`) unambiguous for the engine.
+- **Font — keyboard keys**: Removed `.design: .serif` from key-label fonts in `MathInputKeyboardView` and `GraphCalculatorView`. Keys now use the default SF Pro sans-serif, matching Desmos's clean key style. Math expression rows in the list retain Latin Modern (via SwiftUIMath) and the serif fallback, both of which are already Desmos-like.
+- **Font — coordinate bubbles**: Removed `.design: .rounded` from the intercept/intersection label bubble font in `GraphCalculatorRenderer`. Bubbles now use plain `.semibold` SF Pro, matching Desmos's clean coordinate callouts.
+- Xcode live diagnostics passed for all four changed files (resolver, renderer, keyboard view, calculator view).
+
+## 2026-09-15 Desmos-style Result Annotation
+
+Completed:
+
+- **No result for trivial literals**: Typing `3` alone no longer shows `3 = 3`. `shouldShowResultAnnotation` suppresses the annotation when the expression is a plain numeric literal (`Double(trimmed) != nil`) or when it contains `=` (scalar definitions like `a = 5` already show their value). Matches Desmos behavior.
+- **Result below-right**: For non-trivial scalar results (e.g., `3 · 4 = 12`, `abs(−3) = 3`, `f(2) = 7`), the `= value` annotation now appears in small right-aligned green text **below the delete (×) button**, inside a VStack that replaces the standalone delete button. The expression list remains clean; only the right gutter shows the result.
+- **Row height increase**: Rows with a result annotation use `baseRowHeight = 68` instead of `50` to accommodate the annotation without clipping.
+- **Fraction inline unchanged**: When the user toggles the fraction-display button, the stacked-fraction result continues to appear inline (within `numericExpressionLine`), since that's a deliberate visual transformation. The annotation is suppressed for those rows.
+- **Removed inline `= value`**: Eliminated the inline serif `= value` from both the expression-list `else` branch and from `numericExpressionLine`'s decimal-result path. Only `= fraction` (explicit toggle) remains inline.
+- Xcode live diagnostics clean (one pre-existing UIScreen deprecation warning).
+
+## 2026-09-15 Interactive Graph Enhancements
+
+Completed:
+
+- **Result annotation font size**: The `= value` annotation that appears below the delete button on calculated rows now uses `.system(size: 20, weight: .semibold, design: .serif)`, matching the 20pt serif font used for expression text in the same row. Previously hardcoded at 12pt. `minimumScaleFactor` reduced to 0.55 to allow scaling in the 44pt-wide column.
+- **Tap-to-unhighlight**: Second tap on an already-highlighted point (x-intercept, y-intercept, intersection, or local extremum) now removes it. `appendSelectedGraphReadout` was changed from a guard/return pattern to a `firstIndex(where:)` toggle: if the tapped point matches an existing selected point (same kind, same expression, within `1e-6 × windowSize` separation), it is removed; otherwise it is appended.
+- **Graph photo accuracy**: `captureGraphSnapshot` was computing `side = min(width, height)` and rendering a square snapshot even though the live canvas is non-square. Changed to use `currentGraphPlotSize.width` × `currentGraphPlotSize.height` directly, so the exported photo matches the aspect ratio and pixel dimensions of the visible canvas. The snapshot renderer uses the same `state.graphWindow` as the live view, and the unified grid step fix already applied to the renderer ensures gridlines in the photo match the screen.
+- **Local max/min highlighting**: Tapping near a local or absolute maximum/minimum on a graphed curve highlights it with the same glowing-dot + coordinate label style as intercepts.
+  - Added `.localMax` and `.localMin` cases to `GraphCalculatorPointReadout.Kind` in `GraphCalculatorState.swift`.
+  - Added `localMax` (orange-red) and `localMin` (sky blue) colors to `GraphHighlightPalette` in `GraphCalculatorRenderer.swift`. Updated `color(for:)` and `labelColor(for:)` switches.
+  - Added `localExtrema(of:in:variableValues:)`: samples 600 points, computes a numerical first derivative via central finite difference (h = width × 1e-5), finds sign changes in the derivative, then bisects to the precise extremum x using `bisectDerivative`. Duplicates within `width × 1e-3` are suppressed.
+  - Added `bisectDerivative(x0:x1:derivative:)`: 40-iteration bisection on the derivative sign (analogous to `bisectRoot`).
+  - Added `appendExtremum(_:to:window:)`: deduplication helper.
+  - Added `localExtremaReadouts(forExpressionIndex:kind:)`: used by `refreshSelectedInterceptReadout` to recompute extrema after window pan/zoom.
+  - `nearestGraphReadout` now calls `localExtrema` for each explicit curve and passes `.localMax`/`.localMin` to `consider`. `handleGraphTap`'s `including` set updated to include both new kinds.
+  - `refreshSelectedInterceptReadout` handles `.localMax`/`.localMin` via the new `localExtremaReadouts` helper.
+  - All existing switches on `Kind` updated to handle the two new cases (both `axisReadouts` switches, both renderer palette switches).
+- Build clean.
+
+Known remaining gaps (Algebra 2 / Pre-Calc priority order):
+
+- Piecewise functions `{x>0: x, x<0: -x}` — not parsed.
+- `nthroot(n, x)` / `x^(1/n)` displays correctly but no dedicated nth-root key.
+- Implicit multiplication: letter→`(` is not yet normalized (e.g. `a(x+1)` where `a` is a slider). Low risk since user-defined single-letter functions are already expanded before this stage, but worth hardening.
+- Second-row fraction display for results (fractions) could more closely mirror Desmos stacked display.
+
 ## 2026-09-02 Graph Snapshot Handler Ownership Repair
 
 Completed:

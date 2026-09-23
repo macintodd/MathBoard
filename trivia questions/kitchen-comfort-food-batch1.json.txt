@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "widgetId": "kitchen-comfort-food-01",
+  "activity": "multipleChoice",
+  "title": "Kitchen & Comfort Food",
+  "description": "Classic recipes, retro appliances, diners, and comfort foods.",
+  "learningObjective": "Recall nostalgic foods, iconic kitchen appliances, and culinary traditions.",
+  "difficulty": "medium",
+  "rules": {
+    "scoreMode": "correctOutOfTotal",
+    "advanceMode": "automaticOnCorrect",
+    "allowRetry": true,
+    "maxRetries": 1,
+    "shuffleQuestions": false,
+    "shuffleChoices": true,
+    "calculatorAllowed": false
+  },
+  "questions": [
+    {
+      "id": "food-01",
+      "prompt": "What revolutionary 1970s kitchen countertop appliance made home cooking faster by utilizing microwave radiation?",
+      "choices": ["Convection oven", "The Amana Radarange microwave", "Food processor", "Air fryer"],
+      "correctAnswerIndex": 1,
+      "explanation": "Early consumer microwaves like the Amana Radarange transformed how households prepared meals."
+    },
+    {
+      "id": "food-02",
+      "prompt": "Which retro molded salad dessert gelatin brand featured colorful fruit flavors and Jell-O molds throughout mid-century family dinners?",
+      "choices": ["Royal", "Jell-O", "Knox", "Pudding Pops"],
+      "correctAnswerIndex": 1,
+      "explanation": "Jell-O salads containing everything from fruit to marshmallows were a staple of 1950s and 60s hostessing."
+    },
+    {
+      "id": "food-03",
+      "prompt": "What classic American diner breakfast side dish consists of shredded or grated potatoes pan-fried until crispy?",
+      "choices": ["French fries", "Hash browns", "Tater tots", "Polenta cakes"],
+      "correctAnswerIndex": 1,
+      "explanation": "Hash browns are a beloved cornerstone of traditional breakfast diners and greasy spoons."
+    },
+    {
+      "id": "food-04",
+      "prompt": "Which popular canned soup brand famously advertised 'Mmm, mmm, good!' in its classic television commercials?",
+      "choices": ["Progresso", "Campbell's", "Lipton", "Chef Boyardee"],
+      "correctAnswerIndex": 1,
+      "explanation": "Campbell's Soup jingle has been one of the most recognizable in advertising history."
+    },
+    {
+      "id": "food-05",
+      "prompt": "What staple boxed convenience food introduced by Kraft in 1937 became a quintessential budget comfort food for families and college students?",
+      "choices": ["Hamburger Helper", "Kraft Macaroni & Cheese", "Rice-A-Roni", "SpaghettiOs"],
+      "correctAnswerIndex": 1,
+      "explanation": "Kraft Macaroni & Cheese soared in popularity during World War II and remained an enduring classic."
+    },
+    {
+      "id": "food-06",
+      "prompt": "Which classic Italian-American casserole dish layers wide flat pasta sheets with meat sauce, ricotta, and melted mozzarella cheese?",
+      "choices": ["Spaghetti Bolognese", "Lasagna", "Ziti Bake", "Fettuccine Alfredo"],
+      "correctAnswerIndex": 1,
+      "explanation": "Lasagna is a quintessential comforting baked pasta dish loved globally."
+    },
+    {
+      "id": "food-07",
+      "prompt": "What famous slow-cooking electric appliance introduced in the 1970s made cooking stews and roasts 'set-it-and-forget-it' simple?",
+      "choices": ["Pressure cooker", "The Crock-Pot slow cooker", "Instant Pot", "Electric skillet"],
+      "correctAnswerIndex": 1,
+      "explanation": "The Crock-Pot revolutionized weeknight dinner prep for working parents."
+    },
+    {
+      "id": "food-08",
+      "prompt": "What classic American sandwich features hot corned beef, Swiss cheese, sauerkraut, and Russian dressing on grilled rye bread?",
+      "choices": ["The Reuben", "The Monte Cristo", "The Philly Cheesesteak", "The French Dip"],
+      "correctAnswerIndex": 0,
+      "explanation": "The Reuben sandwich is a classic deli staple with deep roots in American comfort food history."
+    },
+    {
+      "id": "food-09",
+      "prompt": "Which retro dessert trend of the 1960s and 70s involved dipping fruit and bread cubes into melted warm chocolate or cheese?",
+      "choices": ["Baked Alaska", "Fondue", "Flambé", "Trifle"],
+      "correctAnswerIndex": 1,
+      "explanation": "Fondue parties became a major social entertainment fad across North America."
+    },
+    {
+      "id": "food-10",
+      "prompt": "What savory comfort-food pie consists of minced meat and vegetables topped with a thick layer of mashed potatoes and baked?",
+      "choices": ["Shepherd's Pie", "Pot Pie", "Quiche Lorraine", "Empanada"],
+      "correctAnswerIndex": 0,
+      "explanation": "Traditional Shepherd's Pie (or Cottage Pie with beef) is the ultimate comforting casserole."
+    },
+    {
+      "id": "food-11",
+      "prompt": "Which classic diner dessert features whipped egg whites baked atop a tart lemon custard filling inside a flaky pastry crust?",
+      "choices": ["Key Lime Pie", "Lemon Meringue Pie", "Apple Pie", "Chess Pie"],
+      "correctAnswerIndex": 1,
+      "explanation": "Lemon Meringue Pie is famed for its towering, fluffy marshmallow-like toasted peak topping."
+    },
+    {
+      "id": "food-12",
+      "prompt": "What packaged convenience meal, introduced by Swanson in the 1950s, allowed people to eat a full hot meal right off an aluminum tray while watching TV?",
+      "choices": ["Lean Cuisine", "The TV Dinner", "Stouffer's Bake", "Spam & Mash"],
+      "correctAnswerIndex": 1,
+      "explanation": "The TV Dinner captured the post-war culture of television and household convenience."
+    },
+    {
+      "id": "food-13",
+      "prompt": "What thick, creamy American milkshake variant combines vanilla ice cream with root beer or cola soda?",
+      "choices": ["A Float (or Black Cow)", "A Malted", "A Frappe", "A Freeze"],
+      "correctAnswerIndex": 0,
+      "explanation": "Root beer floats (sometimes called Black Cows when made with cola) are nostalgic malt-shop classics."
+    },
+    {
+      "id": "food-14",
+      "prompt": "Which comforting soup, traditionally made with caramelized onions, rich beef broth, and topped with toasted bread and melted Gruyère cheese, is baked in a ramekin?",
+      "choices": ["Minestrone", "French Onion Soup", "Clam Chowder", "Tomato Bisque"],
+      "correctAnswerIndex": 1,
+      "explanation": "French Onion Soup is famous for its bubbling, golden-brown cheese crust baked directly over the bowl."
+    },
+    {
+      "id": "food-15",
+      "prompt": "What nostalgic red-and-white striped can of condensed soup, celebrated by artist Andy Warhol, is a perennial pantry comfort food?",
+      "choices": ["Campbell's Tomato Soup", "Progresso Chicken Noodle", "Heinz Cream of Tomato", "Knorr Vegetable Soup"],
+      "correctAnswerIndex": 0,
+      "explanation": "Campbell's Tomato Soup paired with a grilled cheese sandwich remains a timeless comfort meal."
+    }
+  ]
+}

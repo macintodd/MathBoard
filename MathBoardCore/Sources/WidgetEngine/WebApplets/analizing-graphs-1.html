@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Analyzing Graphs 1</title>
+<style>
+  :root{
+    --text-primary:#1a1a18;
+    --text-secondary:#5f5e5a;
+    --text-muted:#8a887f;
+    --border:#d8d6cd;
+    --border-strong:#b4b2a9;
+    --surface-1:#f1efe8;
+    --surface-2:#ffffff;
+    --page-bg:#fbfaf6;
+    --selected-bg:#dcebfa;
+    --green:#2E8B4F;
+    --red:#C4372E;
+    --marker:#6B4FBB;
+    --concup:#2A6FB0;
+    --concdown:#B8791E;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --text-primary:#f1efe8;
+      --text-secondary:#c2c0b6;
+      --text-muted:#8a887f;
+      --border:#444441;
+      --border-strong:#5f5e5a;
+      --surface-1:#262624;
+      --surface-2:#1c1c1a;
+      --page-bg:#141413;
+      --selected-bg:#0c447c;
+      --green:#5BC97F;
+      --red:#E86A5F;
+      --marker:#B3A0F5;
+      --concup:#7FB4E8;
+      --concdown:#E8B85C;
+    }
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;width:100%;background:var(--page-bg);color:var(--text-primary);
+    font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;overflow:hidden;}
+  #app{display:flex;flex-direction:column;height:100%;width:100%;padding:10px;overflow:auto;}
+  h1{font-size:22px;font-weight:700;margin:0 0 10px;color:var(--text-primary);}
+  h2{font-size:18px;font-weight:700;margin:0 0 8px;color:var(--text-secondary);}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;}
+  button{
+    font-family:inherit;font-size:17px;font-weight:600;color:var(--text-primary);
+    background:var(--surface-2);border:2px solid var(--border-strong);border-radius:8px;
+    padding:10px 14px;min-height:46px;cursor:pointer;user-select:none;-webkit-user-select:none;
+  }
+  button:active{background:var(--surface-1);}
+  button.selected{background:var(--selected-bg);border-color:var(--border-strong);}
+  button.primary{background:var(--selected-bg);font-weight:600;}
+  .maingrid{display:flex;flex-direction:row;gap:14px;flex:1 1 auto;min-height:0;flex-wrap:wrap;}
+  .graphcol{flex:2 1 360px;display:flex;flex-direction:column;min-height:0;}
+  .tablecol{flex:1 1 210px;display:flex;flex-direction:column;min-height:0;min-width:190px;}
+  .graphwrap{flex:1 1 auto;min-height:200px;display:flex;align-items:center;justify-content:center;}
+  svg{width:100%;height:100%;max-height:52vh;touch-action:none;user-select:none;-webkit-user-select:none;}
+  .stepRow{display:flex;justify-content:center;margin-top:6px;}
+  .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;}
+  .toggles{display:flex;gap:18px;flex-wrap:wrap;margin-top:10px;align-items:center;}
+  .switch-row{display:flex;align-items:center;gap:8px;font-size:17px;user-select:none;-webkit-user-select:none;}
+  .switch{position:relative;width:40px;height:24px;flex:0 0 auto;}
+  .switch input{position:absolute;opacity:0;width:100%;height:100%;margin:0;cursor:pointer;}
+  .track{position:absolute;inset:0;background:var(--border-strong);border-radius:12px;transition:background .15s;pointer-events:none;}
+  .switch input:checked + .track{background:var(--selected-bg);}
+  .thumb{position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:var(--surface-2);
+    box-shadow:0 0 0 1px var(--border-strong);transition:transform .15s;pointer-events:none;}
+  .switch input:checked ~ .thumb{transform:translateX(16px);}
+  .readouts{display:flex;gap:18px;flex-wrap:wrap;margin-top:10px;font-size:17px;}
+  .swatch{display:inline-block;width:14px;height:14px;border-radius:2px;margin-right:7px;vertical-align:middle;}
+  .readout-val{font-weight:600;}
+  .discovered{margin-top:8px;font-size:16px;color:var(--text-secondary);min-height:1.4em;}
+  table{border-collapse:collapse;width:100%;font-size:16px;}
+  th,td{border:2px solid var(--border);padding:7px 10px;text-align:right;}
+  th:first-child,td:first-child{text-align:left;}
+  th{background:var(--surface-1);font-weight:600;color:var(--text-secondary);position:sticky;top:0;}
+  .tablewrap{flex:1 1 auto;min-height:120px;overflow:auto;border:2px solid var(--border);border-radius:6px;}
+  .logbtns{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;}
+</style>
+</head>
+<body>
+<div id="app">
+  <h1>Analyzing Graphs 1</h1>
+  <div class="tabs">
+    <button id="rtab0" onclick="rocSelectFunc(0)">Parabola (no inflection)</button>
+    <button id="rtab1" onclick="rocSelectFunc(1)">Cubic (one inflection)</button>
+    <button id="rtab2" onclick="rocSelectFunc(2)">Quartic (two inflections)</button>
+    <button id="rtab3" onclick="rocSelectFunc(3)">Relative vs. absolute extrema</button>
+  </div>
+  <div class="maingrid">
+    <div class="graphcol">
+      <div class="graphwrap">
+        <svg id="rocSvg" viewBox="0 0 680 530" role="img">
+          <title>Analyzing Graphs 1</title>
+          <desc>A curve with two draggable points connected by a secant line, and a faint tangent line for comparison. Drag the left point to slide the pair along the curve. Drag the right point to change delta x. Shrink delta x to watch the secant line approach the tangent line. A step button advances the left point by one unit and logs the point automatically.</desc>
+          <g id="rocGrid"></g>
+          <polyline id="rocStatic" points="" fill="none" stroke="var(--text-muted)" stroke-width="4"/>
+          <g id="rocPainted"></g>
+          <g id="rocFeatures"></g>
+          <g id="rocDeltaBracket"></g>
+          <line id="rocTangent" x1="0" y1="0" x2="0" y2="0" stroke="var(--text-muted)" stroke-width="3" stroke-dasharray="10 8" opacity="0.85"/>
+          <line id="rocSecant" x1="0" y1="0" x2="0" y2="0" stroke="var(--text-muted)" stroke-width="5" stroke-linecap="round"/>
+          <g id="rocCurvature"></g>
+          <circle id="rocDot1" cx="0" cy="0" r="14" fill="var(--text-muted)" stroke="var(--surface-2)" stroke-width="4" style="cursor:grab;touch-action:none;"/>
+          <circle id="rocDot2" cx="0" cy="0" r="13" fill="var(--text-muted)" stroke="var(--surface-2)" stroke-width="4" stroke-dasharray="4 3" style="cursor:grab;touch-action:none;"/>
+        </svg>
+      </div>
+      <div class="stepRow">
+        <button class="primary" onclick="rocStep()">Step</button>
+      </div>
+      <div class="controls">
+        <button onclick="rocAnimateShrink()">Shrink delta x toward the tangent</button>
+        <button onclick="rocReveal()">Reveal whole curve</button>
+        <button onclick="rocResetFunc()">Reset</button>
+      </div>
+      <div class="toggles">
+        <label class="switch-row"><span class="switch"><input type="checkbox" id="rocToggleInc" checked><span class="track"></span><span class="thumb"></span></span>Show increasing / decreasing</label>
+        <label class="switch-row"><span class="switch"><input type="checkbox" id="rocToggleConc" checked><span class="track"></span><span class="thumb"></span></span>Show concavity</label>
+      </div>
+      <div class="readouts">
+        <div><span class="swatch" style="background:var(--green);"></span>Increasing</div>
+        <div><span class="swatch" style="background:var(--red);"></span>Decreasing</div>
+        <div><span class="swatch" style="background:var(--concup);"></span>Concave up</div>
+        <div><span class="swatch" style="background:var(--concdown);"></span>Concave down</div>
+        <div><span class="swatch" style="background:var(--marker);"></span>Max / min / inflection</div>
+      </div>
+      <div class="readouts">
+        <div>Left point: <span id="rocP1Out" class="readout-val">drag to slide</span></div>
+        <div>Right point: <span id="rocP2Out" class="readout-val">drag to set delta x</span></div>
+        <div>Delta x: <span id="rocDxOut" class="readout-val">-</span></div>
+      </div>
+      <div class="readouts">
+        <div>Average rate of change: <span id="rocSlopeOut" class="readout-val">-</span></div>
+        <div>Concavity: <span id="rocConcOut" class="readout-val">-</span></div>
+      </div>
+      <div id="rocDiscovered" class="discovered"></div>
+    </div>
+    <div class="tablecol">
+      <h2>Logged points</h2>
+      <div class="logbtns">
+        <button onclick="rocLogPoint()">Log this point</button>
+        <button onclick="rocClearLog()">Clear log</button>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>x</th><th>y</th><th>Delta x</th><th>Delta y</th><th>slope</th></tr></thead>
+          <tbody id="rocLogBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  "use strict";
+
+  var DELTA = String.fromCharCode(0x0394);
+
+  var X0=70, X1=610, Y0=40, Y1=460;
+  var DX_MIN=0.001, DX_MAX=2;
+  var LOG_MAX=30;
+  var rocXMin, rocXMax, rocYMin, rocYMax;
+  function rocMapX(x){ return X0+(x-rocXMin)/(rocXMax-rocXMin)*(X1-X0); }
+  function rocMapY(y){ return Y1-(y-rocYMin)/(rocYMax-rocYMin)*(Y1-Y0); }
+  function rocInvX(px){ return rocXMin+(px-X0)/(X1-X0)*(rocXMax-rocXMin); }
+  function rocInvY(py){ return rocYMin+(Y1-py)/(Y1-Y0)*(rocYMax-rocYMin); }
+
+  var rocFuncs=[
+    {
+      name:'Parabola',
+      f:function(x){ return 0.4*x*x-2; },
+      fp:function(x){ return 0.8*x; },
+      fpp:function(x){ return 0.8; },
+      xMin:-3,xMax:3,yMin:-2.6,yMax:2.3,
+      intervals:[{x0:-3,x1:0,sign:-1},{x0:0,x1:3,sign:1}],
+      critical:[{x:0,kind:'min',label:'Minimum'}],
+      inflection:[],
+      endpointFeatures:[]
+    },
+    {
+      name:'Cubic',
+      f:function(x){ return x*x*x/3-2*x; },
+      fp:function(x){ return x*x-2; },
+      fpp:function(x){ return 2*x; },
+      xMin:-3,xMax:3,yMin:-3.4,yMax:3.4,
+      intervals:[
+        {x0:-3,x1:-Math.SQRT2,sign:1},
+        {x0:-Math.SQRT2,x1:Math.SQRT2,sign:-1},
+        {x0:Math.SQRT2,x1:3,sign:1}
+      ],
+      critical:[
+        {x:-Math.SQRT2,kind:'max',label:'Local max'},
+        {x:Math.SQRT2,kind:'min',label:'Local min'}
+      ],
+      inflection:[{x:0,label:'Point of inflection'}],
+      endpointFeatures:[]
+    },
+    {
+      name:'Quartic',
+      f:function(x){ return x*x*x*x/4-2*x*x; },
+      fp:function(x){ return x*x*x-4*x; },
+      fpp:function(x){ return 3*x*x-4; },
+      xMin:-2.6,xMax:2.6,yMin:-4.4,yMax:0.6,
+      intervals:[
+        {x0:-2.6,x1:-2,sign:-1},
+        {x0:-2,x1:0,sign:1},
+        {x0:0,x1:2,sign:-1},
+        {x0:2,x1:2.6,sign:1}
+      ],
+      critical:[
+        {x:-2,kind:'min',label:'Local min'},
+        {x:0,kind:'max',label:'Local max'},
+        {x:2,kind:'min',label:'Local min'}
+      ],
+      inflection:[
+        {x:-2/Math.sqrt(3),label:'Point of inflection'},
+        {x:2/Math.sqrt(3),label:'Point of inflection'}
+      ],
+      endpointFeatures:[]
+    },
+    {
+      name:'Relative vs absolute',
+      f:function(x){ return x*x*x/3-2*x; },
+      fp:function(x){ return x*x-2; },
+      fpp:function(x){ return 2*x; },
+      xMin:-3,xMax:3.5,yMin:-3.6,yMax:7.9,
+      intervals:[
+        {x0:-3,x1:-Math.SQRT2,sign:1},
+        {x0:-Math.SQRT2,x1:Math.SQRT2,sign:-1},
+        {x0:Math.SQRT2,x1:3.5,sign:1}
+      ],
+      critical:[
+        {x:-Math.SQRT2,kind:'max',label:'Relative max'},
+        {x:Math.SQRT2,kind:'min',label:'Relative min'}
+      ],
+      inflection:[{x:0,label:'Point of inflection'}],
+      endpointFeatures:[
+        {x:-3,label:'Absolute min'},
+        {x:3.5,label:'Absolute max'}
+      ]
+    }
+  ];
+
+  var rocCurrent=0;
+  var rocX1=0, rocDeltaX=1;
+  var rocReachedX=0;
+  var rocApplyingState=false;
+  var rocLog=[];
+  var rocShrinking=false;
+  var rocPointers={};
+  var rocPinchStart=null;
+  var ROC_VIEW_MIN_SPAN_X=1.2, ROC_VIEW_MIN_SPAN_Y=1.0, ROC_VIEW_MAX_FACTOR=2.5;
+
+  function $(id){ return document.getElementById(id); }
+
+  function rocNiceStep(range){ return range>9? 2 : 1; }
+
+  function rocDefaultView(fn){
+    return {xMin:fn.xMin,xMax:fn.xMax,yMin:fn.yMin,yMax:fn.yMax};
+  }
+
+  function rocCurrentView(){
+    return {xMin:rocXMin,xMax:rocXMax,yMin:rocYMin,yMax:rocYMax};
+  }
+
+  function rocClampView(view, fn){
+    var defaultWidth=fn.xMax-fn.xMin, defaultHeight=fn.yMax-fn.yMin;
+    var width=Math.max(ROC_VIEW_MIN_SPAN_X, Math.min(defaultWidth*ROC_VIEW_MAX_FACTOR, view.xMax-view.xMin));
+    var height=Math.max(ROC_VIEW_MIN_SPAN_Y, Math.min(defaultHeight*ROC_VIEW_MAX_FACTOR, view.yMax-view.yMin));
+    var cx=(view.xMin+view.xMax)/2;
+    var cy=(view.yMin+view.yMax)/2;
+    return {xMin:cx-width/2,xMax:cx+width/2,yMin:cy-height/2,yMax:cy+height/2};
+  }
+
+  function rocSetView(view){
+    rocXMin=view.xMin; rocXMax=view.xMax; rocYMin=view.yMin; rocYMax=view.yMax;
+  }
+
+  function rocRedrawScene(){
+    var fn=rocFuncs[rocCurrent];
+    rocDrawGrid();
+    $('rocStatic').setAttribute('points', rocSampleCurve(fn, fn.xMin, fn.xMax, 160));
+    rocDrawAll();
+  }
+
+  function rocDrawGrid(){
+    var g=$('rocGrid'); var s='';
+    var xStep=rocNiceStep(rocXMax-rocXMin);
+    var yStep=rocNiceStep(rocYMax-rocYMin);
+    var xStart=Math.ceil(rocXMin/xStep)*xStep, xEnd=Math.floor(rocXMax/xStep)*xStep;
+    var yStart=Math.ceil(rocYMin/yStep)*yStep, yEnd=Math.floor(rocYMax/yStep)*yStep;
+    for(var xv=xStart; xv<=xEnd; xv+=xStep){
+      var px=rocMapX(xv);
+      s+='<line x1="'+px+'" y1="'+Y0+'" x2="'+px+'" y2="'+Y1+'" stroke="var(--border)" stroke-width="1"/>';
+      if(xv!==0) s+='<text x="'+px+'" y="'+(Y1+24)+'" text-anchor="middle" font-size="17" font-weight="600" fill="var(--text-secondary)">'+xv+'</text>';
+    }
+    for(var yv=yStart; yv<=yEnd; yv+=yStep){
+      var py=rocMapY(yv);
+      s+='<line x1="'+X0+'" y1="'+py+'" x2="'+X1+'" y2="'+py+'" stroke="var(--border)" stroke-width="1"/>';
+      if(yv!==0) s+='<text x="'+(X0-10)+'" y="'+(py+5)+'" text-anchor="end" font-size="17" font-weight="600" fill="var(--text-secondary)">'+yv+'</text>';
+    }
+    var zx=rocMapX(0), zy=rocMapY(0);
+    s+='<line x1="'+X0+'" y1="'+zy+'" x2="'+X1+'" y2="'+zy+'" stroke="var(--border-strong)" stroke-width="2"/>';
+    s+='<line x1="'+zx+'" y1="'+Y0+'" x2="'+zx+'" y2="'+Y1+'" stroke="var(--border-strong)" stroke-width="2"/>';
+    g.innerHTML=s;
+  }
+
+  function rocSampleCurve(fn,x0,x1,N){
+    var pts=[];
+    for(var k=0;k<=N;k++){
+      var x=x0+(x1-x0)*k/N;
+      var y=fn.f(x);
+      pts.push(rocMapX(x)+','+rocMapY(y));
+    }
+    return pts.join(' ');
+  }
+
+  function rocClampDeltaX(fn, x1, dx){
+    var maxAllowed=Math.min(DX_MAX, fn.xMax-x1);
+    if(maxAllowed<DX_MIN) maxAllowed=DX_MIN;
+    return Math.max(DX_MIN, Math.min(maxAllowed, dx));
+  }
+
+  function rocShowInc(){ return $('rocToggleInc').checked; }
+  function rocShowConc(){ return $('rocToggleConc').checked; }
+
+  function rocRender(idx){
+    rocCurrent=idx;
+    var fn=rocFuncs[idx];
+    rocSetView(rocDefaultView(fn));
+    rocX1=fn.xMin;
+    rocDeltaX=rocClampDeltaX(fn, rocX1, 1);
+    rocReachedX=fn.xMin;
+    rocLog=[];
+    for(var i=0;i<rocFuncs.length;i++){ $('rtab'+i).classList.toggle('selected', i===idx); }
+
+    $('rocDiscovered').textContent='';
+    rocRenderLog();
+    rocRedrawScene();
+    rocPublish();
+  }
+
+  function rocIntervalOverlapPoints(fn, iv, reached){
+    var end=Math.min(iv.x1, reached);
+    if(end<=iv.x0+0.0005) return null;
+    return rocSampleCurve(fn, iv.x0, end, Math.max(4, Math.round(40*(end-iv.x0)/(fn.xMax-fn.xMin))));
+  }
+
+  function rocFeatureMarker(fn, x, label){
+    var y=fn.f(x);
+    var px=rocMapX(x), py=rocMapY(y);
+    var above = py>Y0+50;
+    var ly = above? py-16 : py+26;
+    var s='<circle cx="'+px+'" cy="'+py+'" r="12" fill="var(--marker)"/>';
+    s+='<line x1="'+px+'" y1="'+py+'" x2="'+px+'" y2="'+ly+'" stroke="var(--text-muted)" stroke-width="2" stroke-dasharray="4 6" opacity="0.6"/>';
+    s+='<text x="'+px+'" y="'+(above? ly-12 : ly+22)+'" text-anchor="middle" font-size="24" font-weight="800" fill="var(--marker)">'+label+'</text>';
+    s+='<text x="'+px+'" y="'+(above? ly-12+24 : ly+22+24)+'" text-anchor="middle" font-size="18" font-weight="600" fill="var(--text-secondary)">('+x.toFixed(2)+', '+y.toFixed(2)+')</text>';
+    return s;
+  }
+
+  function rocCurvatureArc(cx,cy,concaveUp){
+    var w=22,h=13,off=42;
+    var y0=cy-off;
+    var col = concaveUp? 'var(--concup)':'var(--concdown)';
+    if(concaveUp){
+      return '<path d="M'+(cx-w)+' '+(y0-h)+' Q '+cx+' '+(y0+h)+' '+(cx+w)+' '+(y0-h)+'" fill="none" stroke="'+col+'" stroke-width="7" stroke-linecap="round"/>';
+    }
+    return '<path d="M'+(cx-w)+' '+(y0+h)+' Q '+cx+' '+(y0-h)+' '+(cx+w)+' '+(y0+h)+'" fill="none" stroke="'+col+'" stroke-width="7" stroke-linecap="round"/>';
+  }
+
+  function rocConcavityAt(fn,x0){
+    var before=fn.fpp(x0-0.1), after=fn.fpp(x0+0.1);
+    var b= before>0.02? 'concave up': (before<-0.02? 'concave down':'flat');
+    var a= after>0.02? 'concave up': (after<-0.02? 'concave down':'flat');
+    return b+' to '+a;
+  }
+
+  function rocDrawAll(){
+    var fn=rocFuncs[rocCurrent];
+    var x1=rocX1;
+    var x2=x1+rocDeltaX;
+    if(x2>fn.xMax){ x2=fn.xMax; rocDeltaX=x2-x1; }
+    var y1=fn.f(x1), y2=fn.f(x2);
+    var px1=rocMapX(x1), py1=rocMapY(y1);
+    var px2=rocMapX(x2), py2=rocMapY(y2);
+
+    $('rocDot1').setAttribute('cx',px1); $('rocDot1').setAttribute('cy',py1);
+    $('rocDot2').setAttribute('cx',px2); $('rocDot2').setAttribute('cy',py2);
+
+    var avgSlope = (y2-y1)/(x2-x1);
+    var eps=0.03;
+    var slopeColor = avgSlope>eps? 'var(--green)': (avgSlope<-eps? 'var(--red)':'var(--text-muted)');
+    $('rocDot1').setAttribute('fill', slopeColor);
+    $('rocDot2').setAttribute('fill', slopeColor);
+
+    var vx=px2-px1, vy=py2-py1;
+    var len=Math.sqrt(vx*vx+vy*vy) || 1;
+    var ux=vx/len, uy=vy/len, ext=18;
+    $('rocSecant').setAttribute('x1', px1-ux*ext);
+    $('rocSecant').setAttribute('y1', py1-uy*ext);
+    $('rocSecant').setAttribute('x2', px2+ux*ext);
+    $('rocSecant').setAttribute('y2', py2+uy*ext);
+    $('rocSecant').setAttribute('stroke', slopeColor);
+
+    var slope1=fn.fp(x1);
+    var scaleX=(X1-X0)/(rocXMax-rocXMin);
+    var scaleY=(Y1-Y0)/(rocYMax-rocYMin);
+    var screenSlope=-slope1*(scaleY/scaleX);
+    var tnorm=Math.sqrt(1+screenSlope*screenSlope);
+    var tux=1/tnorm, tuy=screenSlope/tnorm, tL=90;
+    $('rocTangent').setAttribute('x1', px1-tux*tL);
+    $('rocTangent').setAttribute('y1', py1-tuy*tL);
+    $('rocTangent').setAttribute('x2', px1+tux*tL);
+    $('rocTangent').setAttribute('y2', py1+tuy*tL);
+
+    var conc=fn.fpp(x1);
+    if(rocShowConc() && Math.abs(conc)>0.02){
+      $('rocCurvature').innerHTML = rocCurvatureArc(px1,py1, conc>0);
+    } else {
+      $('rocCurvature').innerHTML='';
+    }
+
+    var deltaY = y2-y1;
+    var cornerPx = px2, cornerPy = py1;
+    var triSvg='<polyline points="'+px1+','+py1+' '+cornerPx+','+cornerPy+' '+px2+','+py2+'" fill="none" stroke="var(--text-secondary)" stroke-width="3" stroke-dasharray="8 6"/>';
+    var dxLabelY = (py1>Y1-30)? py1-14 : py1+20;
+    triSvg+='<text x="'+((px1+cornerPx)/2)+'" y="'+dxLabelY+'" text-anchor="middle" font-size="24" font-weight="800" fill="var(--text-secondary)">'+DELTA+'x = '+rocDeltaX.toFixed(2)+'</text>';
+    var dyLabelX = cornerPx+12;
+    var dyLabelAnchor='start';
+    if(dyLabelX>X1-90){ dyLabelX=cornerPx-12; dyLabelAnchor='end'; }
+    triSvg+='<text x="'+dyLabelX+'" y="'+((cornerPy+py2)/2+8)+'" text-anchor="'+dyLabelAnchor+'" font-size="24" font-weight="800" fill="var(--text-secondary)">'+DELTA+'y = '+deltaY.toFixed(2)+'</text>';
+    triSvg+='<text x="'+dyLabelX+'" y="'+((cornerPy+py2)/2+38)+'" text-anchor="'+dyLabelAnchor+'" font-size="24" font-weight="800" fill="'+slopeColor+'">slope = '+avgSlope.toFixed(2)+'</text>';
+    $('rocDeltaBracket').innerHTML=triSvg;
+
+    $('rocP1Out').textContent='('+x1.toFixed(2)+', '+y1.toFixed(2)+')';
+    $('rocP2Out').textContent='('+x2.toFixed(2)+', '+y2.toFixed(2)+')';
+    $('rocDxOut').textContent=rocDeltaX.toFixed(2);
+    $('rocSlopeOut').textContent=avgSlope.toFixed(2)+ (avgSlope>eps?'  (increasing)': (avgSlope<-eps?'  (decreasing)':'  (about flat)'));
+    $('rocSlopeOut').style.color=slopeColor;
+    if(rocShowConc()){
+      var concLabel = conc>0.02? 'Concave up' : (conc<-0.02? 'Concave down':'Inflection zone');
+      $('rocConcOut').textContent=concLabel;
+      $('rocConcOut').style.color = conc>0.02? 'var(--concup)': (conc<-0.02? 'var(--concdown)':'var(--marker)');
+    } else {
+      $('rocConcOut').textContent='-';
+      $('rocConcOut').style.color='var(--text-primary)';
+    }
+
+    var reached=rocReachedX;
+    var paintedSvg='';
+    if(rocShowInc()){
+      fn.intervals.forEach(function(iv){
+        var pts=rocIntervalOverlapPoints(fn, iv, reached);
+        if(pts){
+          var color= iv.sign>0? 'var(--green)':'var(--red)';
+          paintedSvg+='<polyline points="'+pts+'" fill="none" stroke="'+color+'" stroke-width="7" stroke-linecap="round"/>';
+        }
+      });
+    }
+    $('rocPainted').innerHTML=paintedSvg;
+
+    var featSvg='';
+    var discovered=[];
+    if(rocShowInc()){
+      fn.critical.forEach(function(c){
+        if(reached>=c.x-0.02){
+          featSvg+=rocFeatureMarker(fn, c.x, c.label);
+          discovered.push(c.label+' at x = '+c.x.toFixed(2));
+        }
+      });
+      fn.endpointFeatures.forEach(function(ep){
+        if(reached>=ep.x-0.02){
+          featSvg+=rocFeatureMarker(fn, ep.x, ep.label);
+          discovered.push(ep.label+' at x = '+ep.x.toFixed(2));
+        }
+      });
+    }
+    if(rocShowConc()){
+      fn.inflection.forEach(function(inf){
+        if(reached>=inf.x-0.02){
+          featSvg+=rocFeatureMarker(fn, inf.x, inf.label);
+          discovered.push(inf.label+' at x = '+inf.x.toFixed(2)+'  ('+rocConcavityAt(fn,inf.x)+')');
+        }
+      });
+    }
+    $('rocFeatures').innerHTML=featSvg;
+    $('rocDiscovered').textContent = discovered.length? ('Found so far: '+discovered.join('  |  ')) : '';
+  }
+
+  function rocRenderLog(){
+    var body=$('rocLogBody');
+    var rows='';
+    rocLog.forEach(function(r){
+      rows+='<tr><td>'+r.x.toFixed(2)+'</td><td>'+r.y.toFixed(2)+'</td><td>'+r.dx.toFixed(2)+'</td><td>'+r.dy.toFixed(2)+'</td><td>'+r.slope.toFixed(2)+'</td></tr>';
+    });
+    body.innerHTML=rows;
+    var wrap=body.closest('.tablewrap');
+    if(wrap) wrap.scrollTop=wrap.scrollHeight;
+  }
+
+  function rocLogPoint(){
+    var fn=rocFuncs[rocCurrent];
+    var x1=rocX1, x2=x1+rocDeltaX;
+    var y1=fn.f(x1), y2=fn.f(x2);
+    rocLog.push({x:x1,y:y1,dx:rocDeltaX,dy:y2-y1,slope:(y2-y1)/(x2-x1)});
+    if(rocLog.length>LOG_MAX) rocLog.shift();
+    rocRenderLog();
+    rocPublish();
+  }
+  function rocClearLog(){
+    rocLog=[];
+    rocRenderLog();
+    rocPublish();
+  }
+
+  function rocDragP1(px){
+    var fn=rocFuncs[rocCurrent];
+    var mathX=rocInvX(Math.max(X0,Math.min(X1,px)));
+    mathX=Math.max(fn.xMin, Math.min(fn.xMax-DX_MIN, mathX));
+    rocX1=mathX;
+    rocDeltaX=rocClampDeltaX(fn, rocX1, rocDeltaX);
+    rocReachedX=Math.max(rocReachedX, rocX1);
+    rocDrawAll();
+    rocPublish();
+  }
+
+  function rocDragP2(px){
+    var fn=rocFuncs[rocCurrent];
+    var mathX2=rocInvX(Math.max(X0,Math.min(X1,px)));
+    var candidate=mathX2-rocX1;
+    rocDeltaX=rocClampDeltaX(fn, rocX1, candidate);
+    rocDrawAll();
+    rocPublish();
+  }
+
+  function rocClientPointToSvg(clientX, clientY){
+    var svg=$('rocSvg');
+    var pt=svg.createSVGPoint();
+    pt.x=clientX; pt.y=clientY;
+    var ctm=svg.getScreenCTM().inverse();
+    return pt.matrixTransform(ctm);
+  }
+
+  function rocClientToSvg(evt){
+    return rocClientPointToSvg(evt.clientX, evt.clientY);
+  }
+
+  var rocDragMode=null;
+  function rocOnMove(evt){
+    if(!rocDragMode) return;
+    evt.preventDefault();
+    var p=rocClientToSvg(evt);
+    if(rocDragMode==='p1') rocDragP1(p.x);
+    else rocDragP2(p.x);
+  }
+
+  function rocPointerList(){
+    return Object.keys(rocPointers).map(function(key){ return rocPointers[key]; });
+  }
+
+  function rocPointerDistance(pair){
+    var dx=pair[0].clientX-pair[1].clientX;
+    var dy=pair[0].clientY-pair[1].clientY;
+    return Math.sqrt(dx*dx+dy*dy);
+  }
+
+  function rocStartPinch(){
+    var pair=rocPointerList();
+    if(pair.length<2) return;
+    var startDistance=rocPointerDistance(pair);
+    if(startDistance<1) return;
+    var focalSvg=rocClientPointToSvg((pair[0].clientX+pair[1].clientX)/2, (pair[0].clientY+pair[1].clientY)/2);
+    rocPinchStart={
+      distance:startDistance,
+      view:rocCurrentView(),
+      focal:{x:rocInvX(focalSvg.x),y:rocInvY(focalSvg.y)}
+    };
+    rocDragMode=null;
+  }
+
+  function rocUpdatePinch(evt){
+    var pair=rocPointerList();
+    if(!rocPinchStart || pair.length<2) return false;
+    evt.preventDefault();
+    var scale=rocPointerDistance(pair)/rocPinchStart.distance;
+    if(!isFinite(scale) || scale<=0) return true;
+    var startView=rocPinchStart.view;
+    var startWidth=startView.xMax-startView.xMin;
+    var startHeight=startView.yMax-startView.yMin;
+    var newWidth=startWidth/scale;
+    var newHeight=startHeight/scale;
+    var fx=(rocPinchStart.focal.x-startView.xMin)/startWidth;
+    var fy=(rocPinchStart.focal.y-startView.yMin)/startHeight;
+    var nextView={
+      xMin:rocPinchStart.focal.x-newWidth*fx,
+      xMax:rocPinchStart.focal.x+newWidth*(1-fx),
+      yMin:rocPinchStart.focal.y-newHeight*fy,
+      yMax:rocPinchStart.focal.y+newHeight*(1-fy)
+    };
+    rocSetView(rocClampView(nextView, rocFuncs[rocCurrent]));
+    rocRedrawScene();
+    rocPublish();
+    return true;
+  }
+
+  function rocHandlePointerDown(evt){
+    rocPointers[evt.pointerId]={clientX:evt.clientX,clientY:evt.clientY};
+    if($('rocSvg').setPointerCapture){
+      try{ $('rocSvg').setPointerCapture(evt.pointerId); } catch(e){}
+    }
+    if(rocPointerList().length>=2){
+      evt.preventDefault();
+      rocStartPinch();
+    }
+  }
+
+  function rocHandlePointerMove(evt){
+    if(rocPointers[evt.pointerId]){
+      rocPointers[evt.pointerId]={clientX:evt.clientX,clientY:evt.clientY};
+    }
+    if(rocUpdatePinch(evt)) return;
+    rocOnMove(evt);
+  }
+
+  function rocHandlePointerEnd(evt){
+    delete rocPointers[evt.pointerId];
+    rocPinchStart=null;
+    if(rocPointerList().length>=2) rocStartPinch();
+    if(rocPointerList().length===0) rocDragMode=null;
+  }
+
+  $('rocDot1').addEventListener('pointerdown', function(evt){ evt.preventDefault(); rocDragMode='p1'; });
+  $('rocDot2').addEventListener('pointerdown', function(evt){ evt.preventDefault(); rocDragMode='p2'; });
+  $('rocSvg').addEventListener('pointerdown', rocHandlePointerDown, {passive:false});
+  document.addEventListener('pointermove', rocHandlePointerMove, {passive:false});
+  document.addEventListener('pointerup', rocHandlePointerEnd);
+  document.addEventListener('pointercancel', rocHandlePointerEnd);
+
+  $('rocToggleInc').addEventListener('change', function(){ rocDrawAll(); rocPublish(); });
+  $('rocToggleConc').addEventListener('change', function(){ rocDrawAll(); rocPublish(); });
+
+  function rocSelectFunc(idx){ rocRender(idx); }
+  function rocResetFunc(){ rocRender(rocCurrent); }
+  function rocReveal(){
+    var fn=rocFuncs[rocCurrent];
+    rocX1=Math.max(fn.xMin, fn.xMax-rocDeltaX);
+    rocReachedX=fn.xMax;
+    rocDrawAll();
+    rocPublish();
+  }
+
+  function rocStep(){
+    var fn=rocFuncs[rocCurrent];
+    var newX1=Math.min(fn.xMax-DX_MIN, rocX1+1);
+    rocX1=newX1;
+    rocDeltaX=rocClampDeltaX(fn, rocX1, rocDeltaX);
+    rocReachedX=Math.max(rocReachedX, rocX1);
+    rocDrawAll();
+    rocLogPoint();
+  }
+
+  function rocAnimateShrink(){
+    if(rocShrinking) return;
+    var reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var fn=rocFuncs[rocCurrent];
+    var startDx=rocDeltaX;
+    var targetDx=rocClampDeltaX(fn, rocX1, DX_MIN);
+    if(reduced){
+      rocDeltaX=targetDx;
+      rocDrawAll();
+      rocPublish();
+      return;
+    }
+    rocShrinking=true;
+    var duration=1200;
+    var start=performance.now();
+    function frame(now){
+      var t=Math.min(1,(now-start)/duration);
+      rocDeltaX = startDx + (targetDx-startDx)*t;
+      rocDrawAll();
+      rocPublish();
+      if(t<1){ requestAnimationFrame(frame); } else { rocShrinking=false; }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  function rocGetState(){
+    return {
+      funcIndex: rocCurrent,
+      x1: Number(rocX1),
+      deltaX: Number(rocDeltaX),
+      reachedX: Number(rocReachedX),
+      view: rocCurrentView(),
+      showIncDec: !!rocShowInc(),
+      showConcavity: !!rocShowConc(),
+      log: rocLog.map(function(r){ return {x:r.x,y:r.y,dx:r.dx,dy:r.dy,slope:r.slope}; })
+    };
+  }
+
+  function rocPublish(){
+    if(rocApplyingState) return;
+    if(window.MathBoardApplet && typeof window.MathBoardApplet.publishState==='function'){
+      window.MathBoardApplet.publishState(rocGetState());
+    }
+  }
+
+  window.mathBoardAppletSetState = function(state){
+    if(!state || typeof state!=='object') return;
+    rocApplyingState=true;
+    try{
+      var idx=(typeof state.funcIndex==='number' && state.funcIndex>=0 && state.funcIndex<rocFuncs.length)? state.funcIndex: rocCurrent;
+      if(idx!==rocCurrent){ rocRender(idx); }
+      var fn=rocFuncs[rocCurrent];
+      rocX1=(typeof state.x1==='number')? Math.max(fn.xMin, Math.min(fn.xMax-DX_MIN, state.x1)): fn.xMin;
+      rocDeltaX=rocClampDeltaX(fn, rocX1, (typeof state.deltaX==='number')? state.deltaX: 1);
+      rocReachedX=(typeof state.reachedX==='number')? state.reachedX: fn.xMin;
+      if(state.view && typeof state.view.xMin==='number' && typeof state.view.xMax==='number' && typeof state.view.yMin==='number' && typeof state.view.yMax==='number'){
+        rocSetView(rocClampView(state.view, fn));
+      } else {
+        rocSetView(rocDefaultView(fn));
+      }
+      $('rocToggleInc').checked = (typeof state.showIncDec==='boolean')? state.showIncDec: true;
+      $('rocToggleConc').checked = (typeof state.showConcavity==='boolean')? state.showConcavity: true;
+      if(Array.isArray(state.log)){
+        rocLog = state.log.filter(function(r){ return r && typeof r.x==='number'; }).slice(0,LOG_MAX);
+        rocRenderLog();
+      }
+      rocRedrawScene();
+    } finally {
+      rocApplyingState=false;
+    }
+  };
+
+  window.rocSelectFunc=rocSelectFunc;
+  window.rocResetFunc=rocResetFunc;
+  window.rocReveal=rocReveal;
+  window.rocStep=rocStep;
+  window.rocAnimateShrink=rocAnimateShrink;
+  window.rocLogPoint=rocLogPoint;
+  window.rocClearLog=rocClearLog;
+
+  rocRender(0);
+})();
+</script>
+</body>
+</html>

@@ -22,7 +22,11 @@ struct MathBoardApp: App {
 
     init() {
         MathBoardFirebaseBootstrap.configureIfPossible()
+        #if STUDENT_BUILD
+        let userModeStore = MathBoardUserModeStore(allowsTeacherMode: false)
+        #else
         let userModeStore = MathBoardUserModeStore()
+        #endif
         _userModeStore = State(initialValue: userModeStore)
         _documentStore = State(initialValue: DocumentStore(loadImmediately: userModeStore.mode == .teacher))
     }

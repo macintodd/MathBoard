@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "widgetId": "household-classics-02",
+  "activity": "multipleChoice",
+  "title": "Household Classics & Commercials",
+  "description": "Vintage toys, brand names, and nostalgic television commercials.",
+  "learningObjective": "Recall classic household brands and mid-century commercial culture.",
+  "difficulty": "medium",
+  "rules": {
+    "scoreMode": "correctOutOfTotal",
+    "advanceMode": "automaticOnCorrect",
+    "allowRetry": true,
+    "maxRetries": 1,
+    "shuffleQuestions": false,
+    "shuffleChoices": true,
+    "calculatorAllowed": false
+  },
+  "questions": [
+    {
+      "id": "house-0201",
+      "prompt": "What classic board game challenges players to solve a mansion murder mystery involving characters like Colonel Mustard?",
+      "choices": ["Monopoly", "Clue", "Risk", "The Game of Life"],
+      "correctAnswerIndex": 1,
+      "explanation": "Clue asks players to deduce the weapon, room, and murderer through deductive reasoning."
+    },
+    {
+      "id": "house-0202",
+      "prompt": "Which fast-food chain featured a lovable, burger-loving purple mascot named Grimace?",
+      "choices": ["Burger King", "McDonald's", "Wendy's", "Jack in the Box"],
+      "correctAnswerIndex": 1,
+      "explanation": "Grimace has been a core member of McDonaldland lore since the 1970s."
+    },
+    {
+      "id": "house-0203",
+      "prompt": "What outdoor childhood water toy shaped like a giant rotating flower sprayed streams of water across the lawn?",
+      "choices": ["Slip 'N Slide", "The Water Wiggle", "The Spin 'N Splash Daisy", "Slip 'N Dive"],
+      "correctAnswerIndex": 2,
+      "explanation": "Lawn sprinklers like the spinning daisy gave generations of kids backyard summer fun."
+    },
+    {
+      "id": "house-0204",
+      "prompt": "Which laundry detergent campaign famously featured Madge the manicurist dipping customer fingers into dish soap and asking 'You're soaking in it!'?",
+      "choices": ["Tide", "Palmolive", "Dawn", "Ivory"],
+      "correctAnswerIndex": 1,
+      "explanation": "Madge's Palmolive commercials ran across television screens for decades."
+    },
+    {
+      "id": "house-0205",
+      "prompt": "What classic Hasbro board game involves sinking your opponent's fleet in a naval combat strategy grid?",
+      "choices": ["Battleship", "Connect Four", "Mastermind", "Stratego"],
+      "correctAnswerIndex": 0,
+      "explanation": "Battleship's iconic phrase 'You sunk my battleship!' became a pop culture catchphrase."
+    },
+    {
+      "id": "house-0206",
+      "prompt": "Which breakfast cereal mascot was a cartoon rabbit constantly trying to get a taste of Trix cereal?",
+      "choices": ["Toucan Sam", "The Trix Rabbit", "Sonny the Cuckoo Bird", "Lucky the Leprechaun"],
+      "correctAnswerIndex": 1,
+      "explanation": "The frustrated Trix Rabbit was constantly told, 'Silly rabbit, Trix are for kids!'"
+    },
+    {
+      "id": "house-0207",
+      "prompt": "What nostalgic educational toy featured a lighted board where kids pushed colored plastic pegs into black paper to create glowing designs?",
+      "choices": ["Etch A Sketch", "Lite-Brite", "Magna Doodle", "View-Master"],
+      "correctAnswerIndex": 1,
+      "explanation": "Lite-Brite allowed children to 'make things with light' using glowing colorful peg art."
+    },
+    {
+      "id": "house-0208",
+      "prompt": "Which camera brand introduced the instant photography revolution with cameras that ejected photos right before your eyes?",
+      "choices": ["Kodak", "Polaroid", "Canon", "Nikon"],
+      "correctAnswerIndex": 1,
+      "explanation": "Polaroid instant cameras were party and holiday staples throughout the 1970s and 80s."
+    },
+    {
+      "id": "house-0209",
+      "prompt": "What classic game requires players to twist and contangle their limbs on a colored polka-dot vinyl mat?",
+      "choices": ["Twister", "Simon", "Concentration", "Operation"],
+      "correctAnswerIndex": 0,
+      "explanation": "Twister became a massive party sensation after debuting on The Tonight Show in 1966."
+    },
+    {
+      "id": "house-0210",
+      "prompt": "Which breakfast cereal featured a cartoon leprechaun chasing children who wanted his 'magically delicious' cereal?",
+      "choices": ["Cocoa Puffs", "Lucky Charms", "Fruity Pebbles", "Apple Jacks"],
+      "correctAnswerIndex": 1,
+      "explanation": "Lucky Charms featured marshmallow shapes like pink hearts, yellow moons, and green clovers."
+    },
+    {
+      "id": "house-0211",
+      "prompt": "What popular 3D stereoscopic viewing toy let children click through paper reels showing scenic travel photos and fairy tales?",
+      "choices": ["View-Master", "Stereoscope", "Slide Projector", "Kaleidoscope"],
+      "correctAnswerIndex": 0,
+      "explanation": "The View-Master provided an immersive circular window into exotic world travel destinations."
+    },
+    {
+      "id": "house-0212",
+      "prompt": "Which fast-food chain featured a regal king mascot and flame-broiled Whopper hamburgers?",
+      "choices": ["McDonald's", "Burger King", "Wendy's", "Hardee's"],
+      "correctAnswerIndex": 1,
+      "explanation": "Burger King positioned itself as the home of flame-broiled burgers."
+    },
+    {
+      "id": "house-0213",
+      "prompt": "What squishy, stretchy hand toy introduced by Kenner in 1976 could be pulled and tied into knots before bouncing back?",
+      "choices": ["Stretch Armstrong", "Mr. Potato Head", "Gumby", "Bendy"],
+      "correctAnswerIndex": 0,
+      "explanation": "Stretch Armstrong was a unique latex action figure filled with corn syrup gel."
+    },
+    {
+      "id": "house-0214",
+      "prompt": "Which household adhesive brand's commercials famously demonstrated its strength by gluing a hardhat worker to a construction beam?",
+      "choices": ["Gorilla Glue", "Krazy Glue", "Elmer's", "Super Glue"],
+      "correctAnswerIndex": 1,
+      "explanation": "Krazy Glue commercials became famous for extreme overhead demonstrations of bonding strength."
+    },
+    {
+      "id": "house-0215",
+      "prompt": "What classic plastic potato companion allowed children to attach real facial parts to a vegetable body?",
+      "choices": ["Mr. Potato Head", "Barbie", "Raggedy Andy", "Cabbage Patch Kid"],
+      "correctAnswerIndex": 0,
+      "explanation": "Early versions of Mr. Potato Head actually required parents to supply a real potato!"
+    }
+  ]
+}

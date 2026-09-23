@@ -18,6 +18,7 @@ import WidgetEngine
 
 public struct CanvasView: View {
     private let drawingURL: URL
+    private let widgetAssetBaseURL: URL?
     private let background: CanvasBackground?
     private let canvasDeskColor: CanvasStrokeColor
     private let presentationMode: CanvasPresentationMode
@@ -33,6 +34,7 @@ public struct CanvasView: View {
     private let onViewportSourceRectChange: (@MainActor (CGRect) -> Void)?
     private let onLiveStrokeUpdate: (@MainActor (CanvasLiveStroke?) -> Void)?
     private let onLiveTransformedStrokesUpdate: (@MainActor ([CanvasLiveStroke]) -> Void)?
+    private let onPencilHoverUpdate: (@MainActor (CanvasPencilHover?) -> Void)?
     private let onDrawingDataChange: (@MainActor (Data) -> Void)?
     private let onWidgetObjectsChange: (@MainActor ([WidgetObject], WidgetCanvasViewport, CGSize, String) -> Void)?
     private let onCanvasObjectStateChange: (@MainActor () -> Void)?
@@ -50,9 +52,12 @@ public struct CanvasView: View {
     private let onWidgetMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)?
     private let onWidgetImageInsertionRequested: (@MainActor (WidgetCanvasImageInsertionRequest) -> Void)?
     private let allowsWidgetAuthoring: Bool
+    private let showsTeacherDemoWebApplets: Bool
+    private let hidesStudentInk: Bool
 
     public init(
         drawingURL: URL,
+        widgetAssetBaseURL: URL? = nil,
         background: CanvasBackground? = nil,
         canvasDeskColor: CanvasStrokeColor = .defaultCanvasDesk,
         presentationMode: CanvasPresentationMode = .present,
@@ -68,6 +73,7 @@ public struct CanvasView: View {
         onViewportSourceRectChange: (@MainActor (CGRect) -> Void)? = nil,
         onLiveStrokeUpdate: (@MainActor (CanvasLiveStroke?) -> Void)? = nil,
         onLiveTransformedStrokesUpdate: (@MainActor ([CanvasLiveStroke]) -> Void)? = nil,
+        onPencilHoverUpdate: (@MainActor (CanvasPencilHover?) -> Void)? = nil,
         onDrawingDataChange: (@MainActor (Data) -> Void)? = nil,
         onWidgetObjectsChange: (@MainActor ([WidgetObject], WidgetCanvasViewport, CGSize, String) -> Void)? = nil,
         onCanvasObjectStateChange: (@MainActor () -> Void)? = nil,
@@ -84,9 +90,12 @@ public struct CanvasView: View {
         onWidgetEditRequested: (@MainActor (WidgetObject) -> Void)? = nil,
         onWidgetMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)? = nil,
         onWidgetImageInsertionRequested: (@MainActor (WidgetCanvasImageInsertionRequest) -> Void)? = nil,
-        allowsWidgetAuthoring: Bool = true
+        allowsWidgetAuthoring: Bool = true,
+        showsTeacherDemoWebApplets: Bool = true,
+        hidesStudentInk: Bool = false
     ) {
         self.drawingURL = drawingURL
+        self.widgetAssetBaseURL = widgetAssetBaseURL
         self.background = background
         self.canvasDeskColor = canvasDeskColor
         self.presentationMode = presentationMode
@@ -102,6 +111,7 @@ public struct CanvasView: View {
         self.onViewportSourceRectChange = onViewportSourceRectChange
         self.onLiveStrokeUpdate = onLiveStrokeUpdate
         self.onLiveTransformedStrokesUpdate = onLiveTransformedStrokesUpdate
+        self.onPencilHoverUpdate = onPencilHoverUpdate
         self.onDrawingDataChange = onDrawingDataChange
         self.onWidgetObjectsChange = onWidgetObjectsChange
         self.onCanvasObjectStateChange = onCanvasObjectStateChange
@@ -119,12 +129,15 @@ public struct CanvasView: View {
         self.onWidgetMathInputRequested = onWidgetMathInputRequested
         self.onWidgetImageInsertionRequested = onWidgetImageInsertionRequested
         self.allowsWidgetAuthoring = allowsWidgetAuthoring
+        self.showsTeacherDemoWebApplets = showsTeacherDemoWebApplets
+        self.hidesStudentInk = hidesStudentInk
     }
 
     public var body: some View {
         #if os(iOS)
         PencilKitCanvasContainer(
             drawingURL: drawingURL,
+            widgetAssetBaseURL: widgetAssetBaseURL,
             background: background,
             canvasDeskColor: canvasDeskColor,
             presentationMode: presentationMode,
@@ -140,6 +153,7 @@ public struct CanvasView: View {
             onViewportSourceRectChange: onViewportSourceRectChange,
             onLiveStrokeUpdate: onLiveStrokeUpdate,
             onLiveTransformedStrokesUpdate: onLiveTransformedStrokesUpdate,
+            onPencilHoverUpdate: onPencilHoverUpdate,
             onDrawingDataChange: onDrawingDataChange,
             onWidgetObjectsChange: onWidgetObjectsChange,
             onCanvasObjectStateChange: onCanvasObjectStateChange,
@@ -156,16 +170,30 @@ public struct CanvasView: View {
             onWidgetEditRequested: onWidgetEditRequested,
             onWidgetMathInputRequested: onWidgetMathInputRequested,
             onWidgetImageInsertionRequested: onWidgetImageInsertionRequested,
-            allowsWidgetAuthoring: allowsWidgetAuthoring
+            allowsWidgetAuthoring: allowsWidgetAuthoring,
+            showsTeacherDemoWebApplets: showsTeacherDemoWebApplets,
+            hidesStudentInk: hidesStudentInk
         )
         #else
         MacCanvasPlaceholder(
             drawingURL: drawingURL,
+            widgetAssetBaseURL: widgetAssetBaseURL,
             background: background,
             initialViewportState: initialViewportState,
             viewportCommand: viewportCommand,
+            editCommand: editCommand,
+            toolCommand: toolCommand,
+            objectCommand: objectCommand,
+            onWidgetObjectsChange: onWidgetObjectsChange,
+            onCanvasObjectStateChange: onCanvasObjectStateChange,
             onViewportStateChange: onViewportStateChange,
-            onInteractionBegan: onInteractionBegan
+            onEditStateChange: onEditStateChange,
+            onInteractionBegan: onInteractionBegan,
+            onWidgetEditRequested: onWidgetEditRequested,
+            onWidgetMathInputRequested: onWidgetMathInputRequested,
+            onWidgetImageInsertionRequested: onWidgetImageInsertionRequested,
+            allowsWidgetAuthoring: allowsWidgetAuthoring,
+            showsTeacherDemoWebApplets: showsTeacherDemoWebApplets
         )
         #endif
     }

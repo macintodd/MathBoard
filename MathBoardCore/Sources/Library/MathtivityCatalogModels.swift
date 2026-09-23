@@ -12,6 +12,7 @@ import WidgetEngine
 public enum MathtivityCatalogActivityType: String, Codable, CaseIterable, Sendable {
     case multipleChoice
     case fillInTheBlank
+    case trivialPursuit
     case numericAnswer
     case expressionAnswer
     case matching
@@ -24,6 +25,8 @@ public enum MathtivityCatalogActivityType: String, Codable, CaseIterable, Sendab
             return "Multiple Choice"
         case .fillInTheBlank:
             return "Fill in the Blank"
+        case .trivialPursuit:
+            return "Trivial Pursuit Party"
         case .numericAnswer:
             return "Numeric Answer"
         case .expressionAnswer:
@@ -43,6 +46,8 @@ public enum MathtivityCatalogActivityType: String, Codable, CaseIterable, Sendab
             return .multipleChoice
         case .fillInTheBlank:
             return .fillInTheBlank
+        case .trivialPursuit:
+            return .trivialPursuit
         case .numericAnswer, .expressionAnswer, .matching, .ordering, .multiStep:
             return nil
         }
@@ -283,6 +288,8 @@ public struct MathtivityCatalogItem: Identifiable, Codable, Sendable, Equatable 
             activityType = .multipleChoice
         case .fillInTheBlank:
             activityType = .fillInTheBlank
+        case .trivialPursuit:
+            activityType = .trivialPursuit
         case .builtInInteractive, .unknown:
             return nil
         }
@@ -323,6 +330,7 @@ public struct MathtivityCatalogItem: Identifiable, Codable, Sendable, Equatable 
     }
 
     public var resolvedPedagogicalWorkflow: MathtivityCatalogWorkflow {
+        if activityType == .trivialPursuit { return .classPlay }
         if let pedagogicalWorkflow {
             return pedagogicalWorkflow
         }
@@ -332,7 +340,7 @@ public struct MathtivityCatalogItem: Identifiable, Codable, Sendable, Equatable 
                 return .bellRingerExitTicket
             case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator:
                 return .tools
-            case .functionTransformationExplorer:
+            case .functionTransformationExplorer, .quadraticWebApplet, .domainRangeWebApplet, .analizingGraphs1WebApplet, .projectileMotionGraphAnalysisWebApplet, .constantRateWebApplet, .completingTheSquareWebApplet, .andOrAttributeFilterWebApplet, .andOrInequalityNumberLineWebApplet, .compoundInequalityGraphingDemoWebApplet:
                 return .conceptualInteractive
             case .matchGrid:
                 return .classPlay
@@ -495,7 +503,7 @@ public enum MathtivityCatalogLocalRegistry {
             return .bellRingerExitTicket
         case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator:
             return .tools
-        case .functionTransformationExplorer:
+        case .functionTransformationExplorer, .quadraticWebApplet, .domainRangeWebApplet, .analizingGraphs1WebApplet, .projectileMotionGraphAnalysisWebApplet, .constantRateWebApplet, .completingTheSquareWebApplet, .andOrAttributeFilterWebApplet, .andOrInequalityNumberLineWebApplet, .compoundInequalityGraphingDemoWebApplet:
             return .conceptualInteractive
         case .matchGrid:
             return .classPlay

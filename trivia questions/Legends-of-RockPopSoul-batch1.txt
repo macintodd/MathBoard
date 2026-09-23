@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "widgetId": "legends-music-01",
+  "activity": "multipleChoice",
+  "title": "Legends of Rock, Pop, & Soul",
+  "description": "Unforgettable musical artists, chart-topping hits, and vinyl milestones.",
+  "learningObjective": "Identify classic musicians and legendary hit songs from the golden era of radio.",
+  "difficulty": "medium",
+  "rules": {
+    "scoreMode": "correctOutOfTotal",
+    "advanceMode": "automaticOnCorrect",
+    "allowRetry": true,
+    "maxRetries": 1,
+    "shuffleQuestions": false,
+    "shuffleChoices": true,
+    "calculatorAllowed": false
+  },
+  "questions": [
+    {
+      "id": "music-01",
+      "prompt": "Who is widely crowned as the 'King of Rock 'n' Roll' with hits like 'Hound Dog' and 'Suspicious Minds'?",
+      "choices": ["Chuck Berry", "Elvis Presley", "Buddy Holly", "Little Richard"],
+      "correctAnswerIndex": 1,
+      "explanation": "Elvis Presley became a global cultural icon in the 1950s and 1960s."
+    },
+    {
+      "id": "music-02",
+      "prompt": "What legendary Motown singing group featured Diana Ross before she launched her successful solo career?",
+      "choices": ["The Marvelettes", "The Supremes", "Martha and the Vandellas", "The Ronettes"],
+      "correctAnswerIndex": 1,
+      "explanation": "The Supremes scored a dozen Billboard Hot 100 number-one hits in the 1960s."
+    },
+    {
+      "id": "music-03",
+      "prompt": "Which British invasion band led by Mick Jagger and Keith Richards formed in London in 1962?",
+      "choices": ["The Beatles", "The Who", "The Rolling Stones", "The Kinks"],
+      "correctAnswerIndex": 2,
+      "explanation": "The Rolling Stones are famous for rock anthems like '(I Can't Get No) Satisfaction'."
+    },
+    {
+      "id": "music-04",
+      "prompt": "Who earned the title 'Queen of Soul' with powerhouse vocal anthems like 'Respect' and 'Think'?",
+      "choices": ["Tina Turner", "Aretha Franklin", "Gladys Knight", "Diana Ross"],
+      "correctAnswerIndex": 1,
+      "explanation": "Aretha Franklin was the first female artist inducted into the Rock and Roll Hall of Fame."
+    },
+    {
+      "id": "music-05",
+      "prompt": "What was the name of the iconic 1969 double album released by The Beatles featuring a famous zebra crossing crosswalk cover?",
+      "choices": ["Abbey Road", "Let It Be", "Sgt. Pepper's Lonely Hearts Club Band", "The White Album"],
+      "correctAnswerIndex": 0,
+      "explanation": "Abbey Road was the final album recorded by all four members of The Beatles together."
+    },
+    {
+      "id": "music-06",
+      "prompt": "Who released the legendary 1982 album 'Thriller', which remains the best-selling album of all time worldwide?",
+      "choices": ["Prince", "Stevie Wonder", "Michael Jackson", "Lionel Richie"],
+      "correctAnswerIndex": 2,
+      "explanation": "Thriller produced iconic crossover hits like 'Billie Jean', 'Beat It', and the title track."
+    },
+    {
+      "id": "music-07",
+      "prompt": "Which legendary guitarist mesmerized the world with his psychedelic styling at Woodstock in 1969?",
+      "choices": ["Eric Clapton", "Jimi Hendrix", "Jimmy Page", "Carlos Santana"],
+      "correctAnswerIndex": 1,
+      "explanation": "Jimi Hendrix's electric rendition of 'The Star-Spangled Banner' is historic."
+    },
+    {
+      "id": "music-08",
+      "prompt": "What legendary piano-playing rock artist released classic 1970s hits like 'Rocket Man' and 'Tiny Dancer'?",
+      "choices": ["Billy Joel", "Elton John", "David Bowie", "Rod Stewart"],
+      "correctAnswerIndex": 1,
+      "explanation": "Sir Elton John collaborated famously with lyricist Bernie Taupin on countless timeless tracks."
+    },
+    {
+      "id": "music-09",
+      "prompt": "Which Detroit-based record label, founded by Berry Gordy Jr., created the famous 'Sound of Young America'?",
+      "choices": ["Stax Records", "Atlantic Records", "Motown Records", "Chess Records"],
+      "correctAnswerIndex": 2,
+      "explanation": "Motown launched legendary acts like The Jackson 5, Marvin Gaye, and Stevie Wonder."
+    },
+    {
+      "id": "music-10",
+      "prompt": "Who sang the iconic 1971 soulful classic 'What's Going On'?",
+      "choices": ["Marvin Gaye", "Curtis Mayfield", "Al Green", "Otis Redding"],
+      "correctAnswerIndex": 0,
+      "explanation": "Marvin Gaye's socially conscious masterpiece remains a pillar of soul music history."
+    },
+    {
+      "id": "music-11",
+      "prompt": "Which flamboyant rock band performed an unforgettable 20-minute set at Live Aid in 1985 led by Freddie Mercury?",
+      "choices": ["Led Zeppelin", "The Who", "Queen", "Pink Floyd"],
+      "correctAnswerIndex": 2,
+      "explanation": "Queen's Live Aid performance is frequently cited as the greatest live rock concert of all time."
+    },
+    {
+      "id": "music-12",
+      "prompt": "What musical artist, known for hits like 'Purple Rain' and 'Little Red Corvette', was a multi-instrumental virtuoso from Minneapolis?",
+      "choices": ["Stevie Wonder", "Prince", "Bruce Springsteen", "David Bowie"],
+      "correctAnswerIndex": 1,
+      "explanation": "Prince blended rock, funk, R&B, and pop into a signature genre-defying sound."
+    },
+    {
+      "id": "music-13",
+      "prompt": "Which folk-rock duo recorded the timeless 1970 ballad 'Bridge over Troubled Water'?",
+      "choices": ["The Righteous Brothers", "Simon & Garfunkel", "Crosby, Stills & Nash", "The Mamas & the Papas"],
+      "correctAnswerIndex": 1,
+      "explanation": "Paul Simon and Art Garfunkel created some of the most harmonious vocal tracks of the era."
+    },
+    {
+      "id": "music-14",
+      "prompt": "Who was known as the 'Man in Black' and recorded legendary country and rockabilly songs like 'Folsom Prison Blues'?",
+      "choices": ["Willie Nelson", "Waylon Jennings", "Johnny Cash", "Merle Haggard"],
+      "correctAnswerIndex": 2,
+      "explanation": "Johnny Cash became a towering figure across American country, rock, and folk music."
+    },
+    {
+      "id": "music-15",
+      "prompt": "What iconic 1977 double-album soundtrack defined the disco era, featuring the Bee Gees singing 'Stayin' Alive'?",
+      "choices": ["Grease", "Saturday Night Fever", "Flashdance", "Footloose"],
+      "correctAnswerIndex": 1,
+      "explanation": "Saturday Night Fever propelled disco music into global mainstream dominance."
+    }
+  ]
+}

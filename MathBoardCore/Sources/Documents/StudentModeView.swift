@@ -34,40 +34,59 @@ public struct StudentModeView: View {
     @State private var selectedCatalogFolderID = StudentOpenedAssignedLessonFolder.allLessonsID
     @State private var isNewCatalogFolderPresented = false
     @State private var newCatalogFolderName = ""
+    @State private var scoreSheetRecord: StudentOpenedAssignedLessonRecord?
+    @State private var recordPendingDeletion: StudentOpenedAssignedLessonRecord?
+    @FocusState private var isLessonCodeFieldFocused: Bool
 
     public init() {}
 
     public var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    header
+            ScrollViewReader { scrollProxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 28) {
+                        header
 
-                    HStack(alignment: .top, spacing: 24) {
-                        VStack(alignment: .leading, spacing: 18) {
-                            accessForm
-                            catalogFoldersView
+                        HStack(alignment: .top, spacing: 30) {
+                            VStack(alignment: .leading, spacing: 22) {
+                                accessForm
+                                catalogFoldersView
+                            }
+                            .frame(width: 390)
+
+                            openedLessonsCatalogView
+                                .frame(maxWidth: .infinity, alignment: .top)
                         }
-                        .frame(width: 330)
-
-                        openedLessonsCatalogView
-                            .frame(maxWidth: .infinity, alignment: .top)
                     }
-
-                    assignmentStatusView
+                    .padding(.horizontal, 42)
+                    .padding(.vertical, 34)
+                    .padding(.bottom, isLessonCodeFieldFocused ? 160 : 0)
+                    .frame(maxWidth: 1280, alignment: .leading)
+                    .frame(maxWidth: .infinity)
                 }
-                .padding(24)
-                .frame(maxWidth: 1180, alignment: .leading)
-                .frame(maxWidth: .infinity)
+                #if os(iOS)
+                .scrollDismissesKeyboard(.interactively)
+                #endif
+                .onChange(of: isLessonCodeFieldFocused) { _, isFocused in
+                    guard isFocused else { return }
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(180))
+                        withAnimation(.easeOut(duration: 0.24)) {
+                            scrollProxy.scrollTo("studentMode.downloadLessonButton", anchor: .bottom)
+                        }
+                    }
+                }
             }
-            .background(AppColors.canvasBackground.ignoresSafeArea())
+            .background(studentHomeBackground.ignoresSafeArea())
             .navigationTitle("MathBoard Student")
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        modeStore.switchToTeacherMode()
-                    } label: {
-                        Label("Teacher Mode", systemImage: "graduationcap")
+                if modeStore.allowsTeacherMode {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            modeStore.switchToTeacherMode()
+                        } label: {
+                            Label("Teacher Mode", systemImage: "graduationcap")
+                        }
                     }
                 }
             }
@@ -117,6 +136,22 @@ public struct StudentModeView: View {
                         addCatalogFolder(named: folderName)
                     }
                 )
+            }
+            .sheet(item: $scoreSheetRecord) { record in
+                StudentLessonScoreSheet(record: record)
+            }
+            .alert("Delete Lesson?", isPresented: deleteLessonAlertBinding) {
+                Button("Cancel", role: .cancel) {
+                    recordPendingDeletion = nil
+                }
+                Button("Delete", role: .destructive) {
+                    if let recordPendingDeletion {
+                        deleteCatalogRecord(recordPendingDeletion)
+                    }
+                    recordPendingDeletion = nil
+                }
+            } message: {
+                Text("This removes the saved student copy from this iPad. You can download it again later with the class code.")
             }
             .onAppear {
                 loadStudentCatalogState()
@@ -203,74 +238,190 @@ public struct StudentModeView: View {
         )
     }
 
+    private var deleteLessonAlertBinding: Binding<Bool> {
+        Binding(
+            get: { recordPendingDeletion != nil },
+            set: { isPresented in
+                if !isPresented {
+                    recordPendingDeletion = nil
+                }
+            }
+        )
+    }
+
     private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Join an Assigned Lesson")
-                .font(.largeTitle.weight(.bold))
-            Text("Enter the class lesson code. Your student profile is saved on this device.")
-                .font(.headline)
-                .foregroundStyle(.secondary)
+        HStack(alignment: .center, spacing: 16) {
+            Image(systemName: "graduationcap")
+                .font(.system(size: 28, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 70, height: 70)
+                .background(
+                    LinearGradient(
+                        colors: [Color(red: 0.92, green: 0.67, blue: 0.38), Color(red: 0.67, green: 0.35, blue: 0.13)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                )
+                .shadow(color: .black.opacity(0.26), radius: 10, y: 5)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("MathBoard Student")
+                    .font(.system(size: 30, weight: .heavy, design: .rounded))
+                    .foregroundStyle(studentWarmWhite)
+                    .lineLimit(1)
+                Text("Signed in on this iPad")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(studentWarmWhite.opacity(0.66))
+            }
+
+            Spacer()
+
+            Text("Offline ready")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(studentInk.opacity(0.82))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 9)
+                .background(Color.white.opacity(0.92), in: Capsule())
+                .overlay(Capsule().stroke(Color.black.opacity(0.10), lineWidth: 1))
         }
     }
 
     private var accessForm: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Student Access")
-                .font(.headline)
+        VStack(alignment: .leading, spacing: 18) {
+            Label("Student Access", systemImage: "sparkles")
+                .font(.system(size: 15, weight: .heavy))
+                .textCase(.uppercase)
+                .tracking(3)
+                .foregroundStyle(studentInk.opacity(0.72))
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Join an Assigned Lesson")
+                    .font(.system(size: 30, weight: .heavy, design: .rounded))
+                    .foregroundStyle(studentInk)
+                    .lineLimit(2)
+                Text("Enter the class code. Your student profile is saved on this device.")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineSpacing(4)
+            }
 
             TextField("Class lesson code", text: $lessonCode)
-                .textInputAutocapitalization(.characters)
+                .focused($isLessonCodeFieldFocused)
                 #if os(iOS)
+                .textInputAutocapitalization(.characters)
                 .keyboardType(.asciiCapable)
                 #endif
-                .textFieldStyle(.roundedBorder)
+                .textContentType(.oneTimeCode)
+                .submitLabel(.done)
+                .font(.system(size: 28, weight: .heavy, design: .rounded).monospaced())
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 18)
+                .frame(height: 64)
+                .background(Color.white.opacity(0.74), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color.black.opacity(0.12), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.07), radius: 6, y: 2)
+                .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .onTapGesture {
+                    isLessonCodeFieldFocused = true
+                }
+                .onSubmit {
+                    guard hasEnteredLessonCode,
+                          hasCompleteStudentProfile,
+                          !isFindingOnlineLesson,
+                          !isDownloadingLesson else { return }
+                    Task {
+                        await downloadLessonFromAccessCode()
+                    }
+                }
                 .accessibilityIdentifier("studentMode.lessonCodeField")
 
             studentProfileSummary
 
             Button {
                 Task {
-                    await findOnlineLesson()
+                    await downloadLessonFromAccessCode()
                 }
             } label: {
-                if isFindingOnlineLesson {
+                if isFindingOnlineLesson || isDownloadingLesson {
                     ProgressView()
                         .frame(maxWidth: .infinity)
                 } else {
                     Label("Download Lesson", systemImage: "icloud.and.arrow.down")
+                        .font(.system(size: 20, weight: .heavy, design: .rounded))
                         .frame(maxWidth: .infinity)
                 }
             }
-            .buttonStyle(.bordered)
-            .disabled(!hasEnteredLessonCode || !hasCompleteStudentProfile || isFindingOnlineLesson || (try? syncService.resolveAssignment(classLessonCode: lessonCode)) != nil)
+            .buttonStyle(.plain)
+            .foregroundStyle(.white)
+            .frame(height: 66)
+            .background(
+                LinearGradient(
+                    colors: [Color(red: 0.89, green: 0.38, blue: 0.24), Color(red: 0.68, green: 0.22, blue: 0.11)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                ),
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.18), lineWidth: 1)
+            )
+            .shadow(color: Color(red: 0.40, green: 0.18, blue: 0.08).opacity(0.36), radius: 8, y: 4)
+            .disabled(!hasEnteredLessonCode || !hasCompleteStudentProfile || isFindingOnlineLesson || isDownloadingLesson)
+            .id("studentMode.downloadLessonButton")
             .accessibilityIdentifier("studentMode.findOnlineLessonButton")
+
+            Text("The lesson lands at the top of your catalog. Tap it to open.")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
         }
-        .padding(16)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .padding(22)
+        .background(Color.white.opacity(0.94), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(Color.black.opacity(0.08), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.16), radius: 18, y: 10)
     }
 
     @ViewBuilder
     private var openedLessonsCatalogView: some View {
         if hasCompleteStudentProfile {
-            VStack(alignment: .leading, spacing: 18) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("\(normalizedPreferredFirstName)'s Catalog")
-                            .font(.title2.weight(.bold))
+            VStack(alignment: .leading, spacing: 20) {
+                HStack(alignment: .center) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("\(normalizedPreferredFirstName)'s Catalog → \(selectedCatalogFolder.name)")
+                            .font(.system(size: 25, weight: .heavy, design: .rounded))
+                            .foregroundStyle(studentInk)
                             .lineLimit(1)
-                        Text("\(selectedCatalogFolder.name) • ^[\(visibleOpenedLessons.count) lesson](inflect: true)")
-                            .font(.subheadline.weight(.semibold))
+                        Text("^[\(visibleOpenedLessons.count) lesson](inflect: true) on this device")
+                            .font(.system(size: 15, weight: .heavy))
                             .foregroundStyle(.secondary)
                     }
 
                     Spacer(minLength: 12)
 
-                    Text("Offline ready")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(.thinMaterial, in: Capsule())
+                    Button {
+                    } label: {
+                        Label("Select", systemImage: "checklist.checked")
+                            .font(.system(size: 17, weight: .heavy))
+                            .frame(width: 128, height: 54)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(studentInk)
+                    .background(Color.white.opacity(0.72), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(Color.black.opacity(0.12), lineWidth: 1)
+                    )
+                    .shadow(color: .black.opacity(0.16), radius: 8, y: 4)
+                    .accessibilityLabel("Select lessons")
                 }
 
                 if openedLessonCatalog.isEmpty {
@@ -297,21 +448,33 @@ public struct StudentModeView: View {
                                 onOpen: {
                                     openCatalogRecord(record)
                                 },
+                                onShowScores: {
+                                    scoreSheetRecord = record
+                                },
                                 onMove: { folderID in
                                     moveCatalogRecord(record, to: folderID)
+                                },
+                                onDelete: {
+                                    recordPendingDeletion = record
                                 }
                             )
                         }
                     }
                 }
             }
-            .padding(22)
-            .frame(maxWidth: .infinity, minHeight: 520, alignment: .topLeading)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+            .padding(24)
+            .frame(maxWidth: .infinity, minHeight: 640, alignment: .topLeading)
+            .background(studentPanelBackground, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.20), radius: 18, y: 10)
         } else {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Student Catalog")
-                    .font(.title2.weight(.bold))
+                    .font(.system(size: 25, weight: .heavy, design: .rounded))
+                    .foregroundStyle(studentInk)
                 ContentUnavailableView(
                     "Profile Needed",
                     systemImage: "person.crop.circle.badge.exclamationmark",
@@ -319,26 +482,39 @@ public struct StudentModeView: View {
                 )
                 .frame(maxWidth: .infinity, minHeight: 260)
             }
-            .padding(22)
-            .frame(maxWidth: .infinity, minHeight: 520, alignment: .topLeading)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+            .padding(24)
+            .frame(maxWidth: .infinity, minHeight: 640, alignment: .topLeading)
+            .background(studentPanelBackground, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
+            )
         }
     }
 
     private var catalogFoldersView: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("Folders")
-                    .font(.headline)
+                    .font(.system(size: 19, weight: .heavy, design: .rounded))
+                    .foregroundStyle(studentInk)
                 Spacer()
                 Button {
                     newCatalogFolderName = ""
                     isNewCatalogFolderPresented = true
                 } label: {
                     Label("New", systemImage: "folder.badge.plus")
+                        .font(.system(size: 14, weight: .heavy))
+                        .frame(width: 96, height: 42)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(.plain)
+                .foregroundStyle(studentInk)
+                .background(Color.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color.black.opacity(0.12), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.12), radius: 5, y: 3)
                 .disabled(!hasCompleteStudentProfile)
             }
 
@@ -346,30 +522,42 @@ public struct StudentModeView: View {
                 Button {
                     selectedCatalogFolderID = folder.id
                 } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: folder.id == StudentOpenedAssignedLessonFolder.allLessonsID ? "tray.full" : "folder")
-                            .frame(width: 22)
+                    HStack(spacing: 12) {
+                        Image(systemName: folder.id == StudentOpenedAssignedLessonFolder.allLessonsID ? "folder" : "folder")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(selectedCatalogFolderID == folder.id ? AppColors.accent : Color(red: 0.58, green: 0.50, blue: 0.38))
+                            .frame(width: 24)
                         Text(folder.name)
+                            .font(.system(size: 17, weight: .heavy, design: .rounded))
                             .lineLimit(1)
                         Spacer(minLength: 8)
                         Text("\(catalogCount(for: folder.id))")
-                            .font(.caption.weight(.semibold))
+                            .font(.system(size: 13, weight: .heavy))
                             .foregroundStyle(.secondary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(.thinMaterial, in: Capsule())
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color.black.opacity(0.07), in: Capsule())
                     }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(selectedCatalogFolderID == folder.id ? .primary : .secondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 10)
-                    .background(folderBackground(for: folder.id), in: RoundedRectangle(cornerRadius: 10))
+                    .foregroundStyle(studentInk)
+                    .padding(.horizontal, 14)
+                    .frame(height: 54)
+                    .background(folderBackground(for: folder.id), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(selectedCatalogFolderID == folder.id ? AppColors.accent.opacity(0.70) : Color.black.opacity(0.10), lineWidth: 1.5)
+                    )
+                    .shadow(color: selectedCatalogFolderID == folder.id ? AppColors.accent.opacity(0.14) : .black.opacity(0.08), radius: 5, y: 3)
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(16)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .padding(22)
+        .background(Color.white.opacity(0.94), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(Color.black.opacity(0.08), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.16), radius: 18, y: 10)
     }
 
     private var assignmentStatusView: some View {
@@ -432,7 +620,7 @@ public struct StudentModeView: View {
     }
 
     private func folderBackground(for folderID: String) -> Color {
-        selectedCatalogFolderID == folderID ? AppColors.folderTint.opacity(0.22) : Color.clear
+        selectedCatalogFolderID == folderID ? Color(red: 1.0, green: 0.92, blue: 0.88) : Color.white.opacity(0.70)
     }
 
     private func folderName(for folderID: String) -> String {
@@ -487,6 +675,37 @@ public struct StudentModeView: View {
             to: folderID,
             studentIdentifier: normalizedStudentIdentifier
         )
+    }
+
+    private func promoteExistingCatalogRecord(for assignmentPacket: AssignmentSyncPacket) -> Bool {
+        let normalizedCode = ClassroomAssignmentStore.normalizedClassLessonCode(assignmentPacket.classLessonCode)
+        guard let record = openedLessonCatalog.first(where: { record in
+            record.assignmentPacket.id == assignmentPacket.id ||
+            ClassroomAssignmentStore.normalizedClassLessonCode(record.classLessonCode) == normalizedCode
+        }) else {
+            return false
+        }
+
+        openedLessonCatalog = StudentOpenedAssignedLessonCatalog.upsert(
+            StudentOpenedAssignedLessonRecord(
+                assignmentPacket: record.assignmentPacket,
+                workingCopyURL: record.workingCopyURL,
+                lastOpenedAt: Date(),
+                folderID: record.folderID
+            ),
+            studentIdentifier: normalizedStudentIdentifier
+        )
+        selectedCatalogFolderID = StudentOpenedAssignedLessonFolder.allLessonsID
+        lessonCode = ""
+        return true
+    }
+
+    private func deleteCatalogRecord(_ record: StudentOpenedAssignedLessonRecord) {
+        openedLessonCatalog = StudentOpenedAssignedLessonCatalog.remove(
+            assignmentID: record.assignmentPacket.id,
+            studentIdentifier: normalizedStudentIdentifier
+        )
+        try? FileManager.default.removeItem(at: record.workingCopyURL)
     }
 
     private func assignmentCard(_ assignmentPacket: AssignmentSyncPacket) -> some View {
@@ -644,6 +863,66 @@ public struct StudentModeView: View {
             remoteAssignmentPacket = packet
             remoteAssignmentCode = code
             syncSelectedWidget()
+        } catch {
+            statusMessage = StudentSubmissionStatusMessage(
+                message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            )
+        }
+    }
+
+    private func downloadLessonFromAccessCode() async {
+        let code = normalizedLessonCode
+        guard !code.isEmpty else { return }
+        hasSearchedOnlineLesson = true
+        isFindingOnlineLesson = true
+        isDownloadingLesson = true
+        defer {
+            isFindingOnlineLesson = false
+            isDownloadingLesson = false
+        }
+
+        do {
+            try await ensureOnlineStudentAccess()
+            let packet = try await FirebaseClassroomSyncService().resolveAssignment(
+                classLessonCode: code,
+                studentIdentifier: normalizedStudentIdentifier
+            )
+            remoteAssignmentPacket = packet
+            remoteAssignmentCode = code
+            syncSelectedWidget()
+
+            if promoteExistingCatalogRecord(for: packet) {
+                statusMessage = StudentSubmissionStatusMessage(message: "That lesson is already in your catalog.")
+                return
+            }
+
+            guard packet.lesson.packageStoragePath != nil else {
+                statusMessage = StudentSubmissionStatusMessage(message: "This lesson is not ready to download yet.")
+                return
+            }
+
+            let archiveData = try await FirebaseClassroomSyncService()
+                .downloadLessonPackageData(for: packet.lesson)
+            let sourceLesson = try documentStore.importSharedLessonPackageArchive(
+                archiveData,
+                suggestedFileName: packet.lesson.packageFileName
+            )
+            let studentLesson = try documentStore.studentAssignedLessonWorkingCopy(
+                for: sourceLesson,
+                assignmentID: packet.id,
+                studentIdentifier: normalizedStudentIdentifier
+            )
+            openedLessonCatalog = StudentOpenedAssignedLessonCatalog.upsert(
+                StudentOpenedAssignedLessonRecord(
+                    assignmentPacket: packet,
+                    workingCopyURL: studentLesson.url,
+                    lastOpenedAt: Date(),
+                    folderID: selectedCatalogFolderID == StudentOpenedAssignedLessonFolder.allLessonsID ? StudentOpenedAssignedLessonFolder.allLessonsID : selectedCatalogFolderID
+                ),
+                studentIdentifier: normalizedStudentIdentifier
+            )
+            selectedCatalogFolderID = StudentOpenedAssignedLessonFolder.allLessonsID
+            lessonCode = ""
         } catch {
             statusMessage = StudentSubmissionStatusMessage(
                 message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -847,6 +1126,30 @@ public struct StudentModeView: View {
         scoreRecord(for: widget, draft: currentScoreDraft, status: status)
     }
 
+    private var studentHomeBackground: LinearGradient {
+        LinearGradient(
+            colors: [Color(red: 0.04, green: 0.04, blue: 0.04), Color(red: 0.08, green: 0.07, blue: 0.06)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private var studentPanelBackground: LinearGradient {
+        LinearGradient(
+            colors: [Color(red: 0.91, green: 0.85, blue: 0.73), Color(red: 0.82, green: 0.75, blue: 0.62)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private var studentInk: Color {
+        Color(red: 0.17, green: 0.12, blue: 0.09)
+    }
+
+    private var studentWarmWhite: Color {
+        Color(red: 0.95, green: 0.89, blue: 0.78)
+    }
+
     private func scoreRecord(
         for widget: AssignedWidgetSummary,
         draft: StudentWidgetScoreDraft,
@@ -948,8 +1251,6 @@ private struct StudentProfileSettingsView: View {
     @Binding var preferredFirstName: String
     @Binding var studentIdentifier: String
     @Environment(\.dismiss) private var dismiss
-    @AppStorage(LiveClassroomSettings.enabledKey) private var isLiveTeacherInkEnabled = false
-    @AppStorage(LiveClassroomSettings.ablyAPIKeyKey) private var liveTeacherInkAblyAPIKey = ""
 
     private var trimmedPreferredFirstName: String {
         preferredFirstName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -968,11 +1269,13 @@ private struct StudentProfileSettingsView: View {
             Form {
                 Section {
                     TextField("First name", text: $preferredFirstName)
+                        #if os(iOS)
                         .textInputAutocapitalization(.words)
+                        #endif
                         .accessibilityIdentifier("studentProfile.firstNameField")
                     TextField("Teacher-supplied ID", text: $studentIdentifier)
-                        .textInputAutocapitalization(.characters)
                         #if os(iOS)
+                        .textInputAutocapitalization(.characters)
                         .keyboardType(.asciiCapable)
                         #endif
                         .accessibilityIdentifier("studentProfile.studentIDField")
@@ -982,19 +1285,11 @@ private struct StudentProfileSettingsView: View {
                     Text("This stays saved on this device. Your teacher uses the ID to match your classroom roster row.")
                 }
 
-                Section {
-                    Toggle("Receive live teacher ink", isOn: $isLiveTeacherInkEnabled)
-                    SecureField("Ably API key", text: $liveTeacherInkAblyAPIKey)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                } header: {
-                    Text("Live Ink POC")
-                } footer: {
-                    Text("Temporary testing setting. Production should use a short-lived token instead of an API key on student devices.")
-                }
             }
             .navigationTitle("Student Profile")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
@@ -1014,36 +1309,66 @@ private struct StudentCatalogLessonRow: View {
     let folderName: String
     let folders: [StudentOpenedAssignedLessonFolder]
     let onOpen: () -> Void
+    let onShowScores: () -> Void
     let onMove: (String) -> Void
+    let onDelete: () -> Void
 
     var body: some View {
         Button(action: onOpen) {
             HStack(spacing: 14) {
-                Image(systemName: "book.pages")
-                    .font(.title3)
-                    .foregroundStyle(.blue)
-                    .frame(width: 34)
+                Image(systemName: "doc.text")
+                    .font(.system(size: 23, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.04, green: 0.48, blue: 0.48))
+                    .frame(width: 50, height: 50)
+                    .background(Color(red: 0.88, green: 0.96, blue: 0.95), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(Color(red: 0.04, green: 0.48, blue: 0.48).opacity(0.18), lineWidth: 1)
+                    )
 
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(record.lessonTitle)
-                        .font(.headline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
+                VStack(alignment: .leading, spacing: 7) {
+                    HStack(spacing: 10) {
+                        Text(record.lessonTitle)
+                            .font(.system(size: 19, weight: .heavy, design: .rounded))
+                            .foregroundStyle(Color(red: 0.17, green: 0.12, blue: 0.09))
+                            .lineLimit(1)
+
+                        if isRecentlyOpened {
+                            Label("New", systemImage: "clock")
+                                .font(.system(size: 11, weight: .heavy))
+                                .textCase(.uppercase)
+                                .foregroundStyle(Color(red: 0.65, green: 0.39, blue: 0.07))
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 4)
+                                .background(Color(red: 0.99, green: 0.90, blue: 0.68), in: Capsule())
+                                .overlay(Capsule().stroke(Color(red: 0.73, green: 0.51, blue: 0.17).opacity(0.45), lineWidth: 1))
+                        }
+                    }
 
                     HStack(spacing: 10) {
                         Text("Code \(record.classLessonCode)")
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 3)
-                            .background(.thinMaterial, in: Capsule())
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.black.opacity(0.07), in: Capsule())
                         Label(record.lastOpenedAt.formatted(date: .abbreviated, time: .omitted), systemImage: "clock")
                         Label(folderName, systemImage: "folder")
                     }
-                    .font(.caption.weight(.semibold))
+                    .font(.system(size: 13, weight: .heavy))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 }
 
-                Spacer(minLength: 8)
+                Spacer(minLength: 10)
+
+                Button(action: onShowScores) {
+                    Image(systemName: "chart.bar.doc.horizontal")
+                        .font(.system(size: 18, weight: .semibold))
+                        .frame(width: 38, height: 38)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color(red: 0.28, green: 0.38, blue: 0.64))
+                .background(Color.white.opacity(0.75), in: Circle())
+                .accessibilityLabel("Show scores for \(record.lessonTitle)")
 
                 Menu {
                     ForEach(folders) { folder in
@@ -1055,21 +1380,140 @@ private struct StudentCatalogLessonRow: View {
                     }
                 } label: {
                     Image(systemName: "folder.badge.gearshape")
-                        .font(.title3)
+                        .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(.secondary)
                         .frame(width: 38, height: 38)
-                        .background(.thinMaterial, in: Circle())
+                        .background(Color.white.opacity(0.75), in: Circle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Move \(record.lessonTitle) to folder")
+
+                Button(role: .destructive, action: onDelete) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 18, weight: .semibold))
+                        .frame(width: 38, height: 38)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color(red: 0.70, green: 0.18, blue: 0.13))
+                .background(Color.white.opacity(0.75), in: Circle())
+                .accessibilityLabel("Delete \(record.lessonTitle)")
 
                 Image(systemName: "chevron.forward")
-                    .font(.caption.weight(.semibold))
+                    .font(.system(size: 15, weight: .heavy))
                     .foregroundStyle(.tertiary)
             }
-            .padding(14)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .padding(16)
+            .background(Color.white.opacity(0.90), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.black.opacity(0.10), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.13), radius: 8, y: 4)
         }
         .buttonStyle(.plain)
+    }
+
+    private var isRecentlyOpened: Bool {
+        Date().timeIntervalSince(record.lastOpenedAt) < 60 * 60 * 24
+    }
+}
+
+private struct StudentLessonScoreSheet: View {
+    let record: StudentOpenedAssignedLessonRecord
+    @Environment(\.dismiss) private var dismiss
+
+    private var scoredWidgets: [AssignedWidgetSummary] {
+        record.assignmentPacket.widgetSummaries.filter { $0.maxScore > 0 }
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(record.lessonTitle)
+                        .font(.system(size: 28, weight: .heavy, design: .rounded))
+                        .lineLimit(2)
+                    Text("Code \(record.classLessonCode)")
+                        .font(.system(size: 15, weight: .heavy))
+                        .foregroundStyle(.secondary)
+                }
+
+                VStack(spacing: 0) {
+                    scoreRow(title: "Class Points", scoreText: "0", detail: "Teacher-awarded points will appear here.")
+
+                    Divider()
+
+                    if scoredWidgets.isEmpty {
+                        HStack(spacing: 12) {
+                            Image(systemName: "square.grid.2x2")
+                                .foregroundStyle(.secondary)
+                            Text("No scoreable widgets found yet.")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                        }
+                        .padding(16)
+                    } else {
+                        ForEach(Array(scoredWidgets.enumerated()), id: \.element.widgetID) { index, widget in
+                            scoreRow(
+                                title: widget.title.isEmpty ? "Widget \(index + 1)" : widget.title,
+                                scoreText: "-- / \(Int(widget.maxScore.rounded()))",
+                                detail: "Score wiring coming next."
+                            )
+                            if index < scoredWidgets.count - 1 {
+                                Divider()
+                            }
+                        }
+                    }
+                }
+                .background(Color.white.opacity(0.82), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(Color.black.opacity(0.10), lineWidth: 1)
+                )
+
+                Spacer()
+            }
+            .padding(24)
+            .background(Color(red: 0.94, green: 0.90, blue: 0.82).ignoresSafeArea())
+            .navigationTitle("Score Sheet")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .frame(minWidth: 460, idealWidth: 560, minHeight: 520, idealHeight: 620)
+    }
+
+    private func scoreRow(title: String, scoreText: String, detail: String) -> some View {
+        HStack(alignment: .center, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 17, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Color(red: 0.17, green: 0.12, blue: 0.09))
+                    .lineLimit(2)
+                Text(detail)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 12)
+
+            Text(scoreText)
+                .font(.system(size: 18, weight: .heavy, design: .rounded).monospacedDigit())
+                .foregroundStyle(Color(red: 0.73, green: 0.28, blue: 0.17))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color(red: 1.0, green: 0.94, blue: 0.84), in: Capsule())
+        }
+        .padding(16)
     }
 }
 
@@ -1087,13 +1531,17 @@ private struct StudentCatalogFolderSheet: View {
             Form {
                 Section {
                     TextField("Folder name", text: $folderName)
+                        #if os(iOS)
                         .textInputAutocapitalization(.words)
+                        #endif
                 } footer: {
                     Text("Folders are saved only for this student profile on this iPad.")
                 }
             }
             .navigationTitle("New Folder")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -1197,12 +1645,13 @@ struct StudentAssignedLessonLiveProgressBuilder {
 
 private struct StudentAssignedLessonView: View {
     @Environment(\.dismiss) private var dismiss
-    @AppStorage(LiveClassroomSettings.enabledKey) private var isLiveTeacherInkEnabled = false
-    @AppStorage(LiveClassroomSettings.ablyAPIKeyKey) private var liveTeacherInkAblyAPIKey = ""
+    @State private var showsTeacherNotes: Bool = true
+    @State private var showsStudentInk: Bool = true
 
     let destination: StudentAssignedLessonDestination
     let submittedWidgetIDs: Set<UUID>
     @State private var activeWidgetIDs: Set<UUID> = []
+    @State private var lastKnownNonEmptyActiveWidgetIDs: Set<UUID> = []
     @State private var activeWidgets: [WidgetObject] = []
     @State private var scoreRecordsByWidgetID: [UUID: WidgetActivityScoreRecord]
     @State private var localSubmittedWidgetIDs: Set<UUID>
@@ -1218,6 +1667,9 @@ private struct StudentAssignedLessonView: View {
     @State private var teacherObjectSnapshotListener: ListenerRegistration?
     @State private var isStartingTeacherSlideManifestListener = false
     @State private var isStartingTeacherObjectSnapshotListener = false
+    #if os(iOS)
+    @State private var isPersonalLibraryPresented = false
+    #endif
 
     private static let durableTeacherSlideManifestRefreshRetryDelaysMilliseconds = [0, 750, 1_500, 3_000, 5_000, 8_000, 13_000, 21_000]
 
@@ -1239,13 +1691,31 @@ private struct StudentAssignedLessonView: View {
     var body: some View {
         assignedLessonContent
             .navigationTitle(studentDisplayName)
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .navigationBarBackButtonHidden(true)
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     studentNameTitle
                 }
+                #if os(iOS)
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        isPersonalLibraryPresented = true
+                    } label: {
+                        Image(systemName: "scissors.badge.ellipsis")
+                    }
+                    .accessibilityLabel("My Clips")
+                }
+                #endif
             }
+            #if os(iOS)
+            .sheet(isPresented: $isPersonalLibraryPresented) {
+                StudentPersonalLibraryView()
+                    .presentationDetents([.medium, .large])
+            }
+            #endif
             .overlay(alignment: .topLeading) {
                 studentLessonChrome
             }
@@ -1303,8 +1773,12 @@ private struct StudentAssignedLessonView: View {
                 initialTeacherObjectSnapshots: durableTeacherObjectSnapshots,
                 onActiveWidgetIDsChanged: handleActiveWidgetIDsChanged,
                 onActiveWidgetsChanged: handleActiveWidgetsChanged,
-                onLiveTeacherSlideManifestRefreshRequested: refreshDurableTeacherSlideManifest
+                onLiveTeacherSlideManifestRefreshRequested: refreshDurableTeacherSlideManifest,
+                onStudentExtractedClip: saveToPersonalLibrary,
+                showsTeacherInkOverlay: $showsTeacherNotes,
+                hidesStudentInk: Binding(get: { !showsStudentInk }, set: { showsStudentInk = !$0 })
             )
+            .environment(\.widgetClassroomGameContext, studentWidgetClassroomGameContext)
             .environment(\.widgetSubmit, WidgetSubmitEnvironment(
                 isWidgetSubmitted: { widgetID in localSubmittedWidgetIDs.contains(widgetID) },
                 isWidgetReset: { widgetID in everSubmittedWidgetIDs.contains(widgetID) && !localSubmittedWidgetIDs.contains(widgetID) },
@@ -1337,6 +1811,28 @@ private struct StudentAssignedLessonView: View {
         }
     }
 
+    private var studentWidgetClassroomGameContext: WidgetClassroomGameContext {
+        let participantID = destination.studentIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        let displayName = studentDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let participant = WidgetClassroomParticipant(
+            id: participantID,
+            displayName: displayName.isEmpty ? "Student" : displayName,
+            role: .student
+        )
+        return WidgetClassroomGameContext(
+            role: .student,
+            currentParticipantID: participantID,
+            participants: [participant]
+        )
+    }
+
+    @MainActor
+    private func saveToPersonalLibrary(_ pngData: Data) {
+        Task.detached(priority: .utility) {
+            StudentPersonalLibraryStore.shared.saveClip(pngData: pngData)
+        }
+    }
+
     private var studentLessonChrome: some View {
         HStack(spacing: 10) {
             Button {
@@ -1357,6 +1853,19 @@ private struct StudentAssignedLessonView: View {
                 .frame(height: 40)
                 .background(.ultraThinMaterial, in: Capsule())
                 .accessibilityLabel("Lesson file \(studentLessonFileName)")
+
+            Menu {
+                Toggle("Teacher's notes", isOn: $showsTeacherNotes)
+                Toggle("My writing", isOn: $showsStudentInk)
+            } label: {
+                Image(systemName: showsTeacherNotes && showsStudentInk ? "eye.fill" : "eye.slash.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(showsTeacherNotes && showsStudentInk ? Color.primary : Color.secondary)
+                    .frame(width: 40, height: 40)
+                    .background(.ultraThinMaterial, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Writing visibility controls")
         }
         .padding(.top, 8)
         .padding(.leading, 12)
@@ -1530,12 +2039,11 @@ private struct StudentAssignedLessonView: View {
     }
 
     private var liveClassroomConfiguration: LiveClassroomSessionConfiguration? {
-        guard isLiveTeacherInkEnabled else { return nil }
         let configuration = LiveClassroomSessionConfiguration(
             lessonCode: destination.assignmentPacket.classLessonCode,
             role: .student,
             clientID: "student-\(destination.studentIdentifier)",
-            apiKey: liveTeacherInkAblyAPIKey
+            apiKey: LiveClassroomSettings.shared.ablySubscriberAPIKey
         )
         return configuration.isUsable ? configuration : nil
     }
@@ -1583,15 +2091,23 @@ private struct StudentAssignedLessonView: View {
 
     private func handleActiveWidgetIDsChanged(_ widgetIDs: Set<UUID>) {
         guard widgetIDs != activeWidgetIDs else { return }
+        if !widgetIDs.isEmpty {
+            lastKnownNonEmptyActiveWidgetIDs = widgetIDs
+        }
         activeWidgetIDs = widgetIDs
         // Publish presence immediately so teacher's fallback dot reflects current widget
         // activity without waiting for the next 2-second loop tick.
         publishLessonPresence()
-        publishLiveProgress(forActiveWidgetIDs: widgetIDs, activeWidgets: activeWidgets)
+        // When navigating away use a fresh disk read so any answers completed just before
+        // leaving the slide are included, rather than the stale activeWidgets snapshot.
+        let widgetsForPublish = widgetIDs.isEmpty
+            ? refreshedWidgets(forActiveWidgetIDs: lastKnownNonEmptyActiveWidgetIDs)
+            : activeWidgets
+        publishLiveProgress(forActiveWidgetIDs: widgetIDs, activeWidgets: widgetsForPublish.isEmpty ? activeWidgets : widgetsForPublish)
     }
 
     private func handleActiveWidgetsChanged(_ widgets: [WidgetObject]) {
-        guard widgets.map(\.id) != activeWidgets.map(\.id) else { return }
+        guard widgets != activeWidgets else { return }
         activeWidgets = widgets
         publishLiveProgress(forActiveWidgetIDs: activeWidgetIDs, activeWidgets: widgets)
     }
@@ -1599,7 +2115,11 @@ private struct StudentAssignedLessonView: View {
     private func runLiveProgressLoop() async {
         while !Task.isCancelled {
             publishLessonPresence()
-            let refreshedActiveWidgets = refreshedWidgets(forActiveWidgetIDs: activeWidgetIDs)
+            // When the student has navigated away, fall back to the last known widget IDs
+            // so the loop continues doing fresh disk reads even after leaving the slide.
+            // This ensures a score saved by the debounce after navigation is picked up.
+            let idsForRefresh = activeWidgetIDs.isEmpty ? lastKnownNonEmptyActiveWidgetIDs : activeWidgetIDs
+            let refreshedActiveWidgets = refreshedWidgets(forActiveWidgetIDs: idsForRefresh)
             publishLiveProgress(
                 forActiveWidgetIDs: activeWidgetIDs,
                 activeWidgets: refreshedActiveWidgets.isEmpty ? activeWidgets : refreshedActiveWidgets

@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Ball Toss - Height vs Time</title>
+<style>
+  :root{
+    --text-primary:#1a1a18;
+    --text-secondary:#5f5e5a;
+    --text-muted:#8a887f;
+    --border:#d8d6cd;
+    --border-strong:#b4b2a9;
+    --surface-1:#f1efe8;
+    --surface-2:#ffffff;
+    --page-bg:#fbfaf6;
+    --selected-bg:#dcebfa;
+    --green:#2E8B4F;
+    --red:#C4372E;
+    --marker:#6B4FBB;
+    --concdown:#B8791E;
+    --ball:#C4372E;
+    --spring:#5f5e5a;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --text-primary:#f1efe8;
+      --text-secondary:#c2c0b6;
+      --text-muted:#8a887f;
+      --border:#444441;
+      --border-strong:#5f5e5a;
+      --surface-1:#262624;
+      --surface-2:#1c1c1a;
+      --page-bg:#141413;
+      --selected-bg:#0c447c;
+      --green:#5BC97F;
+      --red:#E86A5F;
+      --marker:#B3A0F5;
+      --concdown:#E8B85C;
+      --ball:#E86A5F;
+      --spring:#c2c0b6;
+    }
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;width:100%;background:var(--page-bg);color:var(--text-primary);
+    font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;overflow:hidden;}
+  #app{display:flex;flex-direction:column;height:100%;width:100%;padding:10px;overflow:auto;}
+  h1{font-size:22px;font-weight:700;margin:0 0 10px;color:var(--text-primary);}
+  h2{font-size:18px;font-weight:700;margin:0 0 8px;color:var(--text-secondary);}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;}
+  button{
+    font-family:inherit;font-size:17px;font-weight:600;color:var(--text-primary);
+    background:var(--surface-2);border:1px solid var(--border-strong);border-radius:8px;
+    padding:10px 14px;min-height:44px;cursor:pointer;user-select:none;-webkit-user-select:none;
+  }
+  button:active{background:var(--surface-1);}
+  button:disabled{opacity:0.45;cursor:default;}
+  button.selected{background:var(--selected-bg);border-color:var(--border-strong);}
+  button.primary{background:var(--selected-bg);font-weight:700;}
+  .maingrid{display:flex;flex-direction:row;gap:14px;flex:1 1 auto;min-height:0;flex-wrap:wrap;}
+  .launchcol{flex:0 0 190px;display:flex;flex-direction:column;min-height:0;}
+  .graphcol{flex:2 1 360px;display:flex;flex-direction:column;min-height:0;}
+  .tablecol{flex:1 1 200px;display:flex;flex-direction:column;min-height:0;min-width:190px;}
+  .launchwrap{flex:0 0 auto;display:flex;align-items:center;justify-content:center;background:var(--surface-1);
+    border-radius:8px;padding:4px;}
+  .launchwrap svg{width:100%;max-width:150px;height:auto;touch-action:none;}
+  .slider-block{margin-top:10px;font-size:17px;}
+  .slider-block label{display:block;margin-bottom:2px;color:var(--text-secondary);font-weight:600;}
+  .slider-block input[type=range]{width:100%;}
+  .graphwrap{flex:1 1 auto;min-height:200px;display:flex;align-items:center;justify-content:center;}
+  svg.graph{width:100%;height:100%;max-height:50vh;touch-action:none;user-select:none;-webkit-user-select:none;}
+  .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;}
+  .toggles{display:flex;gap:18px;flex-wrap:wrap;margin-top:10px;align-items:center;}
+  .switch-row{display:flex;align-items:center;gap:8px;font-size:17px;font-weight:600;user-select:none;-webkit-user-select:none;}
+  .switch{position:relative;width:40px;height:24px;flex:0 0 auto;}
+  .switch input{position:absolute;opacity:0;width:100%;height:100%;margin:0;cursor:pointer;}
+  .track{position:absolute;inset:0;background:var(--border-strong);border-radius:12px;transition:background .15s;pointer-events:none;}
+  .switch input:checked + .track{background:var(--selected-bg);}
+  .thumb{position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:var(--surface-2);
+    box-shadow:0 0 0 1px var(--border-strong);transition:transform .15s;pointer-events:none;}
+  .switch input:checked ~ .thumb{transform:translateX(16px);}
+  .readouts{display:flex;gap:22px;flex-wrap:wrap;margin-top:12px;font-size:17px;}
+  .swatch{display:inline-block;width:14px;height:14px;border-radius:3px;margin-right:7px;vertical-align:middle;}
+  .readout-val{font-weight:700;}
+  .discovered{margin-top:10px;font-size:16px;font-weight:600;color:var(--text-secondary);min-height:1.4em;}
+  table{border-collapse:collapse;width:100%;font-size:16px;}
+  th,td{border:2px solid var(--border);padding:7px 9px;text-align:right;}
+  th:first-child,td:first-child{text-align:left;}
+  th{background:var(--surface-1);font-weight:600;color:var(--text-secondary);position:sticky;top:0;}
+  .tablewrap{flex:1 1 auto;min-height:120px;overflow:auto;border:2px solid var(--border);border-radius:6px;}
+  .logbtns{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;}
+  .legend-line{font-size:16px;font-weight:600;color:var(--text-secondary);margin-top:8px;}
+  .hint{font-size:16px;color:var(--text-secondary);margin-top:8px;font-style:italic;}
+  .flightreadout{font-size:18px;font-weight:700;margin-top:10px;min-height:1.4em;}
+</style>
+</head>
+<body>
+<div id="app">
+  <h1>Ball Toss - Height vs Time</h1>
+  <div class="tabs">
+    <button id="stab0" onclick="bpSelectScenario(0)">Earth</button>
+    <button id="stab1" onclick="bpSelectScenario(1)">Moon</button>
+    <button id="stab2" onclick="bpSelectScenario(2)">Mars</button>
+  </div>
+  <div id="bpHint" class="hint"></div>
+  <div class="maingrid">
+    <div class="launchcol">
+      <h2>Launch setup</h2>
+      <div class="launchwrap">
+        <svg id="lvSvg" viewBox="0 0 170 520" role="img">
+          <title>Launch view</title>
+          <desc>A ball on a vertical height axis with a spring below it that compresses as initial velocity increases. After landing, drag the ball to rewind and replay the flight.</desc>
+          <g id="lvGrid"></g>
+          <g id="lvSpring"></g>
+          <circle id="lvBall" cx="85" cy="400" r="18" fill="var(--ball)" stroke="var(--surface-2)" stroke-width="4" style="touch-action:none;"/>
+        </svg>
+      </div>
+      <div class="slider-block">
+        <label>Initial height h0: <span id="h0Val">1.0</span> m</label>
+        <input type="range" id="h0Slider" min="0" max="5" step="0.5" value="1">
+      </div>
+      <div class="slider-block">
+        <label>Initial velocity v0: <span id="v0Val">8.0</span> m/s</label>
+        <input type="range" id="v0Slider" min="0" max="15" step="0.5" value="8">
+      </div>
+      <div class="controls">
+        <button id="launchBtn" class="primary" onclick="bpLaunch()">Launch</button>
+        <button onclick="bpResetTrial()">Reset</button>
+      </div>
+      <div id="flightReadout" class="flightreadout"></div>
+    </div>
+
+    <div class="graphcol">
+      <div class="graphwrap">
+        <svg id="rocSvg" class="graph" viewBox="0 0 680 530" role="img">
+          <title>Height versus time graph</title>
+          <desc>The height of the ball plotted against time, always fully shown once the ball lands. Press Analyze graph to reveal two draggable points with a secant line, tangent line, and slope triangle.</desc>
+          <g id="rocGrid"></g>
+          <polyline id="rocPreview" points="" fill="none" stroke="var(--text-muted)" stroke-width="3" stroke-dasharray="8 6" opacity="0.6"/>
+          <polyline id="rocBase" points="" fill="none" stroke="var(--text-muted)" stroke-width="4"/>
+          <g id="rocPainted"></g>
+          <circle id="rocFlightDot" cx="0" cy="0" r="15" fill="var(--text-muted)" opacity="0"/>
+          <circle id="rocScrubDot" cx="0" cy="0" r="15" fill="var(--text-muted)" opacity="0"/>
+          <g id="rocFeatures"></g>
+          <g id="rocDeltaBracket"></g>
+          <line id="rocTangent" x1="0" y1="0" x2="0" y2="0" stroke="var(--text-muted)" stroke-width="3" stroke-dasharray="10 8" opacity="0"/>
+          <line id="rocSecant" x1="0" y1="0" x2="0" y2="0" stroke="var(--text-muted)" stroke-width="5" stroke-linecap="round" opacity="0"/>
+          <g id="rocCurvature"></g>
+          <circle id="rocDot1" cx="0" cy="0" r="15" fill="var(--text-muted)" stroke="var(--surface-2)" stroke-width="4" opacity="0" style="cursor:grab;touch-action:none;"/>
+          <circle id="rocDot2" cx="0" cy="0" r="14" fill="var(--text-muted)" stroke="var(--surface-2)" stroke-width="4" stroke-dasharray="4 3" opacity="0" style="cursor:grab;touch-action:none;"/>
+        </svg>
+      </div>
+      <div class="stepRow" style="display:flex;justify-content:center;margin-top:6px;">
+        <button class="primary" id="stepBtn" onclick="rocStep()" disabled>Step (+0.25 s)</button>
+      </div>
+      <div class="legend-line">Once landed, the full graph always stays on screen. Drag the ball up and down to rewind and replay the flight. Press Analyze graph to add the secant/tangent slope tools.</div>
+      <div class="controls">
+        <button id="analyzeBtn" onclick="rocToggleAnalyze()" disabled>Analyze graph</button>
+        <button id="shrinkBtn" onclick="rocAnimateShrink()" disabled>Shrink delta t toward the tangent</button>
+      </div>
+      <div class="toggles">
+        <label class="switch-row"><span class="switch"><input type="checkbox" id="rocToggleInc" checked><span class="track"></span><span class="thumb"></span></span>Show rising / falling</label>
+        <label class="switch-row"><span class="switch"><input type="checkbox" id="rocToggleConc" checked><span class="track"></span><span class="thumb"></span></span>Show concavity</label>
+      </div>
+      <div class="readouts">
+        <div><span class="swatch" style="background:var(--green);"></span>Rising (height increasing)</div>
+        <div><span class="swatch" style="background:var(--red);"></span>Falling (height decreasing)</div>
+        <div><span class="swatch" style="background:var(--concdown);"></span>Concave down (gravity)</div>
+        <div><span class="swatch" style="background:var(--marker);"></span>Max / launch / land</div>
+      </div>
+      <div class="readouts">
+        <div>Left point: <span id="rocP1Out" class="readout-val">press Analyze graph</span></div>
+        <div>Right point: <span id="rocP2Out" class="readout-val">-</span></div>
+        <div>Delta t: <span id="rocDxOut" class="readout-val">-</span></div>
+      </div>
+      <div class="readouts">
+        <div>Average velocity: <span id="rocSlopeOut" class="readout-val">-</span></div>
+        <div>Concavity: <span id="rocConcOut" class="readout-val">-</span></div>
+      </div>
+      <div id="rocDiscovered" class="discovered"></div>
+    </div>
+
+    <div class="tablecol">
+      <h2>Logged points</h2>
+      <div class="logbtns">
+        <button id="logBtn" onclick="rocLogPoint()" disabled>Log this point</button>
+        <button onclick="rocClearLog()">Clear log</button>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>t (s)</th><th>h (m)</th><th>Delta t</th><th>Delta h</th><th>avg vel (m/s)</th></tr></thead>
+          <tbody id="rocLogBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  "use strict";
+
+  var DELTA = String.fromCharCode(0x0394);
+
+  var X0=70, X1=610, Y0=40, Y1=460;
+  var DT_MIN=0.25, DT_MAX=2;
+  var SHRINK_TARGET=0.001;
+  var LOG_MAX=60;
+  var STEP_UNIT=0.25;
+
+  var scenarios=[
+    {name:'Earth', g:9.8, showG:true},
+    {name:'Moon', g:1.62, showG:false},
+    {name:'Mars', g:3.71, showG:false}
+  ];
+
+  var H0_MIN=0, H0_MAX=5;
+  var V0_MIN=0, V0_MAX=15;
+
+  var bpScenario=0;
+  var bpH0=1, bpV0=8;
+  var phase='idle'; // idle | flying | landed
+  var rocTrial=null; // {g,h0,v0,tPeak,hPeak,tLand,tMax,hMax,hMin}
+  var animStartTime=0, animSpeed=1;
+  var rocX1=0, rocDeltaX=1;
+  var rocAnalyzing=false;
+  var rocRewindT=0;
+  var rocLog=[];
+  var rocApplyingState=false;
+  var rocShrinking=false;
+  var rocBallDragging=false;
+
+  function $(id){ return document.getElementById(id); }
+
+  // ---------- physics ----------
+  function computeBounds(g,h0,v0){
+    var vp = v0>0? v0:0;
+    var tPeak = vp>0 ? vp/g : 0;
+    var hPeak = h0 + vp*tPeak - 0.5*g*tPeak*tPeak;
+    var disc = v0*v0+2*g*h0;
+    var tLand = (v0+Math.sqrt(Math.max(0,disc)))/g;
+    if(!isFinite(tLand) || tLand<0.1) tLand=0.1;
+    var hMaxRaw = Math.max(hPeak,h0,0.5);
+    return {
+      g:g, h0:h0, v0:v0, tPeak:tPeak, hPeak:hPeak, tLand:tLand,
+      tMax: tLand*1.08,
+      hMax: hMaxRaw*1.18,
+      hMin: -Math.max(0.4, hMaxRaw*0.06)
+    };
+  }
+  function trialH(tr,t){ return tr.h0 + tr.v0*t - 0.5*tr.g*t*t; }
+  function trialV(tr,t){ return tr.v0 - tr.g*t; }
+  function solveTForHeight(tr, h, prevT){
+    var hh=Math.max(0, Math.min(tr.hPeak, h));
+    var disc = tr.v0*tr.v0 - 2*tr.g*(hh-tr.h0);
+    if(disc<0) disc=0;
+    var sq=Math.sqrt(disc);
+    var tA=(tr.v0-sq)/tr.g;
+    var tD=(tr.v0+sq)/tr.g;
+    tA=Math.max(0, Math.min(tr.tLand, tA));
+    tD=Math.max(0, Math.min(tr.tLand, tD));
+    return (Math.abs(tA-prevT)<=Math.abs(tD-prevT)) ? tA : tD;
+  }
+
+  // ---------- graph mapping (time = x, height = y) ----------
+  var gBounds=null;
+  function rocMapX(t){ return X0+(t-0)/(gBounds.tMax-0)*(X1-X0); }
+  function rocMapY(h){ return Y1-(h-gBounds.hMin)/(gBounds.hMax-gBounds.hMin)*(Y1-Y0); }
+  function rocInvX(px){ return 0+(px-X0)/(X1-X0)*(gBounds.tMax-0); }
+
+  function rocNiceStep(range){ return range>9? 2 : (range>4? 1 : 0.5); }
+
+  function rocDrawGrid(){
+    var g=$('rocGrid'); var s='';
+    var tStep=rocNiceStep(gBounds.tMax-0);
+    var hStep=rocNiceStep(gBounds.hMax-gBounds.hMin);
+    var tStart=0, tEnd=Math.floor(gBounds.tMax/tStep)*tStep;
+    var hStart=Math.ceil(gBounds.hMin/hStep)*hStep, hEnd=Math.floor(gBounds.hMax/hStep)*hStep;
+    for(var tv=tStart; tv<=tEnd; tv+=tStep){
+      var px=rocMapX(tv);
+      s+='<line x1="'+px+'" y1="'+Y0+'" x2="'+px+'" y2="'+Y1+'" stroke="var(--border)" stroke-width="1"/>';
+      if(tv!==0) s+='<text x="'+px+'" y="'+(Y1+26)+'" text-anchor="middle" font-size="18" font-weight="700" fill="var(--text-secondary)">'+(Math.round(tv*100)/100)+'</text>';
+    }
+    for(var hv=hStart; hv<=hEnd; hv+=hStep){
+      var py=rocMapY(hv);
+      s+='<line x1="'+X0+'" y1="'+py+'" x2="'+X1+'" y2="'+py+'" stroke="var(--border)" stroke-width="1"/>';
+      if(hv!==0) s+='<text x="'+(X0-14)+'" y="'+(py+6)+'" text-anchor="end" font-size="18" font-weight="700" fill="var(--text-secondary)">'+(Math.round(hv*100)/100)+'</text>';
+    }
+    var zx=rocMapX(0), zy=rocMapY(0);
+    s+='<line x1="'+X0+'" y1="'+zy+'" x2="'+X1+'" y2="'+zy+'" stroke="var(--border-strong)" stroke-width="3"/>';
+    s+='<line x1="'+zx+'" y1="'+Y0+'" x2="'+zx+'" y2="'+Y1+'" stroke="var(--border-strong)" stroke-width="2"/>';
+    s+='<text x="'+(X1-6)+'" y="'+(zy-12)+'" text-anchor="end" font-size="18" font-weight="700" fill="var(--text-secondary)">ground</text>';
+    g.innerHTML=s;
+  }
+
+  function rocSampleH(tr,t0,t1,N){
+    var pts=[];
+    for(var k=0;k<=N;k++){
+      var t=t0+(t1-t0)*k/N;
+      var h=trialH(tr,t);
+      pts.push(rocMapX(t)+','+rocMapY(h));
+    }
+    return pts.join(' ');
+  }
+
+  // ---------- launch view ----------
+  var lvY0=25, lvY1=400, lvAxisX=85;
+  function lvMapY(h,hMax){ return lvY1-(h/hMax)*(lvY1-lvY0); }
+  function lvInvY(py,hMax){ return (lvY1-py)/(lvY1-lvY0)*hMax; }
+
+  function livePreviewBounds(){
+    var g=scenarios[bpScenario].g;
+    return computeBounds(g,bpH0,bpV0);
+  }
+
+  function currentLvHMax(){
+    var b=(phase==='idle')? livePreviewBounds() : rocTrial;
+    return Math.max(b.hMax,1);
+  }
+
+  function lvDraw(){
+    var b=(phase==='idle')? livePreviewBounds() : rocTrial;
+    var hMax=Math.max(b.hMax,1);
+    var g=$('lvGrid'); var s='';
+    s+='<line x1="'+lvAxisX+'" y1="'+lvY0+'" x2="'+lvAxisX+'" y2="'+lvY1+'" stroke="var(--border-strong)" stroke-width="3"/>';
+    s+='<line x1="'+(lvAxisX-34)+'" y1="'+lvY1+'" x2="'+(lvAxisX+34)+'" y2="'+lvY1+'" stroke="var(--border-strong)" stroke-width="4"/>';
+    var step=rocNiceStep(hMax);
+    for(var hv=0; hv<=hMax; hv+=step){
+      var py=lvMapY(hv,hMax);
+      s+='<line x1="'+(lvAxisX-8)+'" y1="'+py+'" x2="'+(lvAxisX+8)+'" y2="'+py+'" stroke="var(--border-strong)" stroke-width="2"/>';
+      s+='<text x="'+(lvAxisX+16)+'" y="'+(py+6)+'" font-size="18" font-weight="700" fill="var(--text-secondary)">'+(Math.round(hv*10)/10)+'</text>';
+    }
+    g.innerHTML=s;
+
+    var currentH;
+    if(phase==='idle') currentH=bpH0;
+    else if(phase==='flying') currentH=trialH(rocTrial, bpFlightT);
+    else currentH=trialH(rocTrial, rocRewindT);
+    var ballY=lvMapY(Math.max(0,currentH),hMax);
+    $('lvBall').setAttribute('cx',lvAxisX);
+    $('lvBall').setAttribute('cy',ballY);
+    $('lvBall').setAttribute('fill', phase==='landed'? 'var(--ball)':'var(--ball)');
+    $('lvBall').style.cursor = phase==='landed' ? 'grab':'default';
+
+    var v0forSpring = (phase==='idle')? bpV0 : rocTrial.v0;
+    var relaxed=70, compressed=15;
+    var springLen = relaxed - (v0forSpring/V0_MAX)*(relaxed-compressed);
+    var coils=6;
+    var sx=lvAxisX, sy0=lvY1;
+    var pts='M'+sx+','+sy0;
+    for(var i=1;i<=coils;i++){
+      var frac=i/coils;
+      var yy=sy0+springLen*frac;
+      var xx = sx + ((i%2===0)?14:-14);
+      pts+=' L'+xx+','+yy;
+    }
+    var springSvg='<path d="'+pts+'" fill="none" stroke="var(--spring)" stroke-width="6" stroke-linejoin="round"/>';
+    springSvg+='<text x="'+lvAxisX+'" y="'+(sy0+springLen+26)+'" text-anchor="middle" font-size="18" font-weight="700" fill="var(--text-secondary)">launcher</text>';
+    $('lvSpring').innerHTML=springSvg;
+  }
+
+  // ---------- scenario / slider wiring ----------
+  function bpUpdateHint(){
+    var sc=scenarios[bpScenario];
+    if(sc.showG){
+      $('bpHint').textContent='On Earth, gravity pulls the ball down at about 9.8 m/s\u00b2.';
+    } else {
+      $('bpHint').textContent='Gravity is different on '+sc.name+'. Launch the ball, then use the graph tools and logged points to figure out the acceleration due to gravity yourself.';
+    }
+  }
+
+  function bpSelectScenario(idx){
+    bpScenario=idx;
+    for(var i=0;i<scenarios.length;i++){ $('stab'+i).classList.toggle('selected', i===idx); }
+    bpUpdateHint();
+    bpResetTrial();
+  }
+
+  function bpSlidersUpdateLabel(){
+    $('h0Val').textContent=bpH0.toFixed(1);
+    $('v0Val').textContent=bpV0.toFixed(1);
+  }
+
+  $('h0Slider').addEventListener('input', function(){
+    bpH0=parseFloat(this.value);
+    bpSlidersUpdateLabel();
+    if(phase==='idle'){ lvDraw(); rocDrawPreview(); bpPublish(); }
+  });
+  $('v0Slider').addEventListener('input', function(){
+    bpV0=parseFloat(this.value);
+    bpSlidersUpdateLabel();
+    if(phase==='idle'){ lvDraw(); rocDrawPreview(); bpPublish(); }
+  });
+
+  function rocDrawPreview(){
+    if(phase!=='idle'){ $('rocPreview').setAttribute('points',''); return; }
+    var b=livePreviewBounds();
+    gBounds={tMax:b.tMax,hMax:b.hMax,hMin:b.hMin};
+    rocDrawGrid();
+    $('rocPreview').setAttribute('points', rocSampleH(b,0,b.tLand,80));
+    $('rocBase').setAttribute('points','');
+    $('rocPainted').innerHTML='';
+    $('rocFeatures').innerHTML='';
+    $('rocDeltaBracket').innerHTML='';
+    $('rocFlightDot').setAttribute('opacity',0);
+    $('rocScrubDot').setAttribute('opacity',0);
+  }
+
+  // ---------- flight animation ----------
+  var bpFlightT=0;
+
+  function bpLaunch(){
+    if(phase==='flying') return;
+    var g=scenarios[bpScenario].g;
+    rocTrial=computeBounds(g,bpH0,bpV0);
+    gBounds={tMax:rocTrial.tMax,hMax:rocTrial.hMax,hMin:rocTrial.hMin};
+    phase='flying';
+    bpFlightT=0;
+    rocAnalyzing=false;
+    $('h0Slider').disabled=true;
+    $('v0Slider').disabled=true;
+    $('launchBtn').disabled=true;
+    $('rocPreview').setAttribute('points','');
+    $('rocBase').setAttribute('points','');
+    $('rocDot1').setAttribute('opacity',0);
+    $('rocDot2').setAttribute('opacity',0);
+    $('rocSecant').setAttribute('opacity',0);
+    $('rocTangent').setAttribute('opacity',0);
+    $('rocScrubDot').setAttribute('opacity',0);
+    $('rocCurvature').innerHTML='';
+    $('rocDeltaBracket').innerHTML='';
+    $('rocFeatures').innerHTML='';
+    $('analyzeBtn').textContent='Analyze graph';
+    $('analyzeBtn').disabled=true;
+    $('stepBtn').disabled=true;
+    $('shrinkBtn').disabled=true;
+    $('logBtn').disabled=true;
+    rocDrawGrid();
+    var durationWall = Math.max(1.5, Math.min(6, rocTrial.tLand));
+    animSpeed = rocTrial.tLand/durationWall;
+    animStartTime=performance.now();
+    requestAnimationFrame(bpFlightFrame);
+    bpPublish();
+  }
+
+  function bpFlightFrame(now){
+    var elapsed=(now-animStartTime)/1000;
+    var simT=Math.min(rocTrial.tLand, elapsed*animSpeed);
+    bpFlightT=simT;
+    bpRenderFlight(simT);
+    bpPublish();
+    if(simT>=rocTrial.tLand-0.0001){
+      bpFinalizeLanding();
+    } else {
+      requestAnimationFrame(bpFlightFrame);
+    }
+  }
+
+  function bpRenderFlight(simT){
+    lvDraw();
+    var h=trialH(rocTrial,simT);
+    var px=rocMapX(simT), py=rocMapY(h);
+    var paintedSvg='';
+    var risingEnd=Math.min(simT, rocTrial.tPeak);
+    if(risingEnd>0.001){ paintedSvg+='<polyline points="'+rocSampleH(rocTrial,0,risingEnd,Math.max(4,Math.round(60*risingEnd/rocTrial.tLand)))+'" fill="none" stroke="var(--green)" stroke-width="7" stroke-linecap="round"/>'; }
+    if(simT>rocTrial.tPeak+0.001){
+      var fallEnd=simT;
+      paintedSvg+='<polyline points="'+rocSampleH(rocTrial,rocTrial.tPeak,fallEnd,Math.max(4,Math.round(60*(fallEnd-rocTrial.tPeak)/rocTrial.tLand)))+'" fill="none" stroke="var(--red)" stroke-width="7" stroke-linecap="round"/>';
+    }
+    $('rocPainted').innerHTML=paintedSvg;
+    $('rocFlightDot').setAttribute('cx',px);
+    $('rocFlightDot').setAttribute('cy',py);
+    $('rocFlightDot').setAttribute('fill', simT<rocTrial.tPeak? 'var(--green)':'var(--red)');
+    $('rocFlightDot').setAttribute('opacity',1);
+    $('flightReadout').textContent='t = '+simT.toFixed(2)+' s   height = '+h.toFixed(2)+' m';
+  }
+
+  function bpFinalizeLanding(){
+    phase='landed';
+    bpFlightT=rocTrial.tLand;
+    rocRewindT=rocTrial.tLand;
+    $('rocFlightDot').setAttribute('opacity',0);
+    $('h0Slider').disabled=false;
+    $('v0Slider').disabled=false;
+    $('launchBtn').disabled=false;
+    $('analyzeBtn').disabled=false;
+    $('logBtn').disabled=rocAnalyzing?false:true;
+    $('flightReadout').textContent='Landed at t = '+rocTrial.tLand.toFixed(2)+' s';
+
+    rocX1=0;
+    rocDeltaX=Math.max(DT_MIN, Math.min(DT_MAX, rocTrial.tLand/2));
+    rocDeltaX=rocClampDeltaXDrag(rocX1, rocDeltaX);
+    rocLog=[];
+    rocRenderLog();
+    $('rocDiscovered').textContent='';
+    rocDrawStaticGraph();
+    lvDraw();
+    rocUpdateScrubDot();
+    rocApplyAnalyzeVisibility();
+    if(rocAnalyzing) rocDrawAll();
+    bpPublish();
+  }
+
+  function bpResetTrial(){
+    phase='idle';
+    rocTrial=null;
+    bpFlightT=0;
+    rocAnalyzing=false;
+    rocRewindT=0;
+    $('h0Slider').disabled=false;
+    $('v0Slider').disabled=false;
+    $('launchBtn').disabled=false;
+    $('analyzeBtn').disabled=true;
+    $('analyzeBtn').textContent='Analyze graph';
+    $('stepBtn').disabled=true;
+    $('shrinkBtn').disabled=true;
+    $('logBtn').disabled=true;
+    $('flightReadout').textContent='';
+    $('rocDot1').setAttribute('opacity',0);
+    $('rocDot2').setAttribute('opacity',0);
+    $('rocSecant').setAttribute('opacity',0);
+    $('rocTangent').setAttribute('opacity',0);
+    $('rocFlightDot').setAttribute('opacity',0);
+    $('rocScrubDot').setAttribute('opacity',0);
+    $('rocCurvature').innerHTML='';
+    $('rocDeltaBracket').innerHTML='';
+    $('rocFeatures').innerHTML='';
+    $('rocP1Out').textContent='press Analyze graph';
+    $('rocP2Out').textContent='-';
+    $('rocDxOut').textContent='-';
+    $('rocSlopeOut').textContent='-';
+    $('rocConcOut').textContent='-';
+    $('rocDiscovered').textContent='';
+    rocLog=[];
+    rocRenderLog();
+    lvDraw();
+    rocDrawPreview();
+    bpPublish();
+  }
+
+  // ---------- always-visible base graph (post-landing) ----------
+  function rocIntervals(){
+    var tr=rocTrial;
+    if(tr.tPeak>0.02 && tr.tPeak<tr.tLand-0.02){
+      return [{t0:0,t1:tr.tPeak,sign:1},{t0:tr.tPeak,t1:tr.tLand,sign:-1}];
+    }
+    return [{t0:0,t1:tr.tLand,sign:-1}];
+  }
+  function rocCriticalPoints(){
+    var tr=rocTrial; var arr=[];
+    if(tr.tPeak>0.02 && tr.tPeak<tr.tLand-0.02) arr.push({t:tr.tPeak,label:'Maximum height'});
+    return arr;
+  }
+  function rocEndpointFeatures(){
+    var tr=rocTrial;
+    return [{t:0,label:'Launch point'},{t:tr.tLand,label:'Lands'}];
+  }
+  function rocFeatureMarker(t, label){
+    var tr=rocTrial;
+    var h=trialH(tr,t);
+    var px=rocMapX(t), py=rocMapY(h);
+    var above = py>Y0+50;
+    var ly = above? py-16 : py+26;
+    var s='<circle cx="'+px+'" cy="'+py+'" r="11" fill="var(--marker)"/>';
+    s+='<line x1="'+px+'" y1="'+py+'" x2="'+px+'" y2="'+ly+'" stroke="var(--text-muted)" stroke-width="2" stroke-dasharray="4 6" opacity="0.6"/>';
+    s+='<text x="'+px+'" y="'+(above? ly-10 : ly+22)+'" text-anchor="middle" font-size="20" font-weight="800" fill="var(--marker)">'+label+'</text>';
+    s+='<text x="'+px+'" y="'+(above? ly-10+24 : ly+22+24)+'" text-anchor="middle" font-size="18" font-weight="700" fill="var(--text-secondary)">t='+t.toFixed(2)+'s, h='+h.toFixed(2)+'m</text>';
+    return s;
+  }
+  function rocShowInc(){ return $('rocToggleInc').checked; }
+  function rocShowConc(){ return $('rocToggleConc').checked; }
+
+  function rocDrawStaticGraph(){
+    var tr=rocTrial;
+    rocDrawGrid();
+    $('rocBase').setAttribute('points', rocSampleH(tr,0,tr.tLand,160));
+    var paintedSvg='';
+    if(rocShowInc()){
+      rocIntervals().forEach(function(iv){
+        var color = iv.sign>0? 'var(--green)':'var(--red)';
+        paintedSvg+='<polyline points="'+rocSampleH(tr,iv.t0,iv.t1,Math.max(4,Math.round(60*(iv.t1-iv.t0)/tr.tLand)))+'" fill="none" stroke="'+color+'" stroke-width="7" stroke-linecap="round"/>';
+      });
+    }
+    $('rocPainted').innerHTML=paintedSvg;
+    var featSvg='', discovered=[];
+    rocCriticalPoints().forEach(function(c){ featSvg+=rocFeatureMarker(c.t,c.label); discovered.push(c.label+' at t = '+c.t.toFixed(2)+' s'); });
+    rocEndpointFeatures().forEach(function(ep){ featSvg+=rocFeatureMarker(ep.t,ep.label); discovered.push(ep.label+' at t = '+ep.t.toFixed(2)+' s'); });
+    $('rocFeatures').innerHTML=featSvg;
+    $('rocDiscovered').textContent='Found: '+discovered.join('  |  ');
+  }
+
+  $('rocToggleInc').addEventListener('change', function(){ if(phase==='landed'){ rocDrawStaticGraph(); if(rocAnalyzing) rocDrawAll(); bpPublish(); } });
+  $('rocToggleConc').addEventListener('change', function(){ if(phase==='landed' && rocAnalyzing){ rocDrawAll(); bpPublish(); } });
+
+  // ---------- rewind scrub via draggable ball ----------
+  function rocUpdateScrubDot(){
+    if(phase!=='landed') return;
+    var tr=rocTrial;
+    var h=trialH(tr,rocRewindT);
+    var px=rocMapX(rocRewindT), py=rocMapY(h);
+    $('rocScrubDot').setAttribute('cx',px);
+    $('rocScrubDot').setAttribute('cy',py);
+    $('rocScrubDot').setAttribute('fill', rocRewindT<tr.tPeak? 'var(--green)':'var(--red)');
+    $('rocScrubDot').setAttribute('opacity',1);
+    $('flightReadout').textContent='t = '+rocRewindT.toFixed(2)+' s   height = '+h.toFixed(2)+' m';
+  }
+
+  function lvClientToSvg(evt){
+    var svg=$('lvSvg');
+    var pt=svg.createSVGPoint();
+    pt.x=evt.clientX; pt.y=evt.clientY;
+    var ctm=svg.getScreenCTM().inverse();
+    return pt.matrixTransform(ctm);
+  }
+
+  $('lvBall').addEventListener('pointerdown', function(evt){
+    if(phase!=='landed') return;
+    evt.preventDefault();
+    rocBallDragging=true;
+  });
+  function rocBallMove(evt){
+    if(!rocBallDragging) return;
+    var p=lvClientToSvg(evt);
+    var hMax=currentLvHMax();
+    var hTarget=lvInvY(p.y, hMax);
+    rocRewindT=solveTForHeight(rocTrial, hTarget, rocRewindT);
+    lvDraw();
+    rocUpdateScrubDot();
+    bpPublish();
+  }
+  function rocBallUp(){ rocBallDragging=false; }
+  document.addEventListener('pointermove', rocBallMove, {passive:false});
+  document.addEventListener('pointerup', rocBallUp);
+  document.addEventListener('pointercancel', rocBallUp);
+
+  // ---------- analyze overlay (secant/tangent/triangle) ----------
+  function rocClampDeltaXDrag(t1, dx){
+    var maxAllowed=Math.min(DT_MAX, rocTrial.tLand-t1);
+    if(maxAllowed<DT_MIN) maxAllowed=DT_MIN;
+    return Math.max(DT_MIN, Math.min(maxAllowed, dx));
+  }
+  function rocClampDeltaXUpper(t1, dx){
+    var maxAllowed=rocTrial.tLand-t1;
+    if(maxAllowed<0.0005) maxAllowed=0.0005;
+    return Math.max(0.0005, Math.min(maxAllowed, dx));
+  }
+
+  function rocApplyAnalyzeVisibility(){
+    var op = rocAnalyzing? 1 : 0;
+    $('rocDot1').setAttribute('opacity',op);
+    $('rocDot2').setAttribute('opacity',op);
+    $('rocSecant').setAttribute('opacity',op);
+    $('rocTangent').setAttribute('opacity',op);
+    if(!rocAnalyzing){ $('rocCurvature').innerHTML=''; $('rocDeltaBracket').innerHTML=''; }
+    $('stepBtn').disabled=!rocAnalyzing;
+    $('shrinkBtn').disabled=!rocAnalyzing;
+    $('logBtn').disabled=!rocAnalyzing;
+    $('analyzeBtn').textContent = rocAnalyzing? 'Hide analysis' : 'Analyze graph';
+    if(!rocAnalyzing){
+      $('rocP1Out').textContent='press Analyze graph';
+      $('rocP2Out').textContent='-';
+      $('rocDxOut').textContent='-';
+      $('rocSlopeOut').textContent='-';
+      $('rocConcOut').textContent='-';
+    }
+  }
+
+  function rocToggleAnalyze(){
+    if(phase!=='landed') return;
+    rocAnalyzing=!rocAnalyzing;
+    rocApplyAnalyzeVisibility();
+    if(rocAnalyzing) rocDrawAll();
+    bpPublish();
+  }
+
+  function rocCurvatureArc(cx,cy){
+    var w=22,h=13,off=42;
+    var y0=cy-off;
+    return '<path d="M'+(cx-w)+' '+(y0+h)+' Q '+cx+' '+(y0-h)+' '+(cx+w)+' '+(y0+h)+'" fill="none" stroke="var(--concdown)" stroke-width="7" stroke-linecap="round"/>';
+  }
+
+  function rocDrawAll(){
+    if(phase!=='landed' || !rocAnalyzing) return;
+    var tr=rocTrial;
+    var t1=rocX1;
+    var t2=t1+rocDeltaX;
+    if(t2>tr.tLand){ t2=tr.tLand; rocDeltaX=t2-t1; }
+    var h1=trialH(tr,t1), h2=trialH(tr,t2);
+    var px1=rocMapX(t1), py1=rocMapY(h1);
+    var px2=rocMapX(t2), py2=rocMapY(h2);
+
+    $('rocDot1').setAttribute('cx',px1); $('rocDot1').setAttribute('cy',py1);
+    $('rocDot2').setAttribute('cx',px2); $('rocDot2').setAttribute('cy',py2);
+
+    var avgV=(h2-h1)/(t2-t1);
+    var eps=0.03;
+    var slopeColor = avgV>eps? 'var(--green)': (avgV<-eps? 'var(--red)':'var(--text-muted)');
+    $('rocDot1').setAttribute('fill', slopeColor);
+    $('rocDot2').setAttribute('fill', slopeColor);
+
+    var vx=px2-px1, vy=py2-py1;
+    var len=Math.sqrt(vx*vx+vy*vy)||1;
+    var ux=vx/len, uy=vy/len, ext=18;
+    $('rocSecant').setAttribute('x1', px1-ux*ext);
+    $('rocSecant').setAttribute('y1', py1-uy*ext);
+    $('rocSecant').setAttribute('x2', px2+ux*ext);
+    $('rocSecant').setAttribute('y2', py2+uy*ext);
+    $('rocSecant').setAttribute('stroke', slopeColor);
+
+    var vInst=trialV(tr,t1);
+    var scaleX=(X1-X0)/(tr.tMax-0);
+    var scaleY=(Y1-Y0)/(tr.hMax-tr.hMin);
+    var screenSlope=-vInst*(scaleY/scaleX);
+    var tnorm=Math.sqrt(1+screenSlope*screenSlope);
+    var tux=1/tnorm, tuy=screenSlope/tnorm, tL=90;
+    $('rocTangent').setAttribute('x1', px1-tux*tL);
+    $('rocTangent').setAttribute('y1', py1-tuy*tL);
+    $('rocTangent').setAttribute('x2', px1+tux*tL);
+    $('rocTangent').setAttribute('y2', py1+tuy*tL);
+
+    if(rocShowConc()){ $('rocCurvature').innerHTML = rocCurvatureArc(px1,py1); }
+    else { $('rocCurvature').innerHTML=''; }
+
+    var deltaH=h2-h1;
+    var cornerPx=px2, cornerPy=py1;
+    var triSvg='<polyline points="'+px1+','+py1+' '+cornerPx+','+cornerPy+' '+px2+','+py2+'" fill="none" stroke="var(--text-secondary)" stroke-width="3" stroke-dasharray="8 6"/>';
+    var dxLabelY=(py1>Y1-30)? py1-14 : py1+20;
+    triSvg+='<text x="'+((px1+cornerPx)/2)+'" y="'+dxLabelY+'" text-anchor="middle" font-size="20" font-weight="800" fill="var(--text-secondary)">'+DELTA+'t = '+rocDeltaX.toFixed(3)+'</text>';
+    var dyLabelX=cornerPx+12;
+    var dyLabelAnchor='start';
+    if(dyLabelX>X1-90){ dyLabelX=cornerPx-12; dyLabelAnchor='end'; }
+    triSvg+='<text x="'+dyLabelX+'" y="'+((cornerPy+py2)/2+6)+'" text-anchor="'+dyLabelAnchor+'" font-size="20" font-weight="800" fill="var(--text-secondary)">'+DELTA+'h = '+deltaH.toFixed(3)+'</text>';
+    triSvg+='<text x="'+dyLabelX+'" y="'+((cornerPy+py2)/2+30)+'" text-anchor="'+dyLabelAnchor+'" font-size="20" font-weight="800" fill="'+slopeColor+'">avg vel = '+avgV.toFixed(2)+'</text>';
+    $('rocDeltaBracket').innerHTML=triSvg;
+
+    $('rocP1Out').textContent='t='+t1.toFixed(2)+'s, h='+h1.toFixed(2)+'m';
+    $('rocP2Out').textContent='t='+t2.toFixed(2)+'s, h='+h2.toFixed(2)+'m';
+    $('rocDxOut').textContent=rocDeltaX.toFixed(3)+' s';
+    $('rocSlopeOut').textContent=avgV.toFixed(2)+' m/s'+ (avgV>eps?'  (rising)': (avgV<-eps?'  (falling)':'  (about flat)'));
+    $('rocSlopeOut').style.color=slopeColor;
+    if(rocShowConc()){
+      $('rocConcOut').textContent='Concave down (gravity)';
+      $('rocConcOut').style.color='var(--concdown)';
+    } else {
+      $('rocConcOut').textContent='-';
+      $('rocConcOut').style.color='var(--text-primary)';
+    }
+  }
+
+  function rocRenderLog(){
+    var body=$('rocLogBody');
+    var rows='';
+    rocLog.forEach(function(r){
+      rows+='<tr><td>'+r.t.toFixed(2)+'</td><td>'+r.h.toFixed(2)+'</td><td>'+r.dt.toFixed(2)+'</td><td>'+r.dh.toFixed(2)+'</td><td>'+r.v.toFixed(2)+'</td></tr>';
+    });
+    body.innerHTML=rows;
+    var wrap=body.closest('.tablewrap');
+    if(wrap) wrap.scrollTop=wrap.scrollHeight;
+  }
+
+  function rocLogPoint(){
+    if(phase!=='landed' || !rocAnalyzing) return;
+    var tr=rocTrial;
+    var t1=rocX1, t2=t1+rocDeltaX;
+    var h1=trialH(tr,t1), h2=trialH(tr,t2);
+    rocLog.push({t:t1,h:h1,dt:rocDeltaX,dh:h2-h1,v:(h2-h1)/(t2-t1)});
+    if(rocLog.length>LOG_MAX) rocLog.shift();
+    rocRenderLog();
+    bpPublish();
+  }
+  function rocClearLog(){
+    rocLog=[];
+    rocRenderLog();
+    bpPublish();
+  }
+
+  function rocDragP1(px){
+    if(phase!=='landed' || !rocAnalyzing) return;
+    var tr=rocTrial;
+    var mathT=rocInvX(Math.max(X0,Math.min(X1,px)));
+    mathT=Math.max(0, Math.min(tr.tLand-DT_MIN, mathT));
+    rocX1=mathT;
+    rocDeltaX=rocClampDeltaXUpper(rocX1, rocDeltaX);
+    rocDrawAll();
+    bpPublish();
+  }
+  function rocDragP2(px){
+    if(phase!=='landed' || !rocAnalyzing) return;
+    var mathT2=rocInvX(Math.max(X0,Math.min(X1,px)));
+    var candidate=mathT2-rocX1;
+    rocDeltaX=rocClampDeltaXDrag(rocX1, candidate);
+    rocDrawAll();
+    bpPublish();
+  }
+
+  function rocClientToSvg(evt){
+    var svg=$('rocSvg');
+    var pt=svg.createSVGPoint();
+    pt.x=evt.clientX; pt.y=evt.clientY;
+    var ctm=svg.getScreenCTM().inverse();
+    return pt.matrixTransform(ctm);
+  }
+  var rocDragMode=null;
+  function rocOnMove(evt){
+    if(!rocDragMode) return;
+    var p=rocClientToSvg(evt);
+    if(rocDragMode==='p1') rocDragP1(p.x); else rocDragP2(p.x);
+  }
+  function rocOnUp(){ rocDragMode=null; }
+  $('rocDot1').addEventListener('pointerdown', function(evt){ if(phase!=='landed'||!rocAnalyzing)return; evt.preventDefault(); rocDragMode='p1'; });
+  $('rocDot2').addEventListener('pointerdown', function(evt){ if(phase!=='landed'||!rocAnalyzing)return; evt.preventDefault(); rocDragMode='p2'; });
+  document.addEventListener('pointermove', rocOnMove, {passive:false});
+  document.addEventListener('pointerup', rocOnUp);
+  document.addEventListener('pointercancel', rocOnUp);
+
+  function rocStep(){
+    if(phase!=='landed' || !rocAnalyzing) return;
+    var tr=rocTrial;
+    var newT1=Math.min(tr.tLand-DT_MIN, rocX1+STEP_UNIT);
+    rocX1=newT1;
+    rocDeltaX=rocClampDeltaXUpper(rocX1, rocDeltaX);
+    rocDrawAll();
+    rocLogPoint();
+  }
+  function rocAnimateShrink(){
+    if(phase!=='landed' || !rocAnalyzing || rocShrinking) return;
+    var reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var tr=rocTrial;
+    var startDx=rocDeltaX;
+    var targetDx=Math.max(0.0005, Math.min(SHRINK_TARGET, tr.tLand-rocX1-0.0005));
+    if(reduced){ rocDeltaX=targetDx; rocDrawAll(); bpPublish(); return; }
+    rocShrinking=true;
+    var duration=1200;
+    var start=performance.now();
+    function frame(now){
+      var t=Math.min(1,(now-start)/duration);
+      rocDeltaX=startDx+(targetDx-startDx)*t;
+      rocDrawAll();
+      bpPublish();
+      if(t<1){ requestAnimationFrame(frame); } else { rocShrinking=false; }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // ---------- state bridge ----------
+  function bpGetState(){
+    return {
+      scenario: bpScenario,
+      h0: Number(bpH0),
+      v0: Number(bpV0),
+      phase: phase,
+      flightT: Number(bpFlightT),
+      rewindT: Number(rocRewindT),
+      analyzing: !!rocAnalyzing,
+      x1: Number(rocX1),
+      deltaX: Number(rocDeltaX),
+      showIncDec: !!rocShowInc(),
+      showConcavity: !!rocShowConc(),
+      log: rocLog.map(function(r){ return {t:r.t,h:r.h,dt:r.dt,dh:r.dh,v:r.v}; })
+    };
+  }
+
+  function bpPublish(){
+    if(rocApplyingState) return;
+    if(window.MathBoardApplet && typeof window.MathBoardApplet.publishState==='function'){
+      window.MathBoardApplet.publishState(bpGetState());
+    }
+  }
+
+  window.mathBoardAppletSetState = function(state){
+    if(!state || typeof state!=='object') return;
+    rocApplyingState=true;
+    try{
+      var idx=(typeof state.scenario==='number' && state.scenario>=0 && state.scenario<scenarios.length)? state.scenario: bpScenario;
+      if(idx!==bpScenario){
+        bpScenario=idx;
+        for(var i=0;i<scenarios.length;i++){ $('stab'+i).classList.toggle('selected', i===idx); }
+        bpUpdateHint();
+      }
+      bpH0=(typeof state.h0==='number')? state.h0 : bpH0;
+      bpV0=(typeof state.v0==='number')? state.v0 : bpV0;
+      $('h0Slider').value=bpH0; $('v0Slider').value=bpV0;
+      bpSlidersUpdateLabel();
+
+      var newPhase=(typeof state.phase==='string')? state.phase : 'idle';
+
+      if(newPhase==='idle'){
+        phase='idle'; rocTrial=null; bpFlightT=0; rocAnalyzing=false; rocRewindT=0;
+        $('h0Slider').disabled=false; $('v0Slider').disabled=false; $('launchBtn').disabled=false;
+        $('analyzeBtn').disabled=true; $('analyzeBtn').textContent='Analyze graph';
+        $('stepBtn').disabled=true; $('shrinkBtn').disabled=true; $('logBtn').disabled=true;
+        $('flightReadout').textContent='';
+        $('rocDot1').setAttribute('opacity',0); $('rocDot2').setAttribute('opacity',0);
+        $('rocSecant').setAttribute('opacity',0); $('rocTangent').setAttribute('opacity',0);
+        $('rocFlightDot').setAttribute('opacity',0); $('rocScrubDot').setAttribute('opacity',0);
+        $('rocCurvature').innerHTML=''; $('rocDeltaBracket').innerHTML=''; $('rocFeatures').innerHTML='';
+        $('rocP1Out').textContent='press Analyze graph'; $('rocP2Out').textContent='-';
+        $('rocDxOut').textContent='-'; $('rocSlopeOut').textContent='-'; $('rocConcOut').textContent='-';
+        $('rocDiscovered').textContent='';
+        rocLog=[]; rocRenderLog();
+        lvDraw(); rocDrawPreview();
+      } else if(newPhase==='flying'){
+        var g=scenarios[bpScenario].g;
+        rocTrial=computeBounds(g,bpH0,bpV0);
+        gBounds={tMax:rocTrial.tMax,hMax:rocTrial.hMax,hMin:rocTrial.hMin};
+        phase='flying';
+        bpFlightT=(typeof state.flightT==='number')? state.flightT : 0;
+        $('h0Slider').disabled=true; $('v0Slider').disabled=true; $('launchBtn').disabled=true;
+        $('analyzeBtn').disabled=true;
+        $('rocDot1').setAttribute('opacity',0); $('rocDot2').setAttribute('opacity',0);
+        $('rocSecant').setAttribute('opacity',0); $('rocTangent').setAttribute('opacity',0);
+        $('rocScrubDot').setAttribute('opacity',0);
+        rocDrawGrid();
+        bpRenderFlight(bpFlightT);
+      } else {
+        var g2=scenarios[bpScenario].g;
+        rocTrial=computeBounds(g2,bpH0,bpV0);
+        gBounds={tMax:rocTrial.tMax,hMax:rocTrial.hMax,hMin:rocTrial.hMin};
+        phase='landed';
+        bpFlightT=rocTrial.tLand;
+        rocRewindT=(typeof state.rewindT==='number')? Math.max(0,Math.min(rocTrial.tLand,state.rewindT)) : rocTrial.tLand;
+        rocAnalyzing=!!state.analyzing;
+        $('h0Slider').disabled=false; $('v0Slider').disabled=false; $('launchBtn').disabled=false;
+        $('analyzeBtn').disabled=false;
+        $('rocFlightDot').setAttribute('opacity',0);
+        rocX1=(typeof state.x1==='number')? Math.max(0, Math.min(rocTrial.tLand-DT_MIN, state.x1)) : 0;
+        rocDeltaX=rocClampDeltaXUpper(rocX1, (typeof state.deltaX==='number')? state.deltaX : 1);
+        $('rocToggleInc').checked=(typeof state.showIncDec==='boolean')? state.showIncDec : true;
+        $('rocToggleConc').checked=(typeof state.showConcavity==='boolean')? state.showConcavity : true;
+        if(Array.isArray(state.log)){
+          rocLog=state.log.filter(function(r){ return r && typeof r.t==='number'; }).slice(0,LOG_MAX);
+          rocRenderLog();
+        }
+        rocDrawStaticGraph();
+        rocApplyAnalyzeVisibility();
+        if(rocAnalyzing) rocDrawAll();
+        lvDraw();
+        rocUpdateScrubDot();
+      }
+    } finally {
+      rocApplyingState=false;
+    }
+  };
+
+  window.bpSelectScenario=bpSelectScenario;
+  window.bpLaunch=bpLaunch;
+  window.bpResetTrial=bpResetTrial;
+  window.rocToggleAnalyze=rocToggleAnalyze;
+  window.rocStep=rocStep;
+  window.rocAnimateShrink=rocAnimateShrink;
+  window.rocLogPoint=rocLogPoint;
+  window.rocClearLog=rocClearLog;
+
+  // ---------- init ----------
+  $('stab0').classList.add('selected');
+  bpUpdateHint();
+  bpSlidersUpdateLabel();
+  gBounds=(function(){ var b=livePreviewBounds(); return {tMax:b.tMax,hMax:b.hMax,hMin:b.hMin}; })();
+  lvDraw();
+  rocDrawPreview();
+})();
+</script>
+</body>
+</html>

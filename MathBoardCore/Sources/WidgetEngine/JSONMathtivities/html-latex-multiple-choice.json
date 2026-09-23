@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "widgetId": "html-latex-multiple-choice-level-1",
+  "activity": "multipleChoice",
+  "title": "HTML LaTeX Multiple Choice",
+  "description": "Pilot scoreable HTML multiple-choice widget with text and LaTeX in prompts and choices.",
+  "learningObjective": "Students answer multiple-choice questions that include mathematical notation rendered in an HTML widget.",
+  "difficulty": "easy",
+  "presentation": {
+    "preferredTheme": "cleanClassroom",
+    "preferredExperience": "paperQuiz",
+    "renderer": "html"
+  },
+  "rules": {
+    "scoreMode": "correctOutOfAttempted",
+    "advanceMode": "manual",
+    "allowRetry": true,
+    "shuffleQuestions": false,
+    "shuffleChoices": false,
+    "maxAttemptsPerQuestion": 2,
+    "calculatorAllowed": false
+  },
+  "feedback": {
+    "defaultCorrect": "Correct.",
+    "defaultIncorrect": "Not quite. Check the expression carefully.",
+    "defaultEncouragement": "Use the structure of the equation before doing extra work."
+  },
+  "questions": [
+    {
+      "id": "q1",
+      "prompt": "Solve for $x$:",
+      "expression": "2x + 5 = 17",
+      "choices": [
+        { "id": "a", "label": "$x = 5$", "isCorrect": false },
+        { "id": "b", "label": "$x = 6$", "isCorrect": true },
+        { "id": "c", "label": "$x = 11$", "isCorrect": false },
+        { "id": "d", "label": "$x = \\frac{17}{2}$", "isCorrect": false }
+      ],
+      "hints": [
+        "Add or subtract first to get $2x$ alone.",
+        "Then divide by 2."
+      ],
+      "correctFeedback": "Yes. $2(6)+5=17$.",
+      "incorrectFeedback": "Start by isolating $2x$."
+    },
+    {
+      "id": "q2",
+      "prompt": "Which expression is equivalent to the following, for $x \\ne 0$?",
+      "expression": "\\frac{x^3}{x}",
+      "choices": [
+        { "id": "a", "label": "$x^2$", "isCorrect": true },
+        { "id": "b", "label": "$x^3$", "isCorrect": false },
+        { "id": "c", "label": "$\\frac{1}{x^2}$", "isCorrect": false },
+        { "id": "d", "label": "$3$", "isCorrect": false }
+      ],
+      "hints": [
+        "Use the quotient rule for exponents.",
+        "Subtract the exponents: $3-1$."
+      ],
+      "correctFeedback": "Correct. $x^3 \\div x^1 = x^2$.",
+      "incorrectFeedback": "When bases match, subtract exponents when dividing."
+    },
+    {
+      "id": "q3",
+      "prompt": "What is the slope of the line through $(1, 4)$ and $(5, 12)$?",
+      "choices": [
+        { "id": "a", "label": "$\\frac{1}{2}$", "isCorrect": false },
+        { "id": "b", "label": "$2$", "isCorrect": true },
+        { "id": "c", "label": "$4$", "isCorrect": false },
+        { "id": "d", "label": "$8$", "isCorrect": false }
+      ],
+      "hints": [
+        "Slope is change in y over change in x.",
+        "Compute $\\frac{12-4}{5-1}$."
+      ],
+      "correctFeedback": "Correct. $\\frac{8}{4} = 2$.",
+      "incorrectFeedback": "Use $\\frac{\\Delta y}{\\Delta x}$."
+    }
+  ]
+}

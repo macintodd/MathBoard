@@ -14,6 +14,7 @@ struct ToolPaletteStateTests {
         #expect(state.activeTool == .pen)
         #expect(state.strokeColor == .graphite)
         #expect(state.penColor == .graphite)
+        #expect(state.fountainPenColor == .graphite)
         #expect(state.markerColor == .graphite)
         #expect(state.laserColor == .graphite)
         #expect(state.activeStrokeColor == .graphite)
@@ -21,7 +22,9 @@ struct ToolPaletteStateTests {
         #expect(state.strokeWidth == 10)
         #expect(state.opacity == 1)
         #expect(state.penStrokeWidth == 10)
+        #expect(state.fountainPenStrokeWidth == 10)
         #expect(state.penOpacity == 1)
+        #expect(state.fountainPenOpacity == 1)
         #expect(state.markerStrokeWidth == 18)
         #expect(state.markerOpacity == 0.5)
         #expect(state.eraserWidth == 24)
@@ -40,6 +43,7 @@ struct ToolPaletteStateTests {
             .selection,
             .extract,
             .pen,
+            .fountainPen,
             .marker,
             .laser,
             .eraser,
@@ -55,12 +59,22 @@ struct ToolPaletteStateTests {
 
         ToolPaletteReducer.reduce(&state, command: .setStrokeColor(.mint))
         #expect(state.penColor == .mint)
+        #expect(state.fountainPenColor == .graphite)
         #expect(state.markerColor == .graphite)
         #expect(state.laserColor == .graphite)
+
+        ToolPaletteReducer.reduce(&state, command: .selectTool(.fountainPen))
+        ToolPaletteReducer.reduce(&state, command: .setStrokeColor(.sky))
+        #expect(state.penColor == .mint)
+        #expect(state.fountainPenColor == .sky)
+        #expect(state.markerColor == .graphite)
+        #expect(state.laserColor == .graphite)
+        #expect(state.activeStrokeColor == .sky)
 
         ToolPaletteReducer.reduce(&state, command: .selectTool(.marker))
         ToolPaletteReducer.reduce(&state, command: .setStrokeColor(.amber))
         #expect(state.penColor == .mint)
+        #expect(state.fountainPenColor == .sky)
         #expect(state.markerColor == .amber)
         #expect(state.laserColor == .graphite)
         #expect(state.activeStrokeColor == .amber)
@@ -68,6 +82,7 @@ struct ToolPaletteStateTests {
         ToolPaletteReducer.reduce(&state, command: .selectTool(.laser))
         ToolPaletteReducer.reduce(&state, command: .setStrokeColor(.coral))
         #expect(state.penColor == .mint)
+        #expect(state.fountainPenColor == .sky)
         #expect(state.markerColor == .amber)
         #expect(state.laserColor == .coral)
         #expect(state.activeStrokeColor == .coral)
@@ -120,6 +135,32 @@ struct ToolPaletteStateTests {
         }
         #expect(opacity.id == "marker.opacity")
         #expect(opacity.value == 0.5)
+    }
+
+    @Test func fountainPenDefinitionExposesColorOrbitAndSliders() throws {
+        let state = ToolPaletteState(activeTool: .fountainPen)
+        let definition = ToolPaletteDefinitions.definition(for: .fountainPen)
+        let configuration = definition.configuration(for: state)
+
+        #expect(definition.label == "Fountain")
+        #expect(configuration.topOrbit.count == 7)
+        #expect(configuration.topOrbit.first?.command == .openColorPicker)
+        #expect(configuration.topOrbit.last?.command == .openColorPaletteChooser)
+
+        guard case .slider(let width) = configuration.leftArc else {
+            Issue.record("Expected fountain pen left arc to be width slider")
+            return
+        }
+        #expect(width.id == "fountain.width")
+        #expect(width.value == 10)
+        #expect(width.range == 4...28)
+
+        guard case .slider(let opacity) = configuration.rightArc else {
+            Issue.record("Expected fountain pen right arc to be opacity slider")
+            return
+        }
+        #expect(opacity.id == "fountain.opacity")
+        #expect(opacity.value == 1)
     }
 
     @Test func eraserDefinitionExposesSizeSliderAndModeSegments() throws {
@@ -320,11 +361,12 @@ struct ToolPaletteStateTests {
             .addItem(.file),
             .addItem(.photo),
             .addItem(.camera),
+            .addItem(.media),
             .addItem(.text),
             .addItem(.latex),
             .addItem(.widget)
         ])
-        #expect(configuration.topOrbit.map(\.label) == ["File", "Photo", "Camera", "Text", "LaTeX", "Widget"])
+        #expect(configuration.topOrbit.map(\.label) == ["File", "Photo", "Camera", "Media", "Text", "LaTeX", "Widget"])
         #expect(configuration.topOrbit.map(\.command).contains(.addItem(.sticker)) == false)
         #expect(configuration.topOrbit.map(\.command).contains(.addItem(.axis)) == false)
         #expect(configuration.leftArc == .hidden)

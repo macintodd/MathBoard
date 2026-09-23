@@ -92,6 +92,47 @@ final class GraphCalculatorLogicTests: XCTestCase {
         XCTAssertEqual(target, .insert(after: 0))
     }
 
+    @MainActor
+    func testAddTableCreatesPointBackedExpressionRow() {
+        let state = GraphCalculatorState()
+
+        let tableID = state.addTable()
+
+        XCTAssertEqual(state.selectedExpressionIndex, 1)
+        XCTAssertEqual(state.expressions[1].id, tableID)
+        XCTAssertEqual(state.pointRows[tableID]?.count, 2)
+        XCTAssertFalse(state.isAddMenuVisible)
+    }
+
+    @MainActor
+    func testPointTableHeadersCanBeEdited() {
+        let state = GraphCalculatorState()
+        let tableID = state.addTable()
+
+        state.setPointTableXHeader("time", for: tableID)
+        state.setPointTableYHeader("3x+1", for: tableID)
+
+        let columns = state.pointTableColumns(for: tableID)
+        XCTAssertEqual(columns.xHeader, "time")
+        XCTAssertEqual(columns.yHeader, "3x+1")
+    }
+
+    func testBareXExpressionGraphsAsYFunctionWhileNumericExpressionShowsValue() {
+        let rows = GraphCalculatorExpressionResolver.resolveRows(
+            expressions: [
+                GraphEquation(expression: "3x + 1"),
+                GraphEquation(expression: "3 + 4")
+            ],
+            engine: CalculatorEngine()
+        )
+
+        XCTAssertEqual(rows[0].plotExpression, "3*x + 1")
+        XCTAssertNil(rows[0].displayValue)
+        XCTAssertNil(rows[0].errorMessage)
+        XCTAssertNil(rows[1].plot)
+        XCTAssertEqual(rows[1].displayValue, "7")
+    }
+
     func testFunctionEvaluationRowsResolveToValuesAndNestedFunctionsStillGraph() {
         let rows = [
             GraphEquation(expression: "f(x)=4x+5"),

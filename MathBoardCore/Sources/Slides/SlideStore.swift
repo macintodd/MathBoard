@@ -275,17 +275,32 @@ public final class SlideStore {
         )
     }
 
+    public static func loadClassSessionDeletedSlideIDs(
+        lessonURL: URL,
+        classroomSessionCode: String?
+    ) -> [UUID] {
+        guard let sessionCode = normalizedClassroomSessionCode(classroomSessionCode) else { return [] }
+        return loadClassSessionEditManifest(
+            lessonURL: lessonURL,
+            sessionCode: sessionCode,
+            fileManager: .default
+        ).deletedSlideIDs
+    }
+
     @discardableResult
     public func mergeTeacherSlides(
         _ teacherSlides: [SlideMetadata],
-        deferredTeacherSlideIDs: Set<UUID> = []
+        deferredTeacherSlideIDs: Set<UUID> = [],
+        teacherDeletedSlideIDs: Set<UUID> = []
     ) -> Bool {
-        guard !teacherSlides.isEmpty || !deferredTeacherSlideIDs.isEmpty else { return false }
+        guard !teacherSlides.isEmpty || !deferredTeacherSlideIDs.isEmpty || !teacherDeletedSlideIDs.isEmpty else { return false }
 
         let originalSlides = slides
         let teacherSlideIDs = Set(teacherSlides.map(\.id))
         let remainingLocalSlides = slides.filter { localSlide in
-            !teacherSlideIDs.contains(localSlide.id) && !deferredTeacherSlideIDs.contains(localSlide.id)
+            !teacherSlideIDs.contains(localSlide.id)
+                && !deferredTeacherSlideIDs.contains(localSlide.id)
+                && !teacherDeletedSlideIDs.contains(localSlide.id)
         }
         let mergedTeacherSlides = teacherSlides.map { teacherSlide in
             if let localSlide = originalSlides.first(where: { $0.id == teacherSlide.id }) {

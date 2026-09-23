@@ -250,12 +250,21 @@ public struct CompoundInequalitiesInteractiveView: View {
             ExplorerTheme.canvas.ignoresSafeArea()
             StudentModeView(state: state)
         }
+        .onAppear {
+            state.persistRuntimeState()
+        }
+        .onChange(of: state.runtimeStateSnapshot) { _, _ in
+            state.persistRuntimeState()
+        }
+        .onDisappear {
+            state.persistRuntimeState()
+        }
     }
 }
 
 // MARK: - Student Mode
 
-enum StudentActivity: String, CaseIterable, Identifiable {
+enum StudentActivity: String, Codable, CaseIterable, Identifiable {
     case symbolToGraph
     case graphToSymbol
     case storyToSymbol
@@ -282,7 +291,7 @@ enum StudentActivity: String, CaseIterable, Identifiable {
     }
 }
 
-enum ProblemReviewStatus: Equatable {
+enum ProblemReviewStatus: Codable, Equatable {
     case none
     case correct
     case missed
@@ -312,6 +321,8 @@ struct SymbolToGraphDraft: Equatable {
 @MainActor
 @Observable
 final class InequalityExplorerState {
+    static let runtimeStateKey = BuiltInInteractiveKind.inequalitiesExplorer.rawValue
+
     var activity: StudentActivity = .symbolToGraph
     /// Each activity tab runs its own sequence through the questions.
     var progressByActivity: [StudentActivity: Int] = [:]
@@ -322,23 +333,56 @@ final class InequalityExplorerState {
     var sectionSummary: SectionSummary?
     var showingFinalSummary = false
     var session = StudentSession()
+    @ObservationIgnored var onRuntimeStateChange: ((String?) -> Void)?
+
+    init(encodedRuntimeState: String? = nil) {
+        guard let runtimeState = Self.decodeRuntimeState(encodedRuntimeState) else { return }
+        activity = runtimeState.activity
+        progressByActivity = runtimeState.progressByActivity
+        reviewProblemIDsByActivity = runtimeState.reviewProblemIDsByActivity
+        retryProblemIDsByActivity = runtimeState.retryProblemIDsByActivity
+        completedReviewActivities = runtimeState.completedReviewActivities
+        showingFinalSummary = runtimeState.showingFinalSummary
+        session = runtimeState.session
+    }
 }
 
 @MainActor
 enum InequalityExplorerStateRegistry {
     private static var statesByWidgetID: [WidgetObject.ID: InequalityExplorerState] = [:]
 
+    static func state(for widget: WidgetObject, onRuntimeStateChange: ((String?) -> Void)? = nil) -> InequalityExplorerState {
+        let widgetID = widget.id
+        if let state = statesByWidgetID[widgetID] {
+            state.onRuntimeStateChange = onRuntimeStateChange
+            return state
+        }
+        let state = InequalityExplorerState(encodedRuntimeState: widget.builtInRuntimeState[InequalityExplorerState.runtimeStateKey])
+        state.onRuntimeStateChange = onRuntimeStateChange
+        statesByWidgetID[widgetID] = state
+        state.persistRuntimeState()
+        return state
+    }
+
     static func state(for widgetID: WidgetObject.ID) -> InequalityExplorerState {
         if let state = statesByWidgetID[widgetID] {
             return state
         }
-        let state = InequalityExplorerState()
-        statesByWidgetID[widgetID] = state
-        return state
+        let widget = WidgetObject(
+            id: widgetID,
+            name: BuiltInInteractiveKind.inequalitiesExplorer.displayName,
+            codeString: BuiltInInteractiveKind.inequalitiesExplorer.widgetCodeString,
+            frame: .zero
+        )
+        return state(for: widget)
     }
 
     static func removeState(for widgetID: WidgetObject.ID) {
         statesByWidgetID.removeValue(forKey: widgetID)
+    }
+
+    static func scoreRecord(for widget: WidgetObject) -> WidgetActivityScoreRecord {
+        state(for: widget).scoreRecord(widgetID: widget.id, title: widget.name)
     }
 
     static func scoreRecord(for widgetID: WidgetObject.ID, title: String) -> WidgetActivityScoreRecord {
@@ -346,7 +390,43 @@ enum InequalityExplorerStateRegistry {
     }
 }
 
+private struct InequalityExplorerRuntimeState: Codable, Equatable {
+    var activity: StudentActivity
+    var progressByActivity: [StudentActivity: Int]
+    var reviewProblemIDsByActivity: [StudentActivity: Set<Int>]
+    var retryProblemIDsByActivity: [StudentActivity: Set<Int>]
+    var completedReviewActivities: Set<StudentActivity>
+    var showingFinalSummary: Bool
+    var session: StudentSession
+}
+
 private extension InequalityExplorerState {
+    var runtimeStateSnapshot: InequalityExplorerRuntimeState {
+        InequalityExplorerRuntimeState(
+            activity: activity,
+            progressByActivity: progressByActivity,
+            reviewProblemIDsByActivity: reviewProblemIDsByActivity,
+            retryProblemIDsByActivity: retryProblemIDsByActivity,
+            completedReviewActivities: completedReviewActivities,
+            showingFinalSummary: showingFinalSummary,
+            session: session
+        )
+    }
+
+    func persistRuntimeState() {
+        guard let data = try? JSONEncoder().encode(runtimeStateSnapshot) else {
+            onRuntimeStateChange?(nil)
+            return
+        }
+        onRuntimeStateChange?(String(data: data, encoding: .utf8))
+    }
+
+    static func decodeRuntimeState(_ encoded: String?) -> InequalityExplorerRuntimeState? {
+        guard let encoded,
+              let data = encoded.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(InequalityExplorerRuntimeState.self, from: data)
+    }
+
     func scoreRecord(widgetID: WidgetObject.ID, title: String) -> WidgetActivityScoreRecord {
         session.scoreRecord(
             widgetID: widgetID,
@@ -739,8 +819,8 @@ private struct ActivityModeSelector: View {
 
 // MARK: - Student Session (score, streak, attempt records)
 
-struct StudentSession {
-    struct MissedProblem {
+struct StudentSession: Codable, Equatable {
+    struct MissedProblem: Codable, Equatable {
         let inequality: String
         let note: String
     }

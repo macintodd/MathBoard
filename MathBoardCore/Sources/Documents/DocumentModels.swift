@@ -159,7 +159,7 @@ enum FolderColor: String, Codable, CaseIterable, Identifiable, Hashable, Sendabl
     var title: String {
         switch self {
         case .plain:
-            "Plain"
+            "Default"
         case .gold:
             "Gold"
         case .blue:

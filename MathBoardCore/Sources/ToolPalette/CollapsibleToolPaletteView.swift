@@ -212,7 +212,7 @@ struct CollapsedToolPuck: View {
 
     private var iconColor: Color {
         switch state.activeTool {
-        case .pen, .marker, .laser:
+        case .pen, .fountainPen, .marker, .laser:
             return state.activeStrokeColor.swiftUIColor
         case .selection, .extract, .reserved, .eraser, .geometry, .equation, .cover:
             return ToolPaletteTheme.label

@@ -179,7 +179,7 @@ public struct CanvasWidgetInsertion: Sendable, Equatable {
         margin: CGFloat = 24,
         librarySourceCodeString: String? = nil,
         hasRecordedLibraryDerivative: Bool = false,
-        isPinnedToCanvas: Bool = false
+        isPinnedToCanvas: Bool = true
     ) {
         self.name = name
         self.codeString = codeString
@@ -479,6 +479,7 @@ public struct CanvasToolCommand: Sendable, Equatable, Identifiable {
         case sendSelectionToNextSlide
         case setExtractAction(ExtractAction)
         case pen(color: CanvasStrokeColor, width: CGFloat)
+        case fountainPen(color: CanvasStrokeColor, width: CGFloat)
         case marker(color: CanvasStrokeColor, width: CGFloat)
         case eraser(mode: EraserMode, width: CGFloat)
         case laser(color: CanvasStrokeColor, diameter: CGFloat, duration: TimeInterval, mode: LaserMode)

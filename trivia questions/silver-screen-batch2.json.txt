@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "widgetId": "silver-screen-02",
+  "activity": "multipleChoice",
+  "title": "Blockbuster Silver Screen",
+  "description": "Classic films, blockbusters, and cinema milestones.",
+  "learningObjective": "Recall classic movie moments from the 1970s through the 1990s.",
+  "difficulty": "medium",
+  "rules": {
+    "scoreMode": "correctOutOfTotal",
+    "advanceMode": "automaticOnCorrect",
+    "allowRetry": true,
+    "maxRetries": 1,
+    "shuffleQuestions": false,
+    "shuffleChoices": true,
+    "calculatorAllowed": false
+  },
+  "questions": [
+    {
+      "id": "screen-0201",
+      "prompt": "Which 1973 supernatural horror film about a possessed young girl terrified audiences and earned multiple Oscar nominations?",
+      "choices": ["The Omen", "The Exorcist", "Carrie", "Rosemary's Baby"],
+      "correctAnswerIndex": 1,
+      "explanation": "The Exorcist became a monumental cultural and box-office phenomenon directed by William Friedkin."
+    },
+    {
+      "id": "screen-0202",
+      "prompt": "What is the name of the fictional mob boss played by Marlon Brando in Francis Ford Coppola's 1972 masterpiece 'The Godfather'?",
+      "choices": ["Tony Soprano", "Vito Corleone", "Michael Corleone", "Sonny Corleone"],
+      "correctAnswerIndex": 1,
+      "explanation": "Don Vito Corleone delivered some of cinema's most legendary lines."
+    },
+    {
+      "id": "screen-0203",
+      "prompt": "Which 1986 action film starring Tom Cruise featured high-stakes volleyball matches and Navy fighter pilots?",
+      "choices": ["Iron Eagle", "Top Gun", "The Right Stuff", "Firefox"],
+      "correctAnswerIndex": 1,
+      "explanation": "Top Gun defined 1980s pop-culture cool with aviator sunglasses and Kenny Loggins' soundtrack."
+    },
+    {
+      "id": "screen-0204",
+      "prompt": "In the 1990 holiday comedy 'Home Alone', what is the first name of the resourceful boy left behind by his family?",
+      "choices": ["Kevin", "Buzz", "Fuller", "Macaulay"],
+      "correctAnswerIndex": 0,
+      "explanation": "Macaulay Culkin starred as Kevin McCallister defending his house from the 'Wet Bandits'."
+    },
+    {
+      "id": "screen-0205",
+      "prompt": "Which 1994 Quentin Tarantino crime film features interlocking stories, diner robberies, and a famous twist contest?",
+      "choices": ["Reservoir Dogs", "Pulp Fiction", "Jackie Brown", "True Romance"],
+      "correctAnswerIndex": 1,
+      "explanation": "Pulp Fiction revitalized John Travolta's career and won the Palme d'Or at Cannes."
+    },
+    {
+      "id": "screen-0206",
+      "prompt": "What iconic line does Arnold Schwarzenegger's cyborg character promise in the 1991 blockbuster 'Terminator 2: Judgment Day'?",
+      "choices": ["Hasta la vista, baby", "I'll be back", "Get to the chopper", "Come with me if you want to live"],
+      "correctAnswerIndex": 0,
+      "explanation": "'Hasta la vista, baby' became an instant global catchphrase."
+    },
+    {
+      "id": "screen-0207",
+      "prompt": "Which 1982 dystopian sci-fi noir film directed by Ridley Scott stars Harrison Ford as a blade runner hunting replicants?",
+      "choices": ["Total Recall", "Blade Runner", "The Running Man", "Dune"],
+      "correctAnswerIndex": 1,
+      "explanation": "Blade Runner is celebrated for its stunning cyberpunk visual design and atmospheric score."
+    },
+    {
+      "id": "screen-0208",
+      "prompt": "What musical romantic comedy released in 1978 starred John Travolta and Olivia Newton-John as high school sweethearts?",
+      "choices": ["Saturday Night Fever", "Grease", "Hair", "Fame"],
+      "correctAnswerIndex": 1,
+      "explanation": "Grease became the highest-grossing musical film of all time for decades."
+    },
+    {
+      "id": "screen-0209",
+      "prompt": "Which 1995 Pixar animated movie was the first feature-length film created entirely using computer-generated imagery?",
+      "choices": ["A Bug's Life", "Toy Story", "Antz", "Monsters, Inc."],
+      "correctAnswerIndex": 1,
+      "explanation": "Toy Story introduced Woody and Buzz Lightyear, launching Pixar as an animation powerhouse."
+    },
+    {
+      "id": "screen-0210",
+      "prompt": "What is the name of Mel Gibson's dystopian road-warrior character in George Miller's 1979 post-apocalyptic classic?",
+      "choices": ["Max Rockatansky", "Snake Plissken", "Imperator Furiosa", "Judge Dredd"],
+      "correctAnswerIndex": 0,
+      "explanation": "Mad Max established high-octane vehicular action benchmarks for action cinema."
+    },
+    {
+      "id": "screen-0211",
+      "prompt": "Which 1993 legal drama directed by Steven Spielberg chronicled the rescue of over a thousand Polish-Jewish refugees during WWII?",
+      "choices": ["The Color Purple", "Schindler's List", "Empire of the Sun", "Amistad"],
+      "correctAnswerIndex": 1,
+      "explanation": "Schindler's List won seven Academy Awards, including Best Picture and Best Director."
+    },
+    {
+      "id": "screen-0212",
+      "prompt": "In Stanley Kubrick's 1980 horror masterpiece 'The Shining', what ominous hotel serves as the snowbound setting?",
+      "choices": ["The Grand Budapest Hotel", "The Overlook Hotel", "The Bates Motel", "The Stanley Hotel"],
+      "correctAnswerIndex": 1,
+      "explanation": "Jack Torrance (Jack Nicholson) loses his mind while caretaking the isolated Overlook Hotel."
+    },
+    {
+      "id": "screen-0213",
+      "prompt": "Which 1997 James Cameron romance disaster movie featured Celine Dion singing 'My Heart Will Go On'?",
+      "choices": ["The Poseidon Adventure", "Titanic", "A Night to Remember", "Speed"],
+      "correctAnswerIndex": 1,
+      "explanation": "Titanic dominated global box offices and awards ceremonies."
+    },
+    {
+      "id": "screen-0214",
+      "prompt": "What is the name of Bill Murray's cynical TV weather reporter trapped reliving the same day in the 1993 comedy 'Groundhog Day'?",
+      "choices": ["Phil Connors", "Peter Venkman", "Carl Spackler", "Frank Cross"],
+      "correctAnswerIndex": 0,
+      "explanation": "Phil Connors has to repeatedly live out February 2nd in Punxsutawney, Pennsylvania."
+    },
+    {
+      "id": "screen-0215",
+      "prompt": "Which 1984 martial arts drama starred Pat Morita as an eccentric karate mentor teaching a bullied teenager?",
+      "choices": ["Enter the Dragon", "The Karate Kid", "Bloodsport", "American Ninja"],
+      "correctAnswerIndex": 1,
+      "explanation": "Mr. Miyagi's 'Wax on, wax off' training method became legendary."
+    }
+  ]
+}

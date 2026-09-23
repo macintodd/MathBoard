@@ -8,6 +8,10 @@
 import Observation
 import SwiftUI
 
+#if os(macOS)
+import AppKit
+#endif
+
 @MainActor
 @Observable
 final class CountdownTimerState {
@@ -89,6 +93,18 @@ enum CountdownTimerStateRegistry {
     }
 }
 
+private extension Color {
+    static var mathBoardSystemBackground: Color {
+        #if os(macOS)
+        Color(nsColor: .windowBackgroundColor)
+        #elseif os(iOS)
+        Color(.systemBackground)
+        #else
+        Color(.background)
+        #endif
+    }
+}
+
 struct CountdownTimerInteractiveView: View {
     @Bindable var state: CountdownTimerState
 
@@ -121,7 +137,7 @@ struct CountdownTimerInteractiveView: View {
         }
         .padding(22)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemBackground))
+        .background(Color.mathBoardSystemBackground)
     }
 
     private var durationMinutesBinding: Binding<Int> {
@@ -201,7 +217,7 @@ struct RandomNumberGeneratorInteractiveView: View {
         }
         .padding(22)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemBackground))
+        .background(Color.mathBoardSystemBackground)
     }
 
     private var lowerBoundBinding: Binding<Int> {
@@ -305,7 +321,7 @@ struct FunctionTransformationExplorerInteractiveView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemBackground))
+        .background(Color.mathBoardSystemBackground)
     }
 
     private func parameterSlider(
@@ -468,7 +484,7 @@ struct CoordinateGridGeneratorInteractiveView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemBackground))
+        .background(Color.mathBoardSystemBackground)
     }
 
     private var settingsPanel: some View {

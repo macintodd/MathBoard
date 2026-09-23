@@ -10,6 +10,7 @@ import Canvas
 import CoreGraphics
 import Foundation
 import Observation
+import Security
 import SwiftUI
 
 public enum LiveClassroomRole: String, Sendable, Codable, Equatable {
@@ -59,6 +60,38 @@ public struct LiveClassroomSessionConfiguration: Sendable, Equatable {
     }
 }
 
+private enum LiveClassroomKeychain {
+    private static let service = "com.mathboard.liveclassroom"
+
+    static func read(account: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func write(account: String, value: String) {
+        let data = Data(value.utf8)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+        if SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary) == errSecItemNotFound {
+            var addQuery = query
+            addQuery[kSecValueData as String] = data
+            _ = SecItemAdd(addQuery as CFDictionary, nil)
+        }
+    }
+}
+
 @MainActor
 @Observable
 public final class LiveClassroomSettings {
@@ -66,6 +99,7 @@ public final class LiveClassroomSettings {
 
     public static let enabledKey = "MathBoardLiveTeacherInkEnabled"
     public static let ablyAPIKeyKey = "MathBoardLiveClassroomAblyAPIKey"
+    public static let ablySubscriberAPIKeyKey = "MathBoardLiveClassroomAblySubscriberAPIKey"
 
     public var isEnabled: Bool {
         get { UserDefaults.standard.bool(forKey: Self.enabledKey) }
@@ -73,8 +107,35 @@ public final class LiveClassroomSettings {
     }
 
     public var ablyAPIKey: String {
-        get { UserDefaults.standard.string(forKey: Self.ablyAPIKeyKey) ?? "" }
-        set { UserDefaults.standard.set(newValue, forKey: Self.ablyAPIKeyKey) }
+        get {
+            if let stored = LiveClassroomKeychain.read(account: Self.ablyAPIKeyKey), !stored.isEmpty {
+                return stored
+            }
+            let compiled = AppSecrets.ablyAPIKey
+            if !compiled.isEmpty {
+                LiveClassroomKeychain.write(account: Self.ablyAPIKeyKey, value: compiled)
+            }
+            return compiled
+        }
+        set {
+            LiveClassroomKeychain.write(account: Self.ablyAPIKeyKey, value: newValue)
+        }
+    }
+
+    public var ablySubscriberAPIKey: String {
+        get {
+            if let stored = LiveClassroomKeychain.read(account: Self.ablySubscriberAPIKeyKey), !stored.isEmpty {
+                return stored
+            }
+            let compiled = AppSecrets.ablySubscriberAPIKey
+            if !compiled.isEmpty {
+                LiveClassroomKeychain.write(account: Self.ablySubscriberAPIKeyKey, value: compiled)
+            }
+            return compiled
+        }
+        set {
+            LiveClassroomKeychain.write(account: Self.ablySubscriberAPIKeyKey, value: newValue)
+        }
     }
 
     private init() {}
@@ -269,6 +330,48 @@ public struct TeacherObjectSnapshot: Codable, Sendable, Identifiable, Equatable 
     }
 }
 
+/// Ephemeral realtime event carrying the teacher's Apple Pencil position and
+/// tilt while hovering above or writing on the iPad. Students receive this
+/// on the ink channel and show a directional shadow indicator.
+public struct TeacherPencilHoverEvent: Codable, Sendable, Equatable {
+    public var lessonCode: String
+    public var x: Double
+    public var y: Double
+    public var altitudeAngle: Double
+    public var azimuthAngle: Double
+    public var isWriting: Bool
+    /// False when the pencil has moved out of hover range — student should hide indicator.
+    public var isActive: Bool
+
+    public init(
+        lessonCode: String,
+        x: Double,
+        y: Double,
+        altitudeAngle: Double,
+        azimuthAngle: Double,
+        isWriting: Bool,
+        isActive: Bool
+    ) {
+        self.lessonCode = LiveClassroomSessionConfiguration.normalizedLessonCode(lessonCode)
+        self.x = x
+        self.y = y
+        self.altitudeAngle = altitudeAngle
+        self.azimuthAngle = azimuthAngle
+        self.isWriting = isWriting
+        self.isActive = isActive
+    }
+
+    public var canvasPencilHover: CanvasPencilHover? {
+        guard isActive else { return nil }
+        return CanvasPencilHover(
+            canvasPoint: CGPoint(x: x, y: y),
+            altitudeAngle: altitudeAngle,
+            azimuthAngle: azimuthAngle,
+            isWriting: isWriting
+        )
+    }
+}
+
 public struct TeacherSlideBackground: Codable, Sendable, Equatable {
     public var kind: String
     public var assetFileName: String
@@ -336,6 +439,7 @@ public struct TeacherSlideManifestSnapshot: Codable, Sendable, Identifiable, Equ
     public var slides: [TeacherSlideMetadata]
     public var activeSlideID: UUID?
     public var isFollowMeEnabled: Bool
+    public var deletedSlideIDs: [UUID]
     public var sentAt: Date
 
     public init(
@@ -345,6 +449,7 @@ public struct TeacherSlideManifestSnapshot: Codable, Sendable, Identifiable, Equ
         slides: [TeacherSlideMetadata],
         activeSlideID: UUID? = nil,
         isFollowMeEnabled: Bool = false,
+        deletedSlideIDs: [UUID] = [],
         sentAt: Date = Date()
     ) {
         self.id = id
@@ -353,11 +458,12 @@ public struct TeacherSlideManifestSnapshot: Codable, Sendable, Identifiable, Equ
         self.slides = slides
         self.activeSlideID = activeSlideID
         self.isFollowMeEnabled = isFollowMeEnabled
+        self.deletedSlideIDs = deletedSlideIDs
         self.sentAt = sentAt
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, lessonCode, revision, slides, activeSlideID, isFollowMeEnabled, sentAt
+        case id, lessonCode, revision, slides, activeSlideID, isFollowMeEnabled, deletedSlideIDs, sentAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -370,6 +476,7 @@ public struct TeacherSlideManifestSnapshot: Codable, Sendable, Identifiable, Equ
         slides = try container.decode([TeacherSlideMetadata].self, forKey: .slides)
         activeSlideID = try container.decodeIfPresent(UUID.self, forKey: .activeSlideID)
         isFollowMeEnabled = try container.decodeIfPresent(Bool.self, forKey: .isFollowMeEnabled) ?? false
+        deletedSlideIDs = try container.decodeIfPresent([UUID].self, forKey: .deletedSlideIDs) ?? []
         sentAt = try container.decode(Date.self, forKey: .sentAt)
     }
 }

@@ -23,6 +23,7 @@ struct ActivityWidgetDocument: Codable, Equatable, Sendable {
     var rules: WidgetActivityRules?
     var feedback: WidgetActivityFeedback?
     var questions: [WidgetActivityQuestion]
+    var categories: [TrivialPursuitCategory]?
 
     init(
         schemaVersion: Int = 1,
@@ -38,7 +39,8 @@ struct ActivityWidgetDocument: Codable, Equatable, Sendable {
         presentation: WidgetActivityPresentation? = nil,
         rules: WidgetActivityRules? = nil,
         feedback: WidgetActivityFeedback? = nil,
-        questions: [WidgetActivityQuestion]
+        questions: [WidgetActivityQuestion] = [],
+        categories: [TrivialPursuitCategory]? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.widgetId = widgetId
@@ -54,6 +56,52 @@ struct ActivityWidgetDocument: Codable, Equatable, Sendable {
         self.rules = rules
         self.feedback = feedback
         self.questions = questions
+        self.categories = categories
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, widgetId, activity, title, description
+        case learningObjective, pedagogicalWorkflow, usageTracking
+        case assessmentConfiguration, difficulty, presentation
+        case rules, feedback, questions, categories
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        widgetId = try container.decodeIfPresent(String.self, forKey: .widgetId)
+        activity = try container.decode(WidgetActivityKind.self, forKey: .activity)
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        learningObjective = try container.decodeIfPresent(String.self, forKey: .learningObjective) ?? ""
+        pedagogicalWorkflow = try container.decodeIfPresent(WidgetActivityWorkflow.self, forKey: .pedagogicalWorkflow)
+        usageTracking = try container.decodeIfPresent(WidgetActivityUsageTracking.self, forKey: .usageTracking)
+        assessmentConfiguration = try container.decodeIfPresent(WidgetActivityAssessmentConfiguration.self, forKey: .assessmentConfiguration)
+        difficulty = try container.decodeIfPresent(WidgetActivityDifficulty.self, forKey: .difficulty)
+        presentation = try container.decodeIfPresent(WidgetActivityPresentation.self, forKey: .presentation)
+        rules = try container.decodeIfPresent(WidgetActivityRules.self, forKey: .rules)
+        feedback = try container.decodeIfPresent(WidgetActivityFeedback.self, forKey: .feedback)
+        questions = try container.decodeIfPresent([WidgetActivityQuestion].self, forKey: .questions) ?? []
+        categories = try container.decodeIfPresent([TrivialPursuitCategory].self, forKey: .categories)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encodeIfPresent(widgetId, forKey: .widgetId)
+        try container.encode(activity, forKey: .activity)
+        try container.encode(title, forKey: .title)
+        try container.encodeIfPresent(description, forKey: .description)
+        try container.encode(learningObjective, forKey: .learningObjective)
+        try container.encodeIfPresent(pedagogicalWorkflow, forKey: .pedagogicalWorkflow)
+        try container.encodeIfPresent(usageTracking, forKey: .usageTracking)
+        try container.encodeIfPresent(assessmentConfiguration, forKey: .assessmentConfiguration)
+        try container.encodeIfPresent(difficulty, forKey: .difficulty)
+        try container.encodeIfPresent(presentation, forKey: .presentation)
+        try container.encodeIfPresent(rules, forKey: .rules)
+        try container.encodeIfPresent(feedback, forKey: .feedback)
+        try container.encode(questions, forKey: .questions)
+        try container.encodeIfPresent(categories, forKey: .categories)
     }
 }
 
@@ -61,6 +109,7 @@ enum WidgetActivityWorkflow: String, Codable, CaseIterable, Sendable {
     case bellRingerExitTicket
     case conceptualInteractive
     case assessment
+    case classPlay
 }
 
 struct WidgetActivityUsageTracking: Codable, Equatable, Sendable {
@@ -95,6 +144,7 @@ struct WidgetActivityAssessmentConfiguration: Codable, Equatable, Sendable {
 enum WidgetActivityKind: String, Codable, CaseIterable, Sendable {
     case multipleChoice
     case fillInTheBlank
+    case trivialPursuit
 }
 
 enum WidgetActivityDifficulty: String, Codable, CaseIterable, Sendable {
@@ -106,13 +156,16 @@ enum WidgetActivityDifficulty: String, Codable, CaseIterable, Sendable {
 struct WidgetActivityPresentation: Codable, Equatable, Sendable {
     var preferredTheme: WidgetActivityTheme?
     var preferredExperience: WidgetActivityExperience?
+    var renderer: WidgetActivityRendererKind?
 
     init(
         preferredTheme: WidgetActivityTheme? = nil,
-        preferredExperience: WidgetActivityExperience? = nil
+        preferredExperience: WidgetActivityExperience? = nil,
+        renderer: WidgetActivityRendererKind? = nil
     ) {
         self.preferredTheme = preferredTheme
         self.preferredExperience = preferredExperience
+        self.renderer = renderer
     }
 }
 
@@ -130,6 +183,11 @@ enum WidgetActivityExperience: String, Codable, CaseIterable, Sendable {
     case sportsArena
     case mysteryReveal
     case bossBattle
+}
+
+enum WidgetActivityRendererKind: String, Codable, CaseIterable, Sendable {
+    case native
+    case html
 }
 
 struct WidgetActivityRules: Codable, Equatable, Sendable {
@@ -940,6 +998,68 @@ struct WidgetActivityChoice: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+struct TrivialPursuitCategory: Codable, Equatable, Identifiable, Sendable {
+    var id: String
+    var name: String
+    var emoji: String
+    var color: String
+    var questions: [TrivialPursuitQuestion]
+
+    init(
+        id: String,
+        name: String,
+        emoji: String = "",
+        color: String = "#888888",
+        questions: [TrivialPursuitQuestion] = []
+    ) {
+        self.id = id
+        self.name = name
+        self.emoji = emoji
+        self.color = color
+        self.questions = questions
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, emoji, color, questions
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        emoji = try container.decodeIfPresent(String.self, forKey: .emoji) ?? ""
+        color = try container.decodeIfPresent(String.self, forKey: .color) ?? "#888888"
+        questions = try container.decodeIfPresent([TrivialPursuitQuestion].self, forKey: .questions) ?? []
+    }
+}
+
+struct TrivialPursuitQuestion: Codable, Equatable, Identifiable, Sendable {
+    var id: String
+    var prompt: String
+    var choices: [WidgetActivityChoice]
+
+    init(
+        id: String,
+        prompt: String,
+        choices: [WidgetActivityChoice] = []
+    ) {
+        self.id = id
+        self.prompt = prompt
+        self.choices = choices
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, prompt, choices
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        prompt = try container.decodeIfPresent(String.self, forKey: .prompt) ?? ""
+        choices = try container.decodeIfPresent([WidgetActivityChoice].self, forKey: .choices) ?? []
+    }
+}
+
 struct WidgetActivityValidationResult: Equatable, Sendable {
     var document: ActivityWidgetDocument?
     var errors: [String]
@@ -991,8 +1111,36 @@ enum WidgetActivityValidator {
             errors.append(contentsOf: validateMultipleChoice(document))
         case .fillInTheBlank:
             errors.append(contentsOf: validateFillInTheBlank(document))
+        case .trivialPursuit:
+            errors.append(contentsOf: validateTrivialPursuit(document))
         }
 
+        return errors
+    }
+
+    private static func validateTrivialPursuit(_ document: ActivityWidgetDocument) -> [String] {
+        var errors: [String] = []
+        guard let categories = document.categories, !categories.isEmpty else {
+            errors.append("trivialPursuit activities need at least one category.")
+            return errors
+        }
+        for category in categories {
+            if category.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                errors.append("Category '\(category.id)' needs a name.")
+            }
+            if category.questions.isEmpty {
+                errors.append("Category '\(category.name)' needs at least one question.")
+            }
+            for question in category.questions {
+                if question.choices.count != 4 {
+                    errors.append("Question '\(question.id)' in '\(category.name)' needs exactly 4 choices.")
+                }
+                let correctCount = question.choices.filter(\.isCorrect).count
+                if correctCount != 1 {
+                    errors.append("Question '\(question.id)' in '\(category.name)' needs exactly one correct choice.")
+                }
+            }
+        }
         return errors
     }
 

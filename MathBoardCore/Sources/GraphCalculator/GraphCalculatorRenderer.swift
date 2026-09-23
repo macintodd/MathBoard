@@ -72,6 +72,10 @@ enum GraphHighlightPalette {
     static let yIntercept = Color(red: 0.60, green: 0.30, blue: 0.92)
     /// Coral — plotted ordered-pair rows and attached point-table points.
     static let plottedPoint = Color(red: 0.96, green: 0.36, blue: 0.24)
+    /// Orange-red — local/absolute maxima.
+    static let localMax = Color(red: 0.99, green: 0.35, blue: 0.18)
+    /// Sky blue — local/absolute minima.
+    static let localMin = Color(red: 0.13, green: 0.60, blue: 0.95)
 
     static func color(for kind: GraphCalculatorPointReadout.Kind) -> Color {
         switch kind {
@@ -79,6 +83,8 @@ enum GraphHighlightPalette {
         case .xIntercept: return xIntercept
         case .yIntercept: return yIntercept
         case .plottedPoint: return plottedPoint
+        case .localMax: return localMax
+        case .localMin: return localMin
         }
     }
 
@@ -86,7 +92,7 @@ enum GraphHighlightPalette {
     static func labelColor(for kind: GraphCalculatorPointReadout.Kind) -> Color {
         switch kind {
         case .intersection: return .black.opacity(0.82) // dark on bright gold
-        case .xIntercept, .yIntercept, .plottedPoint: return .white
+        case .xIntercept, .yIntercept, .plottedPoint, .localMax, .localMin: return .white
         }
     }
 }
@@ -196,7 +202,7 @@ enum GraphCalculatorRenderer {
     ) {
         let resolved = context.resolve(
             Text(text)
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(textColor)
         )
         let textSize = resolved.measure(in: CGSize(width: 240, height: 60))
@@ -373,10 +379,13 @@ enum GraphCalculatorRenderer {
     }
 
     private static func drawGrid(in context: GraphicsContext, size: CGSize, window: GraphWindow, axisStyle: GraphAxisStyle) {
-        let majorX = CalculatorGraphGeometry.niceStep(range: window.width, targetCount: max(Int(size.width / 120), 2))
-        let majorY = CalculatorGraphGeometry.niceStep(range: window.height, targetCount: max(Int(size.height / 120), 2))
-        // Minor gridlines must evenly subdivide the major step (5 minor cells per major square),
-        // otherwise independently-computed "nice" steps make the grid look unevenly spaced.
+        // Use one shared step derived from the x-axis so grid cells stay square when the
+        // window aspect ratio matches the canvas (i.e. at home zoom). Independent per-axis
+        // targetCounts diverge on non-square canvases, causing y to pick a coarser step and
+        // producing tall rectangular cells even with a mathematically correct window.
+        let majorStep = CalculatorGraphGeometry.niceStep(range: window.width, targetCount: max(Int(size.width / 120), 2))
+        let majorX = majorStep
+        let majorY = majorStep
         let minorX = majorX / 5
         let minorY = majorY / 5
 

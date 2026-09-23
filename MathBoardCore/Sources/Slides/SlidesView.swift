@@ -44,7 +44,7 @@ public enum MathBoardClassroomMode: String, CaseIterable, Identifiable {
     }
 
     public var allowsWidgetAuthoring: Bool {
-        self == .teacher
+        true
     }
 }
 
@@ -121,14 +121,18 @@ public struct SlidesView: View {
     private let onLiveTeacherSlideManifestRefreshRequested: ((TeacherSlideManifestSnapshot) async -> TeacherSlideManifestSnapshot?)?
     private let onLibraryDrawerOpenChange: (@MainActor (Bool) -> Void)?
     private let onLessonContentChanged: (@MainActor () -> Void)?
+    private let onStudentExtractedClip: (@MainActor (Data) -> Void)?
     private let isEditingLocked: Bool
 
     @State private var store: SlideStore
     @Binding private var classroomMode: MathBoardClassroomMode
+    @Binding private var showsTeacherInkOverlay: Bool
+    @Binding private var hidesStudentInk: Bool
     @Binding private var isFollowMeEnabled: Bool
     @State private var activeIndex: Int = 0
     @State private var pendingDeleteIndices: [Int]?
     @State private var thumbnailCache = SlideThumbnailCache()
+    @State private var thumbnailRenderQueue = SlideThumbnailRenderQueue()
     @State private var slideErrorMessage: String?
     @State private var isShowingPDFImporter = false
     @State private var isShowingPDFExporter = false
@@ -150,10 +154,12 @@ public struct SlidesView: View {
     @State private var appliedTeacherSlideManifestUpdateID: String?
     @State private var appliedTeacherObjectSnapshotsUpdateID: String?
     @State private var isStudentFollowMeActive = false
+    @State private var receivedTeacherPencilHover: CanvasPencilHover?
 
     private static let viewportSaveDebounce: Duration = .milliseconds(300)
     private static let inkDrawingSnapshotDebounce: Duration = .milliseconds(700)
     private static let objectSnapshotDebounce: Duration = .milliseconds(700)
+    private static let thumbnailRenderConcurrencyLimit = 2
 
     public init(
         lessonURL: URL,
@@ -174,7 +180,10 @@ public struct SlidesView: View {
         onLiveTeacherSlideManifestRefreshRequested: ((TeacherSlideManifestSnapshot) async -> TeacherSlideManifestSnapshot?)? = nil,
         onLibraryDrawerOpenChange: (@MainActor (Bool) -> Void)? = nil,
         onLessonContentChanged: (@MainActor () -> Void)? = nil,
-        isEditingLocked: Bool = false
+        onStudentExtractedClip: (@MainActor (Data) -> Void)? = nil,
+        isEditingLocked: Bool = false,
+        showsTeacherInkOverlay: Binding<Bool> = .constant(true),
+        hidesStudentInk: Binding<Bool> = .constant(false)
     ) {
         self.lessonURL = lessonURL
         self.classroomSessionCode = classroomSessionCode
@@ -191,7 +200,10 @@ public struct SlidesView: View {
         self.onLiveTeacherSlideManifestRefreshRequested = onLiveTeacherSlideManifestRefreshRequested
         self.onLibraryDrawerOpenChange = onLibraryDrawerOpenChange
         self.onLessonContentChanged = onLessonContentChanged
+        self.onStudentExtractedClip = onStudentExtractedClip
         self.isEditingLocked = isEditingLocked
+        _showsTeacherInkOverlay = showsTeacherInkOverlay
+        _hidesStudentInk = hidesStudentInk
         let initialStore = SlideStore(
             lessonURL: lessonURL,
             classroomSessionCode: classroomMode.wrappedValue == .teacher ? classroomSessionCode : nil
@@ -318,6 +330,7 @@ public struct SlidesView: View {
             liveTeacherInkCoordinator.onReceivedTeacherInkDrawingSnapshot = nil
             liveTeacherInkCoordinator.onReceivedTeacherObjectSnapshot = nil
             liveTeacherInkCoordinator.onReceivedTeacherSlideManifestSnapshot = nil
+            liveTeacherInkCoordinator.onReceivedTeacherPencilHover = nil
             liveTeacherInkCoordinator.stop()
             flushPendingViewportSave()
         }
@@ -330,6 +343,9 @@ public struct SlidesView: View {
             liveTeacherInkCoordinator.onReceivedTeacherInkDrawingSnapshot = applyTeacherInkDrawingSnapshot
             liveTeacherInkCoordinator.onReceivedTeacherObjectSnapshot = applyTeacherObjectSnapshot
             liveTeacherInkCoordinator.onReceivedTeacherSlideManifestSnapshot = applyTeacherSlideManifestSnapshot
+            liveTeacherInkCoordinator.onReceivedTeacherPencilHover = { hover in
+                receivedTeacherPencilHover = hover
+            }
             liveTeacherInkCoordinator.configure(liveClassroomConfiguration)
             liveTeacherInkCoordinator.seedInitialInkDrawingSnapshots(initialTeacherInkDrawingSnapshots)
             publishTeacherSlideManifestSnapshot()
@@ -341,6 +357,9 @@ public struct SlidesView: View {
             liveTeacherInkCoordinator.onPublishedTeacherSlideManifestSnapshot = onTeacherSlideManifestSnapshotPublished
             liveTeacherInkCoordinator.onReceivedTeacherObjectSnapshot = applyTeacherObjectSnapshot
             liveTeacherInkCoordinator.onReceivedTeacherSlideManifestSnapshot = applyTeacherSlideManifestSnapshot
+            liveTeacherInkCoordinator.onReceivedTeacherPencilHover = { hover in
+                receivedTeacherPencilHover = hover
+            }
             liveTeacherInkCoordinator.configure(newConfiguration)
             liveTeacherInkCoordinator.seedInitialInkDrawingSnapshots(initialTeacherInkDrawingSnapshots)
             publishTeacherSlideManifestSnapshot()
@@ -417,7 +436,11 @@ public struct SlidesView: View {
             scheduleViewportSave(state, for: slide.id)
         }
         let extractedRegionSend: (@MainActor (PresentationExtractedRegion) -> Void)? = isEditingLocked ? nil : { @MainActor region in
-            sendExtractedRegionToNextEmptySlide(region)
+            if classroomMode == .student, let onStudentExtractedClip {
+                onStudentExtractedClip(region.pngData)
+            } else {
+                sendExtractedRegionToNextEmptySlide(region)
+            }
         }
         let pdfImport: (@MainActor () -> Void)? = isEditingLocked ? nil : { @MainActor in
             isShowingPDFImporter = true
@@ -453,7 +476,11 @@ public struct SlidesView: View {
                 currentViewportSourceRect = sourceRect
             },
             onLiveStrokeUpdate: { stroke in
+                guard !DisplayBroker.shared.isBroadcastFrozen else { return }
                 liveTeacherInkCoordinator.publishTeacherStroke(stroke, slideID: slide.id)
+            },
+            onPencilHoverUpdate: { hover in
+                liveTeacherInkCoordinator.publishTeacherPencilHover(hover, slideID: slide.id)
             },
             onDrawingDataChange: drawingDataChange,
             onCanvasObjectStateChange: objectStateChange,
@@ -462,6 +489,9 @@ public struct SlidesView: View {
             },
             objectStateReloadCommand: objectStateReloadCommand,
             allowsWidgetAuthoring: !isEditingLocked && classroomMode.allowsWidgetAuthoring,
+            showsTeacherDemoWebApplets: true,
+            showsCatalogInLibraryDrawer: classroomMode != .student,
+            hidesStudentInk: hidesStudentInk,
             isEditingLocked: isEditingLocked
         )
         .id(canvasViewIdentity(for: slide))
@@ -611,11 +641,13 @@ public struct SlidesView: View {
 
     @ViewBuilder
     private var liveTeacherInkOverlay: some View {
-        if liveClassroomConfiguration?.role == .student,
+        if showsTeacherInkOverlay,
+           liveClassroomConfiguration?.role == .student,
            let activeSlide {
             let snapshot = liveTeacherInkCoordinator.latestInkDrawingSnapshotsBySlideID[activeSlide.id]
             let strokes = liveTeacherInkCoordinator.receivedStrokes(for: activeSlide.id)
-            if snapshot != nil || !strokes.isEmpty {
+            let hoverState = receivedTeacherPencilHover
+            if snapshot != nil || !strokes.isEmpty || hoverState != nil {
                 GeometryReader { proxy in
                     ZStack {
                         #if os(iOS)
@@ -632,6 +664,15 @@ public struct SlidesView: View {
                         if !strokes.isEmpty {
                             LiveTeacherInkOverlay(
                                 strokes: strokes,
+                                viewportSourceRect: currentViewportSourceRect,
+                                fallbackSourceSize: CanvasBoardMetrics.defaultUsableSize,
+                                fittedSize: proxy.size
+                            )
+                        }
+
+                        if let hoverState {
+                            PencilHoverIndicatorOverlay(
+                                hoverState: hoverState,
                                 viewportSourceRect: currentViewportSourceRect,
                                 fallbackSourceSize: CanvasBoardMetrics.defaultUsableSize,
                                 fittedSize: proxy.size
@@ -696,7 +737,7 @@ public struct SlidesView: View {
             return
         }
         let teacherSlides = snapshot.slides.map(SlideMetadata.init(teacherSlide:))
-        let changed = store.mergeTeacherSlides(teacherSlides)
+        let changed = store.mergeTeacherSlides(teacherSlides, teacherDeletedSlideIDs: Set(snapshot.deletedSlideIDs))
         if changed || wroteBackgroundAssets {
             print("[Slides] merged initial teacher slide manifest revision=\(snapshot.revision) slides=\(snapshot.slides.count)")
         }
@@ -793,10 +834,23 @@ public struct SlidesView: View {
 
         let localWidgets = WidgetObject.load(from: WidgetObject.sidecarURL(forDrawingURL: drawingURL))
         let localWidgetsByID = Dictionary(uniqueKeysWithValues: localWidgets.map { ($0.id, $0) })
-        let mergedWidgets = teacherWidgets.map { teacherWidget -> WidgetObject in
+        let visibleTeacherWidgets = teacherWidgets.filter { !$0.isTeacherOnly }
+        let mergedWidgets = visibleTeacherWidgets.map { teacherWidget -> WidgetObject in
             guard let localWidget = localWidgetsByID[teacherWidget.id] else { return teacherWidget }
             var mergedWidget = teacherWidget
-            mergedWidget.activityRuntimeState = localWidget.activityRuntimeState
+            if teacherWidget.activityKind == .trivialPursuit {
+                var teacherRuntimeState = teacherWidget.activityRuntimeState
+                let teacherTrivia = teacherRuntimeState?.trivialPursuit
+                let localTrivia = localWidget.activityRuntimeState?.trivialPursuit
+                if teacherTrivia?.roundID == localTrivia?.roundID,
+                   teacherTrivia?.activeCategoryID == localTrivia?.activeCategoryID,
+                   teacherTrivia?.activeQuestionIndex == localTrivia?.activeQuestionIndex {
+                    teacherRuntimeState?.trivialPursuit.localAnswer = localTrivia?.localAnswer
+                }
+                mergedWidget.activityRuntimeState = teacherRuntimeState
+            } else {
+                mergedWidget.activityRuntimeState = localWidget.activityRuntimeState
+            }
             mergedWidget.builtInRuntimeState = localWidget.builtInRuntimeState
             return mergedWidget
         }
@@ -873,11 +927,16 @@ public struct SlidesView: View {
     private func publishTeacherSlideManifestSnapshot() {
         guard liveClassroomConfiguration?.role == .teacher else { return }
         slideManifestRevision = nextLiveRevision(after: slideManifestRevision)
+        let accumulatedDeletedSlideIDs = SlideStore.loadClassSessionDeletedSlideIDs(
+            lessonURL: lessonURL,
+            classroomSessionCode: classroomSessionCode
+        )
         liveTeacherInkCoordinator.publishTeacherSlideManifestSnapshot(
             revision: slideManifestRevision,
             slides: store.slides.map(teacherSlideMetadata(for:)),
             activeSlideID: activeSlide?.id,
-            isFollowMeEnabled: isFollowMeEnabled
+            isFollowMeEnabled: isFollowMeEnabled,
+            deletedSlideIDs: accumulatedDeletedSlideIDs
         )
     }
 
@@ -934,7 +993,8 @@ public struct SlidesView: View {
         let previousActiveSlideID = activeSlide?.id
         let changed = store.mergeTeacherSlides(
             readySlides.map(SlideMetadata.init(teacherSlide:)),
-            deferredTeacherSlideIDs: deferredPlaceholderSlideIDs
+            deferredTeacherSlideIDs: deferredPlaceholderSlideIDs,
+            teacherDeletedSlideIDs: Set(snapshot.deletedSlideIDs)
         )
 
         isStudentFollowMeActive = snapshot.isFollowMeEnabled
@@ -1556,30 +1616,37 @@ public struct SlidesView: View {
         notifyLessonContentChanged()
     }
 
-    /// Static slide preview for the navigator filmstrip, cached by persisted
-    /// slide-file fingerprints so scrolling doesn't re-render every tile.
+    /// Slide preview for the navigator filmstrip, cached by persisted
+    /// slide-file fingerprints. On cache miss, returns a placeholder immediately
+    /// and fires a background render task so the tile redraws when ready.
     private func thumbnail(for slide: SlideMetadata) -> SlideNavigatorThumbnail {
         let drawingURL = canvasDrawingURL(for: slide)
+        let resolvedBackgroundURL: URL? = slide.background.map { store.backgroundURL(for: $0) }
         let key = SlideThumbnailRenderer.cacheKey(
             for: slide,
             drawingURL: drawingURL,
-            backgroundURL: store.backgroundURL(for:)
+            resolvedBackgroundURL: resolvedBackgroundURL
         )
         if let cached = thumbnailCache.thumbnails[key] {
             return cached
         }
-
-        let content = SlideThumbnailRenderer.content(
-            for: slide,
-            drawingURL: drawingURL,
-            backgroundURL: store.backgroundURL(for:)
-        )
-        let thumbnail = SlideNavigatorThumbnail(
-            image: content.image,
-            widgetKind: content.widgetKind
-        )
-        thumbnailCache.thumbnails[key] = thumbnail
-        return thumbnail
+        guard !thumbnailRenderQueue.activeKeys.contains(key) else {
+            return .placeholder
+        }
+        guard thumbnailRenderQueue.activeKeys.count < Self.thumbnailRenderConcurrencyLimit else {
+            return .placeholder
+        }
+        thumbnailRenderQueue.activeKeys.insert(key)
+        Task {
+            let result = await SlideThumbnailRenderer.renderAsync(
+                for: slide,
+                drawingURL: drawingURL,
+                resolvedBackgroundURL: resolvedBackgroundURL
+            )
+            thumbnailRenderQueue.activeKeys.remove(key)
+            thumbnailCache.thumbnails[key] = result
+        }
+        return .placeholder
     }
 
     private func scheduleViewportSave(_ state: PresentationViewportState, for slideID: UUID) {
@@ -1728,8 +1795,7 @@ public struct SlidesView: View {
         let context = graphicsContext.cgContext
         context.saveGState()
         context.scaleBy(x: renderScale, y: renderScale)
-        context.translateBy(x: -pageBounds.minX, y: pageBounds.height + pageBounds.minY)
-        context.scaleBy(x: 1, y: -1)
+        context.translateBy(x: -pageBounds.minX, y: -pageBounds.minY)
         page.draw(with: .mediaBox, to: context)
         context.restoreGState()
         NSGraphicsContext.restoreGraphicsState()
@@ -1778,12 +1844,21 @@ public struct SlidesView: View {
     }
 }
 
-/// Reference-type thumbnail cache: mutating its contents during a body render
-/// is fine because it never triggers a SwiftUI state change — it only avoids
-/// re-opening PDF documents for tiles that were already rendered once.
+/// Observable thumbnail cache: when async background renders complete and
+/// store a new thumbnail, SwiftUI rerenders only the filmstrip tiles that
+/// read that key — the rest of the UI is unaffected.
+@Observable
 @MainActor
 private final class SlideThumbnailCache {
     var thumbnails: [String: SlideNavigatorThumbnail] = [:]
+}
+
+/// Non-observable render queue: tracks which cache keys already have an
+/// in-flight render so we never double-schedule work. Not `@Observable`
+/// so storing keys here never triggers a SwiftUI body re-evaluation.
+@MainActor
+private final class SlideThumbnailRenderQueue {
+    var activeKeys: Set<String> = []
 }
 
 private extension SlideViewportState {

@@ -1,0 +1,2868 @@
+{
+  "schemaVersion": 1,
+  "widgetId": "trivial-pursuit-party",
+  "activity": "trivialPursuit",
+  "title": "Trivial Pursuit Party",
+  "description": "A multiplayer party trivia game for adults ages 57-70 featuring six nostalgic categories. First player to collect all six category wedges wins.",
+  "learningObjective": "Players answer nostalgic trivia questions across six categories and track category wedges during a live party game.",
+  "pedagogicalWorkflow": "classPlay",
+  "difficulty": "medium",
+  "categories": [
+    {
+      "id": "groovy-decades",
+      "name": "Groovy Decades",
+      "emoji": "🕺",
+      "color": "#D4A017",
+      "questions": [
+        {
+          "id": "groovy-01",
+          "prompt": "Which 1970 event is often credited with launching the modern environmental movement in the United States?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "The first Earth Day",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "The Clean Air Act signing",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "The opening of EPCOT",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "The Alaska Pipeline dedication",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "groovy-02",
+          "prompt": "What phrase did Walter Cronkite use to close many CBS Evening News broadcasts?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Good night, and good luck",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Stay classy, America",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "And that's the way it is",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "From all of us, good evening",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "groovy-03",
+          "prompt": "Which 1972 presidential trip dramatically reopened U.S. relations with China?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Jimmy Carter's visit to Shanghai",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Gerald Ford's visit to Hong Kong",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Henry Kissinger's public tour of Tibet",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Richard Nixon's visit to Beijing",
+              "isCorrect": true
+            }
+          ]
+        },
+        {
+          "id": "groovy-04",
+          "prompt": "What Ford car, introduced at the 1964 New York World's Fair, helped define the pony car era?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Thunderbird",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Mustang",
+              "isCorrect": true
+            },
+            {
+              "id": "c",
+              "label": "Maverick",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Gran Torino",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "groovy-05",
+          "prompt": "Which scandal forced Richard Nixon to resign the presidency in August 1974?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Teapot Dome",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Iran-Contra",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Watergate",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "Whitewater",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "groovy-06",
+          "prompt": "Which toy asked players to perform commands such as \"right hand red\"?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Twister",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "Operation",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Simon",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "KerPlunk",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "groovy-07",
+          "prompt": "What 1977 home video game system made interchangeable cartridges a household idea?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "ColecoVision",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Atari 2600",
+              "isCorrect": true
+            },
+            {
+              "id": "c",
+              "label": "Intellivision",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Magnavox Odyssey 2",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "groovy-08",
+          "prompt": "Which miniseries made Alex Haley's family story a major television event in 1977?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Rich Man, Poor Man",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Shogun",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "The Thorn Birds",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Roots",
+              "isCorrect": true
+            }
+          ]
+        },
+        {
+          "id": "groovy-09",
+          "prompt": "Which 1968 musical featured the song \"Aquarius/Let the Sunshine In\"?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Godspell",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Pippin",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Jesus Christ Superstar",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Hair",
+              "isCorrect": true
+            }
+          ]
+        },
+        {
+          "id": "groovy-10",
+          "prompt": "What handheld electronic memory game used four colored buttons and musical tones?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Merlin",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Simon",
+              "isCorrect": true
+            },
+            {
+              "id": "c",
+              "label": "Speak & Spell",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Lite-Brite",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "groovy-11",
+          "prompt": "Which 1981 cable channel began with footage of the first Space Shuttle launch and a flag-planting montage?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "MTV",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "CNN",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "ESPN",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Nickelodeon",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "groovy-12",
+          "prompt": "Which 1976 gift gave the United States a tall-ships parade for its 200th birthday?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Expo 76 in Philadelphia",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Liberty Train West",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Operation Sail in New York Harbor",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "The Freedom Bell tour",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "groovy-13",
+          "prompt": "Which department-store catalog was famous enough that many children circled Christmas wishes in it?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "JCPenney Big Book",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Sears Wish Book",
+              "isCorrect": true
+            },
+            {
+              "id": "c",
+              "label": "Montgomery Ward Red Book",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Macy's Parade Guide",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "groovy-14",
+          "prompt": "Which 1970s dance was boosted by Van McCoy's hit single of the same name?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "The Bump",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "The Swim",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "The Mashed Potato",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "The Hustle",
+              "isCorrect": true
+            }
+          ]
+        },
+        {
+          "id": "groovy-15",
+          "prompt": "Which U.S. president told Americans in 1977 that the energy crisis was the \"moral equivalent of war\"?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Gerald Ford",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Ronald Reagan",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Jimmy Carter",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "Lyndon Johnson",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "groovy-16",
+          "prompt": "What 1969 television special first brought Frosty to life in a silk hat?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Frosty the Snowman",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "The Year Without a Santa Claus",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Santa Claus Is Comin' to Town",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Rudolph's Shiny New Year",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "groovy-17",
+          "prompt": "Which 1973 event caused long gasoline lines after OPEC restricted oil exports?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "The oil embargo",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "The Three Mile Island accident",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "The Cuban missile crisis",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "The steel strike",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "groovy-18",
+          "prompt": "What 1980 eruption blanketed parts of Washington state with volcanic ash?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Mount Rainier",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Mount Shasta",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Mount St. Helens",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "Kilauea",
+              "isCorrect": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "blockbuster-silver-screen",
+      "name": "Blockbuster Silver Screen",
+      "emoji": "🎬",
+      "color": "#C0392B",
+      "questions": [
+        {
+          "id": "screen-01",
+          "prompt": "Which 1975 thriller made many moviegoers nervous about going back into the ocean?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "The Deep",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Jaws",
+              "isCorrect": true
+            },
+            {
+              "id": "c",
+              "label": "Orca",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "The Poseidon Adventure",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "screen-02",
+          "prompt": "In The Graduate, what one-word career advice does Benjamin receive at a party?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Computers",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Advertising",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Plastics",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "Insurance",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "screen-03",
+          "prompt": "Which 1976 film ends with Rocky Balboa calling out for Adrian?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Rocky",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "Raging Bull",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "The Champ",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "On the Waterfront",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "screen-04",
+          "prompt": "Who directed the 1977 film Annie Hall?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Mel Brooks",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Woody Allen",
+              "isCorrect": true
+            },
+            {
+              "id": "c",
+              "label": "Robert Altman",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Peter Bogdanovich",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "screen-05",
+          "prompt": "Which 1982 science-fiction film features a stranded alien trying to \"phone home\"?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Close Encounters of the Third Kind",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Starman",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Cocoon",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "E.T. the Extra-Terrestrial",
+              "isCorrect": true
+            }
+          ]
+        },
+        {
+          "id": "screen-06",
+          "prompt": "What 1973 film made \"The Sting\" and Scott Joplin's \"The Entertainer\" newly fashionable?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Paper Moon",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "The French Connection",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Chinatown",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "The Sting",
+              "isCorrect": true
+            }
+          ]
+        },
+        {
+          "id": "screen-07",
+          "prompt": "Which film introduced the line \"May the Force be with you\" to mainstream audiences?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Logan's Run",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Star Wars",
+              "isCorrect": true
+            },
+            {
+              "id": "c",
+              "label": "Battlestar Galactica",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "The Black Hole",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "screen-08",
+          "prompt": "Which 1981 adventure introduced Indiana Jones on the big screen?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Raiders of the Lost Ark",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "Romancing the Stone",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "The Jewel of the Nile",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "King Solomon's Mines",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "screen-09",
+          "prompt": "Who played Michael Corleone in The Godfather films?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Robert De Niro",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "James Caan",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Al Pacino",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "Dustin Hoffman",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "screen-10",
+          "prompt": "Which 1978 musical starred John Travolta and Olivia Newton-John?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Saturday Night Fever",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Grease",
+              "isCorrect": true
+            },
+            {
+              "id": "c",
+              "label": "Xanadu",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Urban Cowboy",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "screen-11",
+          "prompt": "Which 1985 film sent Marty McFly from a DeLorean back to 1955?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Time After Time",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "The Philadelphia Experiment",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Peggy Sue Got Married",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Back to the Future",
+              "isCorrect": true
+            }
+          ]
+        },
+        {
+          "id": "screen-12",
+          "prompt": "Which disaster film set much of its action aboard an overturned ocean liner?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Airport 1975",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "The Towering Inferno",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "The Poseidon Adventure",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "Earthquake",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "screen-13",
+          "prompt": "Which 1980 comedy put Bill Murray, Chevy Chase, and Rodney Dangerfield on a golf course?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Caddyshack",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "Stripes",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Fletch",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "The Jerk",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "screen-14",
+          "prompt": "Which 1971 musical won Best Picture and featured Gene Hackman as Popeye Doyle in another winning role that year?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "The French Connection",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "Cabaret",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Fiddler on the Roof",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "A Clockwork Orange",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "screen-15",
+          "prompt": "Which 1984 comedy asked, \"Who you gonna call?\"",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Beverly Hills Cop",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Police Academy",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Ghostbusters",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "Splash",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "screen-16",
+          "prompt": "Which film features Robert Redford and Paul Newman as Depression-era con artists?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "The Sting",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "Butch Cassidy and the Sundance Kid",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "The Great Gatsby",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "All the President's Men",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "screen-17",
+          "prompt": "Which 1979 courtroom drama stars Dustin Hoffman and Meryl Streep as divorcing parents?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Ordinary People",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Terms of Endearment",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Kramer vs. Kramer",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "The Goodbye Girl",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "screen-18",
+          "prompt": "Which 1983 holiday comedy centers on Ralphie Parker's wish for a Red Ryder BB gun?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "National Lampoon's Christmas Vacation",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Scrooged",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "The Santa Clause",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "A Christmas Story",
+              "isCorrect": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "global-landmarks-travel",
+      "name": "Global Landmarks & Jet-Set Travel",
+      "emoji": "✈️",
+      "color": "#2980B9",
+      "questions": [
+        {
+          "id": "travel-01",
+          "prompt": "Which New York airport was renamed in 1963 after the assassinated president?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "LaGuardia Airport",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "John F. Kennedy International Airport",
+              "isCorrect": true
+            },
+            {
+              "id": "c",
+              "label": "Newark Liberty International Airport",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Dulles International Airport",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "travel-02",
+          "prompt": "Which supersonic passenger jet began regular transatlantic service in 1976?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Boeing 747SP",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Tupolev Tu-144",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Lockheed L-1011",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Concorde",
+              "isCorrect": true
+            }
+          ]
+        },
+        {
+          "id": "travel-03",
+          "prompt": "What Paris museum is housed in a former royal palace and is home to the Mona Lisa?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Musee d'Orsay",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Centre Pompidou",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Grand Palais",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "The Louvre",
+              "isCorrect": true
+            }
+          ]
+        },
+        {
+          "id": "travel-04",
+          "prompt": "Which San Francisco landmark was painted International Orange to improve visibility in fog?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Bay Bridge",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Golden Gate Bridge",
+              "isCorrect": true
+            },
+            {
+              "id": "c",
+              "label": "Coit Tower",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Transamerica Pyramid",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "travel-05",
+          "prompt": "Which Canadian city hosted the 1976 Summer Olympics?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Montreal",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "Toronto",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Vancouver",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Calgary",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "travel-06",
+          "prompt": "What Washington, D.C. memorial is a black granite wall listing names from the Vietnam War?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Korean War Veterans Memorial",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "World War II Memorial",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Vietnam Veterans Memorial",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "Iwo Jima Memorial",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "travel-07",
+          "prompt": "Which island prison in San Francisco Bay became a National Park Service site and popular tour stop?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Rikers Island",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Alcatraz",
+              "isCorrect": true
+            },
+            {
+              "id": "c",
+              "label": "Devils Island",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Ellis Island",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "travel-08",
+          "prompt": "Which London clock tower is commonly called Big Ben, though Big Ben is technically the bell?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Victoria Tower",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "St. Stephen's Tower",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Nelson's Column",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Elizabeth Tower",
+              "isCorrect": true
+            }
+          ]
+        },
+        {
+          "id": "travel-09",
+          "prompt": "Which airline's Pan Am logo was once a symbol of glamorous international air travel?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "TWA",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Eastern Air Lines",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Pan American World Airways",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "Braniff International",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "travel-10",
+          "prompt": "Which famous road is associated with \"getting your kicks\" in a classic American travel song?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Route 66",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "Pacific Coast Highway",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Blue Ridge Parkway",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Lincoln Highway",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "travel-11",
+          "prompt": "What Egyptian monument has the body of a lion and the head of a human?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "The Great Sphinx of Giza",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "The Colossi of Memnon",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Abu Simbel",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "The Step Pyramid",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "travel-12",
+          "prompt": "Which Italian city is famous for canals, gondolas, and St. Mark's Square?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Florence",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Naples",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Venice",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "Milan",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "travel-13",
+          "prompt": "Which volcano destroyed Pompeii in A.D. 79?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Mount Vesuvius",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "Mount Etna",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Stromboli",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Mount Olympus",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "travel-14",
+          "prompt": "Which 1970 World's Fair city introduced many visitors to Japan's modern architecture and technology?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Tokyo",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Kyoto",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Osaka",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "Sapporo",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "travel-15",
+          "prompt": "Which Las Vegas hotel-casino was famous for a neon cowboy named Vegas Vic nearby on Fremont Street?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Caesars Palace",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "The Mirage",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "The Sands",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "The Pioneer Club",
+              "isCorrect": true
+            }
+          ]
+        },
+        {
+          "id": "travel-16",
+          "prompt": "Which U.S. national park is known for Old Faithful geyser?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Yosemite",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Yellowstone",
+              "isCorrect": true
+            },
+            {
+              "id": "c",
+              "label": "Grand Canyon",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Zion",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "travel-17",
+          "prompt": "Which city is home to the Space Needle, built for the 1962 World's Fair?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Portland",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "San Diego",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Seattle",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "Denver",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "travel-18",
+          "prompt": "Which Greek hilltop complex includes the Parthenon?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "The Acropolis",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "The Agora",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Delphi",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Knossos",
+              "isCorrect": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "household-classics-commercials",
+      "name": "Household Classics & Commercials",
+      "emoji": "📺",
+      "color": "#8E44AD",
+      "questions": [
+        {
+          "id": "home-01",
+          "prompt": "Which coffee brand promised it was \"good to the last drop\"?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Folgers",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Maxwell House",
+              "isCorrect": true
+            },
+            {
+              "id": "c",
+              "label": "Chock full o'Nuts",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Sanka",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "home-02",
+          "prompt": "Which cereal mascot repeatedly said, \"They're gr-r-reat!\"?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Tony the Tiger",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "Cap'n Crunch",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Toucan Sam",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Sugar Bear",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "home-03",
+          "prompt": "Which detergent used the long-running line \"Ring around the collar\"?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Tide",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "All",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Wisk",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "Cheer",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "home-04",
+          "prompt": "What kitchen wrap was advertised with \"It's a snap!\" and a sliding cutter in later versions?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Glad Wrap",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Saran Wrap",
+              "isCorrect": true
+            },
+            {
+              "id": "c",
+              "label": "Reynolds Wrap",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Cut-Rite Wax Paper",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "home-05",
+          "prompt": "Which cleaner's mascot was a bald, muscular man in a white shirt?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Ajax",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Comet",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Pine-Sol",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Mr. Clean",
+              "isCorrect": true
+            }
+          ]
+        },
+        {
+          "id": "home-06",
+          "prompt": "Which margarine famously warned, \"It's not nice to fool Mother Nature\"?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Parkay",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Blue Bonnet",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Chiffon",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "Imperial",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "home-07",
+          "prompt": "Which candy asked, \"How many licks does it take to get to the center?\"",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Tootsie Pop",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "Charms Blow Pop",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Dum Dums",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Sugar Daddy",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "home-08",
+          "prompt": "Which paper towel brand used Rosie the waitress to say it was the \"quicker picker-upper\"?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Bounty",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "Viva",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Scott",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Sparkle",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "home-09",
+          "prompt": "Which 1970s commercial had a crowd singing, \"I'd like to buy the world a Coke\"?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Pepsi",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Dr Pepper",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Coca-Cola",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "RC Cola",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "home-10",
+          "prompt": "Which antacid commercial asked viewers to spell relief?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Rolaids",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "Tums",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Alka-Seltzer",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Maalox",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "home-11",
+          "prompt": "Which product's ads featured Josephine the plumber?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Ajax cleanser",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Palmolive dish soap",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Comet cleanser",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "Liquid-Plumr",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "home-12",
+          "prompt": "Which fast-food chain asked, \"Where's the beef?\" in a 1984 campaign?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "McDonald's",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Burger King",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Hardee's",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Wendy's",
+              "isCorrect": true
+            }
+          ]
+        },
+        {
+          "id": "home-13",
+          "prompt": "Which brand used the tagline \"When it absolutely, positively has to be there overnight\"?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "UPS",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "FedEx",
+              "isCorrect": true
+            },
+            {
+              "id": "c",
+              "label": "DHL",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "U.S. Postal Service",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "home-14",
+          "prompt": "Which toy oven let children bake tiny cakes with a light bulb?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Creepy Crawlers",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Betty Crocker Junior Oven",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Easy-Bake Oven",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "Suzy Homemaker Stove",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "home-15",
+          "prompt": "Which lunchbox drink mix used a smiling pitcher mascot who burst through walls?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Kool-Aid",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "Tang",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Hawaiian Punch",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Hi-C",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "home-16",
+          "prompt": "Which television family lived at 148 Bonnie Meadow Road in New Rochelle?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "The Cleavers on Leave It to Beaver",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "The Petries on The Dick Van Dyke Show",
+              "isCorrect": true
+            },
+            {
+              "id": "c",
+              "label": "The Bradys on The Brady Bunch",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "The Ricardos on I Love Lucy",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "home-17",
+          "prompt": "Which appliance became the standard way to record shows before DVRs?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "LaserDisc player",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Betamax camera",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Cable converter box",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "VCR",
+              "isCorrect": true
+            }
+          ]
+        },
+        {
+          "id": "home-18",
+          "prompt": "Which household brand had commercials showing towels comparing absorbency against spills?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Brawny",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Scott",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Northern",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Bounty",
+              "isCorrect": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "legends-rock-pop-soul",
+      "name": "Legends of Rock, Pop, and Soul",
+      "emoji": "🎸",
+      "color": "#27AE60",
+      "questions": [
+        {
+          "id": "music-01",
+          "prompt": "Which Motown group had hits including \"My Girl\" and \"Ain't Too Proud to Beg\"?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "The Four Tops",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "The Temptations",
+              "isCorrect": true
+            },
+            {
+              "id": "c",
+              "label": "The Miracles",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "The Spinners",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "music-02",
+          "prompt": "Which singer was known as the Queen of Soul?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Diana Ross",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Gladys Knight",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Tina Turner",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Aretha Franklin",
+              "isCorrect": true
+            }
+          ]
+        },
+        {
+          "id": "music-03",
+          "prompt": "Which band released \"Hotel California\" in 1977?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Fleetwood Mac",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "America",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Eagles",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "The Doobie Brothers",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "music-04",
+          "prompt": "Which album by Fleetwood Mac included \"Go Your Own Way\" and \"Dreams\"?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Rumours",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "Tusk",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Fleetwood Mac",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Mirage",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "music-05",
+          "prompt": "Which 1969 Beatles album cover shows the band crossing a London street?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Abbey Road",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "Let It Be",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Revolver",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Sgt. Pepper's Lonely Hearts Club Band",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "music-06",
+          "prompt": "Which singer-songwriter released the landmark album Tapestry in 1971?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Joni Mitchell",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Carly Simon",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Carole King",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "Linda Ronstadt",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "music-07",
+          "prompt": "Which soul singer was backed by the Famous Flames early in his career?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "James Brown",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "Otis Redding",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Sam Cooke",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Wilson Pickett",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "music-08",
+          "prompt": "Which artist recorded \"Superstition\" and \"Sir Duke\"?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Marvin Gaye",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Al Green",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Stevie Wonder",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "Curtis Mayfield",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "music-09",
+          "prompt": "Which band's rock opera Tommy featured the \"Pinball Wizard\"?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Pink Floyd",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "The Kinks",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Genesis",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "The Who",
+              "isCorrect": true
+            }
+          ]
+        },
+        {
+          "id": "music-10",
+          "prompt": "Which singer had a 1983 hit with \"What's Love Got to Do with It\"?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Donna Summer",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Tina Turner",
+              "isCorrect": true
+            },
+            {
+              "id": "c",
+              "label": "Dionne Warwick",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Chaka Khan",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "music-11",
+          "prompt": "Which duo sang \"Bridge over Troubled Water\"?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Hall & Oates",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "The Righteous Brothers",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Simon & Garfunkel",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "Seals and Crofts",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "music-12",
+          "prompt": "Which singer was nicknamed \"The Man in Black\"?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Johnny Cash",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "Roy Orbison",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Waylon Jennings",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Merle Haggard",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "music-13",
+          "prompt": "Which 1978 Billy Joel album includes \"My Life\" and \"Big Shot\"?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "The Stranger",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "52nd Street",
+              "isCorrect": true
+            },
+            {
+              "id": "c",
+              "label": "Glass Houses",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Piano Man",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "music-14",
+          "prompt": "Which band made \"Dancing Queen\" a worldwide disco-era anthem?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Bee Gees",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Boney M.",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Chic",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "ABBA",
+              "isCorrect": true
+            }
+          ]
+        },
+        {
+          "id": "music-15",
+          "prompt": "Which group featured Maurice White and Philip Bailey and had hits such as \"September\"?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "War",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Kool & the Gang",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "The Ohio Players",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Earth, Wind & Fire",
+              "isCorrect": true
+            }
+          ]
+        },
+        {
+          "id": "music-16",
+          "prompt": "Which 1982 Michael Jackson album became one of the best-selling albums ever?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Bad",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Thriller",
+              "isCorrect": true
+            },
+            {
+              "id": "c",
+              "label": "Off the Wall",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Dangerous",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "music-17",
+          "prompt": "Which singer recorded \"Blue Bayou\" and helped make country-rock mainstream?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Linda Ronstadt",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "Emmylou Harris",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Dolly Parton",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Bonnie Raitt",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "music-18",
+          "prompt": "Which band paired Lindsey Buckingham and Stevie Nicks with Christine McVie, John McVie, and Mick Fleetwood?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Heart",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Jefferson Starship",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Fleetwood Mac",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "The Pretenders",
+              "isCorrect": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "kitchen-comfort-food",
+      "name": "Kitchen & Comfort Food",
+      "emoji": "🍳",
+      "color": "#E67E22",
+      "questions": [
+        {
+          "id": "kitchen-01",
+          "prompt": "Which casserole staple is traditionally made with canned green beans, cream of mushroom soup, and fried onions?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Green bean casserole",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "Tuna noodle casserole",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Chicken divan",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Scalloped potatoes",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "kitchen-02",
+          "prompt": "Which powdered drink, developed for the space program era, became closely associated with astronauts?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Tang",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "Ovaltine",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Nesquik",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Kool-Aid",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "kitchen-03",
+          "prompt": "Which dessert combines a graham cracker crust, chocolate, and marshmallow topping?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Boston cream pie",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Banoffee pie",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "S'mores pie",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "Chess pie",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "kitchen-04",
+          "prompt": "What molded gelatin dish often suspended fruit, vegetables, or cottage cheese on mid-century tables?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Jell-O salad",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "Ambrosia",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Waldorf salad",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Watergate salad",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "kitchen-05",
+          "prompt": "Which canned pasta brand used the jingle \"Uh-oh, SpaghettiOs\"?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Chef Boyardee Ravioli",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Franco-American Macaroni",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "SpaghettiOs",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "Beefaroni",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "kitchen-06",
+          "prompt": "Which party appetizer wraps small sausages in pastry dough?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Rumaki",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Devils on horseback",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Swedish meatballs",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Pigs in a blanket",
+              "isCorrect": true
+            }
+          ]
+        },
+        {
+          "id": "kitchen-07",
+          "prompt": "Which boxed side dish marketed itself as \"the San Francisco treat\"?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Stove Top stuffing",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Rice-A-Roni",
+              "isCorrect": true
+            },
+            {
+              "id": "c",
+              "label": "Hamburger Helper",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Near East pilaf",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "kitchen-08",
+          "prompt": "Which salad, named after a New York hotel, mixes apples, celery, walnuts, and mayonnaise?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Caesar salad",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Cobb salad",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Waldorf salad",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "Chef salad",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "kitchen-09",
+          "prompt": "Which dessert is made by layering coffee-soaked ladyfingers with mascarpone cream?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Tiramisu",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "Tres leches cake",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Black Forest cake",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Charlotte russe",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "kitchen-10",
+          "prompt": "Which 1970s-era convenience meal added meat to a boxed pasta or rice mix?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Shake'n Bake",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Hamburger Helper",
+              "isCorrect": true
+            },
+            {
+              "id": "c",
+              "label": "Manwich",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Noodle Roni",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "kitchen-11",
+          "prompt": "Which Southern pie is usually made with corn syrup, eggs, butter, sugar, and nuts?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Chess pie",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Shoofly pie",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Key lime pie",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Pecan pie",
+              "isCorrect": true
+            }
+          ]
+        },
+        {
+          "id": "kitchen-12",
+          "prompt": "Which frozen dessert brand became famous for ice cream bars on a stick dipped in chocolate?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Klondike Bar",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Eskimo Pie",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Fudgsicle",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Dove Bar",
+              "isCorrect": true
+            }
+          ]
+        },
+        {
+          "id": "kitchen-13",
+          "prompt": "Which canned meat product became a pantry staple and inspired a Monty Python sketch?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Deviled ham",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Spam",
+              "isCorrect": true
+            },
+            {
+              "id": "c",
+              "label": "Corned beef hash",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Vienna sausages",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "kitchen-14",
+          "prompt": "Which appliance made countertop slow cooking a set-it-and-forget-it habit?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Crock-Pot",
+              "isCorrect": true
+            },
+            {
+              "id": "b",
+              "label": "Pressure cooker",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Electric skillet",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Toaster oven",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "kitchen-15",
+          "prompt": "Which Watergate-era dessert salad commonly includes pistachio pudding mix, whipped topping, pineapple, and marshmallows?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Ambrosia",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Seafoam salad",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Watergate salad",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "Seven-layer salad",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "kitchen-16",
+          "prompt": "Which packaged coating mix used the commercial line \"and I helped\"?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Hamburger Helper",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Shake 'n Bake",
+              "isCorrect": true
+            },
+            {
+              "id": "c",
+              "label": "Rice-A-Roni",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Stove Top stuffing",
+              "isCorrect": false
+            }
+          ]
+        },
+        {
+          "id": "kitchen-17",
+          "prompt": "Which coffee cake topping is made from butter, sugar, flour, and sometimes cinnamon?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Ganache",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Meringue",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Praline",
+              "isCorrect": false
+            },
+            {
+              "id": "d",
+              "label": "Streusel",
+              "isCorrect": true
+            }
+          ]
+        },
+        {
+          "id": "kitchen-18",
+          "prompt": "Which sandwich is traditionally grilled with corned beef, Swiss cheese, sauerkraut, and Russian or Thousand Island dressing?",
+          "choices": [
+            {
+              "id": "a",
+              "label": "Monte Cristo",
+              "isCorrect": false
+            },
+            {
+              "id": "b",
+              "label": "Muffuletta",
+              "isCorrect": false
+            },
+            {
+              "id": "c",
+              "label": "Reuben",
+              "isCorrect": true
+            },
+            {
+              "id": "d",
+              "label": "Patty melt",
+              "isCorrect": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

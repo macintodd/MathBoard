@@ -12,6 +12,33 @@ struct WidgetEngineTests {
         #expect(sidecarURL.deletingLastPathComponent() == drawingURL.deletingLastPathComponent())
     }
 
+    @Test func widgetMediaAssetDirectoryUsesDrawingBaseName() throws {
+        let drawingURL = URL(fileURLWithPath: "/tmp/slide-123.drawing")
+        let mediaURL = WidgetMediaAssetStore.assetDirectoryURL(forDrawingURL: drawingURL)
+
+        #expect(mediaURL.lastPathComponent == "slide-123.widgetmedia")
+        #expect(mediaURL.deletingLastPathComponent() == drawingURL.deletingLastPathComponent())
+    }
+
+    @Test func widgetMediaHTMLUsesRelativeSources() throws {
+        let gifHTML = WidgetMediaAssetStore.html(for: WidgetMediaAsset(
+            fileName: "sample.gif",
+            displayName: "Sample GIF",
+            kind: .gif
+        ))
+        let movieHTML = WidgetMediaAssetStore.html(for: WidgetMediaAsset(
+            fileName: "lesson.mov",
+            displayName: "Lesson Movie",
+            kind: .movie
+        ))
+
+        #expect(gifHTML.contains(#"src="sample.gif""#))
+        #expect(gifHTML.contains("<img"))
+        #expect(movieHTML.contains(#"src="lesson.mov""#))
+        #expect(movieHTML.contains("<video controls playsinline"))
+        #expect(movieHTML.contains(#"type="video/quicktime""#))
+    }
+
     @Test func widgetRuntimeStateRoundTripsThroughSidecarJSON() throws {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("WidgetEngineTests-\(UUID().uuidString)", isDirectory: true)
@@ -118,6 +145,30 @@ struct WidgetEngineTests {
 
         #expect(widget.activityScoreRecord == nil)
         #expect(WidgetActivityScoreSheet(widgets: [widget]).records.isEmpty)
+    }
+
+    @Test func webAppletConceptualDemosLoadBundledHTMLAndStayOutOfScoreSheets() throws {
+        let cases: [(BuiltInInteractiveKind, WebAppletResource, String)] = [
+            (.completingTheSquareWebApplet, .completingTheSquareLab, "Completing the Square Lab"),
+            (.andOrAttributeFilterWebApplet, .andOrAttributeFilter, "AND / OR Attribute Filter"),
+            (.andOrInequalityNumberLineWebApplet, .andOrInequalityNumberLine, "AND / OR Inequality Number Lines")
+        ]
+
+        for (kind, expectedResource, title) in cases {
+            let widget = WidgetObject(
+                name: title,
+                codeString: kind.widgetCodeString,
+                frame: CGRect(origin: .zero, size: kind.defaultSize)
+            )
+            let resource = try #require(WebAppletResource.resource(for: kind))
+            let html = resource.htmlSource()
+
+            #expect(resource == expectedResource)
+            #expect(html.contains(title))
+            #expect(html.contains("mathBoardAppletSetState"))
+            #expect(widget.activityScoreRecord == nil)
+            #expect(WidgetActivityScoreSheet(widgets: [widget]).records.isEmpty)
+        }
     }
 
     @Test func conceptualJSONActivitiesStayOutOfScoreSheets() throws {

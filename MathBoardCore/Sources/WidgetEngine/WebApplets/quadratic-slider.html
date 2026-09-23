@@ -1,0 +1,319 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f7f9fc;
+      color: #1f2937;
+    }
+
+    body {
+      margin: 0;
+      height: 100vh;
+      overflow: hidden;
+      background: #f7f9fc;
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(280px, 1fr) 260px;
+      gap: 18px;
+      height: 100vh;
+      padding: 18px;
+      box-sizing: border-box;
+    }
+
+    section {
+      min-width: 0;
+      border: 1px solid #d8dee9;
+      border-radius: 18px;
+      background: #ffffff;
+      box-shadow: 0 14px 30px rgba(31, 41, 55, 0.10);
+    }
+
+    .graph-panel {
+      position: relative;
+      overflow: hidden;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .equation {
+      position: absolute;
+      left: 18px;
+      top: 18px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid #e5e7eb;
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .controls {
+      display: flex;
+      flex-direction: column;
+      padding: 18px;
+      gap: 18px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.1;
+    }
+
+    p {
+      margin: 4px 0 0;
+      color: #64748b;
+      line-height: 1.35;
+      font-size: 14px;
+    }
+
+    label {
+      display: grid;
+      gap: 8px;
+      font-weight: 750;
+      font-size: 15px;
+    }
+
+    .value {
+      color: #b9482b;
+      font-variant-numeric: tabular-nums;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: #c45032;
+    }
+
+    button {
+      border: 0;
+      border-radius: 14px;
+      padding: 12px 14px;
+      background: #2f6f73;
+      color: white;
+      font: inherit;
+      font-weight: 800;
+    }
+
+    @media (max-width: 720px) {
+      main {
+        grid-template-columns: 1fr;
+        grid-template-rows: 1fr auto;
+        padding: 12px;
+        gap: 12px;
+      }
+
+      .controls {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+        padding: 12px;
+      }
+
+      .controls header {
+        grid-column: 1 / -1;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="graph-panel">
+      <canvas id="graph"></canvas>
+      <div class="equation" id="equation"></div>
+    </section>
+
+    <section class="controls">
+      <header>
+        <h1>Quadratic Web Applet</h1>
+        <p>Move the sliders. The second display follows this state.</p>
+      </header>
+
+      <label>
+        a: <span class="value" id="aValue"></span>
+        <input id="a" type="range" min="-3" max="3" value="1" step="0.25">
+      </label>
+
+      <label>
+        h: <span class="value" id="hValue"></span>
+        <input id="h" type="range" min="-6" max="6" value="0" step="0.5">
+      </label>
+
+      <label>
+        k: <span class="value" id="kValue"></span>
+        <input id="k" type="range" min="-6" max="6" value="0" step="0.5">
+      </label>
+
+      <button id="reset" type="button">Reset</button>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("graph");
+    const context = canvas.getContext("2d");
+    const inputs = {
+      a: document.getElementById("a"),
+      h: document.getElementById("h"),
+      k: document.getElementById("k")
+    };
+    const labels = {
+      a: document.getElementById("aValue"),
+      h: document.getElementById("hValue"),
+      k: document.getElementById("kValue")
+    };
+    const equation = document.getElementById("equation");
+    const reset = document.getElementById("reset");
+
+    let applyingState = false;
+
+    function currentState() {
+      return {
+        a: Number(inputs.a.value),
+        h: Number(inputs.h.value),
+        k: Number(inputs.k.value)
+      };
+    }
+
+    function setState(state) {
+      applyingState = true;
+      inputs.a.value = Number.isFinite(Number(state.a)) ? Number(state.a) : 1;
+      inputs.h.value = Number.isFinite(Number(state.h)) ? Number(state.h) : 0;
+      inputs.k.value = Number.isFinite(Number(state.k)) ? Number(state.k) : 0;
+      applyingState = false;
+      render();
+    }
+
+    window.mathBoardAppletSetState = setState;
+
+    function publishState() {
+      if (!applyingState && window.MathBoardApplet) {
+        window.MathBoardApplet.publishState(currentState());
+      }
+    }
+
+    function resizeCanvas() {
+      const bounds = canvas.getBoundingClientRect();
+      const scale = window.devicePixelRatio || 1;
+      const width = Math.max(1, Math.floor(bounds.width * scale));
+      const height = Math.max(1, Math.floor(bounds.height * scale));
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+      context.setTransform(scale, 0, 0, scale, 0, 0);
+      render();
+    }
+
+    function pointToPixel(x, y, width, height) {
+      const xMin = -10;
+      const xMax = 10;
+      const yMin = -10;
+      const yMax = 10;
+      return {
+        x: (x - xMin) / (xMax - xMin) * width,
+        y: height - (y - yMin) / (yMax - yMin) * height
+      };
+    }
+
+    function drawGrid(width, height) {
+      context.clearRect(0, 0, width, height);
+      context.fillStyle = "#fbfcff";
+      context.fillRect(0, 0, width, height);
+
+      context.lineWidth = 1;
+      context.strokeStyle = "#e2e8f0";
+      for (let n = -10; n <= 10; n++) {
+        const vertical = pointToPixel(n, 0, width, height).x;
+        const horizontal = pointToPixel(0, n, width, height).y;
+        context.beginPath();
+        context.moveTo(vertical, 0);
+        context.lineTo(vertical, height);
+        context.stroke();
+        context.beginPath();
+        context.moveTo(0, horizontal);
+        context.lineTo(width, horizontal);
+        context.stroke();
+      }
+
+      const origin = pointToPixel(0, 0, width, height);
+      context.lineWidth = 2;
+      context.strokeStyle = "#1f2937";
+      context.beginPath();
+      context.moveTo(origin.x, 0);
+      context.lineTo(origin.x, height);
+      context.stroke();
+      context.beginPath();
+      context.moveTo(0, origin.y);
+      context.lineTo(width, origin.y);
+      context.stroke();
+    }
+
+    function render() {
+      const bounds = canvas.getBoundingClientRect();
+      const width = bounds.width;
+      const height = bounds.height;
+      const state = currentState();
+      drawGrid(width, height);
+
+      context.lineWidth = 4;
+      context.strokeStyle = "#c45032";
+      context.beginPath();
+      let didStart = false;
+      for (let i = 0; i <= 360; i++) {
+        const x = -10 + (20 * i / 360);
+        const y = state.a * Math.pow(x - state.h, 2) + state.k;
+        if (y < -12 || y > 12) {
+          didStart = false;
+          continue;
+        }
+        const point = pointToPixel(x, y, width, height);
+        if (!didStart) {
+          context.moveTo(point.x, point.y);
+          didStart = true;
+        } else {
+          context.lineTo(point.x, point.y);
+        }
+      }
+      context.stroke();
+
+      const vertex = pointToPixel(state.h, state.k, width, height);
+      context.fillStyle = "#2f6f73";
+      context.beginPath();
+      context.arc(vertex.x, vertex.y, 7, 0, Math.PI * 2);
+      context.fill();
+
+      labels.a.textContent = state.a.toFixed(2).replace(/\\.00$/, "");
+      labels.h.textContent = state.h.toFixed(1).replace(/\\.0$/, "");
+      labels.k.textContent = state.k.toFixed(1).replace(/\\.0$/, "");
+      equation.textContent = `y = ${state.a}(x - ${state.h})² + ${state.k}`;
+    }
+
+    for (const input of Object.values(inputs)) {
+      input.addEventListener("input", () => {
+        render();
+        publishState();
+      });
+    }
+
+    reset.addEventListener("click", () => {
+      setState({ a: 1, h: 0, k: 0 });
+      publishState();
+    });
+
+    window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
+    publishState();
+  </script>
+</body>
+</html>

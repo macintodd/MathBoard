@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "widgetId": "groovy-decades-01",
+  "activity": "multipleChoice",
+  "title": "Groovy Decades Trivia",
+  "description": "Test your knowledge of 1960s and 1970s pop culture.",
+  "learningObjective": "Recall iconic milestones from the 60s and 70s.",
+  "difficulty": "medium",
+  "rules": {
+    "scoreMode": "correctOutOfTotal",
+    "advanceMode": "automaticOnCorrect",
+    "allowRetry": true,
+    "maxRetries": 1,
+    "shuffleQuestions": false,
+    "shuffleChoices": true,
+    "calculatorAllowed": false
+  },
+  "questions": [
+    {
+      "id": "groovy-01",
+      "prompt": "What iconic 1969 music festival famously took place on a dairy farm in Bethel, New York?",
+      "choices": ["Woodstock", "Monterey Pop", "Altamont", "Isle of Wight"],
+      "correctAnswerIndex": 0,
+      "explanation": "Woodstock drew an estimated 400,000 people in August 1969."
+    },
+    {
+      "id": "groovy-02",
+      "prompt": "Which television show featured the catchphrase 'Live long and prosper'?",
+      "choices": ["The Twilight Zone", "Lost in Space", "Star Trek", "The Outer Limits"],
+      "correctAnswerIndex": 2,
+      "explanation": "Star Trek premiered in 1966, introducing Mr. Spock's famous Vulcan salute."
+    },
+    {
+      "id": "groovy-03",
+      "prompt": "What was the best-selling video game console of the 1970s, released by Atari in 1977?",
+      "choices": ["Intellivision", "Atari 2600", "ColecoVision", "Odyssey"],
+      "correctAnswerIndex": 1,
+      "explanation": "Originally called the Atari Video Computer System (VCS), it popularized interchangeable cartridges."
+    },
+    {
+      "id": "groovy-04",
+      "prompt": "Which fashion item became a massive worldwide craze in the 1960s, popularized by designer Mary Quant?",
+      "choices": ["Flared trousers", "The miniskirt", "Parachute pants", "Tie-dye shirts"],
+      "correctAnswerIndex": 1,
+      "explanation": "Mary Quant is credited with inventing and popularizing the 1960s miniskirt."
+    },
+    {
+      "id": "groovy-05",
+      "prompt": "Who became the first man to walk on the Moon during the Apollo 11 mission in July 1969?",
+      "choices": ["Buzz Aldrin", "John Glenn", "Neil Armstrong", "Michael Collins"],
+      "correctAnswerIndex": 2,
+      "explanation": "Neil Armstrong famously declared, 'That's one small step for man, one giant leap for mankind.'"
+    },
+    {
+      "id": "groovy-06",
+      "prompt": "What colorful plastic toy created by Richard James in the 1940s became a massive 1960s and 70s household staple that could 'walk down stairs'?",
+      "choices": ["Slinky", "Etch A Sketch", "Play-Doh", "Frisbee"],
+      "correctAnswerIndex": 0,
+      "explanation": "The Slinky sold millions of units throughout the mid-century decades."
+    },
+    {
+      "id": "groovy-07",
+      "prompt": "Which animated sitcom, premiering in 1960, was the first prime-time cartoon set in the Stone Age?",
+      "choices": ["The Jetsons", "The Flintstones", "Top Cat", "Scooby-Doo"],
+      "correctAnswerIndex": 1,
+      "explanation": "The Flintstones aired on ABC from 1960 to 1966."
+    },
+    {
+      "id": "groovy-08",
+      "prompt": "What catchy 1970 disco dance craze was popularized by the movie 'Saturday Night Fever'?",
+      "choices": ["The Twist", "The Hustle", "The Macarena", "The Funky Chicken"],
+      "correctAnswerIndex": 1,
+      "explanation": "The Hustle became a staple of late-70s dance floors alongside line dancing."
+    },
+    {
+      "id": "groovy-09",
+      "prompt": "Which political scandal led to the resignation of U.S. President Richard Nixon in 1974?",
+      "choices": ["Teapot Dome", "Watergate", "Iran-Contra", "Whitewater"],
+      "correctAnswerIndex": 1,
+      "explanation": "The Watergate break-in and subsequent cover-up forced Nixon's historic resignation."
+    },
+    {
+      "id": "groovy-10",
+      "prompt": "What portable music player, introduced by Sony in 1979, revolutionized how people listened to music on the go?",
+      "choices": ["Boombox", "The Walkman", "Discman", "Transistor radio"],
+      "correctAnswerIndex": 1,
+      "explanation": "The Sony Walkman allowed individuals to listen to cassette tapes privately with lightweight headphones."
+    },
+    {
+      "id": "groovy-11",
+      "prompt": "Which futuristic animated family cartoon served as a counterpart to The Flintstones, living in the year 2062?",
+      "choices": ["The Jetsons", "Jonny Quest", "Space Ghost", "The Herculoids"],
+      "correctAnswerIndex": 0,
+      "explanation": "The Jetsons featured flying cars, robotic maids, and futuristic push-button living."
+    },
+    {
+      "id": "groovy-12",
+      "prompt": "What puzzle toy with colorful rotating cube faces became an absolute global obsession in 1974?",
+      "choices": ["Rubik's Cube", "Magic 8-Ball", "Slide Puzzle", "Perplexus"],
+      "correctAnswerIndex": 0,
+      "explanation": "Invented by Hungarian sculptor Ernő Rubik, it remains one of the best-selling toys ever."
+    },
+    {
+      "id": "groovy-13",
+      "prompt": "Which legendary rock band released the epic multi-part song 'Bohemian Rhapsody' in 1975?",
+      "choices": ["The Rolling Stones", "Led Zeppelin", "Queen", "Pink Floyd"],
+      "correctAnswerIndex": 2,
+      "explanation": "Queen's operatic masterpiece became an instant chart-topping classic."
+    },
+    {
+      "id": "groovy-14",
+      "prompt": "What famous phrase did Neil Armstrong speak immediately after stepping onto the lunar surface?",
+      "choices": ["One small step for man, one giant leap for mankind", "The eagle has landed", "Houston, we have a problem", "That's a beautiful world out there"],
+      "correctAnswerIndex": 0,
+      "explanation": "His historic words were heard live by over 600 million people on Earth."
+    },
+    {
+      "id": "groovy-15",
+      "prompt": "Which iconic car model was introduced by Ford in April 1964, kicking off the 'pony car' class?",
+      "choices": ["Chevrolet Camaro", "Ford Mustang", "Dodge Charger", "Pontiac GTO"],
+      "correctAnswerIndex": 1,
+      "explanation": "The Ford Mustang became an instant American cultural icon and massive commercial success."
+    }
+  ]
+}

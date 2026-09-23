@@ -19,6 +19,9 @@ public struct CanvasCoverObject: Identifiable, Codable, Hashable, Sendable {
     public var blue: CGFloat
     public var alpha: CGFloat
     public var isRevealed: Bool
+    public var isLocked: Bool
+    /// Serialized PKDrawing data for ink written on the tape layer. Nil until the user writes on the tape.
+    public var inkData: Data?
 
     public init(
         id: UUID = UUID(),
@@ -27,7 +30,9 @@ public struct CanvasCoverObject: Identifiable, Codable, Hashable, Sendable {
         green: CGFloat = 0.17,
         blue: CGFloat = 0.20,
         alpha: CGFloat = 1,
-        isRevealed: Bool = false
+        isRevealed: Bool = false,
+        isLocked: Bool = false,
+        inkData: Data? = nil
     ) {
         self.id = id
         self.points = points
@@ -36,6 +41,8 @@ public struct CanvasCoverObject: Identifiable, Codable, Hashable, Sendable {
         self.blue = blue
         self.alpha = alpha
         self.isRevealed = isRevealed
+        self.isLocked = isLocked
+        self.inkData = inkData
     }
 
     /// Axis-aligned bounds of the polygon in source coordinates.
@@ -95,7 +102,7 @@ public struct CanvasCoverObject: Identifiable, Codable, Hashable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, points, red, green, blue, alpha, isRevealed
+        case id, points, red, green, blue, alpha, isRevealed, isLocked, inkData
     }
 
     public init(from decoder: Decoder) throws {
@@ -107,6 +114,8 @@ public struct CanvasCoverObject: Identifiable, Codable, Hashable, Sendable {
         blue = try container.decodeIfPresent(CGFloat.self, forKey: .blue) ?? 0.20
         alpha = try container.decodeIfPresent(CGFloat.self, forKey: .alpha) ?? 1
         isRevealed = try container.decodeIfPresent(Bool.self, forKey: .isRevealed) ?? false
+        isLocked = try container.decodeIfPresent(Bool.self, forKey: .isLocked) ?? false
+        inkData = try container.decodeIfPresent(Data.self, forKey: .inkData)
     }
 
     public static func sidecarURL(forDrawingURL drawingURL: URL) -> URL {

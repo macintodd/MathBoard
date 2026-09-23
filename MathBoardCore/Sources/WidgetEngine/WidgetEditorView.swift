@@ -78,6 +78,7 @@ public struct WidgetEditorView: View {
     private enum ActivityStarter: String, CaseIterable, Identifiable {
         case multipleChoice
         case fillInTheBlank
+        case trivialPursuit
 
         var id: String { rawValue }
 
@@ -87,6 +88,8 @@ public struct WidgetEditorView: View {
                 return "Multiple Choice"
             case .fillInTheBlank:
                 return "Fill in the Blank"
+            case .trivialPursuit:
+                return "Trivial Pursuit Party"
             }
         }
 
@@ -96,6 +99,8 @@ public struct WidgetEditorView: View {
                 return "checklist"
             case .fillInTheBlank:
                 return "rectangle.and.pencil.and.ellipsis"
+            case .trivialPursuit:
+                return "star.circle"
             }
         }
 
@@ -105,11 +110,17 @@ public struct WidgetEditorView: View {
                 return .multipleChoice
             case .fillInTheBlank:
                 return .fillInTheBlank
+            case .trivialPursuit:
+                return .trivialPursuit
             }
         }
 
         var starterJSON: String {
-            WidgetMathtivityPromptFactory.starterJSON(for: activityKind)
+            if self == .trivialPursuit,
+               let source = JSONMathtivityCatalog.source(for: JSONMathtivityCatalog.trivialPursuitParty) {
+                return source
+            }
+            return WidgetMathtivityPromptFactory.starterJSON(for: activityKind)
         }
 
         static func starter(for source: String) -> ActivityStarter {
@@ -122,6 +133,8 @@ public struct WidgetEditorView: View {
                 return .multipleChoice
             case .fillInTheBlank:
                 return .fillInTheBlank
+            case .trivialPursuit:
+                return .trivialPursuit
             }
         }
     }
@@ -579,6 +592,8 @@ public struct WidgetEditorView: View {
                 return .multipleChoice
             case .fillInTheBlank:
                 return .fillInTheBlank
+            case .trivialPursuit:
+                return .trivialPursuit
             }
         }
 

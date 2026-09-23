@@ -59,7 +59,7 @@ enum WidgetMathtivityPromptFactory {
             return singleQuestionStarterJSON(for: .multipleChoice)
         case .fillInTheBlank:
             return singleQuestionStarterJSON(for: .fillInTheBlank)
-        case .builtInInteractive, .unknown:
+        case .trivialPursuit, .builtInInteractive, .unknown:
             return singleQuestionStarterJSON(for: .multipleChoice)
         }
     }
@@ -68,7 +68,7 @@ enum WidgetMathtivityPromptFactory {
         switch activityKind {
         case .multipleChoice, .fillInTheBlank:
             return activityKind
-        case .builtInInteractive, .unknown:
+        case .trivialPursuit, .builtInInteractive, .unknown:
             return .multipleChoice
         }
     }
@@ -203,7 +203,7 @@ enum WidgetMathtivityPromptFactory {
               ]
             }
             """#
-        case .builtInInteractive, .unknown:
+        case .trivialPursuit, .builtInInteractive, .unknown:
             return singleQuestionStarterJSON(for: .multipleChoice)
         }
     }
@@ -230,7 +230,7 @@ enum WidgetMathtivityPromptFactory {
                 "- Text blanks may include caseSensitive. Default to false unless capitalization matters.",
                 "- Put every expected student response in acceptedAnswers, including common equivalent forms."
             ].joined(separator: "\n")
-        case .builtInInteractive, .unknown:
+        case .trivialPursuit, .builtInInteractive, .unknown:
             return contract(for: .multipleChoice)
         }
     }

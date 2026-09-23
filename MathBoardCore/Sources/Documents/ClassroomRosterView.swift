@@ -6,6 +6,24 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+extension ClassroomColor {
+    var swiftUIColor: Color {
+        Color(hex: hexString)
+    }
+}
+
+extension Color {
+    init(hex: String) {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let r = Double((int >> 16) & 0xFF) / 255
+        let g = Double((int >> 8) & 0xFF) / 255
+        let b = Double(int & 0xFF) / 255
+        self.init(red: r, green: g, blue: b)
+    }
+}
+
 struct ClassroomRosterView: View {
     @Environment(ClassroomRosterStore.self) private var rosterStore
     @Environment(\.dismiss) private var dismiss
@@ -134,12 +152,12 @@ struct ClassroomRosterView: View {
             }
         }
         .sheet(item: $csvImportDraft) { draft in
-            CSVImportMappingView(draft: draft, allowsClassNameEditing: csvImportTargetClassroomID == nil) { preview, className in
+            CSVImportMappingView(draft: draft, allowsClassNameEditing: csvImportTargetClassroomID == nil) { preview, className, isCurrent in
                 let classroom: Classroom
                 if let csvImportTargetClassroomID {
                     classroom = try rosterStore.importCSV(preview: preview, into: csvImportTargetClassroomID)
                 } else {
-                    classroom = try rosterStore.importCSV(preview: preview, className: className)
+                    classroom = try rosterStore.importCSV(preview: preview, className: className, isCurrent: isCurrent)
                 }
                 selectedClassroomID = classroom.id
                 selectedStudentIDs = []
@@ -284,9 +302,16 @@ struct ClassroomRosterView: View {
                             Text(classroom.name)
                                 .font(.subheadline.weight(.semibold))
                                 .lineLimit(1)
-                            Text("^[\(classroom.students.count) student](inflect: true)")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
+                            HStack(spacing: 5) {
+                                Text("^[\(classroom.students.count) student](inflect: true)")
+                                if classroom.isCurrent {
+                                    Image(systemName: "checkmark.square.fill")
+                                        .foregroundStyle(AppColors.accent)
+                                        .accessibilityLabel("Current class")
+                                }
+                            }
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
@@ -384,6 +409,7 @@ struct ClassroomRosterView: View {
                 .padding(.horizontal, 20)
                 .padding(.vertical, 14)
             }
+            .background(classroom.color.swiftUIColor.opacity(0.18))
             // contentMargins adds bottom scroll-content space equal to the keyboard
             // height so the last student row can scroll fully into view. Unlike
             // safeAreaInset, this modifier does not insert a view inside the
@@ -429,6 +455,13 @@ struct ClassroomRosterView: View {
 
             Spacer(minLength: 12)
 
+            Toggle(isOn: currentClassBinding(for: classroom)) {
+                Label("Current", systemImage: classroom.isCurrent ? "checkmark.square.fill" : "square")
+            }
+            .toggleStyle(.button)
+            .buttonStyle(.bordered)
+            .accessibilityLabel(classroom.isCurrent ? "Mark class not current" : "Mark class current")
+
             Button {
                 addStudent(to: classroom.id)
             } label: {
@@ -457,6 +490,19 @@ struct ClassroomRosterView: View {
                 .onSubmit(commitAlternateIDPrefix)
                 .frame(width: 110)
         }
+    }
+
+    private func currentClassBinding(for classroom: Classroom) -> Binding<Bool> {
+        Binding(
+            get: { classroom.isCurrent },
+            set: { isCurrent in
+                do {
+                    try rosterStore.updateCurrentStatus(isCurrent, for: classroom.id)
+                } catch {
+                    actionErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                }
+            }
+        )
     }
 
     private var rosterHeader: some View {
@@ -847,15 +893,16 @@ private struct CSVImportMappingView: View {
 
     @State private var draft: CSVImportDraft
     @State private var className: String
+    @State private var isCurrentClass = true
     @State private var errorMessage: String?
 
     var allowsClassNameEditing: Bool
-    var onImport: (RosterCSVPreview, String) throws -> Void
+    var onImport: (RosterCSVPreview, String, Bool) throws -> Void
 
     init(
         draft: CSVImportDraft,
         allowsClassNameEditing: Bool = true,
-        onImport: @escaping (RosterCSVPreview, String) throws -> Void
+        onImport: @escaping (RosterCSVPreview, String, Bool) throws -> Void
     ) {
         self.allowsClassNameEditing = allowsClassNameEditing
         self.onImport = onImport
@@ -869,6 +916,13 @@ private struct CSVImportMappingView: View {
                 if allowsClassNameEditing {
                     TextField("Class name", text: $className)
                         .textFieldStyle(.roundedBorder)
+
+                    Button {
+                        isCurrentClass.toggle()
+                    } label: {
+                        Label("Current class", systemImage: isCurrentClass ? "checkmark.square.fill" : "square")
+                    }
+                    .buttonStyle(.plain)
                 } else {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Importing into")
@@ -1003,7 +1057,7 @@ private struct CSVImportMappingView: View {
 
     private func importRoster() {
         do {
-            try onImport(draft.preview, className)
+            try onImport(draft.preview, className, isCurrentClass)
             dismiss()
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription

@@ -12,6 +12,7 @@ public protocol LiveClassroomSessioning: AnyObject {
     var onTeacherInkDrawingSnapshot: ((TeacherInkDrawingSnapshot) -> Void)? { get set }
     var onTeacherObjectSnapshot: ((TeacherObjectSnapshot) -> Void)? { get set }
     var onTeacherSlideManifestSnapshot: ((TeacherSlideManifestSnapshot) -> Void)? { get set }
+    var onTeacherPencilHover: ((TeacherPencilHoverEvent) -> Void)? { get set }
     var lastErrorMessage: String? { get }
 
     func start()
@@ -19,6 +20,7 @@ public protocol LiveClassroomSessioning: AnyObject {
     func publishTeacherInkDrawingSnapshot(_ snapshot: TeacherInkDrawingSnapshot)
     func publishTeacherObjectSnapshot(_ snapshot: TeacherObjectSnapshot)
     func publishTeacherSlideManifestSnapshot(_ snapshot: TeacherSlideManifestSnapshot)
+    func publishTeacherPencilHover(_ event: TeacherPencilHoverEvent)
     func stop()
 }
 
@@ -28,6 +30,7 @@ public final class AblyLiveClassroomSession: LiveClassroomSessioning {
     public var onTeacherInkDrawingSnapshot: ((TeacherInkDrawingSnapshot) -> Void)?
     public var onTeacherObjectSnapshot: ((TeacherObjectSnapshot) -> Void)?
     public var onTeacherSlideManifestSnapshot: ((TeacherSlideManifestSnapshot) -> Void)?
+    public var onTeacherPencilHover: ((TeacherPencilHoverEvent) -> Void)?
     public private(set) var lastErrorMessage: String?
 
     private let configuration: LiveClassroomSessionConfiguration
@@ -69,6 +72,7 @@ public final class AblyLiveClassroomSession: LiveClassroomSessioning {
         subscribeToTeacherInkDrawingSnapshots()
         subscribeToTeacherObjects()
         subscribeToTeacherSlides()
+        subscribeToTeacherPencilHover()
         loadRecentTeacherInkHistory()
         loadRecentTeacherObjectHistory()
         loadRecentTeacherSlideHistory()
@@ -92,6 +96,11 @@ public final class AblyLiveClassroomSession: LiveClassroomSessioning {
     public func publishTeacherSlideManifestSnapshot(_ snapshot: TeacherSlideManifestSnapshot) {
         guard configuration.role == .teacher else { return }
         publish(snapshot, eventName: "teacher-slide-manifest", channel: slideChannel, fallbackError: "Teacher slide payload could not be encoded.")
+    }
+
+    public func publishTeacherPencilHover(_ event: TeacherPencilHoverEvent) {
+        guard configuration.role == .teacher else { return }
+        publish(event, eventName: "teacher-pencil-hover", channel: inkChannel, fallbackError: "Teacher pencil hover payload could not be encoded.")
     }
 
     public func stop() {
@@ -146,6 +155,14 @@ public final class AblyLiveClassroomSession: LiveClassroomSessioning {
         slideChannel.subscribe("teacher-slide-manifest") { [weak self] message in
             Task { @MainActor in
                 self?.handleTeacherSlideMessage(message)
+            }
+        }
+    }
+
+    private func subscribeToTeacherPencilHover() {
+        inkChannel.subscribe("teacher-pencil-hover") { [weak self] message in
+            Task { @MainActor in
+                self?.handleTeacherPencilHoverMessage(message)
             }
         }
     }
@@ -273,6 +290,21 @@ public final class AblyLiveClassroomSession: LiveClassroomSessioning {
             let snapshot = try decoder.decode(TeacherSlideManifestSnapshot.self, from: data)
             guard snapshot.lessonCode == configuration.lessonCode else { return }
             onTeacherSlideManifestSnapshot?(snapshot)
+        } catch {
+            lastErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func handleTeacherPencilHoverMessage(_ message: ARTMessage) {
+        guard let payload = message.data as? String,
+              let data = payload.data(using: .utf8) else {
+            return
+        }
+
+        do {
+            let event = try decoder.decode(TeacherPencilHoverEvent.self, from: data)
+            guard event.lessonCode == configuration.lessonCode else { return }
+            onTeacherPencilHover?(event)
         } catch {
             lastErrorMessage = error.localizedDescription
         }

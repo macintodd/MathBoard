@@ -32,6 +32,7 @@
 		E42FB9ED2FF2F950005C8DFD /* ToolPaletteTests */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ToolPaletteTests; path = MathBoardCore/Tests/ToolPaletteTests; sourceTree = "<group>"; };
 		E42FB9EE2FF2F9AE005C8DFD /* ToolPaletteTests */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ToolPaletteTests; path = MathBoardCore/Tests/ToolPaletteTests; sourceTree = "<group>"; };
 		E44A3B272FECD14C00B53DB9 /* Project_status.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = Project_status.md; sourceTree = "<group>"; };
+		E4509122305E140000A1E6BE /* ScoringWidgetsReview_handoff.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = ScoringWidgetsReview_handoff.md; sourceTree = "<group>"; };
 		E48FA9512FE47E1100CA2F40 /* MathBoard.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MathBoard.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E48FA95E2FE47E1200CA2F40 /* MathBoardTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MathBoardTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E48FA9682FE47E1200CA2F40 /* MathBoardUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MathBoardUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -105,6 +106,7 @@
 				E48FA9612FE47E1200CA2F40 /* MathBoardTests */,
 				E48FA96B2FE47E1200CA2F40 /* MathBoardUITests */,
 				E4F836E7301DA28900F9167E /* TeacherLiveInkSync_POC.md */,
+				E4509122305E140000A1E6BE /* ScoringWidgetsReview_handoff.md */,
 				E48FA9522FE47E1100CA2F40 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -443,8 +445,9 @@
 				INFOPLIST_FILE = MathBoard/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "";
 				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "MathBoard uses the camera to add captured photos to the current slide.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = NO;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = NO;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = NO;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -455,6 +458,7 @@
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UIUserInterfaceStyle = Light;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
@@ -503,8 +507,9 @@
 				INFOPLIST_FILE = MathBoard/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "";
 				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "MathBoard uses the camera to add captured photos to the current slide.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = NO;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = NO;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = NO;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -515,6 +520,7 @@
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UIUserInterfaceStyle = Light;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";

@@ -113,6 +113,10 @@ enum GraphCalculatorExpressionResolver {
         }
     }
 
+    static func normalizedExpressionForEvaluation(_ expression: String) -> String {
+        insertImplicitMultiplication(in: normalizeImplicitVariableProducts(in: parenthesizeFractionDenominators(in: expression)))
+    }
+
     static func scalarVariableValues(
         in expressions: [GraphEquation],
         engine: CalculatorEngine,
@@ -140,7 +144,7 @@ enum GraphCalculatorExpressionResolver {
             for expression in expressions {
                 guard let definition = ScalarDefinition(source: expression.expression),
                       scalarValues[definition.name] == nil,
-                      let compiled = try? engine.compile(normalizeImplicitVariableProducts(in: parenthesizeFractionDenominators(in: expandFunctionCalls(in: definition.body, definitions: definitionContext.definitions)))),
+                      let compiled = try? engine.compile(insertImplicitMultiplication(in: normalizeImplicitVariableProducts(in: parenthesizeFractionDenominators(in: expandFunctionCalls(in: definition.body, definitions: definitionContext.definitions))))),
                       let value = try? engine.evaluate(compiled: compiled, angleMode: .radians, variables: values) else {
                     continue
                 }
@@ -174,7 +178,7 @@ enum GraphCalculatorExpressionResolver {
             return GraphCalculatorResolvedRow(index: index, source: source, plot: nil, displayValue: nil, errorMessage: error)
         } else if let scalarDefinition = ScalarDefinition(source: trimmed) {
             do {
-                let expandedBody = normalizeImplicitVariableProducts(in: parenthesizeFractionDenominators(in: expandFunctionCalls(in: scalarDefinition.body, definitions: definitionContext.definitions)))
+                let expandedBody = insertImplicitMultiplication(in: normalizeImplicitVariableProducts(in: parenthesizeFractionDenominators(in: expandFunctionCalls(in: scalarDefinition.body, definitions: definitionContext.definitions))))
                 let compiled = try engine.compile(expandedBody)
                 if let value = try? engine.evaluate(compiled: compiled, angleMode: .radians, variables: variableValues) {
                     return GraphCalculatorResolvedRow(index: index, source: source, plot: nil, displayValue: CalculatorResultFormatter.string(for: value), errorMessage: nil)
@@ -197,7 +201,7 @@ enum GraphCalculatorExpressionResolver {
             rawPlot = .curve(trimmed)
         }
 
-        let plot = normalizeImplicitVariableProducts(in: parenthesizeFractionDenominators(in: expandFunctionCalls(in: rawPlot, definitions: definitionContext.definitions)))
+        let plot = insertImplicitMultiplication(in: normalizeImplicitVariableProducts(in: parenthesizeFractionDenominators(in: expandFunctionCalls(in: rawPlot, definitions: definitionContext.definitions))))
         if case .point = plot {
             return GraphCalculatorResolvedRow(index: index, source: source, plot: plot, displayValue: nil, errorMessage: nil)
         }
@@ -323,6 +327,47 @@ enum GraphCalculatorExpressionResolver {
         case .point:
             return plot
         }
+    }
+
+    // MARK: - Implicit multiplication insertion
+
+    /// Inserts explicit `*` operators where the CalculatorEngine would otherwise mis-parse implicit
+    /// products: a digit/close-paren followed by `(` or an identifier. This prevents `^4(x+7)` from
+    /// being treated as `^(4*(x+7))` and ensures `3x` and `(a)(b)` are unambiguous products.
+    private static func insertImplicitMultiplication(in plot: GraphCalculatorPlot) -> GraphCalculatorPlot {
+        switch plot {
+        case .curve(let expression): return .curve(insertImplicitMultiplication(in: expression))
+        case .yRelation(let expression, let relation): return .yRelation(insertImplicitMultiplication(in: expression), relation)
+        case .xRelation(let expression, let relation): return .xRelation(insertImplicitMultiplication(in: expression), relation)
+        case .implicitRelation(let expression): return .implicitRelation(insertImplicitMultiplication(in: expression))
+        case .point: return plot
+        }
+    }
+
+    private static func insertImplicitMultiplication(in expression: String) -> String {
+        var result = ""
+        let chars = Array(expression)
+        for i in 0..<chars.count {
+            result.append(chars[i])
+            guard i + 1 < chars.count else { continue }
+            let cur = chars[i]
+            let next = chars[i + 1]
+            let nextNext = i + 2 < chars.count ? chars[i + 2] : nil
+            let startsImplicitProduct = next == "(" || (next.isLetter && !isScientificNotationMarker(next, after: cur, next: nextNext))
+            if (cur.isNumber || cur == ")") && startsImplicitProduct {
+                result.append("*")
+            }
+        }
+        return result
+    }
+
+    private static func isScientificNotationMarker(_ character: Character, after previous: Character, next: Character?) -> Bool {
+        guard previous.isNumber,
+              character == "e" || character == "E" else {
+            return false
+        }
+        guard let next else { return false }
+        return next.isNumber || next == "+" || next == "-"
     }
 
     private static func normalizeImplicitVariableProducts(in plot: GraphCalculatorPlot) -> GraphCalculatorPlot {

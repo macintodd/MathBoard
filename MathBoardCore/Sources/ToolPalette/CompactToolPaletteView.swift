@@ -206,6 +206,7 @@ public struct CompactToolPaletteView: View {
     @State private var isLatexEditorPresented = false
     @State private var isFontPickerPresented = false
     @State private var colorPickerTarget: CompactColorTarget = .stroke
+    @State private var colorPickerAnchor: CompactColorPickerAnchor?
     @State private var editingColorSlot: Int?
     @State private var editingColorTool: ToolID?
     @State private var latexDraft = ""
@@ -259,17 +260,6 @@ public struct CompactToolPaletteView: View {
                 }
                 state.isCompactDrawerOpen = state.isCompactDrawerOpen || newTool == .reserved
             }
-        }
-        // Popovers reuse the shared reducer via `send`, just like the radial dial.
-        .popover(isPresented: $isColorPickerPresented) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(colorPickerTarget.title).font(.headline)
-                ColorPicker("Custom", selection: customColorBinding, supportsOpacity: false)
-                    .labelsHidden()
-                    .frame(width: 220)
-            }
-            .padding(16)
-            .presentationCompactAdaptation(.popover)
         }
         .popover(isPresented: $isPaletteChooserPresented) {
             CompactPaletteChooser(selectedPreset: state.activePalettePreset) { preset in
@@ -388,6 +378,8 @@ public struct CompactToolPaletteView: View {
 
     private func handleToolTap(_ toolID: ToolID) {
         let wasActive = state.activeTool == toolID
+        let wasQuickStripOpen = state.isCompactQuickStripOpen
+        let wasDrawerOpen = state.isCompactDrawerOpen
         if toolID == .selection && wasActive {
             send(.setSelectionBehavior(state.selectionBehavior.toggled))
         } else {
@@ -396,15 +388,26 @@ public struct CompactToolPaletteView: View {
 
         if toolID.hasCompactQuickStrip {
             withAnimation(Self.drawerAnimation) {
-                state.isCompactQuickStripOpen = !wasActive
-                state.isCompactDrawerOpen = wasActive
+                if !wasActive {
+                    state.isCompactQuickStripOpen = true
+                    state.isCompactDrawerOpen = false
+                } else if wasDrawerOpen {
+                    state.isCompactQuickStripOpen = false
+                    state.isCompactDrawerOpen = false
+                } else if wasQuickStripOpen {
+                    state.isCompactQuickStripOpen = false
+                    state.isCompactDrawerOpen = true
+                } else {
+                    state.isCompactQuickStripOpen = true
+                    state.isCompactDrawerOpen = false
+                }
             }
         } else if !toolID.hasCompactDrawer {
             withAnimation(Self.drawerAnimation) {
                 state.isCompactQuickStripOpen = false
                 state.isCompactDrawerOpen = false
             }
-        } else if toolID == .extract || toolID == .geometry || toolID == .reserved {
+        } else if toolID == .geometry || toolID == .reserved {
             withAnimation(Self.drawerAnimation) {
                 state.isCompactQuickStripOpen = false
                 state.isCompactDrawerOpen = wasActive ? !state.isCompactDrawerOpen : true
@@ -428,7 +431,7 @@ public struct CompactToolPaletteView: View {
         [
             [.reserved],
             [.selection, .extract],
-            [.pen, .marker, .laser, .eraser],
+            [.pen, .fountainPen, .marker, .laser, .eraser],
             [.geometry, .cover]
         ]
     }
@@ -483,11 +486,18 @@ public struct CompactToolPaletteView: View {
     private var quickColorStrip: some View {
         VStack(spacing: 10) {
             ForEach(Array(quickPaletteColors.enumerated()), id: \.offset) { index, color in
+                let anchor = CompactColorPickerAnchor.quick(tool: state.activeTool, slot: index)
                 CompactQuickColorButton(
                     color: color,
-                    isSelected: isQuickColorSelected(index)
+                    isSelected: isQuickColorSelected(index),
+                    onLongPress: {
+                        presentStrokeColorPicker(for: state.activeTool, slot: index, anchor: anchor)
+                    }
                 ) {
                     selectQuickColor(color, at: index)
+                }
+                .popover(isPresented: colorPickerBinding(for: anchor)) {
+                    colorPickerContent
                 }
             }
         }
@@ -652,7 +662,7 @@ public struct CompactToolPaletteView: View {
                     command: .setSelectionMode(.lasso)
                 )
             ]
-        case .reserved, .pen, .marker, .geometry, .laser, .equation:
+        case .reserved, .pen, .fountainPen, .marker, .geometry, .laser, .equation:
             return []
         }
     }
@@ -661,10 +671,11 @@ public struct CompactToolPaletteView: View {
         editingColorSlot = index
         editingColorTool = state.activeTool
         if isQuickColorSelected(index) {
-            withAnimation(Self.drawerAnimation) {
-                state.isCompactQuickStripOpen = false
-                state.isCompactDrawerOpen = true
-            }
+            presentStrokeColorPicker(
+                for: state.activeTool,
+                slot: index,
+                anchor: .quick(tool: state.activeTool, slot: index)
+            )
         } else {
             send(.setStrokeColor(color))
             withAnimation(Self.drawerAnimation) {
@@ -674,17 +685,48 @@ public struct CompactToolPaletteView: View {
         }
     }
 
-    private func selectDrawerColor(_ color: PaletteColor, at index: Int) {
+    private func selectDrawerColor(_ color: PaletteColor, at index: Int, anchor: CompactColorPickerAnchor) {
         if isQuickColorSelected(index) {
-            colorPickerTarget = .stroke
-            editingColorSlot = index
-            editingColorTool = state.activeTool
-            isColorPickerPresented = true
+            presentStrokeColorPicker(for: state.activeTool, slot: index, anchor: anchor)
         } else {
             editingColorSlot = index
             editingColorTool = state.activeTool
             send(.setStrokeColor(color))
         }
+    }
+
+    private func presentStrokeColorPicker(for tool: ToolID, slot: Int, anchor: CompactColorPickerAnchor) {
+        colorPickerTarget = .stroke
+        editingColorSlot = slot
+        editingColorTool = tool
+        colorPickerAnchor = anchor
+        isColorPickerPresented = true
+    }
+
+    private func colorPickerBinding(for anchor: CompactColorPickerAnchor) -> Binding<Bool> {
+        Binding(
+            get: { isColorPickerPresented && colorPickerAnchor == anchor },
+            set: { isPresented in
+                if isPresented {
+                    colorPickerAnchor = anchor
+                    isColorPickerPresented = true
+                } else if colorPickerAnchor == anchor {
+                    isColorPickerPresented = false
+                    colorPickerAnchor = nil
+                }
+            }
+        )
+    }
+
+    private var colorPickerContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(colorPickerTarget.title).font(.headline)
+            ColorPicker("Custom", selection: customColorBinding, supportsOpacity: false)
+                .labelsHidden()
+                .frame(width: 220)
+        }
+        .padding(16)
+        .presentationCompactAdaptation(.popover)
     }
 
     private func isQuickColorSelected(_ index: Int) -> Bool {
@@ -699,6 +741,7 @@ public struct CompactToolPaletteView: View {
     private func railAccentColor(for toolID: ToolID) -> Color {
         switch toolID {
         case .pen: return state.penColor.swiftUIColor
+        case .fountainPen: return state.fountainPenColor.swiftUIColor
         case .marker: return state.markerColor.swiftUIColor
         case .laser: return state.laserColor.swiftUIColor
         case .selection, .extract, .reserved, .eraser, .geometry, .equation, .cover:
@@ -792,15 +835,21 @@ public struct CompactToolPaletteView: View {
             if !colorItems.isEmpty {
                 if state.activeTool == .geometry {
                     geometryColorControls
+                } else if state.activeTool == .cover {
+                    coverColorControls
                 } else {
                     CompactFlowRow(spacing: 8) {
                         ForEach(Array(colorItems.enumerated()), id: \.element.id) { index, item in
+                            let anchor = CompactColorPickerAnchor.drawer(tool: state.activeTool, slot: index)
                             CompactOrbitChip(item: item, isSelected: isOrbitItemSelected(item)) {
                                 if let color = item.color {
-                                    selectDrawerColor(color, at: index)
+                                    selectDrawerColor(color, at: index, anchor: anchor)
                                 } else {
                                     send(item.command)
                                 }
+                            }
+                            .popover(isPresented: colorPickerBinding(for: anchor)) {
+                                colorPickerContent
                             }
                         }
                     }
@@ -831,6 +880,44 @@ public struct CompactToolPaletteView: View {
                 selection: geometryFillColorBinding
             )
         }
+    }
+
+    private var coverColorControls: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            CompactFlowRow(spacing: 8) {
+                ForEach(Array(state.coverPaletteColors.enumerated()), id: \.offset) { index, paletteColor in
+                    let item = PaletteOrbitItem(
+                        id: "cover.color.\(index)",
+                        label: paletteColor.name,
+                        color: paletteColor,
+                        command: .setStrokeColor(paletteColor)
+                    )
+                    CompactOrbitChip(item: item, isSelected: paletteColor == state.strokeColor) {
+                        send(.setPaletteColor(.cover, index, paletteColor))
+                    }
+                }
+            }
+            CompactGeometryColorPicker(
+                label: "Custom Color",
+                color: state.strokeColor.swiftUIColor,
+                selection: coverColorBinding
+            )
+        }
+    }
+
+    private var coverColorBinding: Binding<Color> {
+        Binding(
+            get: { state.strokeColor.swiftUIColor },
+            set: { color in
+                guard let paletteColor = PaletteColor(name: "Custom", color: color) else { return }
+                let slot = state.coverPaletteColors.firstIndex(of: state.strokeColor)
+                if let slot {
+                    send(.setPaletteColor(.cover, slot, paletteColor))
+                } else {
+                    send(.setStrokeColor(paletteColor))
+                }
+            }
+        )
     }
 
     @ViewBuilder
@@ -887,6 +974,24 @@ public struct CompactToolPaletteView: View {
         ToolPaletteReducer.reduce(&state, command: command)
         onCommand(command)
         onResolvedCommand(command, state)
+        closeExtractDrawerIfNeeded(after: command)
+    }
+
+    private func closeExtractDrawerIfNeeded(after command: ToolPaletteCommand) {
+        guard state.activeTool == .extract else { return }
+        switch command {
+        case .setExtractAction, .setSelectionMode:
+            closeCompactMenus()
+        default:
+            break
+        }
+    }
+
+    private func closeCompactMenus() {
+        withAnimation(Self.drawerAnimation) {
+            state.isCompactQuickStripOpen = false
+            state.isCompactDrawerOpen = false
+        }
     }
 
     /// Selection highlight for orbit items — same rules as the radial dial.
@@ -966,6 +1071,8 @@ public struct CompactToolPaletteView: View {
         switch editingColorTool {
         case .pen:
             colors = state.penPaletteColors
+        case .fountainPen:
+            colors = state.fountainPenPaletteColors
         case .marker:
             colors = state.markerPaletteColors
         case .laser:
@@ -989,11 +1096,11 @@ public struct CompactToolPaletteView: View {
 
 private extension ToolID {
     var isCompactInkTool: Bool {
-        self == .pen || self == .marker || self == .laser
+        self == .pen || self == .fountainPen || self == .marker || self == .laser
     }
 
     var hasCompactQuickStrip: Bool {
-        self == .pen || self == .marker || self == .laser
+        self == .pen || self == .fountainPen || self == .marker || self == .laser || self == .extract
     }
 
     var hasCompactDrawer: Bool {
@@ -1011,6 +1118,11 @@ private enum CompactColorTarget {
         case .fill: return "Fill Color"
         }
     }
+}
+
+private enum CompactColorPickerAnchor: Hashable {
+    case quick(tool: ToolID, slot: Int)
+    case drawer(tool: ToolID, slot: Int)
 }
 
 private struct CompactQuickModeItem: Identifiable {
@@ -1050,7 +1162,7 @@ private struct CompactToolButton: View {
                 icon
                     .frame(width: 26, height: 26)
 
-                if isActive, toolID == .pen || toolID == .marker || toolID == .laser {
+                if isActive, toolID == .pen || toolID == .fountainPen || toolID == .marker || toolID == .laser {
                     // Small live-color indicator so the active ink color is visible
                     // even while the drawer is collapsed.
                     Circle()
@@ -1086,7 +1198,7 @@ private struct CompactToolButton: View {
 
     private var iconColor: Color {
         switch toolID {
-        case .pen, .marker, .laser:
+        case .pen, .fountainPen, .marker, .laser:
             return accentColor
         case .selection, .extract, .reserved, .eraser, .geometry, .equation, .cover:
             return isActive ? Color.white : Color(red: 0.02, green: 0.06, blue: 0.10)
@@ -1101,6 +1213,7 @@ private struct CompactToolButton: View {
 private struct CompactQuickColorButton: View {
     var color: PaletteColor
     var isSelected: Bool
+    var onLongPress: () -> Void
     var action: () -> Void
 
     var body: some View {
@@ -1123,6 +1236,7 @@ private struct CompactQuickColorButton: View {
             .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.plain)
+        .onLongPressGesture(minimumDuration: 0.45, perform: onLongPress)
         .accessibilityLabel(color.name)
     }
 

@@ -21,16 +21,42 @@ import UIKit
 struct WidgetWebView {
     /// The raw HTML/JS source to render.
     let htmlString: String
+    /// Optional directory for relative media URLs embedded in the HTML.
+    let baseURL: URL?
+    /// When true, the WKWebView is kept opaque so the GPU video compositor can
+    /// route decoded video frames correctly. Transparent WKWebViews on an
+    /// external UIWindowScene render video audio-only with a black frame.
+    let isExternalDisplay: Bool
 
-    /// Builds and configures a fresh transparent `WKWebView`.
+    init(htmlString: String, baseURL: URL? = nil, isExternalDisplay: Bool = false) {
+        self.htmlString = htmlString
+        self.baseURL = baseURL
+        self.isExternalDisplay = isExternalDisplay
+    }
+
+    /// Builds and configures a `WKWebView`. Transparent on the primary display;
+    /// opaque on the external display so video compositing works correctly.
+    @MainActor
     fileprivate func makeWebView() -> WKWebView {
         let configuration = WKWebViewConfiguration()
+        #if os(iOS)
+        configuration.allowsInlineMediaPlayback = true
+        configuration.mediaTypesRequiringUserActionForPlayback = []
+        #endif
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.allowsBackForwardNavigationGestures = false
         #if os(iOS)
-        webView.isOpaque = false
-        webView.backgroundColor = .clear
-        webView.scrollView.backgroundColor = .clear
+        if isExternalDisplay {
+            // Opaque keeps the GPU video compositor on the external display's
+            // layer tree. HTML content supplies its own background (#111).
+            webView.isOpaque = true
+            webView.backgroundColor = .black
+            webView.scrollView.backgroundColor = .black
+        } else {
+            webView.isOpaque = false
+            webView.backgroundColor = .clear
+            webView.scrollView.backgroundColor = .clear
+        }
         webView.scrollView.bounces = false
         #elseif os(macOS)
         webView.setValue(false, forKey: "drawsBackground")
@@ -40,33 +66,85 @@ struct WidgetWebView {
 
     /// Reloads the web view only when the source differs from what was last
     /// loaded, so typing in the editor doesn't thrash the renderer.
+    @MainActor
     fileprivate func reloadIfNeeded(_ webView: WKWebView, coordinator: Coordinator) {
-        guard coordinator.loadedHTML != htmlString else { return }
+        guard coordinator.loadedHTML != htmlString || coordinator.loadedBaseURL != baseURL else { return }
         coordinator.loadedHTML = htmlString
-        webView.loadHTMLString(htmlString, baseURL: nil)
+        coordinator.loadedBaseURL = baseURL
+        if let baseURL, loadFileBackedHTML(in: webView, baseURL: baseURL, coordinator: coordinator) {
+            return
+        }
+        webView.loadHTMLString(htmlString, baseURL: baseURL)
+    }
+
+    @MainActor
+    private func loadFileBackedHTML(in webView: WKWebView, baseURL: URL, coordinator: Coordinator) -> Bool {
+        do {
+            try FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
+            let htmlURL = baseURL.appendingPathComponent(
+                ".widget-webview-\(coordinator.htmlFileID.uuidString).html",
+                isDirectory: false
+            )
+            try htmlString.write(to: htmlURL, atomically: true, encoding: .utf8)
+            coordinator.loadedHTMLFileURL = htmlURL
+            webView.loadFileURL(htmlURL, allowingReadAccessTo: baseURL)
+            return true
+        } catch {
+            return false
+        }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    /// Tracks the last-loaded HTML to avoid redundant reloads.
-    final class Coordinator {
+    /// Tracks the last-loaded HTML and handles WKWebView process recovery.
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        nonisolated override init() { super.init() }
+        let htmlFileID = UUID()
         var loadedHTML: String?
+        var loadedBaseURL: URL?
+        var loadedHTMLFileURL: URL?
+        /// Called when the web content process is killed (memory pressure, crash).
+        /// Set in updateUIView/updateNSView so it always captures current HTML.
+        var onProcessTerminated: ((WKWebView) -> Void)?
+
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            // Force reloadIfNeeded to re-run on next SwiftUI update pass.
+            loadedHTML = nil
+            loadedBaseURL = nil
+            // Reload immediately so the widget recovers without waiting for
+            // another SwiftUI state change to trigger updateUIView.
+            onProcessTerminated?(webView)
+        }
     }
 }
 
 #if os(iOS)
 extension WidgetWebView: UIViewRepresentable {
-    func makeUIView(context: Context) -> WKWebView { makeWebView() }
+    func makeUIView(context: Context) -> WKWebView {
+        let webView = makeWebView()
+        webView.navigationDelegate = context.coordinator
+        return webView
+    }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
+        context.coordinator.onProcessTerminated = { [htmlString, baseURL] wv in
+            wv.loadHTMLString(htmlString, baseURL: baseURL)
+        }
         reloadIfNeeded(webView, coordinator: context.coordinator)
     }
 }
 #elseif os(macOS)
 extension WidgetWebView: NSViewRepresentable {
-    func makeNSView(context: Context) -> WKWebView { makeWebView() }
+    func makeNSView(context: Context) -> WKWebView {
+        let webView = makeWebView()
+        webView.navigationDelegate = context.coordinator
+        return webView
+    }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
+        context.coordinator.onProcessTerminated = { [htmlString, baseURL] wv in
+            wv.loadHTMLString(htmlString, baseURL: baseURL)
+        }
         reloadIfNeeded(webView, coordinator: context.coordinator)
     }
 }
@@ -88,6 +166,8 @@ public struct WidgetContainerView: View {
     private let onMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)?
     private let onImageInsertionRequested: (@MainActor (WidgetCanvasImageInsertionRequest) -> Void)?
     private let gearConfiguration: WidgetGearConfiguration?
+    private let widgetAssetBaseURL: URL?
+    private let isExternalDisplay: Bool
 
     @Environment(\.widgetSubmit) private var widgetSubmit
 
@@ -109,6 +189,8 @@ public struct WidgetContainerView: View {
     @GestureState private var isResizeGestureActive = false
 
     private let headerHeight: CGFloat = 34
+    private let externalVideoContentAlignmentOffset: CGFloat = 30
+    private let externalVideoHorizontalInset: CGFloat = 15
     private let handleSize: CGFloat = 22
     private let minSize = CGSize(width: 200, height: 160)
 
@@ -122,7 +204,9 @@ public struct WidgetContainerView: View {
         onDisplayFrameChanged: ((CGRect?) -> Void)? = nil,
         onMathInputRequested: (@MainActor (WidgetMathInputKeypadRequest) -> Void)? = nil,
         onImageInsertionRequested: (@MainActor (WidgetCanvasImageInsertionRequest) -> Void)? = nil,
-        gearConfiguration: WidgetGearConfiguration? = nil
+        gearConfiguration: WidgetGearConfiguration? = nil,
+        widgetAssetBaseURL: URL? = nil,
+        isExternalDisplay: Bool = false
     ) {
         _widget = widget
         self.scoreSheet = scoreSheet
@@ -134,6 +218,8 @@ public struct WidgetContainerView: View {
         self.onMathInputRequested = onMathInputRequested
         self.onImageInsertionRequested = onImageInsertionRequested
         self.gearConfiguration = gearConfiguration
+        self.widgetAssetBaseURL = widgetAssetBaseURL
+        self.isExternalDisplay = isExternalDisplay
         _frame = State(initialValue: widget.wrappedValue.frame)
         _committedOrigin = State(initialValue: widget.wrappedValue.frame.origin)
         _committedSize = State(initialValue: widget.wrappedValue.frame.size)
@@ -150,66 +236,103 @@ public struct WidgetContainerView: View {
         self.onMathInputRequested = nil
         self.onImageInsertionRequested = nil
         self.gearConfiguration = nil
+        self.widgetAssetBaseURL = nil
+        self.isExternalDisplay = false
         _frame = State(initialValue: widget.frame)
         _committedOrigin = State(initialValue: widget.frame.origin)
         _committedSize = State(initialValue: widget.frame.size)
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
-            header
-                .zIndex(2)
+        if isExternalVideoWidget {
+            externalVideoBody
+                .position(x: frame.midX, y: frame.midY)
+                .onChange(of: widget.frame) { _, newFrame in
+                    guard newFrame != frame else { return }
+                    frame = newFrame
+                    committedOrigin = newFrame.origin
+                    committedSize = newFrame.size
+                }
+                .onAppear {
+                    frame = widget.frame
+                    committedOrigin = widget.frame.origin
+                    committedSize = widget.frame.size
+                    onDisplayFrameChanged?(nil)
+                }
+        } else {
+            VStack(spacing: 0) {
+                if !isExternalDisplay {
+                    header
+                        .zIndex(2)
+                }
+                renderedContent
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .clipped()
+                    .zIndex(1)
+            }
+            .background(.background)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
+            )
+            .overlay(alignment: .bottomTrailing) {
+                if !widget.isPinnedToCanvas && !isExternalDisplay {
+                    resizeHandle
+                        .zIndex(3)
+                }
+            }
+            .shadow(color: .black.opacity(0.18), radius: 12, x: 0, y: 6)
+            .frame(width: frame.width, height: frame.height)
+            .position(x: frame.midX, y: frame.midY)
+            .onChange(of: widget.frame) { _, newFrame in
+                guard !isDraggingHeader && !isResizing else { return }
+                guard newFrame != frame else { return }
+                frame = newFrame
+                committedOrigin = newFrame.origin
+                committedSize = newFrame.size
+            }
+            .onAppear {
+                guard !isDraggingHeader && !isResizing else { return }
+                frame = widget.frame
+                committedOrigin = widget.frame.origin
+                committedSize = widget.frame.size
+                dragStartOrigin = nil
+                resizeStartSize = nil
+                onDisplayFrameChanged?(nil)
+            }
+            .onDisappear {
+                releaseInteractionLock()
+            }
+            .onChange(of: isHeaderGestureActive) { _, isActive in
+                if !isActive, isDraggingHeader {
+                    finishHeaderDrag()
+                }
+            }
+            .onChange(of: isResizeGestureActive) { _, isActive in
+                if !isActive, isResizing {
+                    finishResize()
+                }
+            }
+        }
+    }
+
+    private var externalVideoBody: some View {
+        let contentTopOffset = headerHeight + externalVideoContentAlignmentOffset
+        let contentHeight = max(frame.height - contentTopOffset, 1)
+        let contentWidth = max(frame.width - externalVideoHorizontalInset * 2, 1)
+
+        return ZStack(alignment: .topLeading) {
             renderedContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .contentShape(Rectangle())
+                .frame(width: contentWidth, height: contentHeight)
+                .background(Color.white)
                 .clipped()
-                .zIndex(1)
+                .offset(x: externalVideoHorizontalInset, y: contentTopOffset)
         }
-        .background(.background)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
-        )
-        .overlay(alignment: .bottomTrailing) {
-            if !widget.isPinnedToCanvas {
-                resizeHandle
-                    .zIndex(3)
-            }
-        }
-        .shadow(color: .black.opacity(0.18), radius: 12, x: 0, y: 6)
-        .frame(width: frame.width, height: frame.height)
-        .position(x: frame.midX, y: frame.midY)
-        .onChange(of: widget.frame) { _, newFrame in
-            guard !isDraggingHeader && !isResizing else { return }
-            guard newFrame != frame else { return }
-            frame = newFrame
-            committedOrigin = newFrame.origin
-            committedSize = newFrame.size
-        }
-        .onAppear {
-            guard !isDraggingHeader && !isResizing else { return }
-            frame = widget.frame
-            committedOrigin = widget.frame.origin
-            committedSize = widget.frame.size
-            dragStartOrigin = nil
-            resizeStartSize = nil
-            onDisplayFrameChanged?(nil)
-        }
-        .onDisappear {
-            releaseInteractionLock()
-        }
-        .onChange(of: isHeaderGestureActive) { _, isActive in
-            if !isActive, isDraggingHeader {
-                finishHeaderDrag()
-            }
-        }
-        .onChange(of: isResizeGestureActive) { _, isActive in
-            if !isActive, isResizing {
-                finishResize()
-            }
-        }
+        .frame(width: frame.width, height: frame.height, alignment: .topLeading)
+        .contentShape(Rectangle())
     }
 
     @ViewBuilder
@@ -225,16 +348,65 @@ public struct WidgetContainerView: View {
                 gearConfiguration: effectiveGearConfiguration(for: document),
                 runtimeState: activityRuntimeStateBinding(for: document)
             )
+        } else if let videoURL = videoAssetURL {
+            nativeVideoView(url: videoURL)
         } else {
-            WidgetWebView(htmlString: widget.codeString)
+            WidgetWebView(htmlString: effectiveCodeString, baseURL: widgetAssetBaseURL, isExternalDisplay: isExternalDisplay)
         }
+    }
+
+    /// Routes to the appropriate video view for each display.
+    /// Both share one AVPlayer from VideoPlayerRegistry for frame-perfect sync.
+    @ViewBuilder
+    private func nativeVideoView(url: URL) -> some View {
+        let player = VideoPlayerRegistry.shared.player(for: widget.id, url: url)
+        if isExternalDisplay {
+            // Bare video layer — no controls, no chrome. Frames are composited
+            // directly by AVPlayerLayer on the external display's CALayer tree.
+            AVPlayerLayerView(player: player, backgroundColor: .white)
+                .background(Color.white)
+        } else {
+            WidgetVideoPlayerView(player: player)
+        }
+    }
+
+    private var isExternalVideoWidget: Bool {
+        isExternalDisplay && videoAssetURL != nil
+    }
+
+    /// Parses the video file URL from a movie widget's HTML.
+    /// Returns nil for non-video widgets (GIFs, custom HTML, built-ins).
+    private var videoAssetURL: URL? {
+        guard let baseURL = widgetAssetBaseURL,
+              widget.codeString.contains(#"id="media""#) else { return nil }
+        let html = widget.codeString
+        let prefix = #"<source src=""#
+        guard let range = html.range(of: prefix + #"[^"]+"#, options: .regularExpression) else { return nil }
+        let tag = String(html[range])
+        guard tag.hasPrefix(prefix) else { return nil }
+        let filename = String(tag.dropFirst(prefix.count))
+        guard !filename.isEmpty else { return nil }
+        return baseURL.appendingPathComponent(filename)
+    }
+
+    /// Strips teacher-only chrome from HTML widgets on the external display.
+    /// Video widgets bypass this entirely — they use AVPlayerLayerView instead.
+    private var effectiveCodeString: String {
+        guard isExternalDisplay else { return widget.codeString }
+        let css = "<style>.loop-toggle{display:none!important}</style>"
+        var html = widget.codeString
+        if html.contains("</head>") {
+            html = html.replacingOccurrences(of: "</head>", with: "\(css)</head>")
+        }
+        return html
     }
 
     private func effectiveGearConfiguration(for document: ActivityWidgetDocument) -> WidgetGearConfiguration {
         let widgetBinding = $widget
         let widgetID = widget.id
-        var config = gearConfiguration ?? WidgetGearConfiguration(questionCount: document.questions.count)
-        config.questionCount = document.questions.count
+        var config = gearConfiguration ?? WidgetGearConfiguration(questionCount: questionCount(for: document))
+        config.widgetID = widgetID
+        config.questionCount = questionCount(for: document)
         config.tags = widget.tags
         config.requiresStudentWork = widget.requiresStudentWork
         if config.onTagsChanged == nil {
@@ -256,12 +428,27 @@ public struct WidgetContainerView: View {
         return config
     }
 
+    private func questionCount(for document: ActivityWidgetDocument) -> Int {
+        switch document.activity {
+        case .multipleChoice, .fillInTheBlank:
+            return document.questions.count
+        case .trivialPursuit:
+            return document.categories?.reduce(0) { $0 + $1.questions.count } ?? 0
+        }
+    }
+
     @ViewBuilder
     private func builtInInteractiveView(for kind: BuiltInInteractiveKind) -> some View {
         switch kind {
         case .inequalitiesExplorer:
             CompoundInequalitiesInteractiveView(
-                state: InequalityExplorerStateRegistry.state(for: widget.id)
+                state: InequalityExplorerStateRegistry.state(for: widget) { encodedState in
+                    if let encodedState {
+                        widget.builtInRuntimeState[InequalityExplorerState.runtimeStateKey] = encodedState
+                    } else {
+                        widget.builtInRuntimeState.removeValue(forKey: InequalityExplorerState.runtimeStateKey)
+                    }
+                }
             )
         case .countdownTimer:
             CountdownTimerInteractiveView(
@@ -295,13 +482,69 @@ public struct WidgetContainerView: View {
                     }
                 }
             )
+        case .quadraticWebApplet:
+            WebAppletInteractiveView(
+                resource: .quadraticSlider,
+                runtimeState: WebAppletStateRegistry.state(for: widget.id),
+                isExternalDisplay: isExternalDisplay
+            )
+        case .domainRangeWebApplet:
+            WebAppletInteractiveView(
+                resource: .domainRangeFromGraphs,
+                runtimeState: WebAppletStateRegistry.state(for: widget.id),
+                isExternalDisplay: isExternalDisplay
+            )
+        case .analizingGraphs1WebApplet:
+            WebAppletInteractiveView(
+                resource: .analizingGraphs1,
+                runtimeState: WebAppletStateRegistry.state(for: widget.id),
+                isExternalDisplay: isExternalDisplay
+            )
+        case .projectileMotionGraphAnalysisWebApplet:
+            WebAppletInteractiveView(
+                resource: .projectileMotionGraphAnalysis,
+                runtimeState: WebAppletStateRegistry.state(for: widget.id),
+                isExternalDisplay: isExternalDisplay
+            )
+        case .constantRateWebApplet:
+            WebAppletInteractiveView(
+                resource: .constantRateDemo,
+                runtimeState: WebAppletStateRegistry.state(for: widget.id),
+                isExternalDisplay: isExternalDisplay
+            )
+        case .completingTheSquareWebApplet:
+            WebAppletInteractiveView(
+                resource: .completingTheSquareLab,
+                runtimeState: WebAppletStateRegistry.state(for: widget.id),
+                isExternalDisplay: isExternalDisplay
+            )
+        case .andOrAttributeFilterWebApplet:
+            WebAppletInteractiveView(
+                resource: .andOrAttributeFilter,
+                runtimeState: WebAppletStateRegistry.state(for: widget.id),
+                isExternalDisplay: isExternalDisplay
+            )
+        case .andOrInequalityNumberLineWebApplet:
+            WebAppletInteractiveView(
+                resource: .andOrInequalityNumberLine,
+                runtimeState: WebAppletStateRegistry.state(for: widget.id),
+                isExternalDisplay: isExternalDisplay
+            )
+        case .compoundInequalityGraphingDemoWebApplet:
+            WebAppletInteractiveView(
+                resource: .compoundInequalityGraphingDemo,
+                runtimeState: WebAppletStateRegistry.state(for: widget.id),
+                isExternalDisplay: isExternalDisplay
+            )
         }
     }
 
     private func activityRuntimeStateBinding(for document: ActivityWidgetDocument) -> Binding<WidgetActivityRuntimeState> {
         Binding {
             widget.activityRuntimeState ?? WidgetActivityRuntimeState(
-                multipleChoice: WidgetMultipleChoiceRuntimeState.initial(for: document)
+                multipleChoice: WidgetMultipleChoiceRuntimeState.initial(for: document),
+                fillInTheBlank: WidgetFillInTheBlankRuntimeState.initial(for: document),
+                interactiveParts: WidgetInteractivePartsRuntimeState()
             )
         } set: { newValue in
             widget.activityRuntimeState = newValue

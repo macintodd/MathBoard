@@ -68,8 +68,8 @@ struct TeacherAccountView: View {
 
             TextField("Email", text: $email)
                 .textContentType(.emailAddress)
-                .textInputAutocapitalization(.never)
                 #if os(iOS)
+                .textInputAutocapitalization(.never)
                 .keyboardType(.emailAddress)
                 #endif
                 .textFieldStyle(.roundedBorder)

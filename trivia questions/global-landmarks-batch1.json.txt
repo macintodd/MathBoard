@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "widgetId": "global-landmarks-01",
+  "activity": "multipleChoice",
+  "title": "Global Landmarks & Travel",
+  "description": "Explore world wonders, geography, and famous travel spots.",
+  "learningObjective": "Identify famous international landmarks and tourist destinations.",
+  "difficulty": "medium",
+  "rules": {
+    "scoreMode": "correctOutOfTotal",
+    "advanceMode": "automaticOnCorrect",
+    "allowRetry": true,
+    "maxRetries": 1,
+    "shuffleQuestions": false,
+    "shuffleChoices": true,
+    "calculatorAllowed": false
+  },
+  "questions": [
+    {
+      "id": "travel-01",
+      "prompt": "In which European city would you find the iconic Eiffel Tower, built for the 1889 World's Fair?",
+      "choices": ["Rome", "London", "Paris", "Berlin"],
+      "correctAnswerIndex": 2,
+      "explanation": "The Eiffel Tower stands on the Champ de Mars in Paris, France."
+    },
+    {
+      "id": "travel-02",
+      "prompt": "Which ancient stone monument in Wiltshire, England, consists of a ring of standing stones erected in prehistoric times?",
+      "choices": ["Stonehenge", "Hadrian's Wall", "The Roman Baths", "Tower of London"],
+      "correctAnswerIndex": 0,
+      "explanation": "Stonehenge dates back to around 3000 BC to 2000 BC."
+    },
+    {
+      "id": "travel-03",
+      "prompt": "What massive man-made fortification spans thousands of miles across northern China?",
+      "choices": ["The Grand Canal", "The Great Wall of China", "The Forbidden City", "The Terracotta Army"],
+      "correctAnswerIndex": 1,
+      "explanation": "The Great Wall was built over centuries by various dynasties to protect against invasions."
+    },
+    {
+      "id": "travel-04",
+      "prompt": "Which famous white marble mausoleum in Agra, India, was built by an emperor in memory of his beloved wife?",
+      "choices": ["Qutb Minar", "Red Fort", "Taj Mahal", "Hawa Mahal"],
+      "correctAnswerIndex": 2,
+      "explanation": "Commissioned in 1632 by Shah Jahan, the Taj Mahal is a UNESCO World Heritage site."
+    },
+    {
+      "id": "travel-05",
+      "prompt": "What is the capital city of Australia, often mistaken for its larger coastal neighbor, Sydney?",
+      "choices": ["Melbourne", "Brisbane", "Canberra", "Perth"],
+      "correctAnswerIndex": 2,
+      "explanation": "Canberra was selected as the nation's capital in 1908 as a compromise between Sydney and Melbourne."
+    },
+    {
+      "id": "travel-06",
+      "prompt": "Which iconic Italian bell tower is world-famous for its unintentional lean?",
+      "choices": ["The Duomo of Florence", "St. Mark's Campanile", "The Leaning Tower of Pisa", "Giotto's Campanile"],
+      "correctAnswerIndex": 2,
+      "explanation": "Construction on the Leaning Tower of Pisa began in 1173 and took almost 200 years to complete."
+    },
+    {
+      "id": "travel-07",
+      "prompt": "What is the largest coral reef system in the world, located off the coast of Queensland, Australia?",
+      "choices": ["The Mesoamerican Reef", "The Great Barrier Reef", "New Caledonia Barrier Reef", "Red Sea Coral Reef"],
+      "correctAnswerIndex": 1,
+      "explanation": "The Great Barrier Reef is so vast it can be seen from outer space."
+    },
+    {
+      "id": "travel-08",
+      "prompt": "Which South American ancient Incan citadel sits high in the Andes Mountains of Peru?",
+      "choices": ["Machu Picchu", "Chichen Itza", "Tikal", "Teotihuacan"],
+      "correctAnswerIndex": 0,
+      "explanation": "Machu Picchu was built in the 15th century and later abandoned during the Spanish conquest."
+    },
+    {
+      "id": "travel-09",
+      "prompt": "What legendary canal connects the Atlantic Ocean to the Pacific Ocean across Central America?",
+      "choices": ["Suez Canal", "Panama Canal", "Erie Canal", "Kiel Canal"],
+      "correctAnswerIndex": 1,
+      "explanation": "Completed in 1914, the Panama Canal drastically reduced maritime shipping travel times."
+    },
+    {
+      "id": "travel-10",
+      "prompt": "Which famous volcanic peak overlooks the city of Tokyo, Japan?",
+      "choices": ["Mount Aso", "Mount Unzen", "Mount Fuji", "Mount Bandai"],
+      "correctAnswerIndex": 2,
+      "explanation": "Mount Fuji is an active stratovolcano and Japan's highest mountain at 3,776 meters."
+    },
+    {
+      "id": "travel-11",
+      "prompt": "What historic Roman amphitheater, built of travertine and concrete, could hold up to 50,000 spectators?",
+      "choices": ["The Pantheon", "The Colosseum", "The Roman Forum", "Circus Maximus"],
+      "correctAnswerIndex": 1,
+      "explanation": "The Colosseum in Rome hosted gladiatorial games and public spectacles."
+    },
+    {
+      "id": "travel-12",
+      "prompt": "In which African country would you find the majestic and sprawling wildlife reserve known as the Serengeti National Park?",
+      "choices": ["Kenya", "South Africa", "Tanzania", "Zimbabwe"],
+      "correctAnswerIndex": 2,
+      "explanation": "The Serengeti in Tanzania is famous for its massive annual animal migrations."
+    },
+    {
+      "id": "travel-13",
+      "prompt": "What monumental 98-foot-tall Art Deco statue of Jesus Christ overlooks the city of Rio de Janeiro?",
+      "choices": ["Christ the King", "Christ the Redeemer", "The Sacred Heart", "Monument to the Andes"],
+      "correctAnswerIndex": 1,
+      "explanation": "Christ the Redeemer stands atop the Corcovado mountain in Brazil."
+    },
+    {
+      "id": "travel-14",
+      "prompt": "Which European city features an intricate network of canals, hundreds of bridges, and historic gondolas instead of traditional roads?",
+      "choices": ["Amsterdam", "Venice", "Bruges", "Copenhagen"],
+      "correctAnswerIndex": 1,
+      "explanation": "Venice, Italy, is built across more than 100 small islands in a lagoon."
+    },
+    {
+      "id": "travel-15",
+      "prompt": "What is the deepest freshwater lake in the world, located in Siberia, Russia?",
+      "choices": ["Lake Superior", "Lake Victoria", "Lake Baikal", "Lake Tanganyika"],
+      "correctAnswerIndex": 2,
+      "explanation": "Lake Baikal holds roughly 20% of the world's unfrozen surface freshwater."
+    }
+  ]
+}

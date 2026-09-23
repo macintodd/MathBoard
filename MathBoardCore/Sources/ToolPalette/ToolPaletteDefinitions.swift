@@ -18,6 +18,7 @@ public enum ToolPaletteDefinitions {
         .selection,
         .extract,
         .pen,
+        .fountainPen,
         .marker,
         .laser,
         .eraser,
@@ -31,6 +32,8 @@ public enum ToolPaletteDefinitions {
         switch id {
         case .pen:
             return PenToolDefinition()
+        case .fountainPen:
+            return FountainPenToolDefinition()
         case .marker:
             return MarkerToolDefinition()
         case .eraser:
@@ -71,6 +74,8 @@ public enum ToolPaletteReducer {
             switch state.activeTool {
             case .pen:
                 state.penColor = color
+            case .fountainPen:
+                state.fountainPenColor = color
             case .marker:
                 state.markerColor = color
             case .laser:
@@ -86,6 +91,8 @@ public enum ToolPaletteReducer {
             switch state.activeTool {
             case .pen:
                 state.penStrokeWidth = min(max(width, 10), 27)
+            case .fountainPen:
+                state.fountainPenStrokeWidth = min(max(width, 4), 28)
             case .marker:
                 state.markerStrokeWidth = min(max(width, 4), 36)
             case .eraser:
@@ -101,6 +108,8 @@ public enum ToolPaletteReducer {
             switch state.activeTool {
             case .pen:
                 state.penOpacity = clampedOpacity
+            case .fountainPen:
+                state.fountainPenOpacity = clampedOpacity
             case .marker:
                 state.markerOpacity = clampedOpacity
             case .selection, .extract, .reserved, .eraser, .geometry, .laser, .equation, .cover:
@@ -116,13 +125,18 @@ public enum ToolPaletteReducer {
             case .pen:
                 state.penPalettePreset = preset
                 state.penPaletteColors = ToolPaletteState.paletteColors(for: preset)
+            case .fountainPen:
+                state.fountainPenPalettePreset = preset
+                state.fountainPenPaletteColors = ToolPaletteState.paletteColors(for: preset)
             case .marker:
                 state.markerPalettePreset = preset
                 state.markerPaletteColors = ToolPaletteState.defaultMarkerPaletteColors(for: preset)
             case .laser:
                 state.laserPalettePreset = preset
                 state.laserPaletteColors = ToolPaletteState.paletteColors(for: preset)
-            case .selection, .extract, .reserved, .eraser, .geometry, .equation, .cover:
+            case .cover:
+                state.coverPaletteColors = ToolPaletteState.paletteColors(for: preset)
+            case .selection, .extract, .reserved, .eraser, .geometry, .equation:
                 break
             }
         case .setPaletteColor(let tool, let index, let color):
@@ -130,13 +144,19 @@ public enum ToolPaletteReducer {
             case .pen:
                 replacePaletteColor(&state.penPaletteColors, at: index, with: color)
                 state.penColor = color
+            case .fountainPen:
+                replacePaletteColor(&state.fountainPenPaletteColors, at: index, with: color)
+                state.fountainPenColor = color
             case .marker:
                 replacePaletteColor(&state.markerPaletteColors, at: index, with: color)
                 state.markerColor = color
             case .laser:
                 replacePaletteColor(&state.laserPaletteColors, at: index, with: color)
                 state.laserColor = color
-            case .selection, .extract, .reserved, .eraser, .geometry, .equation, .cover:
+            case .cover:
+                replacePaletteColor(&state.coverPaletteColors, at: index, with: color)
+                state.strokeColor = color
+            case .selection, .extract, .reserved, .eraser, .geometry, .equation:
                 break
             }
         case .setGeometryType(let geometryType):
@@ -223,6 +243,43 @@ struct PenToolDefinition: ToolDefinition {
                     label: "Opacity",
                     iconSystemName: "circle.lefthalf.filled",
                     value: state.penOpacity,
+                    range: 0.1...1,
+                    minEndMarker: .lightCircle,
+                    maxEndMarker: .darkCircle,
+                    command: { .setOpacity($0) }
+                )
+            )
+        )
+    }
+}
+
+struct FountainPenToolDefinition: ToolDefinition {
+    let id: ToolID = .fountainPen
+    let iconSystemName = ToolID.fountainPen.iconSystemName
+    let label = ToolID.fountainPen.displayName
+
+    func configuration(for state: ToolPaletteState) -> ToolPaletteConfiguration {
+        ToolPaletteConfiguration(
+            topOrbit: colorOrbitItems(state.fountainPenPaletteColors, prefix: "fountain"),
+            leftArc: .slider(
+                PaletteSliderConfiguration(
+                    id: "fountain.width",
+                    label: "Width",
+                    iconSystemName: "lineweight",
+                    value: state.fountainPenStrokeWidth,
+                    range: 4...28,
+                    minEndMarker: .thinLine,
+                    maxEndMarker: .thickLine,
+                    trackStyle: .graduatedThickness,
+                    command: { .setStrokeWidth($0) }
+                )
+            ),
+            rightArc: .slider(
+                PaletteSliderConfiguration(
+                    id: "fountain.opacity",
+                    label: "Opacity",
+                    iconSystemName: "circle.lefthalf.filled",
+                    value: state.fountainPenOpacity,
                     range: 0.1...1,
                     minEndMarker: .lightCircle,
                     maxEndMarker: .darkCircle,
@@ -617,7 +674,7 @@ struct CoverToolDefinition: ToolDefinition {
 
     func configuration(for state: ToolPaletteState) -> ToolPaletteConfiguration {
         ToolPaletteConfiguration(
-            topOrbit: colorOrbitItems(state.activePaletteColors, prefix: "cover"),
+            topOrbit: colorOrbitItems(state.coverPaletteColors, prefix: "cover"),
             leftArc: .hidden,
             rightArc: .hidden
         )

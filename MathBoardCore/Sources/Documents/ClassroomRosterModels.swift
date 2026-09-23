@@ -6,10 +6,46 @@
 import Foundation
 import Observation
 
+enum ClassroomColor: Int, Codable, CaseIterable {
+    case sky = 0
+    case violet = 1
+    case rose = 2
+    case amber = 3
+    case emerald = 4
+    case indigo = 5
+    case teal = 6
+    case orange = 7
+    case pink = 8
+    case lime = 9
+
+    var hexString: String {
+        switch self {
+        case .sky:     return "#38BDF8"
+        case .violet:  return "#A78BFA"
+        case .rose:    return "#FB7185"
+        case .amber:   return "#FCD34D"
+        case .emerald: return "#34D399"
+        case .indigo:  return "#818CF8"
+        case .teal:    return "#2DD4BF"
+        case .orange:  return "#FB923C"
+        case .pink:    return "#F472B6"
+        case .lime:    return "#A3E635"
+        }
+    }
+
+    // Stable assignment for classrooms migrated from before color was added.
+    static func stableColor(for id: UUID) -> ClassroomColor {
+        let byte = withUnsafeBytes(of: id.uuid) { $0[0] }
+        return allCases[Int(byte) % allCases.count]
+    }
+}
+
 struct Classroom: Identifiable, Codable, Hashable {
     var id: UUID
     var name: String
     var alternateIDPrefix: String
+    var color: ClassroomColor
+    var isCurrent: Bool
     var createdAt: Date
     var modifiedAt: Date
     var students: [RosterStudent]
@@ -18,6 +54,8 @@ struct Classroom: Identifiable, Codable, Hashable {
         id: UUID = UUID(),
         name: String,
         alternateIDPrefix: String? = nil,
+        color: ClassroomColor? = nil,
+        isCurrent: Bool = true,
         createdAt: Date = Date(),
         modifiedAt: Date = Date(),
         students: [RosterStudent] = []
@@ -25,6 +63,8 @@ struct Classroom: Identifiable, Codable, Hashable {
         self.id = id
         self.name = name
         self.alternateIDPrefix = alternateIDPrefix ?? Self.defaultAlternateIDPrefix(for: name)
+        self.color = color ?? ClassroomColor.stableColor(for: id)
+        self.isCurrent = isCurrent
         self.createdAt = createdAt
         self.modifiedAt = modifiedAt
         self.students = students
@@ -34,6 +74,8 @@ struct Classroom: Identifiable, Codable, Hashable {
         case id
         case name
         case alternateIDPrefix
+        case color
+        case isCurrent
         case createdAt
         case modifiedAt
         case students
@@ -45,6 +87,9 @@ struct Classroom: Identifiable, Codable, Hashable {
         name = try container.decode(String.self, forKey: .name)
         alternateIDPrefix = try container.decodeIfPresent(String.self, forKey: .alternateIDPrefix)
             ?? Self.defaultAlternateIDPrefix(for: name)
+        color = try container.decodeIfPresent(ClassroomColor.self, forKey: .color)
+            ?? ClassroomColor.stableColor(for: id)
+        isCurrent = try container.decodeIfPresent(Bool.self, forKey: .isCurrent) ?? true
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         modifiedAt = try container.decode(Date.self, forKey: .modifiedAt)
         students = try container.decode([RosterStudent].self, forKey: .students)
@@ -148,12 +193,18 @@ public final class ClassroomRosterStore {
     @discardableResult
     func createClassroom(named name: String) throws -> Classroom {
         let finalName = try validatedClassName(name)
-        var classroom = Classroom(name: finalName)
+        var classroom = Classroom(name: finalName, color: nextAvailableColor())
         classrooms.append(classroom)
         sortClassrooms()
         try save()
         classroom = try requireClassroom(id: classroom.id)
         return classroom
+    }
+
+    private func nextAvailableColor() -> ClassroomColor {
+        let usedColors = Set(classrooms.map(\.color))
+        return ClassroomColor.allCases.first { !usedColors.contains($0) }
+            ?? ClassroomColor.allCases[classrooms.count % ClassroomColor.allCases.count]
     }
 
     func renameClassroom(_ classroomID: UUID, to name: String) throws {
@@ -244,6 +295,16 @@ public final class ClassroomRosterStore {
         }
 
         classrooms[classroomIndex].alternateIDPrefix = try validatedAlternateIDPrefix(prefix)
+        classrooms[classroomIndex].modifiedAt = Date()
+        try save()
+    }
+
+    func updateCurrentStatus(_ isCurrent: Bool, for classroomID: UUID) throws {
+        guard let classroomIndex = classrooms.firstIndex(where: { $0.id == classroomID }) else {
+            throw ClassroomRosterStoreError.classroomNotFound
+        }
+
+        classrooms[classroomIndex].isCurrent = isCurrent
         classrooms[classroomIndex].modifiedAt = Date()
         try save()
     }
@@ -397,11 +458,11 @@ public final class ClassroomRosterStore {
     }
 
     @discardableResult
-    func importCSV(preview: RosterCSVPreview, className: String) throws -> Classroom {
+    func importCSV(preview: RosterCSVPreview, className: String, isCurrent: Bool = true) throws -> Classroom {
         let finalName = try validatedClassName(className)
         let students = try students(from: preview)
 
-        let classroom = Classroom(name: finalName, students: students.sortedForRoster())
+        let classroom = Classroom(name: finalName, isCurrent: isCurrent, students: students.sortedForRoster())
         classrooms.append(classroom)
         sortClassrooms()
         try save()

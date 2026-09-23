@@ -342,11 +342,12 @@ struct FirebaseClassroomSyncService {
             studentPreferredFirstName: preferredFirstName,
             widgetID: widgetID,
             correctCount: submission.widgetScoreRecord.score,
-            attemptedCount: submission.widgetScoreRecord.pointsPossible,
+            attemptedCount: submission.widgetScoreRecord.attempts,
             status: submission.widgetScoreRecord.status,
             isActiveOnStudentScreen: isActiveOnStudentScreen,
             hasEverBeenSubmitted: hasEverBeenSubmitted,
-            updatedAt: submission.submittedAt
+            updatedAt: submission.submittedAt,
+            metadata: submission.widgetScoreRecord.metadata
         )
         try await setData(
             liveProgressDocument(
@@ -1014,8 +1015,11 @@ struct FirebaseClassroomSyncService {
             "status": progress.status.rawValue,
             "isActiveOnStudentScreen": progress.isActiveOnStudentScreen,
             "hasEverBeenSubmitted": progress.hasEverBeenSubmitted,
-            "updatedAt": Timestamp(date: progress.updatedAt)
+            "updatedAt": FieldValue.serverTimestamp()
         ]
+        if !progress.metadata.isEmpty {
+            document["metadata"] = progress.metadata
+        }
         if let preferredFirstName = normalizedPreferredFirstName(progress.studentPreferredFirstName) {
             document["studentPreferredFirstName"] = preferredFirstName
         }
@@ -1066,7 +1070,8 @@ struct FirebaseClassroomSyncService {
             status: status,
             isActiveOnStudentScreen: data["isActiveOnStudentScreen"] as? Bool ?? false,
             hasEverBeenSubmitted: data["hasEverBeenSubmitted"] as? Bool ?? false,
-            updatedAt: timestampValue(data["updatedAt"])
+            updatedAt: timestampValue(data["updatedAt"]),
+            metadata: data["metadata"] as? [String: String] ?? [:]
         )
     }
 
