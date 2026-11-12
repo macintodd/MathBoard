@@ -417,11 +417,11 @@ public struct ToolPaletteState: Equatable, Sendable {
         coverPaletteColors: [PaletteColor]? = nil,
         strokeWidth: Double = 10,
         opacity: Double = 1,
-        penStrokeWidth: Double? = nil,
+        penStrokeWidth: Double? = 24,
         fountainPenStrokeWidth: Double? = nil,
-        markerStrokeWidth: Double = 18,
+        markerStrokeWidth: Double = 36,
         eraserWidth: Double? = nil,
-        laserDiameter: Double? = 20,
+        laserDiameter: Double? = 60,
         penOpacity: Double? = nil,
         fountainPenOpacity: Double? = nil,
         markerOpacity: Double = 0.5,
@@ -590,6 +590,89 @@ public struct ToolPaletteState: Equatable, Sendable {
             colors[1] = .yellow
         }
         return colors
+    }
+}
+
+/// Ink-tool settings that survive lesson close/reopen. Saved to UserDefaults as
+/// JSON so only drawing-relevant state is persisted (no transient UI flags).
+public struct PersistedInkToolSettings: Codable, Sendable {
+    public var penStrokeWidth: Double
+    public var penOpacity: Double
+    public var penColor: PaletteColor
+    public var penPalettePreset: PalettePreset
+    public var penPaletteColors: [PaletteColor]
+    public var fountainPenStrokeWidth: Double
+    public var fountainPenOpacity: Double
+    public var fountainPenColor: PaletteColor
+    public var fountainPenPalettePreset: PalettePreset
+    public var fountainPenPaletteColors: [PaletteColor]
+    public var markerStrokeWidth: Double
+    public var markerOpacity: Double
+    public var markerColor: PaletteColor
+    public var markerPalettePreset: PalettePreset
+    public var markerPaletteColors: [PaletteColor]
+    public var laserDiameter: Double
+    public var laserColor: PaletteColor
+    public var laserPalettePreset: PalettePreset
+    public var laserPaletteColors: [PaletteColor]
+
+    private static let userDefaultsKey = "MathBoard.inkToolSettings"
+
+    public init(from state: ToolPaletteState) {
+        penStrokeWidth = state.penStrokeWidth
+        penOpacity = state.penOpacity
+        penColor = state.penColor
+        penPalettePreset = state.penPalettePreset
+        penPaletteColors = state.penPaletteColors
+        fountainPenStrokeWidth = state.fountainPenStrokeWidth
+        fountainPenOpacity = state.fountainPenOpacity
+        fountainPenColor = state.fountainPenColor
+        fountainPenPalettePreset = state.fountainPenPalettePreset
+        fountainPenPaletteColors = state.fountainPenPaletteColors
+        markerStrokeWidth = state.markerStrokeWidth
+        markerOpacity = state.markerOpacity
+        markerColor = state.markerColor
+        markerPalettePreset = state.markerPalettePreset
+        markerPaletteColors = state.markerPaletteColors
+        laserDiameter = state.laserDiameter
+        laserColor = state.laserColor
+        laserPalettePreset = state.laserPalettePreset
+        laserPaletteColors = state.laserPaletteColors
+    }
+
+    public func apply(to state: inout ToolPaletteState) {
+        state.penStrokeWidth = penStrokeWidth
+        state.penOpacity = penOpacity
+        state.penColor = penColor
+        state.penPalettePreset = penPalettePreset
+        state.penPaletteColors = penPaletteColors
+        state.fountainPenStrokeWidth = fountainPenStrokeWidth
+        state.fountainPenOpacity = fountainPenOpacity
+        state.fountainPenColor = fountainPenColor
+        state.fountainPenPalettePreset = fountainPenPalettePreset
+        state.fountainPenPaletteColors = fountainPenPaletteColors
+        state.markerStrokeWidth = markerStrokeWidth
+        state.markerOpacity = markerOpacity
+        state.markerColor = markerColor
+        state.markerPalettePreset = markerPalettePreset
+        state.markerPaletteColors = markerPaletteColors
+        state.laserDiameter = laserDiameter
+        state.laserColor = laserColor
+        state.laserPalettePreset = laserPalettePreset
+        state.laserPaletteColors = laserPaletteColors
+    }
+
+    public static func load() -> PersistedInkToolSettings? {
+        guard let data = UserDefaults.standard.data(forKey: userDefaultsKey),
+              let settings = try? JSONDecoder().decode(PersistedInkToolSettings.self, from: data) else {
+            return nil
+        }
+        return settings
+    }
+
+    public func save() {
+        guard let data = try? JSONEncoder().encode(self) else { return }
+        UserDefaults.standard.set(data, forKey: Self.userDefaultsKey)
     }
 }
 

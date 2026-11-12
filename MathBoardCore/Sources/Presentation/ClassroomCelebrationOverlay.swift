@@ -16,6 +16,8 @@ public struct ClassroomCelebrationEvent: Identifiable, Equatable, Sendable {
     }
 }
 
+// MARK: - Main overlay
+
 public struct ShootingStarCelebrationOverlay: View {
     public let event: ClassroomCelebrationEvent
 
@@ -26,6 +28,10 @@ public struct ShootingStarCelebrationOverlay: View {
     @State private var burstScale: CGFloat = 0.4
     @State private var burstOpacity: Double = 0
     @State private var flightPath = ShootingStarFlightPath.default
+    @State private var accentColor: Color = .cyan
+    @State private var kudosPhrase: String = "Well done!"
+
+    private static let flightDuration: Double = 11.5
 
     public init(event: ClassroomCelebrationEvent) {
         self.event = event
@@ -37,22 +43,22 @@ public struct ShootingStarCelebrationOverlay: View {
                 shootingStar
                     .position(
                         x: proxy.size.width * flightPath.point(at: flightProgress).x,
-                        y: proxy.size.height * flightPath.point(at: flightProgress).y
+                        y: topGlideY(in: proxy.size)
                     )
-                    .rotationEffect(.degrees(flightPath.rotationDegrees))
-                    .scaleEffect(isFlying ? 1.02 : 0.84)
-                    .opacity(isFlying ? 0.98 : 0)
-                    .shadow(color: Color.yellow.opacity(0.48), radius: 20, x: 0, y: 0)
+                    .scaleEffect(isFlying ? 1.0 : 0.82)
+                    .opacity(isFlying ? 1.0 : 0)
 
                 EdgeBurstView(seed: event.id)
                     .scaleEffect(burstScale)
                     .opacity(burstOpacity)
-                    .position(x: proxy.size.width + 10, y: proxy.size.height * flightPath.end.y)
+                    .position(x: proxy.size.width + 10, y: topGlideY(in: proxy.size))
             }
         }
         .allowsHitTesting(false)
         .task(id: event.id) {
-            flightPath = .random()
+            flightPath = .topGlide()
+            accentColor = KudosAccentColor.random(seed: event.id)
+            kudosPhrase = KudosPhrase.random(seed: event.id)
             isFlying = false
             flightProgress = 0
             tailIntensity = 0
@@ -60,30 +66,22 @@ public struct ShootingStarCelebrationOverlay: View {
             burstOpacity = 0
             isVisible = true
             await Task.yield()
-            withAnimation(.easeOut(duration: 0.08)) {
+            withAnimation(.easeOut(duration: 0.22)) {
                 isFlying = true
                 tailIntensity = 1
             }
-            withAnimation(.linear(duration: 8.5)) {
+            withAnimation(.linear(duration: Self.flightDuration)) {
                 flightProgress = 1
             }
             do {
-                try await Task.sleep(for: .milliseconds(8_500))
+                try await Task.sleep(for: .milliseconds(Int(Self.flightDuration * 1000)))
             } catch {
                 isVisible = false
                 return
             }
-            withAnimation(.easeOut(duration: 0.18)) {
-                tailIntensity = 0.28
-            }
-            withAnimation(.easeOut(duration: 0.16)) {
-                burstScale = 1
-                burstOpacity = 1
-            }
-            withAnimation(.easeOut(duration: 0.22).delay(0.12)) {
-                burstScale = 1.28
-                burstOpacity = 0
-            }
+            withAnimation(.easeOut(duration: 0.18)) { tailIntensity = 0.28 }
+            withAnimation(.easeOut(duration: 0.16)) { burstScale = 1; burstOpacity = 1 }
+            withAnimation(.easeOut(duration: 0.22).delay(0.12)) { burstScale = 1.28; burstOpacity = 0 }
             do {
                 try await Task.sleep(for: .milliseconds(420))
                 isVisible = false
@@ -93,122 +91,356 @@ public struct ShootingStarCelebrationOverlay: View {
         }
     }
 
+    // MARK: Placement
+
+    /// Pins the placard to the top edge of the 16:9 viewfinder mask so the
+    /// placard body lines up with the region shown on the secondary display.
+    /// The viewfinder (`ViewfinderOverlay`) is a vertically centered 16:9 rect,
+    /// so its top edge sits at `(height - viewfinderHeight) / 2`. The overlay
+    /// shares the same full-screen container, so we can reproduce that here and
+    /// drop the placard body so its top aligns with the mask.
+    private func topGlideY(in size: CGSize) -> CGFloat {
+        let targetAspect: CGFloat = 16.0 / 9.0
+        let viewfinderHeight = size.width / max(size.height, 1) > targetAspect
+            ? size.height
+            : size.width / targetAspect
+        let viewfinderTop = (size.height - viewfinderHeight) / 2
+        // Half of KudosPlacardView.bodyHeight (112) — the `.position` sets the
+        // placard center, so shift down by the body half-height to seat its
+        // top on the mask line.
+        let placardBodyHalfHeight: CGFloat = 56
+        return viewfinderTop + placardBodyHalfHeight
+    }
+
+    // MARK: Composition
+
     private var shootingStar: some View {
-        HStack(spacing: -58) {
+        HStack(spacing: -52) {
             if flightPath.movesRight {
-                starTrail
-                nameBadge
+                ribbonTrail
+                kudosPlacard
             } else {
-                nameBadge
-                starTrail
+                kudosPlacard
+                ribbonTrail
+                    .scaleEffect(x: -1, y: 1)
             }
         }
     }
 
-    private var nameBadge: some View {
-        Text(event.studentName)
-            .font(.system(size: 66, weight: .heavy, design: .rounded))
-            .foregroundStyle(
-                LinearGradient(
-                    colors: [
-                        Color(red: 1.0, green: 0.98, blue: 0.34),
-                        Color(red: 1.0, green: 0.78, blue: 0.08),
-                        Color(red: 1.0, green: 0.44, blue: 0.02)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
+    // MARK: Placard
+
+    private var kudosPlacard: some View {
+        KudosPlacardView(name: event.studentName, phrase: kudosPhrase, accentColor: accentColor)
+            .shadow(color: .black.opacity(0.42), radius: 14, x: 0, y: 7)
+            .shadow(color: Color(red: 0.90, green: 0.68, blue: 0.12).opacity(0.55), radius: 22, x: 0, y: 0)
+    }
+
+    // MARK: Ribbon trail
+
+    private var ribbonTrail: some View {
+        ZStack(alignment: .trailing) {
+            // Back glow — wide, warm amber haze
+            RoundedRectangle(cornerRadius: 30)
+                .fill(
+                    LinearGradient(
+                        colors: [.clear, Color(red: 1.0, green: 0.72, blue: 0.10).opacity(0.30)],
+                        startPoint: .leading, endPoint: .trailing
+                    )
                 )
-            )
-            .lineLimit(1)
-            .minimumScaleFactor(0.58)
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-            .frame(minWidth: 320, maxWidth: 680, minHeight: 104, alignment: .leading)
-            .background {
+                .frame(width: 470, height: 100)
+                .blur(radius: 22)
+
+            // Primary ribbon — main gold streak
+            RoundedRectangle(cornerRadius: 14)
+                .fill(
+                    LinearGradient(
+                        colors: [.clear, Color(red: 1.0, green: 0.84, blue: 0.24).opacity(0.60)],
+                        startPoint: .leading, endPoint: .trailing
+                    )
+                )
+                .frame(width: 400, height: 46)
+                .blur(radius: 8)
+
+            // Bright white core
+            RoundedRectangle(cornerRadius: 5)
+                .fill(
+                    LinearGradient(
+                        colors: [.clear, Color.white.opacity(0.80)],
+                        startPoint: .leading, endPoint: .trailing
+                    )
+                )
+                .frame(width: 270, height: 10)
+                .blur(radius: 2)
+
+            // Upper accent ribbon — random color
+            RoundedRectangle(cornerRadius: 10)
+                .fill(
+                    LinearGradient(
+                        colors: [.clear, accentColor.opacity(0.48)],
+                        startPoint: .leading, endPoint: .trailing
+                    )
+                )
+                .frame(width: 310, height: 20)
+                .offset(y: -32)
+                .blur(radius: 6)
+
+            // Lower accent ribbon — random color
+            RoundedRectangle(cornerRadius: 8)
+                .fill(
+                    LinearGradient(
+                        colors: [.clear, accentColor.opacity(0.32)],
+                        startPoint: .leading, endPoint: .trailing
+                    )
+                )
+                .frame(width: 250, height: 14)
+                .offset(y: 32)
+                .blur(radius: 5)
+
+            // Fine upper highlight
+            RoundedRectangle(cornerRadius: 3)
+                .fill(
+                    LinearGradient(
+                        colors: [.clear, Color.white.opacity(0.55)],
+                        startPoint: .leading, endPoint: .trailing
+                    )
+                )
+                .frame(width: 210, height: 5)
+                .offset(y: -20)
+                .blur(radius: 1.5)
+
+            // Fine lower highlight
+            RoundedRectangle(cornerRadius: 3)
+                .fill(
+                    LinearGradient(
+                        colors: [.clear, Color.white.opacity(0.40)],
+                        startPoint: .leading, endPoint: .trailing
+                    )
+                )
+                .frame(width: 170, height: 4)
+                .offset(y: 22)
+                .blur(radius: 1.5)
+
+            // Particle sparkle tail
+            ParticleTailView(seed: event.id, intensity: tailIntensity)
+        }
+        .opacity(Double(tailIntensity))
+    }
+}
+
+// MARK: - Kudos Placard
+
+private struct KudosPlacardView: View {
+    let name: String
+    let phrase: String
+    let accentColor: Color
+
+    private let bodyWidth: CGFloat = 504
+    private let bodyHeight: CGFloat = 112
+    private let cornerRadius: CGFloat = 36
+    private let borderWidth: CGFloat = 5
+
+    var body: some View {
+        ZStack {
+            // Subtle accent glow behind the whole badge (theme color)
+            RoundedRectangle(cornerRadius: cornerRadius + 6)
+                .fill(accentColor.opacity(0.18))
+                .frame(width: bodyWidth + 14, height: bodyHeight + 14)
+                .blur(radius: 12)
+
+            // Gold outer border ring
+            RoundedRectangle(cornerRadius: cornerRadius)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 1.0, green: 0.93, blue: 0.52),
+                            Color(red: 0.86, green: 0.63, blue: 0.18),
+                            Color(red: 1.0, green: 0.88, blue: 0.44),
+                            Color(red: 0.68, green: 0.44, blue: 0.08),
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: bodyWidth, height: bodyHeight)
+
+            // Dark navy inner body
+            RoundedRectangle(cornerRadius: cornerRadius - borderWidth)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.13, green: 0.17, blue: 0.38),
+                            Color(red: 0.06, green: 0.08, blue: 0.22),
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottom
+                    )
+                )
+                .frame(width: bodyWidth - borderWidth * 2, height: bodyHeight - borderWidth * 2)
+
+            // Content row — star pinned to the leading edge while the name
+            // stays centered across the full badge width.
+            ZStack {
+                nameTextBlock
+                    .padding(.horizontal, 98)
+
+                HStack {
+                    starMedallion
+                    Spacer()
+                }
+                .padding(.leading, 14)
+            }
+            .frame(width: bodyWidth - borderWidth * 2)
+
+            // KUDOS pill — rides the top border edge
+            VStack {
+                kudosPill
+                    .offset(y: -(bodyHeight * 0.5 - 10))
+                Spacer()
+            }
+            .frame(height: bodyHeight)
+        }
+        .frame(width: bodyWidth, height: bodyHeight)
+    }
+
+    // MARK: Star medallion
+
+    private var starMedallion: some View {
+        ZStack {
+            Circle()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 1.0, green: 0.92, blue: 0.50),
+                            Color(red: 0.72, green: 0.48, blue: 0.10),
+                            Color(red: 1.0, green: 0.88, blue: 0.42),
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 84, height: 84)
+
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [
+                            Color(red: 0.15, green: 0.19, blue: 0.42),
+                            Color(red: 0.06, green: 0.08, blue: 0.22),
+                        ],
+                        center: .topLeading,
+                        startRadius: 0,
+                        endRadius: 52
+                    )
+                )
+                .frame(width: 70, height: 70)
+
+            Image(systemName: "star.fill")
+                .font(.system(size: 34))
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 1.0, green: 0.97, blue: 0.56),
+                            Color(red: 0.98, green: 0.77, blue: 0.18),
+                            Color(red: 0.86, green: 0.53, blue: 0.04),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .shadow(color: Color.yellow.opacity(0.80), radius: 5, x: 0, y: 0)
+                .shadow(color: Color.orange.opacity(0.55), radius: 10, x: 0, y: 0)
+        }
+    }
+
+    // MARK: Name + phrase
+
+    private var nameTextBlock: some View {
+        VStack(alignment: .center, spacing: 2) {
+            Text(name)
+                .font(.system(size: 54, weight: .black, design: .rounded))
+                .foregroundColor(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.46)
+                .multilineTextAlignment(.center)
+                .shadow(color: .white.opacity(0.28), radius: 3)
+
+            Text(phrase)
+                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                .foregroundColor(Color.white.opacity(0.60))
+                .lineLimit(1)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: KUDOS pill
+
+    private var kudosPill: some View {
+        Text("KUDOS")
+            .font(.system(size: 10, weight: .black, design: .rounded))
+            .foregroundColor(Color(red: 0.24, green: 0.14, blue: 0.02))
+            .kerning(2.5)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 5)
+            .background(
                 Capsule()
                     .fill(
                         LinearGradient(
                             colors: [
-                                Color(red: 1.0, green: 0.96, blue: 0.34).opacity(0.18),
-                                Color(red: 1.0, green: 0.67, blue: 0.05).opacity(0.08),
-                                Color.orange.opacity(0)
+                                Color(red: 1.0, green: 0.96, blue: 0.60),
+                                Color(red: 0.94, green: 0.74, blue: 0.24),
                             ],
-                            startPoint: .leading,
-                            endPoint: .trailing
+                            startPoint: .top,
+                            endPoint: .bottom
                         )
                     )
-                    .blur(radius: 14)
-                    .scaleEffect(x: 1.04, y: 0.78)
-            }
-            .shadow(color: Color(red: 1.0, green: 0.95, blue: 0.20).opacity(0.95), radius: 5, x: 0, y: 0)
-            .shadow(color: Color(red: 1.0, green: 0.53, blue: 0.02).opacity(0.82), radius: 9, x: 0, y: 0)
-            .shadow(color: Color(red: 0.42, green: 0.12, blue: 0.0).opacity(0.58), radius: 2, x: 0, y: 3)
-    }
-
-    private var starTrail: some View {
-        ZStack(alignment: .trailing) {
-            Capsule()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color.orange.opacity(0),
-                            Color(red: 1.0, green: 0.75, blue: 0.08).opacity(0.34),
-                            Color(red: 1.0, green: 0.92, blue: 0.20).opacity(0.58)
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-                .frame(width: 430, height: 96)
-                .blur(radius: 14)
-
-            Capsule()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color(red: 1.0, green: 0.78, blue: 0.08).opacity(0),
-                            Color(red: 1.0, green: 0.72, blue: 0.04).opacity(0.26),
-                            Color(red: 1.0, green: 0.86, blue: 0.12).opacity(0.66)
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-                .frame(width: 360, height: 54)
-                .blur(radius: 6)
-
-            Capsule()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0),
-                            Color.white.opacity(0.82)
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-                .frame(width: 240, height: 8)
-                .offset(y: -22)
-
-            Capsule()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0),
-                            Color.white.opacity(0.62)
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-                .frame(width: 190, height: 6)
-                .offset(y: 24)
-
-            ParticleTailView(seed: event.id, intensity: tailIntensity)
-        }
+                    .overlay(Capsule().stroke(Color.white.opacity(0.38), lineWidth: 0.5))
+            )
+            .shadow(color: .black.opacity(0.28), radius: 2, x: 0, y: 1)
     }
 }
+
+// MARK: - Random accent colors (theme color for accent ribbons + badge glow)
+
+private enum KudosAccentColor {
+    static func random(seed: UUID) -> Color {
+        let bytes = seed.uuidString.utf8.reduce(0) { $0 &+ UInt64($1) }
+        var generator = SeededGenerator(seed: bytes &+ 77777)
+        let palette: [Color] = [
+            Color(red: 0.18, green: 0.84, blue: 1.0),   // electric cyan
+            Color(red: 1.0, green: 0.20, blue: 0.72),   // hot magenta
+            Color(red: 0.22, green: 1.0, blue: 0.58),   // aurora green
+            Color(red: 0.74, green: 0.22, blue: 1.0),   // cosmic violet
+            Color(red: 1.0, green: 0.44, blue: 0.12),   // deep orange
+            Color(red: 0.40, green: 0.80, blue: 1.0),   // sky blue
+        ]
+        return palette.randomElement(using: &generator) ?? .cyan
+    }
+}
+
+// MARK: - Random kudos phrases
+
+private enum KudosPhrase {
+    static func random(seed: UUID) -> String {
+        let bytes = seed.uuidString.utf8.reduce(0) { $0 &+ UInt64($1) }
+        var generator = SeededGenerator(seed: bytes &+ 55555)
+        let phrases = [
+            "Well done!",
+            "Excellent work!",
+            "Brilliant!",
+            "Keep it up!",
+            "Amazing!",
+            "Superstar!",
+            "Way to go!",
+            "Fantastic!",
+            "Outstanding!",
+            "You rock!",
+        ]
+        return phrases.randomElement(using: &generator) ?? "Well done!"
+    }
+}
+
+// MARK: - Particle tail
 
 private struct ParticleTailView: View {
     let seed: UUID
@@ -235,6 +467,8 @@ private struct ParticleTailView: View {
     }
 }
 
+// MARK: - Edge burst
+
 private struct EdgeBurstView: View {
     let seed: UUID
 
@@ -254,6 +488,8 @@ private struct EdgeBurstView: View {
         }
     }
 }
+
+// MARK: - Particles
 
 private struct ShootingStarParticle: Identifiable {
     let id: Int
@@ -276,7 +512,7 @@ private struct ShootingStarParticle: Identifiable {
                 Color(red: 1.0, green: 0.93, blue: 0.22),
                 Color(red: 1.0, green: 0.62, blue: 0.08),
                 Color(red: 0.46, green: 0.98, blue: 1.0),
-                Color(red: 1.0, green: 0.80, blue: 0.58)
+                Color(red: 1.0, green: 0.80, blue: 0.58),
             ]
             return ShootingStarParticle(
                 id: index,
@@ -295,13 +531,7 @@ private struct ShootingStarParticle: Identifiable {
         }
     }
 
-    enum ShapeKind {
-        case star
-        case square
-        case diamond
-        case circle
-        case triangle
-    }
+    enum ShapeKind { case star, square, diamond, circle, triangle }
 }
 
 private struct ParticleShapeView: View {
@@ -329,21 +559,20 @@ private struct ParticleShapeView: View {
     }
 }
 
+// MARK: - Particle shapes
+
 private struct StarParticleShape: Shape {
     func path(in rect: CGRect) -> Path {
         let center = CGPoint(x: rect.midX, y: rect.midY)
         let outerRadius = min(rect.width, rect.height) / 2
         let innerRadius = outerRadius * 0.42
         var path = Path()
-
-        for pointIndex in 0..<10 {
-            let radius = pointIndex.isMultiple(of: 2) ? outerRadius : innerRadius
-            let angle = -Double.pi / 2 + Double(pointIndex) * Double.pi / 5
-            let point = CGPoint(
-                x: center.x + CGFloat(cos(angle)) * radius,
-                y: center.y + CGFloat(sin(angle)) * radius
-            )
-            pointIndex == 0 ? path.move(to: point) : path.addLine(to: point)
+        for i in 0..<10 {
+            let radius = i.isMultiple(of: 2) ? outerRadius : innerRadius
+            let angle = -Double.pi / 2 + Double(i) * Double.pi / 5
+            let point = CGPoint(x: center.x + CGFloat(cos(angle)) * radius,
+                                y: center.y + CGFloat(sin(angle)) * radius)
+            i == 0 ? path.move(to: point) : path.addLine(to: point)
         }
         path.closeSubpath()
         return path
@@ -373,6 +602,8 @@ private struct TriangleParticleShape: Shape {
     }
 }
 
+// MARK: - Seeded RNG
+
 private struct SeededGenerator: RandomNumberGenerator {
     private var state: UInt64
 
@@ -389,6 +620,8 @@ private struct SeededGenerator: RandomNumberGenerator {
     }
 }
 
+// MARK: - Flight path
+
 private struct ShootingStarFlightPath {
     let start: CGPoint
     let end: CGPoint
@@ -396,35 +629,37 @@ private struct ShootingStarFlightPath {
     let movesRight: Bool
 
     static let `default` = ShootingStarFlightPath(
-        start: CGPoint(x: -0.14, y: 0.54),
-        end: CGPoint(x: 1.14, y: 0.42),
-        rotationDegrees: -5,
+        start: CGPoint(x: -0.22, y: 0),
+        end: CGPoint(x: 1.22, y: 0),
+        rotationDegrees: 0,
         movesRight: true
     )
 
-    static func random() -> ShootingStarFlightPath {
-        let startY = CGFloat.random(in: 0.26...0.72)
-        let endY = min(0.78, max(0.20, startY + CGFloat.random(in: -0.15...0.10)))
-        let start = CGPoint(x: -0.14, y: startY)
-        let end = CGPoint(x: 1.14, y: endY)
-        return ShootingStarFlightPath(start: start, end: end)
+    /// A level left-to-right glide that enters from the side and slides
+    /// straight across. The vertical position is fixed by `topGlideY`, so the
+    /// path only carries horizontal travel and never tilts.
+    static func topGlide() -> ShootingStarFlightPath {
+        ShootingStarFlightPath(
+            start: CGPoint(x: -0.22, y: 0),
+            end: CGPoint(x: 1.22, y: 0)
+        )
     }
 
     func point(at progress: CGFloat) -> CGPoint {
-        let clampedProgress = min(1, max(0, progress))
+        let t = min(1, max(0, progress))
         return CGPoint(
-            x: start.x + (end.x - start.x) * clampedProgress,
-            y: start.y + (end.y - start.y) * clampedProgress
+            x: start.x + (end.x - start.x) * t,
+            y: start.y + (end.y - start.y) * t
         )
     }
 
     private init(start: CGPoint, end: CGPoint) {
         self.start = start
         self.end = end
-        let horizontalDistance = end.x - start.x
-        let verticalDistance = end.y - start.y
-        movesRight = horizontalDistance >= 0
-        rotationDegrees = Double(atan2(verticalDistance, abs(horizontalDistance)) * 180 / .pi)
+        let dx = end.x - start.x
+        let dy = end.y - start.y
+        movesRight = dx >= 0
+        rotationDegrees = Double(atan2(dy, abs(dx)) * 180 / .pi)
     }
 
     private init(start: CGPoint, end: CGPoint, rotationDegrees: Double, movesRight: Bool) {

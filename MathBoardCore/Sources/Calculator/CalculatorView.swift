@@ -1275,11 +1275,12 @@ public struct CalculatorView: View {
         case .insert(let text):
             state.computeExpression += text
         case .fraction:
-            // Append >Frac to current expression; user presses ENTER to evaluate
-            let prefix = state.computeExpression.isEmpty ? "Ans" : ""
+            // Append >Frac to current expression; user presses ENTER to evaluate.
+            // Use lowercase "ans" so the evaluator resolves it via the variables dict.
+            let prefix = state.computeExpression.isEmpty ? "ans" : ""
             state.computeExpression = prefix + state.computeExpression + ">Frac"
         case .decimal:
-            let prefix = state.computeExpression.isEmpty ? "Ans" : ""
+            let prefix = state.computeExpression.isEmpty ? "ans" : ""
             state.computeExpression = prefix + state.computeExpression + ">Dec"
         case .none, .statEditor, .regression, .oneVarStats, .twoVarStats:
             break
@@ -4390,13 +4391,14 @@ private struct MPFractionView: View {
     var body: some View {
         VStack(alignment: .center, spacing: 1) {
             MPLineView(tokens: num, em: em * 0.82, cursorVisible: cursorVisible)
-                .frame(maxWidth: .infinity, alignment: .center)
             Rectangle()
                 .fill(Color.black)
                 .frame(height: 1.5)
             MPLineView(tokens: den, em: em * 0.82, cursorVisible: cursorVisible)
-                .frame(maxWidth: .infinity, alignment: .center)
         }
+        // Constrain to content width so the fraction bar spans only the
+        // numerator/denominator, not the full-width parent container.
+        .fixedSize(horizontal: true, vertical: false)
         .padding(.horizontal, 3)
         .padding(.vertical, 2)
     }

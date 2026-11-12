@@ -340,7 +340,7 @@ public struct MathtivityCatalogItem: Identifiable, Codable, Sendable, Equatable 
                 return .bellRingerExitTicket
             case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator:
                 return .tools
-            case .functionTransformationExplorer, .quadraticWebApplet, .domainRangeWebApplet, .analizingGraphs1WebApplet, .projectileMotionGraphAnalysisWebApplet, .constantRateWebApplet, .completingTheSquareWebApplet, .andOrAttributeFilterWebApplet, .andOrInequalityNumberLineWebApplet, .compoundInequalityGraphingDemoWebApplet:
+            case .functionTransformationExplorer, .quadraticWebApplet, .domainRangeWebApplet, .analizingGraphs1WebApplet, .projectileMotionGraphAnalysisWebApplet, .constantRateWebApplet, .completingTheSquareWebApplet, .andOrAttributeFilterWebApplet, .andOrInequalityNumberLineWebApplet, .compoundInequalityGraphingDemoWebApplet, .absoluteValueAsDemonstrationWebApplet, .introPointSlopeWebApplet, .writeLinearEquationWebApplet, .parallelPerpendicularWebApplet:
                 return .conceptualInteractive
             case .matchGrid:
                 return .classPlay
@@ -503,7 +503,7 @@ public enum MathtivityCatalogLocalRegistry {
             return .bellRingerExitTicket
         case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator:
             return .tools
-        case .functionTransformationExplorer, .quadraticWebApplet, .domainRangeWebApplet, .analizingGraphs1WebApplet, .projectileMotionGraphAnalysisWebApplet, .constantRateWebApplet, .completingTheSquareWebApplet, .andOrAttributeFilterWebApplet, .andOrInequalityNumberLineWebApplet, .compoundInequalityGraphingDemoWebApplet:
+        case .functionTransformationExplorer, .quadraticWebApplet, .domainRangeWebApplet, .analizingGraphs1WebApplet, .projectileMotionGraphAnalysisWebApplet, .constantRateWebApplet, .completingTheSquareWebApplet, .andOrAttributeFilterWebApplet, .andOrInequalityNumberLineWebApplet, .compoundInequalityGraphingDemoWebApplet, .absoluteValueAsDemonstrationWebApplet, .introPointSlopeWebApplet, .writeLinearEquationWebApplet, .parallelPerpendicularWebApplet:
             return .conceptualInteractive
         case .matchGrid:
             return .classPlay

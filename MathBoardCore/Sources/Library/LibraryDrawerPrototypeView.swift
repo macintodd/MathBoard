@@ -1708,6 +1708,14 @@ private struct BuiltInInteractiveGlyph: View {
             return "number.line"
         case .compoundInequalityGraphingDemoWebApplet:
             return "number.line"
+        case .absoluteValueAsDemonstrationWebApplet:
+            return "number.line"
+        case .introPointSlopeWebApplet:
+            return "chart.line.uptrend.xyaxis"
+        case .writeLinearEquationWebApplet:
+            return "pencil.and.ruler"
+        case .parallelPerpendicularWebApplet:
+            return "equal"
         case .matchGrid:
             return "rectangle.grid.3x2.fill"
         case .actDailyPractice:
@@ -1743,6 +1751,14 @@ private struct BuiltInInteractiveGlyph: View {
             return "NUMBER LINE"
         case .compoundInequalityGraphingDemoWebApplet:
             return "COMPOUND"
+        case .absoluteValueAsDemonstrationWebApplet:
+            return "ABS VAL"
+        case .introPointSlopeWebApplet:
+            return "PT SLOPE"
+        case .writeLinearEquationWebApplet:
+            return "WRITE EQ"
+        case .parallelPerpendicularWebApplet:
+            return "PAR PERP"
         case .matchGrid:
             return "MATCHGRID"
         case .actDailyPractice:

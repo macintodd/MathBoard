@@ -355,6 +355,10 @@ struct PencilKitCanvasContainer: View {
     @State private var isApplyingEditCommand = false
     @State private var objectDragUndoStartSnapshot: CanvasUndoSnapshot?
     @State private var appliedEditCommandID: CanvasEditCommand.ID?
+    // Incrementing this UUID forces dismantleUIView + makeUIView on the representable,
+    // giving PencilKit a completely fresh PKCanvasView. Used to recover from the
+    // inactive-canvas stroke corruption that no property-level reset can fix.
+    @State private var canvasResetID = UUID()
 
     private static let saveDebounce: Duration = .milliseconds(400)
     private static let maximumUndoDepth = 50
@@ -404,6 +408,7 @@ struct PencilKitCanvasContainer: View {
 
     private var baseObservedRepresentable: some View {
         representable
+            .id(canvasResetID)
             .background(Color.white)
             .task(id: drawingURL) {
                 await loadCanvasState()
@@ -465,7 +470,10 @@ struct PencilKitCanvasContainer: View {
             onWidgetImageInsertionRequested: onWidgetImageInsertionRequested,
             allowsWidgetAuthoring: allowsWidgetAuthoring,
             showsTeacherDemoWebApplets: showsTeacherDemoWebApplets,
-            hidesStudentInk: hidesStudentInk
+            hidesStudentInk: hidesStudentInk,
+            onNeedsReset: {
+                canvasResetID = UUID()
+            }
         )
     }
 
@@ -1204,7 +1212,12 @@ private final class PencilKitCanvasHostView: UIView {
     // Tracks whether any widget gesture is active so the deferred scroll
     // re-enable (in onWidgetInteractionChanged) can abort if a new
     // interaction started before the Task had a chance to fire.
-    fileprivate var widgetIsInteracting = false
+    fileprivate var widgetIsInteracting = false {
+        didSet {
+            guard widgetIsInteracting != oldValue else { return }
+            MBDiagnosticLogger.emit("Widget", widgetIsInteracting ? "interactionBegan" : "interactionEnded")
+        }
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1701,23 +1714,32 @@ private final class CanvasCoverObjectsView: UIView {
     override func draw(_ rect: CGRect) {
         UIColor.clear.setFill()
         UIRectFill(rect)
-        for object in coverObjects where !object.isRevealed {
+        // Teacher sees semi-transparent masks; students/non-interactive see fully opaque masks.
+        let fillAlpha: CGFloat = showsControls ? 0.5 : 1.0
+        for object in coverObjects {
             guard object.points.count >= 2 else { continue }
-            let path = UIBezierPath()
-            path.move(to: screenPoint(object.points[0]))
-            for point in object.points.dropFirst() {
-                path.addLine(to: screenPoint(point))
-            }
-            path.close()
-            UIColor(red: object.red, green: object.green, blue: object.blue, alpha: 0.5).setFill()
-            path.fill()
 
-            let box = object.boundingBox
-            let topLeft = screenPoint(CGPoint(x: box.minX, y: box.minY))
-            let topRight = screenPoint(CGPoint(x: box.maxX, y: box.minY))
-            let headerRect = CGRect(x: topLeft.x, y: topLeft.y, width: topRight.x - topLeft.x, height: 10)
-            UIColor.systemRed.setFill()
-            UIRectFill(headerRect)
+            if !object.isRevealed {
+                let path = UIBezierPath()
+                path.move(to: screenPoint(object.points[0]))
+                for point in object.points.dropFirst() {
+                    path.addLine(to: screenPoint(point))
+                }
+                path.close()
+                UIColor(red: object.red, green: object.green, blue: object.blue, alpha: fillAlpha).setFill()
+                path.fill()
+            }
+
+            // Teacher always sees the red indicator bar — even after revealing — so
+            // they know a mask is still present on the slide.
+            if showsControls {
+                let box = object.boundingBox
+                let topLeft = screenPoint(CGPoint(x: box.minX, y: box.minY))
+                let topRight = screenPoint(CGPoint(x: box.maxX, y: box.minY))
+                let headerRect = CGRect(x: topLeft.x, y: topLeft.y, width: topRight.x - topLeft.x, height: 10)
+                UIColor.systemRed.setFill()
+                UIRectFill(headerRect)
+            }
         }
     }
 
@@ -2048,7 +2070,8 @@ private final class CanvasCoverControlView: UIView {
 private final class CanvasTextPlacementOverlayView: UIView {
     var acceptsTextPlacement = false {
         didSet {
-            isUserInteractionEnabled = false
+            isUserInteractionEnabled = acceptsTextPlacement
+            MBDiagnosticLogger.emit("Overlay", "textPlacement=\(acceptsTextPlacement)")
         }
     }
 
@@ -2134,6 +2157,7 @@ private final class CanvasRegionSelectionOverlayView: UIView {
     var acceptsRegionSelectionInput = false {
         didSet {
             isUserInteractionEnabled = acceptsRegionSelectionInput
+            MBDiagnosticLogger.emit("Overlay", "regionSelection=\(acceptsRegionSelectionInput)")
         }
     }
     var excludedInteractiveFrames: [CGRect] = []
@@ -2382,6 +2406,7 @@ private final class CanvasLaserOverlayView: UIView {
     var acceptsLaserInput = false {
         didSet {
             isUserInteractionEnabled = acceptsLaserInput
+            MBDiagnosticLogger.emit("Overlay", "laser=\(acceptsLaserInput)")
         }
     }
 
@@ -3695,6 +3720,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
     let allowsWidgetAuthoring: Bool
     let showsTeacherDemoWebApplets: Bool
     let hidesStudentInk: Bool
+    let onNeedsReset: (@MainActor () -> Void)?
 
     func makeUIView(context: Context) -> PencilKitCanvasHostView {
         let hostView = PencilKitCanvasHostView()
@@ -3763,14 +3789,19 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 if isInteracting {
                     hostView?.widgetIsInteracting = true
                     canvas?.isScrollEnabled = false
+                    MBDiagnosticLogger.emit("Scroll", "disabled (widget drag began)")
                 } else {
                     hostView?.widgetIsInteracting = false
                     // Defer re-enabling scroll to the next run-loop cycle so UIKit's
                     // gesture recogniser state machine can fully settle after the
                     // gesture ends before PKCanvasView's pan recogniser goes live again.
                     Task { @MainActor [weak hostView, weak canvas] in
-                        guard hostView?.widgetIsInteracting == false else { return }
-                        canvas?.isScrollEnabled = true
+                        if hostView?.widgetIsInteracting == false {
+                            canvas?.isScrollEnabled = true
+                            MBDiagnosticLogger.emit("Scroll", "re-enabled (widget drag ended)")
+                        } else {
+                            MBDiagnosticLogger.emit("Scroll", "re-enable skipped (new interaction active)")
+                        }
                     }
                 }
             },
@@ -3935,7 +3966,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         context.coordinator.applyViewportCommandIfNeeded(viewportCommand, to: canvas)
         context.coordinator.updateToolPickerVisibility(isVisible: showsSystemToolPicker, for: canvas)
         context.coordinator.applyObjectCommandIfNeeded(objectCommand, to: canvas)
-        context.coordinator.applyToolCommandIfNeeded(toolCommand, to: canvas)
+        let didApplyToolCommand = context.coordinator.applyToolCommandIfNeeded(toolCommand, to: canvas)
 
         if context.coordinator.presentationModeDidChange(to: presentationMode) {
             context.coordinator.clearLiveStrokeAfterViewUpdate()
@@ -3956,7 +3987,19 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             }
         }
 
+        context.coordinator.noteModelDrawingSeen(drawing)
         if !coordinator.hasActiveStrokeTransformPreview, canvas.drawing != drawing {
+            guard !context.coordinator.shouldSkipStaleDrawingReset(
+                modelDrawing: drawing,
+                canvasDrawing: canvas.drawing,
+                reason: didApplyToolCommand ? "toolSwitch" : "modelCatchUp"
+            ) else {
+                return
+            }
+            MBDiagnosticLogger.emit("Canvas", "updateUIView-drawingReset", extra: [
+                "canvasStrokes": "\(canvas.drawing.strokes.count)",
+                "modelStrokes": "\(drawing.strokes.count)"
+            ])
             canvas.drawing = drawing
             // Belt and suspenders: if PencilKit doesn't fire
             // canvasViewDrawingDidChange for this programmatic assignment,
@@ -3971,6 +4014,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         coordinator.cancelPendingViewportFramePublish()
         coordinator.cancelAnimationFramePublish()
         coordinator.clearLiveStroke()
+        coordinator.cancelForegroundActivationObserver()
     }
 
     func makeCoordinator() -> Coordinator {
@@ -4026,6 +4070,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private var appliedViewportCommandID: CanvasViewportCommand.ID?
         private var appliedToolCommandID: CanvasToolCommand.ID?
         private var appliedObjectCommandID: CanvasObjectCommand.ID?
+        private var foregroundActivationObserver: NSObjectProtocol?
+        private var willEnterForegroundObserver: NSObjectProtocol?
+        private var willResignActiveObserver: NSObjectProtocol?
         private var didRestoreInitialViewport = false
         private var fittedBackground: CanvasBackground?
         private var configuredBoundsSize: CGSize = .zero
@@ -4150,6 +4197,9 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private weak var activeTextEditor: UITextView?
         private var activeTextObjectID: UUID?
         private var isApplyingTextEditorUpdate = false
+        private var latestLocalCanvasDrawing: PKDrawing?
+        private var isWaitingForModelDrawingToCatchUp = false
+        private var deferredEraserExitToolCommandID: CanvasToolCommand.ID?
 
         private struct CommittedFrameBackgroundCache {
             let pdfURL: URL
@@ -4265,6 +4315,144 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             self.publishedPresentationMode = parent.presentationMode
             self.publishedTextObjects = parent.textObjects
             self.publishedAnimationPlaybackState = parent.animationPlaybackState
+            super.init()
+            subscribeToForegroundActivation()
+        }
+
+        // MARK: - Foreground activation restore
+
+        private func subscribeToForegroundActivation() {
+            // Phase 1 — willEnterForeground: restore canvas opacity SYNCHRONOUSLY.
+            // This fires before UIKit delivers any touch events from the pencil tap
+            // that activated the app, so canvas.layer.opacity = 1 is guaranteed to
+            // be set before the activation touch reaches PKCanvasView.
+            //
+            // IMPORTANT: only restore opacity here — do NOT call becomeFirstResponder()
+            // or applyToolCommandIfNeeded() at this stage. The window is not yet key
+            // during willEnterForeground, so calling becomeFirstResponder() too early
+            // breaks UIKit's activation sequence and leaves PencilKit unable to process
+            // pencil input (drawing fails on both teacher iPad and secondary display).
+            willEnterForegroundObserver = NotificationCenter.default.addObserver(
+                forName: UIApplication.willEnterForegroundNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let canvas = self.canvas else { return }
+                    if self.hasActiveStrokeTransformPreview {
+                        self.commitPendingGroupStrokeTransform(on: canvas)
+                        self.clearLiveTransformedStrokes()
+                        self.clearObjectDragState()
+                        self.stopObjectDragPublishLink()
+                    } else {
+                        self.setCanvasHiddenForLiveStrokeTransform(false, on: canvas)
+                        self.hostView?.strokeTransformPreviewView.clear()
+                    }
+                    MBDiagnosticLogger.emit("Canvas", "earlyOpacityRestoreOnWillEnterForeground")
+                }
+            }
+            // Phase 2 — didBecomeActive: full restore (drawing policy, first responder,
+            // tool). Uses Task { @MainActor } so it runs after UIKit has finished its own
+            // activation sequence. Running synchronously here (MainActor.assumeIsolated)
+            // was found to break PencilKit — becomeFirstResponder() mid-activation breaks
+            // the drawing gesture recognizer, causing all drawing to fail.
+            foregroundActivationObserver = NotificationCenter.default.addObserver(
+                forName: UIApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.restoreDrawingInputAfterActivation()
+                }
+            }
+            // Diagnostic: log canvas first-responder and gesture state at the moment
+            // the app resigns active (split-view focus change or full background entry).
+            // This helps trace why drawing breaks after a stroke on an inactive canvas.
+            willResignActiveObserver = NotificationCenter.default.addObserver(
+                forName: UIApplication.willResignActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let canvas = self.canvas else { return }
+                    MBDiagnosticLogger.emit("Canvas", "willResignActive", extra: [
+                        "isFirstResponder": "\(canvas.isFirstResponder)",
+                        "gestureEnabled": "\(canvas.drawingGestureRecognizer.isEnabled)"
+                    ])
+                }
+            }
+        }
+
+        func cancelForegroundActivationObserver() {
+            if let observer = willEnterForegroundObserver {
+                NotificationCenter.default.removeObserver(observer)
+                willEnterForegroundObserver = nil
+            }
+            if let observer = foregroundActivationObserver {
+                NotificationCenter.default.removeObserver(observer)
+                foregroundActivationObserver = nil
+            }
+            if let observer = willResignActiveObserver {
+                NotificationCenter.default.removeObserver(observer)
+                willResignActiveObserver = nil
+            }
+        }
+
+        // Called async (Task { @MainActor }) when the app is fully active.
+        // Handles drawing policy, first-responder, and tool re-application.
+        // Canvas opacity is handled earlier in the willEnterForeground phase;
+        // this method also restores opacity as a belt-and-suspenders for cases
+        // where willEnterForeground did not fire (e.g. slide-over/focus changes).
+        private func restoreDrawingInputAfterActivation() {
+            guard let canvas else { return }
+            canvas.drawingPolicy = .anyInput
+            let becameFirstResponder = canvas.becomeFirstResponder()
+            MBDiagnosticLogger.emit("Canvas", "restoreActivation-becomeFirstResponder", extra: [
+                "result": "\(becameFirstResponder)",
+                "isFirstResponder": "\(canvas.isFirstResponder)"
+            ])
+            // Unconditionally restore canvas visibility and clear any stale preview
+            // overlay. Safe to call even when no transform was in progress.
+            if hasActiveStrokeTransformPreview {
+                commitPendingGroupStrokeTransform(on: canvas)
+                clearLiveTransformedStrokes()
+                clearObjectDragState()
+                stopObjectDragPublishLink()
+            } else {
+                setCanvasHiddenForLiveStrokeTransform(false, on: canvas)
+                hostView?.strokeTransformPreviewView.clear()
+            }
+            appliedToolCommandID = nil
+            _ = applyToolCommandIfNeeded(parent.toolCommand, to: canvas)
+            // Cycle the drawing gesture recognizer only when the current tool uses it.
+            // This resets any stuck .failed/.cancelled state caused by the activation
+            // pencil touch reaching the canvas mid-recognizer-setup. We skip the cycle
+            // for select/laser/cover/idle tools, which intentionally leave the recognizer
+            // disabled — re-enabling it for those tools would incorrectly allow ink drawing.
+            if canvas.drawingGestureRecognizer.isEnabled {
+                canvas.drawingGestureRecognizer.isEnabled = false
+                canvas.drawingGestureRecognizer.isEnabled = true
+            }
+            MBDiagnosticLogger.emit("Canvas", "restoredAfterForegroundActivation")
+            // Deferred safety-net: if the activation pencil tap lands on a selection handle
+            // it can briefly trigger beginGroupTransform (opacity=0) after the willEnterForeground
+            // restore. 200ms is enough for all touch-end callbacks to settle.
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                guard let self, let canvas = self.canvas else { return }
+                if self.hasActiveStrokeTransformPreview {
+                    // Still "active" 200ms post-activation — the .ended callback didn't
+                    // fire for the tap; force-commit so the canvas becomes visible.
+                    self.commitPendingGroupStrokeTransform(on: canvas)
+                    self.clearLiveTransformedStrokes()
+                    self.clearObjectDragState()
+                    self.stopObjectDragPublishLink()
+                } else {
+                    self.setCanvasHiddenForLiveStrokeTransform(false, on: canvas)
+                    self.hostView?.strokeTransformPreviewView.clear()
+                }
+                MBDiagnosticLogger.emit("Canvas", "deferredActivationRestore")
+            }
         }
 
         func installToolPicker(on canvas: PKCanvasView, isVisible: Bool) {
@@ -4292,9 +4480,61 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
             }
         }
 
-        func applyToolCommandIfNeeded(_ command: CanvasToolCommand?, to canvas: PKCanvasView) {
-            guard let command, appliedToolCommandID != command.id else { return }
+        func noteModelDrawingSeen(_ modelDrawing: PKDrawing) {
+            guard isWaitingForModelDrawingToCatchUp,
+                  let latestLocalCanvasDrawing,
+                  modelDrawing == latestLocalCanvasDrawing else {
+                return
+            }
+            isWaitingForModelDrawingToCatchUp = false
+            self.latestLocalCanvasDrawing = nil
+        }
+
+        func shouldSkipStaleDrawingReset(
+            modelDrawing: PKDrawing,
+            canvasDrawing: PKDrawing,
+            reason: String
+        ) -> Bool {
+            guard isWaitingForModelDrawingToCatchUp,
+                  let latestLocalCanvasDrawing,
+                  canvasDrawing == latestLocalCanvasDrawing,
+                  modelDrawing != latestLocalCanvasDrawing else {
+                return false
+            }
+
+            MBDiagnosticLogger.emit("Canvas", "skippedStaleDrawingReset", extra: [
+                "canvasStrokes": "\(canvasDrawing.strokes.count)",
+                "modelStrokes": "\(modelDrawing.strokes.count)",
+                "reason": reason
+            ])
+            return true
+        }
+
+        @discardableResult
+        func applyToolCommandIfNeeded(_ command: CanvasToolCommand?, to canvas: PKCanvasView) -> Bool {
+            guard let command, appliedToolCommandID != command.id else { return false }
+            if shouldDeferEraserExit(command, on: canvas) {
+                appliedToolCommandID = command.id
+                deferredEraserExitToolCommandID = command.id
+                latestLocalCanvasDrawing = canvas.drawing
+                isWaitingForModelDrawingToCatchUp = true
+                parent.drawing = canvas.drawing
+                MBDiagnosticLogger.emit("Tool", "deferredEraserExit", extra: [
+                    "target": command.action.diagnosticName,
+                    "strokes": "\(canvas.drawing.strokes.count)"
+                ])
+                Task { @MainActor [weak self, weak canvas] in
+                    await Task.yield()
+                    guard let self, let canvas else { return }
+                    self.appliedToolCommandID = nil
+                    _ = self.applyToolCommandIfNeeded(command, to: canvas)
+                }
+                return true
+            }
             appliedToolCommandID = command.id
+            if deferredEraserExitToolCommandID == command.id {
+                deferredEraserExitToolCommandID = nil
+            }
             guard parent.allowsWidgetAuthoring || command.action.isAllowedWithoutObjectAuthoring else {
                 finishTextEditing()
                 isTextSelectionEnabled = false
@@ -4309,7 +4549,7 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 geometryCreationRecognizer?.isEnabled = false
                 updateHostTextObjects(using: canvas)
                 updateHostGeometryObjects(using: canvas)
-                return
+                return true
             }
 
             // Geometry creation is only active for the geometry tool; the
@@ -4327,6 +4567,20 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 activeCoverConfig = nil
                 creatingCoverSourcePoints = []
                 creatingCoverConsumedSampleCount = 0
+            }
+
+            MBDiagnosticLogger.emit("Tool", command.action.diagnosticName)
+
+            // If a stroke-transform drag was in progress, commit and clean up
+            // before switching tools. Without this, the canvas can be left hidden
+            // (opacity=0) with a stale frozenInkImageView sitting on top, causing
+            // already-erased strokes to appear to reappear after tool switches.
+            if hasActiveStrokeTransformPreview {
+                commitPendingGroupStrokeTransform(on: canvas)
+                clearLiveTransformedStrokes()
+                clearObjectDragState()
+                stopObjectDragPublishLink()
+                MBDiagnosticLogger.emit("Canvas", "toolSwitch-committedActiveTransform")
             }
 
             switch command.action {
@@ -4642,6 +4896,16 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 updateHostTextObjects(using: canvas)
                 clearLaserOverlay()
             }
+            return true
+        }
+
+        private func shouldDeferEraserExit(_ command: CanvasToolCommand, on canvas: PKCanvasView) -> Bool {
+            guard deferredEraserExitToolCommandID != command.id,
+                  canvas.tool is PKEraserTool,
+                  command.action.isInkTool else {
+                return false
+            }
+            return true
         }
 
         func applyObjectCommandIfNeeded(_ command: CanvasObjectCommand?, to canvas: PKCanvasView) {
@@ -10758,6 +11022,8 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
 
         func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
             guard !isApplyingLiveStrokeTransform else { return }
+            latestLocalCanvasDrawing = canvasView.drawing
+            isWaitingForModelDrawingToCatchUp = true
             parent.drawing = canvasView.drawing
             if canvasView.tool is PKInkingTool {
                 needsCommittedInkFrameRefresh = true
@@ -10789,10 +11055,26 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
 
         func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
             isUsingPencilKitTool = false
-            guard needsCommittedInkFrameRefresh else { return }
-            needsCommittedInkFrameRefresh = false
-            publishViewportSourceRect(from: canvasView)
-            scheduleViewportFramePublish(after: Self.committedInkFramePublishDebounce)
+            if needsCommittedInkFrameRefresh {
+                needsCommittedInkFrameRefresh = false
+                publishViewportSourceRect(from: canvasView)
+                scheduleViewportFramePublish(after: Self.committedInkFramePublishDebounce)
+            }
+            // When a stroke ends while the app is inactive (split-view/slide-over
+            // background), PencilKit's internal post-stroke cleanup does not complete
+            // cleanly. No public-API reset (becomeFirstResponder, gesture cycle,
+            // drawing reassignment) repairs this — the only fix is a fresh PKCanvasView,
+            // which is what slide-switch normally provides. Triggering onNeedsReset from
+            // the next run-loop tick (after PencilKit finishes its internal callbacks)
+            // causes PencilKitCanvasContainer to change its canvasResetID, which SwiftUI
+            // interprets as a view-identity change and calls dismantleUIView + makeUIView
+            // to provide a clean canvas — without losing any drawing state.
+            guard UIApplication.shared.applicationState != .active else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                MBDiagnosticLogger.emit("Canvas", "inactiveStrokeCanvasReset")
+                parent.onNeedsReset?()
+            }
         }
 
         // MARK: - Publish from model (non-stroke renders)
@@ -12109,6 +12391,15 @@ private final class PencilWriteGestureRecognizer: UIGestureRecognizer {
 }
 
 private extension CanvasToolCommand.Action {
+    var isInkTool: Bool {
+        switch self {
+        case .pen, .fountainPen, .marker:
+            return true
+        default:
+            return false
+        }
+    }
+
     var isAllowedWithoutObjectAuthoring: Bool {
         switch self {
         case .idle, .pen, .fountainPen, .marker, .eraser, .geometry:
@@ -12126,6 +12417,49 @@ private extension CanvasToolCommand.Action {
              .cover:
             return false
         }
+    }
+
+    var diagnosticName: String {
+        switch self {
+        case .idle: return "idle"
+        case .select: return "select"
+        case .copySelection: return "copySelection"
+        case .pasteSelection: return "pasteSelection"
+        case .duplicateSelection: return "duplicateSelection"
+        case .deleteSelection: return "deleteSelection"
+        case .extractSelectionAsImageSticker: return "extractAsSticker"
+        case .sendSelectionToNextSlide: return "sendToNextSlide"
+        case .setExtractAction: return "setExtractAction"
+        case .pen: return "pen"
+        case .fountainPen: return "fountainPen"
+        case .marker: return "marker"
+        case .eraser(let mode, _): return "eraser(\(mode))"
+        case .laser: return "laser"
+        case .text: return "text"
+        case .geometry(let shape, _, _, _, _, _, _): return "geometry(\(shape))"
+        case .cover: return "cover"
+        }
+    }
+}
+
+/// Writes PKDrawing data that is in canvas coordinate space (as produced by
+/// `onDrawingDataChange` or `TeacherInkDrawingSnapshot.drawingDataBase64`) to a
+/// PKCanvas drawing file on disk, applying the canvas→storage coordinate transform.
+///
+/// This is the inverse of the transform applied in `PencilKitCanvasContainer.loadCanvasState`.
+/// Call this to materialize a teacher ink snapshot into a student's local drawing file
+/// before the canvas view loads so that the canvas reads the updated content.
+public func writeTeacherInkSnapshotDataToFile(_ canvasCoordinateData: Data, url: URL) {
+    guard let drawing = try? PKDrawing(data: canvasCoordinateData) else { return }
+    let storageDrawing = drawing.transformed(using: PencilKitCanvasGeometry.canvasToStorageTransform)
+    do {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try storageDrawing.dataRepresentation().write(to: url, options: .atomic)
+    } catch {
+        print("[Canvas] writeTeacherInkSnapshotDataToFile error: \(error)")
     }
 }
 

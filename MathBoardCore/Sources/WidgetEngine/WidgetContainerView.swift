@@ -536,6 +536,30 @@ public struct WidgetContainerView: View {
                 runtimeState: WebAppletStateRegistry.state(for: widget.id),
                 isExternalDisplay: isExternalDisplay
             )
+        case .absoluteValueAsDemonstrationWebApplet:
+            WebAppletInteractiveView(
+                resource: .absoluteValueAsDistance,
+                runtimeState: WebAppletStateRegistry.state(for: widget.id),
+                isExternalDisplay: isExternalDisplay
+            )
+        case .introPointSlopeWebApplet:
+            RemoteWebAppletInteractiveView(
+                url: URL(string: "https://www.macintodd.net/apps/intro-point-slope")!,
+                runtimeState: WebAppletStateRegistry.state(for: widget.id),
+                isExternalDisplay: isExternalDisplay
+            )
+        case .writeLinearEquationWebApplet:
+            RemoteWebAppletInteractiveView(
+                url: URL(string: "https://www.macintodd.net/apps/write-linear-equation/teacher")!,
+                runtimeState: WebAppletStateRegistry.state(for: widget.id),
+                isExternalDisplay: isExternalDisplay
+            )
+        case .parallelPerpendicularWebApplet:
+            RemoteWebAppletInteractiveView(
+                url: URL(string: "https://www.macintodd.net/apps/beta/parallel-perpendicular-lesson")!,
+                runtimeState: WebAppletStateRegistry.state(for: widget.id),
+                isExternalDisplay: isExternalDisplay
+            )
         }
     }
 

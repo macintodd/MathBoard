@@ -21,7 +21,7 @@ struct GraphCalculatorResolvedRow: Identifiable, Equatable {
 
     var plotExpression: String? {
         switch plot {
-        case .curve(let expression), .yRelation(let expression, _), .xRelation(let expression, _), .implicitRelation(let expression):
+        case .curve(let expression, _), .yRelation(let expression, _, _), .xRelation(let expression, _, _), .implicitRelation(let expression, _):
             return expression
         case .point(let x, let y):
             return "(\(x),\(y))"
@@ -32,11 +32,64 @@ struct GraphCalculatorResolvedRow: Identifiable, Equatable {
 }
 
 enum GraphCalculatorPlot: Equatable {
-    case curve(String)
-    case yRelation(String, GraphCalculatorYRelation)
-    case xRelation(String, GraphCalculatorXRelation)
-    case implicitRelation(String)
+    case curve(String, GraphCalculatorPlotRestrictions)
+    case yRelation(String, GraphCalculatorYRelation, GraphCalculatorPlotRestrictions)
+    case xRelation(String, GraphCalculatorXRelation, GraphCalculatorPlotRestrictions)
+    case implicitRelation(String, GraphCalculatorPlotRestrictions)
     case point(Double, Double)
+}
+
+struct GraphCalculatorPlotRestrictions: Equatable {
+    static let unrestricted = GraphCalculatorPlotRestrictions(conditions: [])
+
+    var conditions: [GraphCalculatorPlotRestrictionCondition]
+
+    var isEmpty: Bool { conditions.isEmpty }
+
+    func allows(x: Double, y: Double) -> Bool {
+        conditions.allSatisfy { $0.allows(x: x, y: y) }
+    }
+}
+
+struct GraphCalculatorPlotRestrictionCondition: Equatable {
+    enum Variable: String, Equatable {
+        case x
+        case y
+    }
+
+    enum Relation: Equatable {
+        case lessThan
+        case lessThanOrEqual
+        case greaterThan
+        case greaterThanOrEqual
+
+        var inverted: Relation {
+            switch self {
+            case .lessThan: return .greaterThan
+            case .lessThanOrEqual: return .greaterThanOrEqual
+            case .greaterThan: return .lessThan
+            case .greaterThanOrEqual: return .lessThanOrEqual
+            }
+        }
+    }
+
+    var variable: Variable
+    var relation: Relation
+    var value: Double
+
+    func allows(x: Double, y: Double) -> Bool {
+        let candidate = variable == .x ? x : y
+        switch relation {
+        case .lessThan:
+            return candidate < value
+        case .lessThanOrEqual:
+            return candidate <= value
+        case .greaterThan:
+            return candidate > value
+        case .greaterThanOrEqual:
+            return candidate >= value
+        }
+    }
 }
 
 enum GraphCalculatorYRelation: Equatable {
@@ -171,12 +224,21 @@ enum GraphCalculatorExpressionResolver {
             return GraphCalculatorResolvedRow(index: index, source: source, plot: nil, displayValue: nil, errorMessage: nil)
         }
 
+        let restrictedSource: RestrictedExpression
+        do {
+            restrictedSource = try RestrictedExpression(source: trimmed)
+        } catch {
+            let message = (error as? LocalizedError)?.errorDescription ?? "Cannot read graph restriction"
+            return GraphCalculatorResolvedRow(index: index, source: source, plot: nil, displayValue: nil, errorMessage: message)
+        }
+        let expressionSource = restrictedSource.body
+
         let rawPlot: GraphCalculatorPlot
-        if usesReservedYFunctionNotation(trimmed) {
+        if usesReservedYFunctionNotation(expressionSource) {
             return GraphCalculatorResolvedRow(index: index, source: source, plot: nil, displayValue: nil, errorMessage: "Use y=, not y( )")
         } else if let error = definitionContext.errors[index] {
             return GraphCalculatorResolvedRow(index: index, source: source, plot: nil, displayValue: nil, errorMessage: error)
-        } else if let scalarDefinition = ScalarDefinition(source: trimmed) {
+        } else if let scalarDefinition = ScalarDefinition(source: expressionSource) {
             do {
                 let expandedBody = insertImplicitMultiplication(in: normalizeImplicitVariableProducts(in: parenthesizeFractionDenominators(in: expandFunctionCalls(in: scalarDefinition.body, definitions: definitionContext.definitions))))
                 let compiled = try engine.compile(expandedBody)
@@ -188,20 +250,20 @@ enum GraphCalculatorExpressionResolver {
                 let message = (error as? LocalizedError)?.errorDescription ?? "Cannot define this variable"
                 return GraphCalculatorResolvedRow(index: index, source: source, plot: nil, displayValue: nil, errorMessage: message)
             }
-        } else if let point = OrderedPairExpression(source: trimmed) {
+        } else if let point = OrderedPairExpression(source: expressionSource) {
             rawPlot = .point(point.x, point.y)
-        } else if let definition = FunctionDefinition(source: trimmed) {
+        } else if let definition = FunctionDefinition(source: expressionSource) {
             let expandedBody = expandFunctionCalls(in: definition.body, definitions: definitionContext.definitions)
-            rawPlot = .curve(substitute(variable: definition.variable, in: expandedBody, with: "x"))
-        } else if let relation = RelationExpression(source: trimmed) {
+            rawPlot = .curve(substitute(variable: definition.variable, in: expandedBody, with: "x"), restrictedSource.restrictions)
+        } else if let relation = RelationExpression(source: expressionSource) {
             rawPlot = relation.plot
-        } else if let equals = trimmed.firstIndex(of: "=") {
-            rawPlot = .curve(String(trimmed[trimmed.index(after: equals)...]).trimmingCharacters(in: .whitespacesAndNewlines))
+        } else if let equals = expressionSource.firstIndex(of: "=") {
+            rawPlot = .curve(String(expressionSource[expressionSource.index(after: equals)...]).trimmingCharacters(in: .whitespacesAndNewlines), restrictedSource.restrictions)
         } else {
-            rawPlot = .curve(trimmed)
+            rawPlot = .curve(expressionSource, restrictedSource.restrictions)
         }
 
-        let plot = insertImplicitMultiplication(in: normalizeImplicitVariableProducts(in: parenthesizeFractionDenominators(in: expandFunctionCalls(in: rawPlot, definitions: definitionContext.definitions))))
+        let plot = insertImplicitMultiplication(in: normalizeImplicitVariableProducts(in: parenthesizeFractionDenominators(in: expandFunctionCalls(in: rawPlot.applying(restrictions: restrictedSource.restrictions), definitions: definitionContext.definitions))))
         if case .point = plot {
             return GraphCalculatorResolvedRow(index: index, source: source, plot: plot, displayValue: nil, errorMessage: nil)
         }
@@ -316,14 +378,14 @@ enum GraphCalculatorExpressionResolver {
         definitions: [String: FunctionDefinition]
     ) -> GraphCalculatorPlot {
         switch plot {
-        case .curve(let expression):
-            return .curve(expandFunctionCalls(in: expression, definitions: definitions))
-        case .yRelation(let expression, let relation):
-            return .yRelation(expandFunctionCalls(in: expression, definitions: definitions), relation)
-        case .xRelation(let expression, let relation):
-            return .xRelation(expandFunctionCalls(in: expression, definitions: definitions), relation)
-        case .implicitRelation(let expression):
-            return .implicitRelation(expandFunctionCalls(in: expression, definitions: definitions))
+        case .curve(let expression, let restrictions):
+            return .curve(expandFunctionCalls(in: expression, definitions: definitions), restrictions)
+        case .yRelation(let expression, let relation, let restrictions):
+            return .yRelation(expandFunctionCalls(in: expression, definitions: definitions), relation, restrictions)
+        case .xRelation(let expression, let relation, let restrictions):
+            return .xRelation(expandFunctionCalls(in: expression, definitions: definitions), relation, restrictions)
+        case .implicitRelation(let expression, let restrictions):
+            return .implicitRelation(expandFunctionCalls(in: expression, definitions: definitions), restrictions)
         case .point:
             return plot
         }
@@ -336,10 +398,10 @@ enum GraphCalculatorExpressionResolver {
     /// being treated as `^(4*(x+7))` and ensures `3x` and `(a)(b)` are unambiguous products.
     private static func insertImplicitMultiplication(in plot: GraphCalculatorPlot) -> GraphCalculatorPlot {
         switch plot {
-        case .curve(let expression): return .curve(insertImplicitMultiplication(in: expression))
-        case .yRelation(let expression, let relation): return .yRelation(insertImplicitMultiplication(in: expression), relation)
-        case .xRelation(let expression, let relation): return .xRelation(insertImplicitMultiplication(in: expression), relation)
-        case .implicitRelation(let expression): return .implicitRelation(insertImplicitMultiplication(in: expression))
+        case .curve(let expression, let restrictions): return .curve(insertImplicitMultiplication(in: expression), restrictions)
+        case .yRelation(let expression, let relation, let restrictions): return .yRelation(insertImplicitMultiplication(in: expression), relation, restrictions)
+        case .xRelation(let expression, let relation, let restrictions): return .xRelation(insertImplicitMultiplication(in: expression), relation, restrictions)
+        case .implicitRelation(let expression, let restrictions): return .implicitRelation(insertImplicitMultiplication(in: expression), restrictions)
         case .point: return plot
         }
     }
@@ -372,14 +434,14 @@ enum GraphCalculatorExpressionResolver {
 
     private static func normalizeImplicitVariableProducts(in plot: GraphCalculatorPlot) -> GraphCalculatorPlot {
         switch plot {
-        case .curve(let expression):
-            return .curve(normalizeImplicitVariableProducts(in: expression))
-        case .yRelation(let expression, let relation):
-            return .yRelation(normalizeImplicitVariableProducts(in: expression), relation)
-        case .xRelation(let expression, let relation):
-            return .xRelation(normalizeImplicitVariableProducts(in: expression), relation)
-        case .implicitRelation(let expression):
-            return .implicitRelation(normalizeImplicitVariableProducts(in: expression))
+        case .curve(let expression, let restrictions):
+            return .curve(normalizeImplicitVariableProducts(in: expression), restrictions)
+        case .yRelation(let expression, let relation, let restrictions):
+            return .yRelation(normalizeImplicitVariableProducts(in: expression), relation, restrictions)
+        case .xRelation(let expression, let relation, let restrictions):
+            return .xRelation(normalizeImplicitVariableProducts(in: expression), relation, restrictions)
+        case .implicitRelation(let expression, let restrictions):
+            return .implicitRelation(normalizeImplicitVariableProducts(in: expression), restrictions)
         case .point:
             return plot
         }
@@ -554,6 +616,106 @@ enum GraphCalculatorExpressionResolver {
         "sqrt", "abs", "log", "ln", "min", "max"
     ]
 
+    private struct RestrictedExpression {
+        let body: String
+        let restrictions: GraphCalculatorPlotRestrictions
+
+        init(source: String) throws {
+            var remaining = source.trimmingCharacters(in: .whitespacesAndNewlines)
+            var conditions: [GraphCalculatorPlotRestrictionCondition] = []
+
+            while remaining.last == "}" {
+                guard let openBrace = remaining.lastIndex(of: "{") else {
+                    throw RestrictionParseError.invalidRestriction
+                }
+                let clause = String(remaining[remaining.index(after: openBrace)..<remaining.index(before: remaining.endIndex)])
+                conditions.insert(contentsOf: try Self.conditions(in: clause), at: 0)
+                remaining = String(remaining[..<openBrace]).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+
+            if remaining.contains("{") || remaining.contains("}") {
+                throw RestrictionParseError.invalidRestriction
+            }
+
+            body = remaining
+            restrictions = GraphCalculatorPlotRestrictions(conditions: conditions)
+        }
+
+        private static func conditions(in clause: String) throws -> [GraphCalculatorPlotRestrictionCondition] {
+            let normalized = clause
+                .replacingOccurrences(of: " ", with: "")
+                .replacingOccurrences(of: "−", with: "-")
+                .replacingOccurrences(of: "≤", with: "<=")
+                .replacingOccurrences(of: "≥", with: ">=")
+            guard !normalized.isEmpty else {
+                throw RestrictionParseError.invalidRestriction
+            }
+
+            var operands: [String] = []
+            var relations: [GraphCalculatorPlotRestrictionCondition.Relation] = []
+            var current = ""
+            var index = normalized.startIndex
+            while index < normalized.endIndex {
+                if normalized[index] == "<" || normalized[index] == ">" {
+                    operands.append(current)
+                    current = ""
+                    let relationStart = index
+                    let next = normalized.index(after: index)
+                    let includesEqual = next < normalized.endIndex && normalized[next] == "="
+                    if normalized[relationStart] == "<" {
+                        relations.append(includesEqual ? .lessThanOrEqual : .lessThan)
+                    } else {
+                        relations.append(includesEqual ? .greaterThanOrEqual : .greaterThan)
+                    }
+                    index = includesEqual ? normalized.index(after: next) : next
+                } else {
+                    current.append(normalized[index])
+                    index = normalized.index(after: index)
+                }
+            }
+            operands.append(current)
+
+            guard relations.count >= 1, operands.count == relations.count + 1 else {
+                throw RestrictionParseError.invalidRestriction
+            }
+
+            return try relations.indices.map { relationIndex in
+                try condition(left: operands[relationIndex], relation: relations[relationIndex], right: operands[relationIndex + 1])
+            }
+        }
+
+        private static func condition(
+            left: String,
+            relation: GraphCalculatorPlotRestrictionCondition.Relation,
+            right: String
+        ) throws -> GraphCalculatorPlotRestrictionCondition {
+            if let variable = variable(left), let value = number(right) {
+                return GraphCalculatorPlotRestrictionCondition(variable: variable, relation: relation, value: value)
+            }
+            if let value = number(left), let variable = variable(right) {
+                return GraphCalculatorPlotRestrictionCondition(variable: variable, relation: relation.inverted, value: value)
+            }
+            throw RestrictionParseError.invalidRestriction
+        }
+
+        private static func variable(_ value: String) -> GraphCalculatorPlotRestrictionCondition.Variable? {
+            GraphCalculatorPlotRestrictionCondition.Variable(rawValue: value.lowercased())
+        }
+
+        private static func number(_ value: String) -> Double? {
+            guard let number = Double(value), number.isFinite else { return nil }
+            return number
+        }
+    }
+
+    private enum RestrictionParseError: LocalizedError {
+        case invalidRestriction
+
+        var errorDescription: String? {
+            "Use restrictions like {0<x<6}, {x>0}, or {y≤10}"
+        }
+    }
+
     private struct RelationExpression {
         let plot: GraphCalculatorPlot
 
@@ -566,16 +728,16 @@ enum GraphCalculatorExpressionResolver {
             guard !left.isEmpty, !right.isEmpty else { return nil }
 
             if left == "y" {
-                plot = .yRelation(right, match.relation)
+                plot = .yRelation(right, match.relation, .unrestricted)
             } else if right == "y" {
-                plot = .yRelation(left, match.relation.inverted)
+                plot = .yRelation(left, match.relation.inverted, .unrestricted)
             } else if left == "x" {
-                plot = .xRelation(right, GraphCalculatorXRelation(match.relation))
+                plot = .xRelation(right, GraphCalculatorXRelation(match.relation), .unrestricted)
             } else if right == "x" {
-                plot = .xRelation(left, GraphCalculatorXRelation(match.relation.inverted))
+                plot = .xRelation(left, GraphCalculatorXRelation(match.relation.inverted), .unrestricted)
             } else if match.relation == .equal,
                       Self.isXYOnlyRelation(left: left, right: right) {
-                plot = .implicitRelation("(\(left))-(\(right))")
+                plot = .implicitRelation("(\(left))-(\(right))", .unrestricted)
             } else {
                 return nil
             }
@@ -701,10 +863,10 @@ enum GraphCalculatorExpressionResolver {
     /// not `(1/2)*x*x = x²/2` (parabola).
     private static func parenthesizeFractionDenominators(in plot: GraphCalculatorPlot) -> GraphCalculatorPlot {
         switch plot {
-        case .curve(let expr): return .curve(parenthesizeFractionDenominators(in: expr))
-        case .yRelation(let expr, let rel): return .yRelation(parenthesizeFractionDenominators(in: expr), rel)
-        case .xRelation(let expr, let rel): return .xRelation(parenthesizeFractionDenominators(in: expr), rel)
-        case .implicitRelation(let expr): return .implicitRelation(parenthesizeFractionDenominators(in: expr))
+        case .curve(let expr, let restrictions): return .curve(parenthesizeFractionDenominators(in: expr), restrictions)
+        case .yRelation(let expr, let rel, let restrictions): return .yRelation(parenthesizeFractionDenominators(in: expr), rel, restrictions)
+        case .xRelation(let expr, let rel, let restrictions): return .xRelation(parenthesizeFractionDenominators(in: expr), rel, restrictions)
+        case .implicitRelation(let expr, let restrictions): return .implicitRelation(parenthesizeFractionDenominators(in: expr), restrictions)
         case .point: return plot
         }
     }
@@ -751,7 +913,7 @@ enum GraphCalculatorExpressionResolver {
 private extension GraphCalculatorPlot {
     var expression: String {
         switch self {
-        case .curve(let expression), .yRelation(let expression, _), .xRelation(let expression, _), .implicitRelation(let expression):
+        case .curve(let expression, _), .yRelation(let expression, _, _), .xRelation(let expression, _, _), .implicitRelation(let expression, _):
             return expression
         case .point(let x, let y):
             return "(\(x),\(y))"
@@ -761,6 +923,22 @@ private extension GraphCalculatorPlot {
     var isXRelation: Bool {
         if case .xRelation = self { return true }
         return false
+    }
+
+    func applying(restrictions: GraphCalculatorPlotRestrictions) -> GraphCalculatorPlot {
+        guard !restrictions.isEmpty else { return self }
+        switch self {
+        case .curve(let expression, _):
+            return .curve(expression, restrictions)
+        case .yRelation(let expression, let relation, _):
+            return .yRelation(expression, relation, restrictions)
+        case .xRelation(let expression, let relation, _):
+            return .xRelation(expression, relation, restrictions)
+        case .implicitRelation(let expression, _):
+            return .implicitRelation(expression, restrictions)
+        case .point:
+            return self
+        }
     }
 }
 

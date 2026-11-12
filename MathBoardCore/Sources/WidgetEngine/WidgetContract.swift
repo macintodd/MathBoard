@@ -108,6 +108,10 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
     case andOrAttributeFilterWebApplet
     case andOrInequalityNumberLineWebApplet
     case compoundInequalityGraphingDemoWebApplet
+    case absoluteValueAsDemonstrationWebApplet
+    case introPointSlopeWebApplet
+    case writeLinearEquationWebApplet
+    case parallelPerpendicularWebApplet
 
     public var id: String { rawValue }
 
@@ -129,6 +133,10 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
         case .andOrAttributeFilterWebApplet: return WebAppletResource.andOrAttributeFilter.displayName
         case .andOrInequalityNumberLineWebApplet: return WebAppletResource.andOrInequalityNumberLine.displayName
         case .compoundInequalityGraphingDemoWebApplet: return WebAppletResource.compoundInequalityGraphingDemo.displayName
+        case .absoluteValueAsDemonstrationWebApplet: return WebAppletResource.absoluteValueAsDistance.displayName
+        case .introPointSlopeWebApplet: return "Intro to Point-Slope Form"
+        case .writeLinearEquationWebApplet: return "Write Linear Equation"
+        case .parallelPerpendicularWebApplet: return "Parallel & Perpendicular Lines"
         }
     }
 
@@ -166,6 +174,14 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
             return WebAppletResource.andOrInequalityNumberLine.description
         case .compoundInequalityGraphingDemoWebApplet:
             return WebAppletResource.compoundInequalityGraphingDemo.description
+        case .absoluteValueAsDemonstrationWebApplet:
+            return WebAppletResource.absoluteValueAsDistance.description
+        case .introPointSlopeWebApplet:
+            return "Algebra 2 / Precalculus student practice: drag a slope and point into point-slope form, distribute, write the final equation. Deterministic first problem; ten problems with first-try streak scoring. Mirrored to external display."
+        case .writeLinearEquationWebApplet:
+            return "Teacher demo for writing linear equations from a graph or given conditions. Covers slope-intercept and point-slope form. Mirrored to external display."
+        case .parallelPerpendicularWebApplet:
+            return "Teacher demo for exploring parallel and perpendicular lines — slope relationships, graphing, and identifying line pairs. Mirrored to external display."
         }
     }
 
@@ -203,6 +219,14 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
             return WebAppletResource.andOrInequalityNumberLine.tags
         case .compoundInequalityGraphingDemoWebApplet:
             return WebAppletResource.compoundInequalityGraphingDemo.tags
+        case .absoluteValueAsDemonstrationWebApplet:
+            return WebAppletResource.absoluteValueAsDistance.tags
+        case .introPointSlopeWebApplet:
+            return ["web applet", "demo", "point-slope", "linear equations", "algebra 2", "precalculus", "external display", "student practice"]
+        case .writeLinearEquationWebApplet:
+            return ["web applet", "demo", "linear equations", "writing equations", "slope-intercept", "point-slope", "algebra", "external display"]
+        case .parallelPerpendicularWebApplet:
+            return ["web applet", "demo", "parallel lines", "perpendicular lines", "slope", "linear equations", "algebra", "external display"]
         }
     }
 
@@ -224,6 +248,10 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
         case .andOrAttributeFilterWebApplet: return CGSize(width: 900, height: 640)
         case .andOrInequalityNumberLineWebApplet: return CGSize(width: 1040, height: 780)
         case .compoundInequalityGraphingDemoWebApplet: return CGSize(width: 1040, height: 600)
+        case .absoluteValueAsDemonstrationWebApplet: return CGSize(width: 1060, height: 720)
+        case .introPointSlopeWebApplet: return CGSize(width: 1060, height: 760)
+        case .writeLinearEquationWebApplet: return CGSize(width: 1060, height: 760)
+        case .parallelPerpendicularWebApplet: return CGSize(width: 1060, height: 760)
         }
     }
 
@@ -231,7 +259,7 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
         switch self {
         case .inequalitiesExplorer: return 50
         case .actDailyPractice: return 1
-        case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator, .functionTransformationExplorer, .matchGrid, .quadraticWebApplet, .domainRangeWebApplet, .analizingGraphs1WebApplet, .projectileMotionGraphAnalysisWebApplet, .constantRateWebApplet, .completingTheSquareWebApplet, .andOrAttributeFilterWebApplet, .andOrInequalityNumberLineWebApplet, .compoundInequalityGraphingDemoWebApplet: return 0
+        case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator, .functionTransformationExplorer, .matchGrid, .quadraticWebApplet, .domainRangeWebApplet, .analizingGraphs1WebApplet, .projectileMotionGraphAnalysisWebApplet, .constantRateWebApplet, .completingTheSquareWebApplet, .andOrAttributeFilterWebApplet, .andOrInequalityNumberLineWebApplet, .compoundInequalityGraphingDemoWebApplet, .absoluteValueAsDemonstrationWebApplet, .introPointSlopeWebApplet, .writeLinearEquationWebApplet, .parallelPerpendicularWebApplet: return 0
         }
     }
 
@@ -239,7 +267,7 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
         switch self {
         case .inequalitiesExplorer: return 10
         case .actDailyPractice: return 1
-        case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator, .functionTransformationExplorer, .matchGrid, .quadraticWebApplet, .domainRangeWebApplet, .analizingGraphs1WebApplet, .projectileMotionGraphAnalysisWebApplet, .constantRateWebApplet, .completingTheSquareWebApplet, .andOrAttributeFilterWebApplet, .andOrInequalityNumberLineWebApplet, .compoundInequalityGraphingDemoWebApplet: return 0
+        case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator, .functionTransformationExplorer, .matchGrid, .quadraticWebApplet, .domainRangeWebApplet, .analizingGraphs1WebApplet, .projectileMotionGraphAnalysisWebApplet, .constantRateWebApplet, .completingTheSquareWebApplet, .andOrAttributeFilterWebApplet, .andOrInequalityNumberLineWebApplet, .compoundInequalityGraphingDemoWebApplet, .absoluteValueAsDemonstrationWebApplet, .introPointSlopeWebApplet, .writeLinearEquationWebApplet, .parallelPerpendicularWebApplet: return 0
         }
     }
 
@@ -248,7 +276,7 @@ public enum BuiltInInteractiveKind: String, Codable, Sendable, CaseIterable, Ide
     }
 
     public var isTeacherDemoWebApplet: Bool {
-        WebAppletResource.resource(for: self) != nil
+        WebAppletResource.resource(for: self) != nil || self == .introPointSlopeWebApplet || self == .writeLinearEquationWebApplet || self == .parallelPerpendicularWebApplet
     }
 
     public var pointsPossible: Int {
@@ -358,7 +386,7 @@ extension WidgetObject {
                 return InequalityExplorerStateRegistry.scoreRecord(for: self)
             case .actDailyPractice:
                 return ACTDailyPracticeStateRegistry.state(for: self).scoreRecord(widgetID: id, title: name)
-            case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator, .functionTransformationExplorer, .matchGrid, .quadraticWebApplet, .domainRangeWebApplet, .analizingGraphs1WebApplet, .projectileMotionGraphAnalysisWebApplet, .constantRateWebApplet, .completingTheSquareWebApplet, .andOrAttributeFilterWebApplet, .andOrInequalityNumberLineWebApplet, .compoundInequalityGraphingDemoWebApplet:
+            case .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator, .functionTransformationExplorer, .matchGrid, .quadraticWebApplet, .domainRangeWebApplet, .analizingGraphs1WebApplet, .projectileMotionGraphAnalysisWebApplet, .constantRateWebApplet, .completingTheSquareWebApplet, .andOrAttributeFilterWebApplet, .andOrInequalityNumberLineWebApplet, .compoundInequalityGraphingDemoWebApplet, .absoluteValueAsDemonstrationWebApplet, .introPointSlopeWebApplet, .writeLinearEquationWebApplet, .parallelPerpendicularWebApplet:
                 return nil
             }
         }
@@ -383,7 +411,7 @@ extension WidgetObject {
                 MatchGridStateRegistry.removeState(for: widget.id)
             case .actDailyPractice:
                 ACTDailyPracticeStateRegistry.removeState(for: widget.id)
-            case .quadraticWebApplet, .domainRangeWebApplet, .analizingGraphs1WebApplet, .projectileMotionGraphAnalysisWebApplet, .constantRateWebApplet, .completingTheSquareWebApplet, .andOrAttributeFilterWebApplet, .andOrInequalityNumberLineWebApplet, .compoundInequalityGraphingDemoWebApplet:
+            case .quadraticWebApplet, .domainRangeWebApplet, .analizingGraphs1WebApplet, .projectileMotionGraphAnalysisWebApplet, .constantRateWebApplet, .completingTheSquareWebApplet, .andOrAttributeFilterWebApplet, .andOrInequalityNumberLineWebApplet, .compoundInequalityGraphingDemoWebApplet, .absoluteValueAsDemonstrationWebApplet, .introPointSlopeWebApplet, .writeLinearEquationWebApplet, .parallelPerpendicularWebApplet:
                 WebAppletStateRegistry.removeState(for: widget.id)
             case .none:
                 continue

@@ -72,7 +72,7 @@ public struct GraphCalculatorView: View {
     @State private var playingSliders: Set<String> = []
     @State private var sliderPlayDirections: [String: Double] = [:]
     @State private var sliderPlaybackTask: Task<Void, Never>?
-    @State private var keypadHiddenEntryExtra: CGFloat = 260
+    @State private var keypadHiddenEntryExtra: CGFloat = 300
     @State private var keypadVisibleEntryExtra: CGFloat = 0
     @State private var entryResizeStartExtra: CGFloat?
     @State private var entryResizeStartCenter: CGPoint?
@@ -89,6 +89,7 @@ public struct GraphCalculatorView: View {
     @State private var didApplyInitialWindow = false
     @State private var currentGraphPlotSize: CGSize = CGSize(width: 400, height: 400)
     @State private var fractionCursorExitedAt: Int?
+    @State private var cursorBlink: Bool = true
 
     private let engine = CalculatorEngine()
     private let minimumGraphSpan: Double = 0.02
@@ -99,9 +100,10 @@ public struct GraphCalculatorView: View {
     private let expandedFloatingHeaderHeight: CGFloat = 42
     private let preferredDockedGraphHeight: CGFloat = 320
     private let baseEntryHeight: CGFloat = 58
-    private let dockedAttachedEntryHeight: CGFloat = 124
-    private let baseDetachedEntryHeight: CGFloat = 170
+    private let dockedAttachedEntryHeight: CGFloat = 136
+    private let baseDetachedEntryHeight: CGFloat = 190
     private let entryHandleHeight: CGFloat = 22
+    private let detachedEntryExtraLimit: CGFloat = 420
     private let visibleTraceTableRows = 10
     private let preferredTraceSlotRange = 4...6
     private let preferredTraceSlotIndex = 5
@@ -187,6 +189,12 @@ public struct GraphCalculatorView: View {
                 safeAreaTop = proxy.safeAreaInsets.top
             }
             .onChange(of: proxy.safeAreaInsets.top) { _, v in safeAreaTop = v }
+            .task {
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .milliseconds(530))
+                    cursorBlink.toggle()
+                }
+            }
         }
     }
 
@@ -623,7 +631,7 @@ public struct GraphCalculatorView: View {
     }
 
     private var dockedEntryHeight: CGFloat {
-        guard isAttachedKeyboardVisibleHere else { return baseEntryHeight + min(max(keypadHiddenEntryExtra, 0), keypadHeight) }
+        guard isAttachedKeyboardVisibleHere else { return baseEntryHeight + clampedEntryExtra(isKeypadVisible: false) }
         return dockedAttachedEntryHeight
     }
 
@@ -632,11 +640,20 @@ public struct GraphCalculatorView: View {
     }
 
     private var detachedVisibleEntryExtra: CGFloat {
-        min(max(entryResizeLive?.extra ?? keypadVisibleEntryExtra, 0), keypadHeight)
+        clampedEntryExtra(isKeypadVisible: true)
     }
 
     private var detachedHiddenEntryExtra: CGFloat {
-        min(max(entryResizeLive?.extra ?? keypadHiddenEntryExtra, 0), keypadHeight)
+        clampedEntryExtra(isKeypadVisible: false)
+    }
+
+    private func entryExtraLimit(isKeypadVisible: Bool) -> CGFloat {
+        isKeypadVisible ? keypadHeight : detachedEntryExtraLimit
+    }
+
+    private func clampedEntryExtra(isKeypadVisible: Bool) -> CGFloat {
+        let raw = entryResizeLive?.extra ?? (isKeypadVisible ? keypadVisibleEntryExtra : keypadHiddenEntryExtra)
+        return min(max(raw, 0), entryExtraLimit(isKeypadVisible: isKeypadVisible))
     }
 
     /// Grab handle at the entry panel edge. Dragging down expands the entry area; in detached mode
@@ -664,7 +681,7 @@ public struct GraphCalculatorView: View {
                     entryResizeStartExtra = start
                     entryResizeStartCenter = anchoredCenter
                 }
-                let next = min(max(start + value.translation.height, 0), keypadHeight)
+                let next = min(max(start + value.translation.height, 0), entryExtraLimit(isKeypadVisible: isKeypadVisible))
 
                 if let startCenter = entryResizeStartCenter, containerSize != nil {
                     let delta = next - start
@@ -710,7 +727,7 @@ public struct GraphCalculatorView: View {
                 }
 
                 let nextWidth = min(max(start.width + value.translation.width, 320), max(320, containerSize.width - 24))
-                let nextExtra = min(max(start.extra + value.translation.height, 0), keypadHeight)
+                let nextExtra = min(max(start.extra + value.translation.height, 0), entryExtraLimit(isKeypadVisible: isAttachedKeyboardVisibleHere))
                 state.detachedControlWidth = nextWidth
                 entryResizeLive = (
                     extra: nextExtra,
@@ -1115,7 +1132,11 @@ public struct GraphCalculatorView: View {
     private var expressionList: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
-                LazyVStack(spacing: 0) {
+                // VStack (not LazyVStack) ensures all rows are always rendered and
+                // observing state — LazyVStack would drop off-screen rows from the
+                // observation graph, causing the external display to show stale content
+                // for expressions that aren't in its current scroll viewport.
+                VStack(spacing: 0) {
                     ForEach(0..<expressionRowCount, id: \.self) { index in
                         expressionRow(index, resolvedRows: resolvedRows)
                             .id(index)
@@ -1130,8 +1151,18 @@ public struct GraphCalculatorView: View {
             }
             .scrollIndicators(.visible)
             .onChange(of: state.selectedExpressionIndex) { _, newValue in
+                if !isExternalDisplay {
+                    // Publish the new scroll target so the external display follows.
+                    state.equationListScrollTarget = newValue
+                }
                 withAnimation(.easeInOut(duration: 0.16)) {
                     proxy.scrollTo(newValue, anchor: .center)
+                }
+            }
+            .onChange(of: state.equationListScrollTarget) { _, target in
+                guard isExternalDisplay, let target else { return }
+                withAnimation(.easeInOut(duration: 0.16)) {
+                    proxy.scrollTo(target, anchor: .center)
                 }
             }
         }
@@ -1153,7 +1184,7 @@ public struct GraphCalculatorView: View {
     }
 
     private var expressionRowCount: Int {
-        max(state.expressions.count + 1, 4)
+        max(state.expressions.count + 1, 6)
     }
 
     private var resolvedRows: [GraphCalculatorResolvedRow] {
@@ -1480,7 +1511,7 @@ public struct GraphCalculatorView: View {
         let baseRowHeight: CGFloat = if isInlinePointTable {
             38 + CGFloat(inlineTableRowCount) * 44
         } else {
-            promptNames.isEmpty ? (hasStackedMath ? 74 : (hasResultAnnotation ? 74 : 50)) : 82
+            promptNames.isEmpty ? (hasStackedMath ? 82 : (hasResultAnnotation ? 82 : 58)) : 90
         }
         let rowHeight: CGFloat = regressionRow == nil ? baseRowHeight : max(baseRowHeight, 72)
         let tableKind = tableKind(for: resolved?.plot)
@@ -1611,7 +1642,7 @@ public struct GraphCalculatorView: View {
     /// Single-valued functions of x get a function table; ordered pairs get a points table.
     private func tableKind(for plot: GraphCalculatorPlot?) -> GraphActiveTable.Kind? {
         switch plot {
-        case .curve, .yRelation(_, .equal):
+        case .curve, .yRelation(_, .equal, _):
             return .function
         case .point:
             return .points
@@ -2243,6 +2274,7 @@ public struct GraphCalculatorView: View {
                 Rectangle()
                     .fill(GraphCalculatorTheme.blue)
                     .frame(width: 2, height: 24)
+                    .opacity(cursorBlink ? 1 : 0)
                 Text(GraphCalculatorExpressionDisplay.string(for: splitText.after))
                 if text.isEmpty {
                     Spacer(minLength: 0)
@@ -2282,6 +2314,7 @@ public struct GraphCalculatorView: View {
                 Rectangle()
                     .fill(GraphCalculatorTheme.blue)
                     .frame(width: 2, height: 24)
+                    .opacity(cursorBlink ? 1 : 0)
             }
 
             if let fractionResult {
@@ -2369,6 +2402,7 @@ public struct GraphCalculatorView: View {
                     Rectangle()
                         .fill(GraphCalculatorTheme.blue)
                         .frame(width: 2, height: placeholderHeight)
+                        .opacity(cursorBlink ? 1 : 0)
                 }
                 Rectangle()
                     .fill(Color.black.opacity(0.14))
@@ -2378,6 +2412,7 @@ public struct GraphCalculatorView: View {
                 Rectangle()
                     .fill(GraphCalculatorTheme.blue)
                     .frame(width: 2, height: placeholderHeight)
+                    .opacity(cursorBlink ? 1 : 0)
                 Text(splitText.after)
             } else {
                 GraphCalculatorMathDisplay(source: sourceText, fallback: displayText, fontSize: 20)
@@ -4637,7 +4672,7 @@ public struct GraphCalculatorView: View {
         let isYEquation = isYEquationSource(trimmed)
 
         switch resolvedRows.first(where: { $0.index == index })?.plot {
-        case .yRelation(let source, .equal):
+        case .yRelation(let source, .equal, _):
             return FunctionTableDescriptor(
                 equationID: equationID,
                 index: index,
@@ -4645,7 +4680,7 @@ public struct GraphCalculatorView: View {
                 source: source,
                 kind: .yEquation
             )
-        case .curve(let source):
+        case .curve(let source, _):
             if isYEquation {
                 return FunctionTableDescriptor(
                     equationID: equationID,
@@ -4980,6 +5015,25 @@ public struct GraphCalculatorView: View {
                     fractionCursorExitedAt = nil
                     let denomStart = fraction.denominatorRange.lowerBound
                     let newExpr = String(expression.prefix(denomStart)) + "(" + String(expression.dropFirst(denomStart))
+                    state.selectedExpression = newExpr
+                    state.cursorOffset = currentOffset + 1
+                    state.insert(text)
+                } else if let fraction = fractions.first(where: { f in
+                    // Cursor inside an un-parenthesized numerator: wrap it so the
+                    // operator stays inside rather than escaping the fraction.
+                    currentOffset >= f.numeratorRange.lowerBound
+                        && currentOffset <= f.slashOffset
+                        && f.slashOffset > 0
+                        && characters[f.slashOffset - 1] != ")"
+                }) {
+                    fractionCursorExitedAt = nil
+                    let numStart = fraction.numeratorRange.lowerBound
+                    let slashIdx = fraction.slashOffset
+                    let newExpr = String(characters.prefix(numStart))
+                        + "("
+                        + String(characters[numStart..<slashIdx])
+                        + ")"
+                        + String(characters.suffix(from: slashIdx))
                     state.selectedExpression = newExpr
                     state.cursorOffset = currentOffset + 1
                     state.insert(text)
@@ -5551,7 +5605,7 @@ public struct GraphCalculatorView: View {
             }
         }
 
-        guard case .implicitRelation(let source)? = row.plot,
+        guard case .implicitRelation(let source, _)? = row.plot,
               let compiled = try? engine.compile(source) else {
             return []
         }
@@ -5581,7 +5635,7 @@ public struct GraphCalculatorView: View {
             return (row.index, source, compiled)
         }
         let implicitCurves: [(index: Int, source: String, compiled: CalculatorExpression)] = resolvedRows.compactMap { row in
-            guard case .implicitRelation(let source)? = row.plot,
+            guard case .implicitRelation(let source, _)? = row.plot,
                   let compiled = try? engine.compile(source) else {
                 return nil
             }
@@ -5668,7 +5722,7 @@ public struct GraphCalculatorView: View {
             return (row.index, source, compiled)
         }
         let implicitCurves: [(index: Int, source: String, compiled: CalculatorExpression)] = resolvedRows.compactMap { row in
-            guard case .implicitRelation(let source)? = row.plot,
+            guard case .implicitRelation(let source, _)? = row.plot,
                   let compiled = try? engine.compile(source) else {
                 return nil
             }
@@ -5904,9 +5958,9 @@ public struct GraphCalculatorView: View {
     /// The `y = f(x)` expression body to search for x-intercepts, if this plot has one.
     private func interceptSourceExpression(for plot: GraphCalculatorPlot?) -> String? {
         switch plot {
-        case .curve(let source):
+        case .curve(let source, _):
             return source
-        case .yRelation(let source, .equal):
+        case .yRelation(let source, .equal, _):
             return source
         default:
             return nil

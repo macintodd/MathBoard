@@ -500,6 +500,18 @@
       if (onChange) onChange();
     });
 
+    // Safety net: if PencilKit intercepts the pointer before pointerup/cancel
+    // can reach the svg, finish() never fires and drag stays set — blocking
+    // future drags and freezing handwriting input.
+    const globalPointerEnd = e => {
+      if (drag && drag.pointerId === e.pointerId) finish(e);
+    };
+    window.addEventListener("pointerup", globalPointerEnd);
+    window.addEventListener("pointercancel", globalPointerEnd);
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden && drag) { drag = null; render(); }
+    });
+
     svg.style.touchAction = "none";
     render();
 

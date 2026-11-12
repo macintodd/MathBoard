@@ -28,6 +28,23 @@ Acceptance standard:
 - Expression rows must preserve what the student typed, even when invalid.
 - Invalid rows should not crash or disappear; they should show row-level feedback.
 
+## 2026-10-01 Numerator editing + cursor blink fixes
+
+**Files changed:** `GraphCalculatorView.swift`
+
+### Cursor blinking
+Added `@State private var cursorBlink: Bool = true` to `GraphCalculatorView`. A `.task` in the view body toggles it every 530 ms. All four cursor `Rectangle` instances (inline expression, post-fraction, and both fraction-part placeholders/splits) now carry `.opacity(cursorBlink ? 1 : 0)` so they blink in sync.
+
+### Numerator `+` / `−` auto-wrap
+Root cause: `+` and `−` are `isFractionBoundaryOperator` characters, so typing either while the cursor was inside a bare (non-parenthesized) numerator like `3x/` caused the parser to re-tokenize the expression as `3x` (text) + empty-numerator fraction. The first term visually "escaped" the fraction box.
+
+Fix (in `insert(_:)`): after the existing denominator auto-wrap check, a second `else if` now checks whether the cursor is inside an un-parenthesized numerator (cursor is in `numeratorRange.lowerBound...slashOffset` **and** `characters[slashOffset - 1] != ")"`). When it matches:
+1. Wraps the numerator source characters in `()` — builds `newExpr` as `prefix(numStart) + "(" + chars[numStart..<slashIdx] + ")" + suffix(from: slashIdx)`.
+2. Advances `cursorOffset` by 1 (for the inserted `(`).
+3. Then calls `state.insert(text)` to place the `+`/`−` inside the parens.
+
+Result: typing `3x` into the numerator and then `+` produces `(3x+)/`, leaving the cursor inside the numerator for the rest of the term. Arrow-right exits to the denominator (existing behavior). Already-paren-wrapped numerators (the `()/()` template or after a prior auto-wrap) are skipped by the `!= ")"` guard and accept the operator directly.
+
 ## 2026-09-15 Non-Square Graph Canvas (Desmos Layout)
 
 Completed:

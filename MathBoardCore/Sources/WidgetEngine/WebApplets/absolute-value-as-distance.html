@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Absolute Value as Distance</title>
+<style>
+:root{
+  --bg:#f7f5f0;--panel:#edeae3;--border:#ccc9bf;--text:#1a1a1a;--muted:#6b6860;
+  --btn-bg:#fff;--btn-border:#b0a898;
+  --phase-dark:#1a1a2e;--phase-gold:#e8d5a3;
+  --display-bg:#080818;--display-text:#f0e8d0;--display-eq:#fde68a;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+html,body{margin:0;padding:0;width:100%;height:100%;background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;overflow:hidden}
+
+/* ── TEACHER ── */
+#teacher{display:flex;flex-direction:column;height:100%;padding:10px 12px;gap:8px}
+.t-head{display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.t-head h1{margin:0;font-size:17px;font-weight:800}
+.phase-badge{background:var(--phase-dark);color:var(--phase-gold);padding:4px 14px;
+  border-radius:20px;font-size:12px;font-weight:700;flex-shrink:0}
+
+.nl-card{background:#fff;border:2px solid var(--border);border-radius:12px;padding:8px 10px;flex-shrink:0}
+#teacherSVG{width:100%;height:120px;display:block;overflow:visible}
+
+/* distance banner */
+.dist-banner{background:#1a1a2e;border-radius:10px;padding:8px 14px;flex-shrink:0;
+  min-height:36px;display:flex;align-items:center;justify-content:center}
+.dist-banner span{font-size:15px;font-weight:800;color:#fde68a;text-align:center}
+.dist-banner .dim{font-size:12px;color:#4a4a7a;font-style:italic}
+
+/* cards */
+.ctrl-card{background:var(--panel);border:2px solid var(--border);border-radius:10px;
+  padding:8px 10px;flex-shrink:0}
+.ctrl-label{font-size:10px;font-weight:800;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.06em;margin-bottom:6px}
+.ctrl-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.ctrl-sep{width:1px;height:28px;background:var(--border);flex-shrink:0;margin:0 4px}
+
+/* buttons */
+button{min-height:40px;padding:6px 13px;border-radius:8px;border:2px solid var(--btn-border);
+  background:var(--btn-bg);color:var(--text);
+  font:700 13px -apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;
+  cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:none}
+button.active{background:#dcfce7;border-color:#16a34a;color:#14532d}
+button[disabled]{opacity:.38;pointer-events:none}
+button.car-blue{background:#1d4ed8;border-color:#1e40af;color:#fff}
+button.car-red{background:#dc2626;border-color:#991b1b;color:#fff}
+button.stop-btn{background:#1f2937;border-color:#111827;color:#fff}
+
+/* phase nav */
+.phase-nav{display:flex;align-items:center;gap:8px}
+.phase-nav span{flex:1;text-align:center;font-size:12px;font-weight:700}
+
+/* notes */
+.notes-card{background:var(--panel);border:2px solid var(--border);border-radius:10px;
+  padding:10px;flex:1;min-height:0;overflow-y:auto}
+.notes-card h3{margin:0 0 4px;font-size:11px;font-weight:800;color:var(--muted);
+  text-transform:uppercase;letter-spacing:.05em}
+.notes-card p,.notes-card li{font-size:12px;line-height:1.55;margin:0 0 4px}
+.notes-card ul{margin:0 0 8px;padding-left:16px}
+
+/* ── EXTERNAL DISPLAY ── */
+#display{display:none;flex-direction:column;align-items:center;justify-content:center;
+  width:100%;height:100%;background:var(--display-bg);color:var(--display-text);padding:40px 56px;gap:0}
+.d-prompt{font-size:44px;font-weight:800;text-align:center;line-height:1.2;
+  color:var(--display-text);margin-bottom:28px}
+.d-nl-wrap{width:100%;max-width:1280px;background:rgba(255,255,255,.04);
+  border-radius:16px;padding:18px 22px}
+#displaySVG{width:100%;height:220px;display:block;overflow:visible}
+.d-dist{margin-top:24px;font-size:52px;font-weight:900;color:var(--display-eq);
+  text-align:center;min-height:64px}
+</style>
+</head>
+<body>
+
+<!-- ═══ TEACHER ═══ -->
+<div id="teacher">
+  <div class="t-head">
+    <h1>Absolute Value as Distance</h1>
+    <div class="phase-badge" id="phaseBadge">Phase 1 of 2</div>
+  </div>
+
+  <div class="nl-card">
+    <svg id="teacherSVG" viewBox="0 0 800 120" preserveAspectRatio="xMidYMid meet"></svg>
+  </div>
+
+  <div class="dist-banner" id="distBanner">
+    <span class="dim">Drive the cars apart, then reveal distance</span>
+  </div>
+
+  <div class="ctrl-card">
+    <div class="ctrl-label">Drive</div>
+    <div class="ctrl-row">
+      <button class="car-red"  id="r1L" style="touch-action:none">◀ Red</button>
+      <button class="car-red"  id="r1R" style="touch-action:none">Red ▶</button>
+      <div class="ctrl-sep"></div>
+      <button class="car-blue" id="b1L" style="touch-action:none">◀ Blue</button>
+      <button class="car-blue" id="b1R" style="touch-action:none">Blue ▶</button>
+      <div class="ctrl-sep"></div>
+      <button class="stop-btn" id="stopBtn">⏹ Stop</button>
+      <button id="resetBtn">↺ Reset</button>
+    </div>
+  </div>
+
+  <div class="ctrl-card">
+    <div class="ctrl-label">Reveal</div>
+    <div class="ctrl-row">
+      <button id="posBtn">📍 Show Position</button>
+      <button id="distBtn">📏 Show Distance</button>
+    </div>
+  </div>
+
+  <div class="ctrl-card">
+    <div class="ctrl-label">Phase</div>
+    <div class="phase-nav">
+      <button id="prevBtn">← Prev</button>
+      <span id="phaseLabel">Phase 1: Cars</span>
+      <button id="nextBtn">Next →</button>
+    </div>
+  </div>
+
+  <div class="notes-card" id="notesCard"></div>
+</div>
+
+<!-- ═══ EXTERNAL DISPLAY ═══ -->
+<div id="display">
+  <div class="d-prompt" id="dPrompt">How far apart are the cars?</div>
+  <div class="d-nl-wrap">
+    <svg id="displaySVG" viewBox="0 0 1200 220" preserveAspectRatio="xMidYMid meet"></svg>
+  </div>
+  <div class="d-dist" id="dDist"></div>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+// ── Phase data ────────────────────────────────────────────────────────────────
+const PHASES = [
+  { title:'Phase 1: Cars',
+    prompt:'How far apart are the cars?',
+    desc:'Drive the blue and red cars to different positions. Ask students to estimate the distance before you reveal it.',
+    speaking:'"I need two volunteer navigators. Where should I park the blue car? Where should the red car go?" Drive each one there, then ask for estimates before pressing Show Distance.',
+    discuss:['How did you estimate the distance?','Would it matter if both cars were in the negative side?','Does it matter which car is where?'],
+    miscon:['Students may count from zero instead of finding the gap between the two cars. Reinforce that distance is always the gap between positions.'] },
+  { title:'Phase 2: Points',
+    prompt:'How far apart are the points?',
+    desc:'The cars become abstract points. Students see that distance between two positions is purely numerical — not physical.',
+    speaking:'"I removed the cars. Did the distance change? The math is identical — only the context changed."',
+    discuss:['What changed between Phase 1 and Phase 2?','How do we describe the distance between two points on a number line?','Could we write a formula for this?'],
+    miscon:['Students sometimes assume removing the cars changes something. Emphasize that the positions — and therefore the distance — are exactly the same.'] }
+];
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let S = {
+  phase:    1,
+  car1:     0,   // blue car
+  car2:     0,   // red car
+  car1Dir:  0,   // -1 / 0 / +1
+  car2Dir:  0,
+  halfRange:5,
+  showCars: true,
+  showPos:  false,
+  showDist: false
+};
+
+let isExternal      = false;
+let rafId           = null;
+let lastStamp       = 0;
+let loopSafetyStart = 0;    // timestamp when current loop started (for 15-sec watchdog)
+const SPEED         = 2.5;  // units per second
+const MAX_POS       = 30;
+
+// ── Number line helpers ───────────────────────────────────────────────────────
+function computeHalfRange() {
+  const m = Math.max(Math.abs(S.car1), Math.abs(S.car2));
+  if (m <= 3)  return 5;
+  if (m <= 8)  return 10;
+  if (m <= 13) return 15;
+  if (m <= 18) return 20;
+  if (m <= 23) return 25;
+  return 30;
+}
+
+function tickParams(hr) {
+  if (hr <= 5)  return { lbl:1  };
+  if (hr <= 10) return { lbl:2  };
+  if (hr <= 20) return { lbl:5  };
+  return            { lbl:10 };
+}
+
+function toX(val, W, padL, padR, lo, hi) {
+  return padL + (val - lo) / (hi - lo) * (W - padL - padR);
+}
+
+function fmtN(n) {
+  const r = Math.round(n * 10) / 10;
+  return Number.isInteger(r) ? String(r) : r.toFixed(1);
+}
+
+// ── SVG builders ──────────────────────────────────────────────────────────────
+function buildAxis(W, H, hr, big) {
+  const lo = -hr, hi = hr;
+  const padL = 44, padR = 44;
+  const axY  = H * 0.54;
+  const { lbl } = tickParams(hr);
+  const sw   = big ? 6 : 3.5;
+  const aw   = big ? 18 : 11, ah = big ? 8 : 5;
+  const tfs  = big ? 20 : 12;
+  const tickH = big ? 18 : 11;
+
+  let h = '';
+  h += `<line x1="${padL}" y1="${axY}" x2="${W-padR}" y2="${axY}" stroke="#2d2d2d" stroke-width="${sw}" stroke-linecap="round"/>`;
+  h += `<polygon points="${W-padR},${axY} ${W-padR-aw},${axY-ah} ${W-padR-aw},${axY+ah}" fill="#2d2d2d"/>`;
+  h += `<polygon points="${padL},${axY} ${padL+aw},${axY-ah} ${padL+aw},${axY+ah}" fill="#2d2d2d"/>`;
+
+  // Always draw a tick at every integer unit; labels appear every `lbl` units
+  for (let v = -hr; v <= hr; v += 1) {
+    const x   = toX(v, W, padL, padR, lo, hi);
+    const maj = v % lbl === 0;
+    const th  = maj ? tickH : tickH * 0.38;
+    h += `<line x1="${x}" y1="${axY-th}" x2="${x}" y2="${axY+th}" stroke="#4b4b4b" stroke-width="${maj?2.5:1}"/>`;
+    if (maj) {
+      h += `<text x="${x}" y="${axY+tickH+tfs+3}" text-anchor="middle" font-size="${tfs}" fill="#444" font-weight="600" font-family="-apple-system,sans-serif">${v}</text>`;
+    }
+  }
+  return { h, axY, lo, hi, padL, padR };
+}
+
+function buildCar(cx, axY, color, big) {
+  const W = big ? 88 : 56, H = big ? 40 : 26, wr = big ? 14 : 9;
+  const x = cx - W/2, y = axY - H - wr * 0.55;
+  const wx1 = x + wr*1.2, wx2 = x + W - wr*1.2, wy = y + H;
+  return `
+    <rect x="${x}" y="${y}" width="${W}" height="${H}" rx="${H*.3}" fill="${color}"/>
+    <rect x="${x+W*.13}" y="${y+H*.12}" width="${W*.74}" height="${H*.52}" rx="${H*.16}" fill="rgba(255,255,255,.30)"/>
+    <circle cx="${wx1}" cy="${wy}" r="${wr}" fill="#1f1f1f" stroke="#555" stroke-width="1.5"/>
+    <circle cx="${wx2}" cy="${wy}" r="${wr}" fill="#1f1f1f" stroke="#555" stroke-width="1.5"/>
+    <circle cx="${wx1}" cy="${wy}" r="${wr*.45}" fill="#888"/>
+    <circle cx="${wx2}" cy="${wy}" r="${wr*.45}" fill="#888"/>`;
+}
+
+function renderSVG(svgEl, W, H, s, big) {
+  const hr = s.halfRange;
+  const { h: ah, axY, lo, hi, padL, padR } = buildAxis(W, H, hr, big);
+  let h = ah;
+
+  const x1 = toX(s.car1, W, padL, padR, lo, hi); // blue
+  const x2 = toX(s.car2, W, padL, padR, lo, hi); // red
+  const lx = Math.min(x1,x2), rx = Math.max(x1,x2);
+
+  // Distance bar
+  if (s.showDist && rx - lx > 1) {
+    const bh = big ? 20 : 13;
+    const bY = axY - (big ? 52 : 36);
+    h += `<rect x="${lx}" y="${bY-bh/2}" width="${rx-lx}" height="${bh}" rx="${bh/3}" fill="#16a34a" opacity=".9"/>`;
+    h += `<line x1="${lx}" y1="${bY-bh*1.1}" x2="${lx}" y2="${bY+bh*.55}" stroke="#16a34a" stroke-width="2.5"/>`;
+    h += `<line x1="${rx}" y1="${bY-bh*1.1}" x2="${rx}" y2="${bY+bh*.55}" stroke="#16a34a" stroke-width="2.5"/>`;
+    const dist = Math.abs(s.car2 - s.car1);
+    const dlfs = big ? 21 : 13;
+    h += `<text x="${(lx+rx)/2}" y="${bY-bh/2-5}" text-anchor="middle" font-size="${dlfs}" fill="#14532d" font-weight="800" font-family="-apple-system,sans-serif">${fmtN(dist)} mi</text>`;
+  }
+
+  // Cars or dots
+  if (s.showCars) {
+    h += buildCar(x1, axY, '#1d4ed8', big);
+    h += buildCar(x2, axY, '#dc2626', big);
+    // Position labels centered inside each car body
+    if (s.showPos) {
+      const carH = big ? 40 : 26, carWr = big ? 14 : 9;
+      const labelY = axY - carH * 0.5 - carWr * 0.55;
+      const lfs = big ? 22 : 13;
+      const sw  = big ? 2.5 : 1.5;
+      h += `<text x="${x1}" y="${labelY}" text-anchor="middle" dominant-baseline="middle" font-size="${lfs}" fill="#fff" font-weight="900" font-family="-apple-system,sans-serif" paint-order="stroke" stroke="#1e3a8a" stroke-width="${sw}">${fmtN(s.car1)}</text>`;
+      h += `<text x="${x2}" y="${labelY}" text-anchor="middle" dominant-baseline="middle" font-size="${lfs}" fill="#fff" font-weight="900" font-family="-apple-system,sans-serif" paint-order="stroke" stroke="#7f1d1d" stroke-width="${sw}">${fmtN(s.car2)}</text>`;
+    }
+  } else {
+    const dr = big ? 14 : 9;
+    h += `<circle cx="${x1}" cy="${axY}" r="${dr}" fill="#1d4ed8" stroke="#fff" stroke-width="2.5"/>`;
+    h += `<circle cx="${x2}" cy="${axY}" r="${dr}" fill="#dc2626" stroke="#fff" stroke-width="2.5"/>`;
+    // Position labels above each dot
+    if (s.showPos) {
+      const dr2 = big ? 14 : 9;
+      const off = dr2 + (big ? 12 : 8);
+      const lfs = big ? 26 : 15;
+      const sw  = big ? 3 : 2;
+      h += `<text x="${x1}" y="${axY - off}" text-anchor="middle" font-size="${lfs}" fill="#1d4ed8" font-weight="900" font-family="-apple-system,sans-serif" paint-order="stroke" stroke="#fff" stroke-width="${sw}">${fmtN(s.car1)}</text>`;
+      h += `<text x="${x2}" y="${axY - off}" text-anchor="middle" font-size="${lfs}" fill="#dc2626" font-weight="900" font-family="-apple-system,sans-serif" paint-order="stroke" stroke="#fff" stroke-width="${sw}">${fmtN(s.car2)}</text>`;
+    }
+  }
+
+  svgEl.innerHTML = h;
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function updateTeacherUI() {
+  // Distance banner
+  const banner = document.getElementById('distBanner');
+  const dist   = Math.abs(S.car2 - S.car1);
+  if (S.showDist && dist > 0) {
+    banner.innerHTML = `<span>Distance = ${fmtN(dist)} miles</span>`;
+  } else if (S.showDist && dist === 0) {
+    banner.innerHTML = `<span>Distance = 0  (cars are at the same spot)</span>`;
+  } else {
+    banner.innerHTML = `<span class="dim">Drive the cars apart, then reveal distance</span>`;
+  }
+
+  // Reveal buttons
+  document.getElementById('posBtn').className  = S.showPos  ? 'active' : '';
+  document.getElementById('distBtn').className = S.showDist ? 'active' : '';
+
+  // Phase info
+  document.getElementById('phaseBadge').textContent = `Phase ${S.phase} of 2`;
+  document.getElementById('phaseLabel').textContent  = PHASES[S.phase-1].title;
+
+  // Notes
+  const ph = PHASES[S.phase-1];
+  document.getElementById('notesCard').innerHTML = `
+    <h3>Lesson Goal</h3><p>${ph.desc}</p>
+    <h3>Speaking Notes</h3><p>${ph.speaking}</p>
+    <h3>Discussion</h3><ul>${ph.discuss.map(q=>`<li>${q}</li>`).join('')}</ul>
+    <h3>Misconceptions</h3><ul>${ph.miscon.map(m=>`<li>${m}</li>`).join('')}</ul>`;
+}
+
+function render() {
+  if (isExternal) {
+    renderSVG(document.getElementById('displaySVG'), 1200, 220, S, true);
+    document.getElementById('dPrompt').textContent = PHASES[S.phase-1].prompt;
+    const dist = Math.abs(S.car2 - S.car1);
+    document.getElementById('dDist').textContent = S.showDist && dist > 0
+      ? `${fmtN(dist)} miles`
+      : '';
+  } else {
+    renderSVG(document.getElementById('teacherSVG'), 800, 120, S, false);
+    updateTeacherUI();
+  }
+}
+
+// ── Animation loop ────────────────────────────────────────────────────────────
+function loop(ts) {
+  // 15-second watchdog: if a pointer-up was swallowed (e.g. by PencilKit),
+  // this prevents the loop from running forever and flooding the message bridge.
+  if (!loopSafetyStart) loopSafetyStart = ts;
+  if (ts - loopSafetyStart > 15000) {
+    stopAllMovement();
+    return;
+  }
+
+  const dt = lastStamp ? Math.min((ts - lastStamp) / 1000, 0.1) : 0;
+  lastStamp = ts;
+
+  if (S.car1Dir !== 0) S.car1 = Math.max(-MAX_POS, Math.min(MAX_POS, S.car1 + S.car1Dir * SPEED * dt));
+  if (S.car2Dir !== 0) S.car2 = Math.max(-MAX_POS, Math.min(MAX_POS, S.car2 + S.car2Dir * SPEED * dt));
+  S.halfRange = computeHalfRange();
+
+  render();
+  if (!isExternal) publishState();
+
+  if (S.car1Dir !== 0 || S.car2Dir !== 0) {
+    rafId = requestAnimationFrame(loop);
+  } else {
+    rafId = null;
+    lastStamp = 0;
+    loopSafetyStart = 0;
+  }
+}
+
+function startLoop() {
+  if (!rafId) {
+    loopSafetyStart = 0;
+    rafId = requestAnimationFrame(loop);
+  }
+}
+
+// ── State bridge ──────────────────────────────────────────────────────────────
+function publishState() {
+  if (!window.MathBoardApplet) return;
+  window.MathBoardApplet.publishState({
+    phase:S.phase, car1:S.car1, car2:S.car2,
+    car1Dir:S.car1Dir, car2Dir:S.car2Dir,
+    halfRange:S.halfRange, showCars:S.showCars,
+    showPos:S.showPos, showDist:S.showDist
+  });
+}
+
+window.mathBoardAppletSetState = function(incoming) {
+  if (!incoming) return;
+  if (!isExternal) {
+    isExternal = true;
+    document.getElementById('teacher').style.display = 'none';
+    document.getElementById('display').style.display = 'flex';
+  }
+  Object.assign(S, incoming);
+  render();
+};
+
+// ── Directional button helpers ────────────────────────────────────────────────
+
+// Shared halt used by the watchdog, window-level fallback, and phase transitions.
+function stopAllMovement() {
+  S.car1Dir = 0; S.car2Dir = 0;
+  S.car1 = Math.round(S.car1); S.car2 = Math.round(S.car2);
+  S.halfRange = computeHalfRange();
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; lastStamp = 0; loopSafetyStart = 0; }
+  render(); publishState();
+}
+
+function startDir(carKey, dir) {
+  S[carKey] = dir;
+  startLoop();
+  publishState();
+}
+function stopDir(carKey) {
+  S[carKey] = 0;
+  // Snap to nearest integer for clean positions
+  if (carKey === 'car1Dir') S.car1 = Math.round(S.car1);
+  else                       S.car2 = Math.round(S.car2);
+  S.halfRange = computeHalfRange();
+  if (!S.car1Dir && !S.car2Dir) {
+    if (rafId) { cancelAnimationFrame(rafId); rafId = null; lastStamp = 0; }
+    render();
+    publishState();
+  }
+}
+
+function addDriveBtn(id, carKey, dir) {
+  const btn = document.getElementById(id);
+  btn.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    btn.setPointerCapture(e.pointerId);
+    startDir(carKey, dir);
+  });
+  btn.addEventListener('pointerup',     () => stopDir(carKey));
+  btn.addEventListener('pointercancel', () => stopDir(carKey));
+}
+
+// ── Phase transition ──────────────────────────────────────────────────────────
+function goPhase(p) {
+  // Always halt movement before changing phase so the loop can't outlive the phase.
+  if (S.car1Dir || S.car2Dir) stopAllMovement();
+  p = Math.max(1, Math.min(2, p));
+  S.phase = p;
+  S.showCars = p === 1;
+  S.showPos  = false;
+  S.showDist = false;
+  render();
+  publishState();
+}
+
+// ── Events ────────────────────────────────────────────────────────────────────
+addDriveBtn('r1L', 'car2Dir', -1);
+addDriveBtn('r1R', 'car2Dir',  1);
+addDriveBtn('b1L', 'car1Dir', -1);
+addDriveBtn('b1R', 'car1Dir',  1);
+
+document.getElementById('stopBtn').addEventListener('click', () => {
+  S.car1Dir = 0; S.car2Dir = 0;
+  S.car1 = Math.round(S.car1); S.car2 = Math.round(S.car2);
+  S.halfRange = computeHalfRange();
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; lastStamp = 0; }
+  render(); publishState();
+});
+
+document.getElementById('resetBtn').addEventListener('click', () => {
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; lastStamp = 0; }
+  S.car1 = 0; S.car2 = 0;
+  S.car1Dir = 0; S.car2Dir = 0;
+  S.halfRange = 5; S.showPos = false; S.showDist = false;
+  render(); publishState();
+});
+
+document.getElementById('posBtn').addEventListener('click', () => {
+  S.showPos = !S.showPos;
+  render(); publishState();
+});
+
+document.getElementById('distBtn').addEventListener('click', () => {
+  S.showDist = !S.showDist;
+  render(); publishState();
+});
+
+document.getElementById('prevBtn').addEventListener('click', () => goPhase(S.phase - 1));
+document.getElementById('nextBtn').addEventListener('click', () => goPhase(S.phase + 1));
+
+// ── Global pointer fallback ───────────────────────────────────────────────────
+// If PencilKit (or any OS gesture recognizer) swallows the pointerup that was
+// meant for a drive button, these window-level handlers catch the orphaned press
+// before the loop floods the WKWebView message bridge.
+function onGlobalPointerEnd() {
+  if (S.car1Dir !== 0 || S.car2Dir !== 0) stopAllMovement();
+}
+window.addEventListener('pointerup',     onGlobalPointerEnd);
+window.addEventListener('pointercancel', onGlobalPointerEnd);
+
+// Stop when the WebView is backgrounded or the OS interrupts the session.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && (S.car1Dir !== 0 || S.car2Dir !== 0)) stopAllMovement();
+});
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+render();
+})();
+</script>
+</body>
+</html>

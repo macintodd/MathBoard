@@ -368,11 +368,17 @@ public struct TextEditorModalView: View {
 
     // MARK: Font resolution
 
+    // Standard iPad (264 PPI @ 2× Retina = 132 logical PPI).
+    // 1 typographic point = 1/72 inch = 132/72 ≈ 1.833 UIKit logical points.
+    // Scaling the preview font by this factor makes the editor show text at its
+    // true typographic size, matching what the canvas renders at 1:1 zoom.
+    // Must stay in sync with PresentingCanvasView.canvasTextPointScale.
+    private static let typographicScale: CGFloat = 132.0 / 72.0
+
     /// Resolves the placeholder font name + size + toggles into a SwiftUI `Font`.
-    /// (Underline is not applied here — the plain `TextEditor` shows raw `<u>…</u>`
-    /// markup; visual underline arrives with the real renderer at integration.)
+    /// Font size is scaled to typographic points so "12 pt" looks like 12 physical pt.
     private var editorFont: Font {
-        var font = Self.font(for: viewModel.fontName, size: viewModel.fontSize)
+        var font = Self.font(for: viewModel.fontName, size: viewModel.fontSize * Self.typographicScale)
         if viewModel.isBold { font = font.bold() }
         if viewModel.isItalic { font = font.italic() }
         return font

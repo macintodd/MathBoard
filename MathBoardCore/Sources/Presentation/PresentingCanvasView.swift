@@ -66,6 +66,19 @@ public struct PresentingCanvasView: View {
     private let showsCatalogInLibraryDrawer: Bool
     private let hidesStudentInk: Bool
     private let isEditingLocked: Bool
+    /// An optional visual-only overlay injected by the parent (e.g. teacher ink + cover masks
+    /// in student mode). Rendered inside canvasStack just below the tool palette so the palette
+    /// always stays on top, regardless of the parent ZStack's zIndex ordering.
+    private let canvasOverlay: AnyView?
+    /// Called when a forward link chip is tapped; parent scans all slides for the imageObjectID.
+    private let onNavigateToLinkedImage: ((UUID) -> Void)?
+    /// Called when the image HUD back-link button is tapped; parent navigates by slideID.
+    private let onNavigateToSourceSlide: ((UUID) -> Void)?
+    /// Called when a linked image is deleted; parent removes the forward link from the source sidecar.
+    private let onImageWithLinkDeleted: ((UUID, UUID) -> Void)?
+    /// Bumped by the parent immediately after writing a new slidelinks sidecar for this slide,
+    /// so the chip overlay appears without requiring a slide navigation round-trip.
+    private let slideLinkReloadToken: UUID
     private static let importedPhotoMaxPixelSide: CGFloat = 1800
     private static let importedPhotoJPEGCompressionQuality: CGFloat = 0.82
     private static let importableMediaTypes: [UTType] = [
@@ -112,11 +125,15 @@ public struct PresentingCanvasView: View {
     @State private var imageFileImportError: ImageFileImportError?
     @State private var mediaFileImportError: ImageFileImportError?
     @State private var isExternalDisplayUnavailableAlertPresented = false
-    @State private var isCanvasBackgroundPickerPresented = false
+    @State private var isShowingOverflowPopover = false
     @State private var libraryRecentRefreshID = UUID()
     /// The tool that was active before the most recent tool change, so an
     /// Apple Pencil barrel double tap can toggle back to it.
     @State private var pencilPreviousTool: ToolID?
+    /// Forward hyperlinks for the current slide, loaded from the slidelinks sidecar.
+    @State private var slideLinks: [CanvasSlideLink] = []
+    /// Per-link drag state while a chip drag gesture is in progress (not yet committed).
+    @State private var chipDragState: [UUID: CGSize] = [:]
 
     @Environment(\.preferredPencilDoubleTapAction) private var preferredPencilDoubleTapAction
 
@@ -143,7 +160,12 @@ public struct PresentingCanvasView: View {
         showsTeacherDemoWebApplets: Bool = true,
         showsCatalogInLibraryDrawer: Bool = true,
         hidesStudentInk: Bool = false,
-        isEditingLocked: Bool = false
+        isEditingLocked: Bool = false,
+        canvasOverlay: AnyView? = nil,
+        onNavigateToLinkedImage: ((UUID) -> Void)? = nil,
+        onNavigateToSourceSlide: ((UUID) -> Void)? = nil,
+        onImageWithLinkDeleted: ((UUID, UUID) -> Void)? = nil,
+        slideLinkReloadToken: UUID = UUID()
     ) {
         self.drawingURL = drawingURL
         self.background = background
@@ -168,6 +190,11 @@ public struct PresentingCanvasView: View {
         self.showsCatalogInLibraryDrawer = showsCatalogInLibraryDrawer
         self.hidesStudentInk = hidesStudentInk
         self.isEditingLocked = isEditingLocked
+        self.canvasOverlay = canvasOverlay
+        self.onNavigateToLinkedImage = onNavigateToLinkedImage
+        self.onNavigateToSourceSlide = onNavigateToSourceSlide
+        self.onImageWithLinkDeleted = onImageWithLinkDeleted
+        self.slideLinkReloadToken = slideLinkReloadToken
     }
 
     // The full-screen drawing surface and its full-bleed overlays. This
@@ -235,6 +262,14 @@ public struct PresentingCanvasView: View {
 
             selectedTextActionHUD
 
+            slideLinkChipOverlay
+
+            // Parent-injected overlay (e.g. student live-teacher-ink + cover masks).
+            // Placed here so the tool palette always renders above it.
+            if let canvasOverlay {
+                canvasOverlay
+            }
+
             if isToolPaletteActive {
                 activeToolPaletteOverlay
             }
@@ -261,6 +296,19 @@ public struct PresentingCanvasView: View {
             }
         )
         .ignoresSafeArea()
+        .task(id: drawingURL) {
+            chipDragState = [:]
+        }
+        .task(id: SlideLinkLoadKey(drawingURL: drawingURL, token: slideLinkReloadToken)) {
+            slideLinks = CanvasSlideLink.load(
+                from: CanvasSlideLink.sidecarURL(forDrawingURL: drawingURL)
+            )
+        }
+    }
+
+    private struct SlideLinkLoadKey: Equatable {
+        let drawingURL: URL
+        let token: UUID
     }
 
     @ViewBuilder
@@ -382,6 +430,16 @@ public struct PresentingCanvasView: View {
                 pencilPreviousTool = oldValue
             }
         }
+        #if os(iOS)
+        // When the app loses focus (slide-over, split-view focus change, or full background),
+        // switch to the selection tool. This prevents PencilKit drawing-state corruption that
+        // occurs when a stylus touch begins while the canvas is in the inactive foreground.
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in
+            let activeTool = broker.toolPaletteState.activeTool
+            guard activeTool != .selection && activeTool != .extract else { return }
+            activateSelectTool()
+        }
+        #endif
         .onPencilDoubleTap { _ in
             handlePencilDoubleTap()
         }
@@ -697,10 +755,34 @@ public struct PresentingCanvasView: View {
     }
 
     private var floatingOverflowMenu: some View {
-        Menu {
+        Button {
+            isShowingOverflowPopover = true
+        } label: {
+            HStack(spacing: 5) {
+                if broker.isExternalDisplayConnected {
+                    Image(systemName: "tv.fill")
+                        .foregroundStyle(.green)
+                        .font(.system(size: 14, weight: .semibold))
+                }
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(0.92))
+            }
+            .frame(width: 50, height: 44)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("More")
+        .popover(isPresented: $isShowingOverflowPopover, arrowEdge: .top) {
+            overflowPopoverContent
+        }
+    }
+
+    private var overflowPopoverContent: some View {
+        List {
             Section("Zoom \(zoomLabel)") {
                 Button {
                     viewportCommand = CanvasViewportCommand(.fitToViewfinder)
+                    isShowingOverflowPopover = false
                 } label: {
                     Label("Fit to Viewfinder", systemImage: "aspectratio")
                 }
@@ -712,11 +794,7 @@ public struct PresentingCanvasView: View {
             }
 
             Section("Canvas Background") {
-                Button {
-                    isCanvasBackgroundPickerPresented = true
-                } label: {
-                    Label("Background Color", systemImage: "paintpalette")
-                }
+                ColorPicker("Background Color", selection: canvasDeskColorBinding, supportsOpacity: false)
                 Button {
                     resetCanvasDeskColor()
                 } label: {
@@ -770,6 +848,7 @@ public struct PresentingCanvasView: View {
                     if let onImportPDF {
                         Button {
                             onImportPDF()
+                            isShowingOverflowPopover = false
                         } label: {
                             Label("Import PDF", systemImage: "doc.badge.plus")
                         }
@@ -777,39 +856,103 @@ public struct PresentingCanvasView: View {
                     if let onExportPDF {
                         Button {
                             onExportPDF()
+                            isShowingOverflowPopover = false
                         } label: {
                             Label("Export PDF", systemImage: "square.and.arrow.up")
                         }
                     }
                 }
             }
-        } label: {
-            HStack(spacing: 5) {
-                if broker.isExternalDisplayConnected {
-                    Image(systemName: "tv.fill")
-                        .foregroundStyle(.green)
-                        .font(.system(size: 14, weight: .semibold))
-                }
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 19, weight: .semibold))
-                    .foregroundStyle(Color.white.opacity(0.92))
-            }
-            .frame(width: 50, height: 44)
         }
-        .menuOrder(.fixed)
-        .accessibilityLabel("More")
-        .popover(isPresented: $isCanvasBackgroundPickerPresented) {
-            VStack(alignment: .leading, spacing: 14) {
-                ColorPicker("Background", selection: canvasDeskColorBinding, supportsOpacity: false)
-                Button {
-                    resetCanvasDeskColor()
-                } label: {
-                    Label("Reset Background", systemImage: "arrow.counterclockwise")
+        .listStyle(.insetGrouped)
+        .frame(width: 300, height: 520)
+    }
+
+    // MARK: - Slide link chip overlay
+
+    private static let drawingOriginOffset = CGPoint(x: 3000, y: 3000)
+
+    /// Converts a storage-space point to screen space using the current viewport state.
+    private func storageToScreen(_ point: CGPoint, viewport: PresentationViewportState) -> CGPoint {
+        CGPoint(
+            x: (point.x + Self.drawingOriginOffset.x) * viewport.zoomScale - viewport.contentOffset.x,
+            y: (point.y + Self.drawingOriginOffset.y) * viewport.zoomScale - viewport.contentOffset.y
+        )
+    }
+
+    private func storageToScreen(_ rect: CGRect, viewport: PresentationViewportState) -> CGRect {
+        let origin = storageToScreen(CGPoint(x: rect.minX, y: rect.minY), viewport: viewport)
+        return CGRect(
+            x: origin.x,
+            y: origin.y,
+            width: rect.width * viewport.zoomScale,
+            height: rect.height * viewport.zoomScale
+        )
+    }
+
+    @ViewBuilder
+    private var slideLinkChipOverlay: some View {
+        if !slideLinks.isEmpty, let viewport = broker.viewportState, !isEditingLocked {
+            ForEach($slideLinks) { $link in
+                let screenRect = storageToScreen(link.sourceRect, viewport: viewport)
+                let activeDrag = chipDragState[link.id] ?? .zero
+                let chipCenter = CGPoint(
+                    x: screenRect.maxX + 28 + link.chipOffset.x + activeDrag.width,
+                    y: screenRect.minY - 20 + link.chipOffset.y + activeDrag.height
+                )
+                let rectCenter = CGPoint(x: screenRect.midX, y: screenRect.midY)
+
+                ZStack {
+                    // Dashed source rect outline
+                    RoundedRectangle(cornerRadius: 4)
+                        .strokeBorder(
+                            Color.accentColor.opacity(0.7),
+                            style: StrokeStyle(lineWidth: 1.5, dash: [5, 3])
+                        )
+                        .frame(width: screenRect.width, height: screenRect.height)
+                        .position(x: screenRect.midX, y: screenRect.midY)
+
+                    // Connector line from rect center to chip
+                    Path { path in
+                        path.move(to: rectCenter)
+                        path.addLine(to: chipCenter)
+                    }
+                    .stroke(Color.accentColor.opacity(0.5), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+
+                    // Link chip
+                    Button {
+                        onNavigateToLinkedImage?(link.imageObjectID)
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "link")
+                                .font(.system(size: 12, weight: .semibold))
+                            Image(systemName: "arrow.forward")
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.accentColor, in: Capsule())
+                        .shadow(color: .black.opacity(0.2), radius: 3, x: 0, y: 1)
+                    }
+                    .position(chipCenter)
+                    .gesture(
+                        DragGesture()
+                            .onChanged { value in
+                                chipDragState[link.id] = value.translation
+                            }
+                            .onEnded { value in
+                                link.chipOffset.x += value.translation.width
+                                link.chipOffset.y += value.translation.height
+                                chipDragState[link.id] = nil
+                                try? CanvasSlideLink.save(
+                                    slideLinks,
+                                    to: CanvasSlideLink.sidecarURL(forDrawingURL: drawingURL)
+                                )
+                            }
+                    )
                 }
-                .buttonStyle(.bordered)
             }
-            .padding(16)
-            .frame(width: 280)
         }
     }
 
@@ -918,8 +1061,16 @@ public struct PresentingCanvasView: View {
                     lockToggleTitle: isLocked ? "Locked" : "Unlocked",
                     lockToggleSystemImage: isLocked ? "lock.fill" : "lock.open",
                     lockToggleTint: isLocked ? .red : .green,
+                    onNavigateToSource: object.sourceSlideID.map { sourceID in
+                        { onNavigateToSourceSlide?(sourceID) }
+                    },
                     canDelete: !isLocked,
-                    onDelete: { objectCommand = CanvasObjectCommand(.delete(.image(object.id))) }
+                    onDelete: {
+                        if let sourceID = object.sourceSlideID {
+                            onImageWithLinkDeleted?(object.id, sourceID)
+                        }
+                        objectCommand = CanvasObjectCommand(.delete(.image(object.id)))
+                    }
                 )
                 .position(hudPosition(for: viewportFrame, in: proxy.size))
                 .offset(actionHUDOffset)
@@ -1051,24 +1202,19 @@ public struct PresentingCanvasView: View {
         return viewportState.zoomScale > viewportState.minimumZoomScale + 0.01
     }
 
-    private var currentCanvasZoomScale: CGFloat {
-        max(broker.viewportState?.zoomScale ?? 1, 0.001)
-    }
-
-    // Canvas text is rendered through UIKit onto a zoomed canvas layer, while many
-    // worksheet/PDF backgrounds arrive as page-sized raster content. This factor
-    // maps the editor's document-style point sizes to the canvas backing size that
-    // visually matches those worksheets.
-    private var canvasTextPointScale: CGFloat {
-        4
-    }
+    // Standard iPad (264 PPI @ 2× Retina) has 132 logical points per inch.
+    // One typographic point = 1/72 inch = 132/72 ≈ 1.833 UIKit logical points.
+    // Storing canvas font sizes at this scale makes "12 pt" in the editor render
+    // as 12 physical typographic points when the canvas is viewed at 1:1 zoom,
+    // and scale naturally with the canvas zoom like every other canvas element.
+    private static let canvasTextPointScale: CGFloat = 132.0 / 72.0
 
     private func canvasFontSize(forEditorFontSize fontSize: CGFloat) -> CGFloat {
-        fontSize * canvasTextPointScale / currentCanvasZoomScale
+        fontSize * Self.canvasTextPointScale
     }
 
     private func editorFontSize(forCanvasFontSize fontSize: CGFloat) -> CGFloat {
-        fontSize * currentCanvasZoomScale / canvasTextPointScale
+        fontSize / Self.canvasTextPointScale
     }
 
     private var toolPaletteStateBinding: Binding<ToolPaletteState> {
@@ -3044,6 +3190,8 @@ private struct FloatingActionHUD: View {
     var lockToggleTitle = "Lock"
     var lockToggleSystemImage = "lock"
     var lockToggleTint = Color.primary
+    /// Back-navigation button shown when the image was placed via extract-send.
+    var onNavigateToSource: (() -> Void)?
     var onGroupToggle: (() -> Void)?
     var groupToggleTitle = "Group"
     var groupToggleSystemImage = "rectangle.3.group"
@@ -3088,6 +3236,9 @@ private struct FloatingActionHUD: View {
                     foregroundColor: lockToggleTint,
                     action: onLockToggle
                 )
+            }
+            if let onNavigateToSource {
+                hudButton("Go to Source", systemImage: "arrow.uturn.backward", action: onNavigateToSource)
             }
             if let onGroupToggle {
                 hudButton(groupToggleTitle, systemImage: groupToggleSystemImage, action: onGroupToggle)

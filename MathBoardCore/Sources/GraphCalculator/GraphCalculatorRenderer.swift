@@ -511,7 +511,8 @@ enum GraphCalculatorRenderer {
         color: Color,
         lineWidth: CGFloat,
         dashed: Bool = false,
-        handDrawn: Bool = false
+        handDrawn: Bool = false,
+        restrictions: GraphCalculatorPlotRestrictions = .unrestricted
     ) {
         let samples = CalculatorGraphGeometry.sample(window: window, count: max(Int(size.width), 2)) { x in
             try? engine.evaluate(compiled: compiled, angleMode: .radians, variables: graphVariables(x: x, values: variableValues))
@@ -523,7 +524,7 @@ enum GraphCalculatorRenderer {
         var previousY: Double?
 
         for sample in samples {
-            guard let y = sample.y else {
+            guard let y = sample.y, restrictions.allows(x: sample.x, y: y) else {
                 if !current.isEmpty { runs.append(current); current = [] }
                 previousY = nil
                 continue
@@ -603,22 +604,22 @@ enum GraphCalculatorRenderer {
         handDrawn: Bool
     ) {
         switch plot {
-        case .curve(let source):
+        case .curve(let source, let restrictions):
             guard let compiled = try? engine.compile(source) else { return }
-            drawCurve(in: context, size: size, window: window, compiled: compiled, engine: engine, variableValues: variableValues, color: color, lineWidth: lineWidth, handDrawn: handDrawn)
-        case .yRelation(let source, let relation):
+            drawCurve(in: context, size: size, window: window, compiled: compiled, engine: engine, variableValues: variableValues, color: color, lineWidth: lineWidth, handDrawn: handDrawn, restrictions: restrictions)
+        case .yRelation(let source, let relation, let restrictions):
             guard let compiled = try? engine.compile(source) else { return }
-            drawYRelation(in: context, size: size, window: window, compiled: compiled, engine: engine, variableValues: variableValues, relation: relation, color: color, lineWidth: lineWidth, handDrawn: handDrawn)
-        case .xRelation(let source, let relation):
+            drawYRelation(in: context, size: size, window: window, compiled: compiled, engine: engine, variableValues: variableValues, relation: relation, color: color, lineWidth: lineWidth, handDrawn: handDrawn, restrictions: restrictions)
+        case .xRelation(let source, let relation, _):
             guard let compiled = try? engine.compile(source),
                   let x = try? engine.evaluate(compiled: compiled, variables: variableValues),
                   x.isFinite else {
                 return
             }
             drawXRelation(in: context, size: size, window: window, x: x, relation: relation, color: color, lineWidth: lineWidth)
-        case .implicitRelation(let source):
+        case .implicitRelation(let source, let restrictions):
             guard let compiled = try? engine.compile(source) else { return }
-            drawImplicitRelation(in: context, size: size, window: window, compiled: compiled, engine: engine, variableValues: variableValues, color: color, lineWidth: lineWidth, handDrawn: handDrawn)
+            drawImplicitRelation(in: context, size: size, window: window, compiled: compiled, engine: engine, variableValues: variableValues, color: color, lineWidth: lineWidth, handDrawn: handDrawn, restrictions: restrictions)
         case .point(let x, let y):
             drawPoint(in: context, size: size, window: window, x: x, y: y, color: color, lineWidth: lineWidth)
         }
@@ -651,7 +652,8 @@ enum GraphCalculatorRenderer {
         relation: GraphCalculatorYRelation,
         color: Color,
         lineWidth: CGFloat,
-        handDrawn: Bool
+        handDrawn: Bool,
+        restrictions: GraphCalculatorPlotRestrictions
     ) {
         if let shadesBelow = relation.shadesBelow {
             drawYRelationShading(
@@ -662,7 +664,8 @@ enum GraphCalculatorRenderer {
                 engine: engine,
                 variableValues: variableValues,
                 shadesBelow: shadesBelow,
-                color: color
+                color: color,
+                restrictions: restrictions
             )
         }
         drawCurve(
@@ -675,7 +678,8 @@ enum GraphCalculatorRenderer {
             color: color,
             lineWidth: lineWidth,
             dashed: relation.isStrict,
-            handDrawn: handDrawn
+            handDrawn: handDrawn,
+            restrictions: restrictions
         )
     }
 
@@ -687,7 +691,8 @@ enum GraphCalculatorRenderer {
         engine: CalculatorEngine,
         variableValues: [String: Double],
         shadesBelow: Bool,
-        color: Color
+        color: Color,
+        restrictions: GraphCalculatorPlotRestrictions
     ) {
         let samples = CalculatorGraphGeometry.sample(window: window, count: max(Int(size.width), 2)) { x in
             try? engine.evaluate(compiled: compiled, angleMode: .radians, variables: graphVariables(x: x, values: variableValues))
@@ -695,6 +700,10 @@ enum GraphCalculatorRenderer {
 
         for pair in zip(samples, samples.dropFirst()) {
             guard let y1 = pair.0.y, let y2 = pair.1.y else { continue }
+            guard restrictions.allows(x: pair.0.x, y: y1),
+                  restrictions.allows(x: pair.1.x, y: y2) else {
+                continue
+            }
             let p1 = CalculatorGraphGeometry.viewPoint(forGraph: CGPoint(x: pair.0.x, y: y1), window: window, size: size)
             let p2 = CalculatorGraphGeometry.viewPoint(forGraph: CGPoint(x: pair.1.x, y: y2), window: window, size: size)
             guard p1.y.isFinite, p2.y.isFinite else { continue }
@@ -763,7 +772,8 @@ enum GraphCalculatorRenderer {
         variableValues: [String: Double],
         color: Color,
         lineWidth: CGFloat,
-        handDrawn: Bool
+        handDrawn: Bool,
+        restrictions: GraphCalculatorPlotRestrictions
     ) {
         let columns = max(36, min(140, Int(size.width / 5)))
         let rows = max(36, min(140, Int(size.height / 5)))
@@ -776,6 +786,10 @@ enum GraphCalculatorRenderer {
             let x = window.xMin + Double(ix) * dx
             for iy in 0...rows {
                 let y = window.yMin + Double(iy) * dy
+                guard restrictions.allows(x: x, y: y) else {
+                    values[ix][iy] = nil
+                    continue
+                }
                 values[ix][iy] = evaluateImplicit(compiled: compiled, engine: engine, x: x, y: y, values: variableValues)
             }
         }

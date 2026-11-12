@@ -115,6 +115,82 @@ public final class SlideStore {
         return newSlides
     }
 
+    /// Insert a single anchored supplementary slide after the slide at `index`.
+    /// The new slide is tagged with `kind` and an anchor pointing to the nearest
+    /// preceding master slide (or `nil` if there is none), so `mergeMasterSlides`
+    /// can restore its position relative to master slides on reload.
+    @discardableResult
+    public func insertAnchoredSlide(kind: SlideAnchor.Kind, afterSlideAt index: Int) throws -> SlideMetadata {
+        try validateSlideIndex(index)
+
+        let masterSlideID: UUID?
+        let existingCount: Int
+
+        if slides[index].anchor == nil {
+            // Inserting right after a master slide: fresh group, no existing same-kind slides.
+            masterSlideID = slides[index].id
+            existingCount = 0
+        } else {
+            // Inserting after an existing anchored slide: inherit its master anchor.
+            masterSlideID = slides[index].anchor!.masterSlideID
+            // Count same-kind anchored slides in this group (from after the preceding master to index).
+            let masterIdx = slides[...index].indices.last(where: { slides[$0].anchor == nil }) ?? -1
+            let groupStart = masterIdx + 1  // safe: masterIdx < index since slides[index] is anchored
+            existingCount = slides[groupStart...index].filter { $0.anchor?.kind == kind }.count
+        }
+
+        let anchor = SlideAnchor(kind: kind, masterSlideID: masterSlideID, sequenceNumber: existingCount + 1)
+        let newSlide = SlideMetadata(anchor: anchor)
+        slides.insert(newSlide, at: index + 1)
+        print("[Slides] insertAnchoredSlide: kind=\(kind.rawValue) masterSlideID=\(masterSlideID?.uuidString ?? "nil") seq=\(anchor.sequenceNumber) newSlideID=\(newSlide.id) totalSlides=\(slides.count)")
+        saveManifest()
+        return newSlide
+    }
+
+    /// Compute the display label for `slide` given the current ordered `slides` array.
+    /// Master slides get plain numbers ("1", "2", …). Anchored slides get the preceding
+    /// master number plus a kind suffix and optional sequence number ("3T", "3T2", "3S").
+    public static func slideLabel(for slide: SlideMetadata, in slides: [SlideMetadata]) -> String {
+        guard let slideIndex = slides.firstIndex(where: { $0.id == slide.id }) else {
+            return "?"
+        }
+
+        if slide.anchor == nil {
+            let position = slides[...slideIndex].filter { $0.anchor == nil }.count
+            return "\(position)"
+        }
+
+        let kind = slide.anchor!.kind
+        let precedingMasterCount = slides[..<slideIndex].filter { $0.anchor == nil }.count
+
+        // Walk back to find the start of this contiguous anchor group
+        var groupStart = slideIndex
+        while groupStart > 0 && slides[groupStart - 1].anchor != nil {
+            groupStart -= 1
+        }
+
+        let seqNum = slides[groupStart...slideIndex].filter { $0.anchor?.kind == kind }.count
+        let suffix = kind.rawValue
+        return seqNum <= 1 ? "\(precedingMasterCount)\(suffix)" : "\(precedingMasterCount)\(suffix)\(seqNum)"
+    }
+
+    /// Duplicate the slide at `index`, placing the copy immediately after it.
+    /// All canvas sidecar files are deep-copied under the new slide's UUID.
+    @discardableResult
+    public func duplicateSlide(at index: Int) throws -> SlideMetadata {
+        try validateSlideIndex(index)
+        let source = slides[index]
+        let copy = SlideMetadata(background: source.background)
+
+        let sourceDrawingURL = Self.drawingURL(in: lessonURL, slideID: source.id)
+        let copyDrawingURL = Self.drawingURL(in: lessonURL, slideID: copy.id)
+        try? Self.copyCanvasState(from: sourceDrawingURL, to: copyDrawingURL, fileManager: fileManager)
+
+        slides.insert(copy, at: index + 1)
+        saveManifest()
+        return copy
+    }
+
     /// Delete a slide and its drawing file, returning the index that should
     /// become active after removal.
     @discardableResult
@@ -331,27 +407,37 @@ public final class SlideStore {
         let masterSlideIDs = Set(visibleMasterSlides.map(\.id))
         let masterSlidesByID = Dictionary(uniqueKeysWithValues: visibleMasterSlides.map { ($0.id, $0) })
 
-        let mergedMasterSlides: [SlideMetadata]
+        // Supplementary (anchored) slides: always preserved unless explicitly deleted
+        let supplementarySlides = originalSlides.filter {
+            $0.anchor != nil && !deletedSlideIDs.contains($0.id)
+        }
+        print("[Slides] mergeMasterSlides: original=\(originalSlides.count) master=\(masterSlides.count) supplementary=\(supplementarySlides.count) editedIDs=\(editedSlideIDs.count)")
+
         if preservingSlideOrder {
+            // Teacher manually reordered slides: preserve existing order, but update master
+            // slide content and keep anchored slides in their current positions.
             var emittedSlideIDs = Set<UUID>()
             var orderedSlides: [SlideMetadata] = originalSlides.compactMap { localSlide in
+                if localSlide.anchor != nil {
+                    return deletedSlideIDs.contains(localSlide.id) ? nil : localSlide
+                }
                 guard let masterSlide = masterSlidesByID[localSlide.id] else {
                     return editedSlideIDs.contains(localSlide.id) && !deletedSlideIDs.contains(localSlide.id)
                         ? localSlide
                         : nil
                 }
                 emittedSlideIDs.insert(localSlide.id)
-                if editedSlideIDs.contains(localSlide.id) {
-                    return localSlide
-                }
+                if editedSlideIDs.contains(localSlide.id) { return localSlide }
                 var mergedSlide = masterSlide
                 mergedSlide.viewport = localSlide.viewport ?? masterSlide.viewport
                 return mergedSlide
             }
             orderedSlides.append(contentsOf: visibleMasterSlides.filter { !emittedSlideIDs.contains($0.id) })
-            mergedMasterSlides = orderedSlides
+            slides = orderedSlides
         } else {
-            mergedMasterSlides = visibleMasterSlides.map { masterSlide in
+            // Default: interleave supplementary slides after their anchor master slide.
+            // Build merged master slides first (unchanged from before).
+            let mergedMasterSlides: [SlideMetadata] = visibleMasterSlides.map { masterSlide in
                 if editedSlideIDs.contains(masterSlide.id),
                    let localSlide = originalSlides.first(where: { $0.id == masterSlide.id }) {
                     return localSlide
@@ -363,15 +449,72 @@ public final class SlideStore {
                 }
                 return masterSlide
             }
-        }
-        let remainingEditedLocalSlides = preservingSlideOrder ? [] : originalSlides.filter { localSlide in
-            !masterSlideIDs.contains(localSlide.id)
-                && editedSlideIDs.contains(localSlide.id)
-                && !deletedSlideIDs.contains(localSlide.id)
+
+            // Build an insertion map: masterSlideID? → [slides to insert after that master].
+            // Handles both anchor-tagged slides and older/unanchored local-only slides by
+            // inferring position from where the slide appeared in the original session order.
+            var insertionMap: [UUID?: [SlideMetadata]] = [:]
+
+            // Pass 1: anchored supplementary slides — use their stored anchor.
+            for slide in supplementarySlides {
+                let anchorID = slide.anchor!.masterSlideID
+                if let anchorID, masterSlidesByID[anchorID] == nil {
+                    // Master was deleted — fall back to the last surviving master before this slide.
+                    let fallbackID = originalSlides
+                        .prefix(while: { $0.id != slide.id })
+                        .last(where: { $0.anchor == nil && masterSlidesByID[$0.id] != nil })?
+                        .id
+                    insertionMap[fallbackID, default: []].append(slide)
+                } else {
+                    insertionMap[anchorID, default: []].append(slide)
+                }
+            }
+
+            // Pass 2: local-only slides without an anchor tag (legacy slides or decode fallback).
+            // Infer position from the slide's location in the original session manifest.
+            let unanchoredLocalSlides = originalSlides.filter { slide in
+                slide.anchor == nil
+                    && !masterSlideIDs.contains(slide.id)
+                    && !deletedSlideIDs.contains(slide.id)
+                    && editedSlideIDs.contains(slide.id)
+            }
+            for slide in unanchoredLocalSlides {
+                let precedingMasterID = originalSlides
+                    .prefix(while: { $0.id != slide.id })
+                    .last(where: { $0.anchor == nil && masterSlidesByID[$0.id] != nil })?
+                    .id
+                insertionMap[precedingMasterID, default: []].append(slide)
+            }
+
+            // Sort each bucket by the slide's original position in the session manifest.
+            // This preserves the teacher's arrangement across round-trips regardless of
+            // whether slides carry anchor tags or are legacy unanchored local slides.
+            let originalPositions: [UUID: Int] = Dictionary(
+                uniqueKeysWithValues: originalSlides.enumerated().map { ($1.id, $0) }
+            )
+            for key in insertionMap.keys {
+                insertionMap[key]?.sort {
+                    (originalPositions[$0.id] ?? Int.max) < (originalPositions[$1.id] ?? Int.max)
+                }
+            }
+
+            // Interleave: pre-master slides, then for each master slide its followers.
+            var result: [SlideMetadata] = insertionMap[nil] ?? []
+            for masterSlide in mergedMasterSlides {
+                result.append(masterSlide)
+                if let followers = insertionMap[masterSlide.id] {
+                    result.append(contentsOf: followers)
+                }
+            }
+
+            slides = result
         }
 
-        slides = mergedMasterSlides + remainingEditedLocalSlides
-        guard slides != originalSlides else { return false }
+        guard slides != originalSlides else {
+            print("[Slides] mergeMasterSlides: no change, skipping save. result=\(slides.count) anchored=\(slides.filter { $0.anchor != nil }.count)")
+            return false
+        }
+        print("[Slides] mergeMasterSlides: saving result=\(slides.count) anchored=\(slides.filter { $0.anchor != nil }.count)")
         saveManifest()
         return true
     }
@@ -498,10 +641,22 @@ public final class SlideStore {
         }
 
         let sessionManifestURL = manifestURL(in: lessonURL, classroomSessionCode: classroomSessionCode)
-        if let data = try? Data(contentsOf: sessionManifestURL),
-           let manifest = try? jsonDecoder.decode(SlideManifest.self, from: data),
-           !manifest.slides.isEmpty {
-            return (slides: manifest.slides, lastActiveSlideID: manifest.lastActiveSlideID)
+        if let data = try? Data(contentsOf: sessionManifestURL) {
+            do {
+                let manifest = try jsonDecoder.decode(SlideManifest.self, from: data)
+                if !manifest.slides.isEmpty {
+                    let supplementaryCount = manifest.slides.filter { $0.anchor != nil }.count
+                    print("[Slides] loadOrMigrate code=\(classroomSessionCode) slides=\(manifest.slides.count) supplementary=\(supplementaryCount)")
+                    return (slides: manifest.slides, lastActiveSlideID: manifest.lastActiveSlideID)
+                }
+            } catch {
+                print("[Slides] ⚠️ session manifest decode FAILED code=\(classroomSessionCode) error=\(error)")
+                if let jsonString = String(data: data, encoding: .utf8) {
+                    print("[Slides] ⚠️ bad JSON snippet: \(String(jsonString.prefix(500)))")
+                }
+            }
+        } else {
+            print("[Slides] loadOrMigrate code=\(classroomSessionCode) — no manifest file, seeding from master")
         }
 
         do {

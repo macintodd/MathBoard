@@ -56,6 +56,7 @@ public enum WebAppletResource: String, Sendable {
     case andOrAttributeFilter = "and-or-attribute-filter"
     case andOrInequalityNumberLine = "and-or-inequality-number-line"
     case compoundInequalityGraphingDemo = "compound-inequality-graphing-demo"
+    case absoluteValueAsDistance = "absolute-value-as-distance"
 
     public var displayName: String {
         switch self {
@@ -77,6 +78,8 @@ public enum WebAppletResource: String, Sendable {
             return "AND / OR Inequality Number Lines"
         case .compoundInequalityGraphingDemo:
             return "Graphing Compound Inequalities Demo"
+        case .absoluteValueAsDistance:
+            return "Absolute Value as Distance"
         }
     }
 
@@ -100,6 +103,8 @@ public enum WebAppletResource: String, Sendable {
             return "Local HTML/JavaScript demo for manually graphing two solved inequalities and combining their solution sets with AND or OR on aligned number lines."
         case .compoundInequalityGraphingDemo:
             return "Interactive teacher demo: graph Condition A, Condition B, and their combined AND/OR solution on three aligned number lines with draggable boundary points and arrow tips."
+        case .absoluteValueAsDistance:
+            return "Six-phase teacher-led demonstration guiding students to discover that absolute value measures distance on a number line, using animated racing cars, a distance bar, and progressive equation reveals."
         }
     }
 
@@ -123,6 +128,8 @@ public enum WebAppletResource: String, Sendable {
             return ["web applet", "demo", "and", "or", "compound inequalities", "number line", "solution sets", "external display"]
         case .compoundInequalityGraphingDemo:
             return ["web applet", "demo", "compound inequalities", "number line", "and", "or", "boundary point", "ray", "solution sets", "external display"]
+        case .absoluteValueAsDistance:
+            return ["web applet", "demo", "absolute value", "distance", "number line", "racing cars", "conceptual", "algebra", "external display"]
         }
     }
 
@@ -146,8 +153,11 @@ public enum WebAppletResource: String, Sendable {
             return .andOrInequalityNumberLine
         case .compoundInequalityGraphingDemoWebApplet:
             return .compoundInequalityGraphingDemo
+        case .absoluteValueAsDemonstrationWebApplet:
+            return .absoluteValueAsDistance
         case .inequalitiesExplorer, .countdownTimer, .randomNumberGenerator, .coordinateGridGenerator,
-             .functionTransformationExplorer, .matchGrid, .actDailyPractice:
+             .functionTransformationExplorer, .matchGrid, .actDailyPractice, .introPointSlopeWebApplet,
+             .writeLinearEquationWebApplet, .parallelPerpendicularWebApplet:
             return nil
         }
     }

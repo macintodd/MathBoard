@@ -8,10 +8,12 @@
 //
 
 import SwiftUI
+import Canvas
 import GraphCalculator
 import LiveClassroom
 import Presentation
 import Slides
+import ToolPalette
 import WidgetEngine
 
 struct LessonDetailView: View {
@@ -26,6 +28,7 @@ struct LessonDetailView: View {
     @State private var isLiveProgressDrawerOpen = false
     @State private var selectedLiveProgressAssignmentID: UUID?
     @State private var selectedLiveProgressWidgetID: UUID?
+    @State private var activeLiveProgressWidgetIDs: Set<UUID> = []
     @State private var liveProgressRows: [StudentWidgetLiveProgress] = []
     @State private var localLiveProgressPointValue = 1
     @State private var isRefreshingLiveProgress = false
@@ -46,6 +49,7 @@ struct LessonDetailView: View {
             isFollowMeEnabled: $isFollowMeEnabled,
             classroomSessionCode: selectedTeachingAssignment?.classLessonCode,
             liveClassroomConfiguration: liveClassroomConfiguration,
+            onActiveWidgetsChanged: handleTeacherActiveWidgetsChanged,
             onTeacherInkChunkPublished: persistTeacherInkChunk,
             onTeacherInkDrawingSnapshotPublished: persistTeacherInkDrawingSnapshot,
             onTeacherObjectSnapshotPublished: persistTeacherObjectSnapshot,
@@ -60,12 +64,25 @@ struct LessonDetailView: View {
             .onAppear {
                 DisplayBroker.shared.lessonURL = lesson.url
                 DisplayBroker.shared.widgetClassroomGameContext = teacherWidgetClassroomGameContext
+                if let saved = PersistedInkToolSettings.load() {
+                    var state = DisplayBroker.shared.toolPaletteState
+                    saved.apply(to: &state)
+                    DisplayBroker.shared.toolPaletteState = state
+                }
+                MBDiagnosticLogger.emit("Lesson", "opened", extra: [
+                    "externalDisplay": "\(DisplayBroker.shared.isExternalDisplayConnected)"
+                ])
             }
             .onChange(of: teacherWidgetClassroomGameContext) { _, newContext in
                 DisplayBroker.shared.widgetClassroomGameContext = newContext
             }
+            .onChange(of: DisplayBroker.shared.isExternalDisplayConnected) { _, connected in
+                MBDiagnosticLogger.emit("Display", connected ? "externalConnected" : "externalDisconnected")
+            }
             .onDisappear {
+                PersistedInkToolSettings(from: DisplayBroker.shared.toolPaletteState).save()
                 DisplayBroker.shared.widgetClassroomGameContext = nil
+                MBDiagnosticLogger.emit("Lesson", "closed")
             }
             .overlay(alignment: .trailing) {
                 liveProgressOverlay
@@ -169,6 +186,19 @@ struct LessonDetailView: View {
         return assignment.widgetSummaries.first(where: { $0.widgetID == selectedLiveProgressWidgetID })
     }
 
+    private var hasActiveLiveProgressWidget: Bool {
+        guard let selectedLiveProgressWidgetID else { return false }
+        return activeLiveProgressWidgetIDs.contains(selectedLiveProgressWidgetID)
+    }
+
+    private var shouldRefreshRemoteLiveProgress: Bool {
+        // Presence monitoring (star dot) must work even when no widgets exist in the
+        // lesson. Widget/score rows are filtered by the UI; the fetch still needs to
+        // run so lessonPresence records arrive and light up the student stars.
+        isLiveProgressDrawerOpen &&
+            selectedLiveProgressAssignment != nil
+    }
+
     private var isSelectedWidgetTeacherScored: Bool {
         guard let widget = selectedLiveProgressWidget else {
             // No widget selected — manual scoring is the default for all slides.
@@ -187,7 +217,11 @@ struct LessonDetailView: View {
         [
             isLiveProgressDrawerOpen ? "open" : "closed",
             selectedLiveProgressAssignment?.classLessonCode ?? "none",
-            selectedLiveProgressWidget?.widgetID.uuidString ?? "none"
+            selectedLiveProgressWidget?.widgetID.uuidString ?? "none",
+            activeLiveProgressWidgetIDs
+                .map(\.uuidString)
+                .sorted()
+                .joined(separator: ",")
         ].joined(separator: "|")
     }
 
@@ -510,10 +544,13 @@ struct LessonDetailView: View {
     }
 
     private func pollLiveProgressIfNeeded() async {
-        guard isLiveProgressDrawerOpen || selectedTeachingAssignment != nil else { return }
+        guard shouldRefreshRemoteLiveProgress else {
+            suspendRemoteLiveProgress()
+            return
+        }
         await refreshLiveProgress()
 
-        while !Task.isCancelled && (isLiveProgressDrawerOpen || selectedTeachingAssignment != nil) {
+        while !Task.isCancelled && shouldRefreshRemoteLiveProgress {
             do {
                 try await Task.sleep(for: .seconds(1))
             } catch {
@@ -529,18 +566,83 @@ struct LessonDetailView: View {
     }
 
     private func refreshLiveProgress() async {
-        guard let assignment = selectedLiveProgressAssignment else { return }
-        // Always fetch Firebase so presence indicators (student login state) are shown
-        // regardless of whether manual scoring or widget scoring is active.
+        guard shouldRefreshRemoteLiveProgress,
+              let assignment = selectedLiveProgressAssignment else {
+            suspendRemoteLiveProgress()
+            return
+        }
         isRefreshingLiveProgress = true
         defer { isRefreshingLiveProgress = false }
 
         do {
             let rows = try await FirebaseClassroomSyncService()
                 .fetchLiveProgress(classLessonCode: assignment.classLessonCode)
-            liveProgressRows = rows.filter { row in
+            let filteredRows = rows.filter { row in
                 row.assignmentID == assignment.id &&
                 row.classroomID == assignment.classroomID
+            }
+            if liveProgressRows != filteredRows {
+                liveProgressRows = filteredRows
+            }
+        } catch {
+            liveProgressErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    private func suspendRemoteLiveProgress() {
+        if isRefreshingLiveProgress {
+            isRefreshingLiveProgress = false
+        }
+        if !liveProgressRows.isEmpty {
+            liveProgressRows = []
+        }
+    }
+
+    private func handleTeacherActiveWidgetsChanged(_ widgets: [WidgetObject]) {
+        let summaries = widgets.compactMap(AssignedWidgetSummary.init(scoreableWidget:))
+        let activeWidgetIDs = Set(summaries.map(\.widgetID))
+
+        if activeLiveProgressWidgetIDs != activeWidgetIDs {
+            activeLiveProgressWidgetIDs = activeWidgetIDs
+        }
+
+        if activeWidgetIDs.isEmpty {
+            if selectedLiveProgressWidgetID != nil {
+                selectedLiveProgressWidgetID = nil
+            }
+            // Do NOT suspend — the polling loop must keep running so lessonPresence
+            // records flow through and student stars light up even in widget-free lessons.
+        } else if let currentSelectedWidgetID = selectedLiveProgressWidgetID,
+                  !activeWidgetIDs.contains(currentSelectedWidgetID) {
+            selectedLiveProgressWidgetID = firstLiveProgressWidgetID(in: activeWidgetIDs)
+        } else if selectedLiveProgressWidgetID == nil {
+            selectedLiveProgressWidgetID = firstLiveProgressWidgetID(in: activeWidgetIDs)
+        }
+
+        mergeAssignedLiveProgressWidgetsIfNeeded(summaries)
+    }
+
+    private func firstLiveProgressWidgetID(in widgetIDs: Set<UUID>) -> UUID? {
+        widgetIDs.sorted { $0.uuidString < $1.uuidString }.first
+    }
+
+    private func mergeAssignedLiveProgressWidgetsIfNeeded(_ summaries: [AssignedWidgetSummary]) {
+        guard !summaries.isEmpty,
+              let assignment = selectedTeachingAssignment,
+              let classroom = selectedTeachingClassroom else { return }
+
+        do {
+            let updatedAssignment = try assignmentStore.mergeWidgetSummaries(summaries, for: assignment.id)
+            guard updatedAssignment.widgetSummaries != assignment.widgetSummaries else { return }
+            Task { @MainActor in
+                do {
+                    try await FirebaseClassroomSyncService(
+                        teacherUserID: teacherAuthStore.state.userID,
+                        teacherEmail: teacherAuthStore.state.email
+                    ).publishAssignment(updatedAssignment, classroom: classroom)
+                } catch {
+                    print("[LessonDetail] live progress widget summary publish error: \(error)")
+                }
             }
         } catch {
             liveProgressErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -799,6 +901,15 @@ struct LessonDetailView: View {
                     }
                     .disabled(lessonAssignments.isEmpty)
                 }
+                Section("Diagnostics") {
+                    ShareLink(
+                        item: MBDiagnosticLogger.shared.logFileURL,
+                        subject: Text("MathBoard Diagnostic Log"),
+                        message: Text("Canvas diagnostic log — attach to bug report.")
+                    ) {
+                        Label("Export Diagnostic Log", systemImage: "square.and.arrow.up")
+                    }
+                }
             } label: {
                 HStack(spacing: 8) {
                     Text(lesson.name.count > 20 ? String(lesson.name.prefix(20)) + "…" : lesson.name)
@@ -943,6 +1054,10 @@ private struct LiveProgressDrawerView: View {
         selectedWidget == nil ? progressRows : widgetProgressRows + lessonPresenceRows
     }
 
+    private var shouldTickStatusClock: Bool {
+        !progressRows.isEmpty
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
@@ -952,7 +1067,8 @@ private struct LiveProgressDrawerView: View {
         .padding(16)
         .frame(width: LiveProgressDrawerTheme.openWidth)
         .frame(maxHeight: .infinity)
-        .task {
+        .task(id: shouldTickStatusClock) {
+            guard shouldTickStatusClock else { return }
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(2))
                 now = Date()
@@ -1081,22 +1197,22 @@ private struct LiveProgressDrawerView: View {
     private func celebrationName(for student: RosterStudent, progress: StudentWidgetLiveProgress?) -> String {
         let preferred = progress?.studentPreferredFirstName ?? student.firstName
         let trimmedPreferred = preferred.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedPreferred.isEmpty { return trimmedPreferred }
+        if !trimmedPreferred.isEmpty { return firstWord(of: trimmedPreferred) }
         return celebrationName(fromDisplayName: student.displayName)
     }
 
     private func celebrationName(for progress: StudentWidgetLiveProgress) -> String {
         let preferred = progress.studentPreferredFirstName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !preferred.isEmpty { return preferred }
+        if !preferred.isEmpty { return firstWord(of: preferred) }
         return celebrationName(fromDisplayName: progress.studentName)
     }
 
     private func celebrationName(fromDisplayName displayName: String) -> String {
-        displayName
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .split(separator: " ")
-            .first
-            .map(String.init) ?? "Student"
+        firstWord(of: displayName.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private func firstWord(of string: String) -> String {
+        string.split(separator: " ").first.map(String.init) ?? "Student"
     }
 
     private func normalizedStudentIdentifier(_ identifier: String) -> String {

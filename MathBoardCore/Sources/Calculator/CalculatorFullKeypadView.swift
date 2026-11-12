@@ -350,7 +350,7 @@ struct CalculatorFullKeypadView: View {
         [act("log", .insert("log("), .function, second: "10ˣ", secondAction: .insert("10^(")), digit("7", second: "u"), digit("8", second: "v"), digit("9", second: "w"), act("×", .insert("*"), .operator, second: "[")],
         [act("ln", .insert("ln("), .function, second: "eˣ", secondAction: .insert("e^(")), digit("4", second: "L4"), digit("5", second: "L5"), digit("6", second: "L6"), act("−", .insert("-"), .operator, second: "]")],
         [cmd("sto→", .storeVar, .function, second: "rcl"), digit("1", second: "L1"), digit("2", second: "L2"), digit("3", second: "L3"), act("+", .insert("+"), .operator, second: "mem")],
-        [dec("on", second: "off"), digit("0", second: "catalog"), act(".", .insert("."), .digit, second: "i", secondAction: .insert("i")), act("(−)", .insert("-"), .operator, second: "ans", secondAction: .insert("ans")), act("enter", .evaluate, .action, second: "entry")]
+        [dec("on", second: "off"), digit("0", second: "catalog"), act(".", .insert("."), .digit, second: "i", secondAction: .insert("i")), act("(−)", .insert("−"), .operator, second: "ans", secondAction: .insert("ans")), act("enter", .evaluate, .action, second: "entry")]
     ]
 }
 

@@ -16,6 +16,9 @@ public struct CanvasImageObject: Identifiable, Codable, Hashable, Sendable {
     /// Rotation in radians, applied about the image frame center.
     public var rotation: CGFloat
     public var isLocked: Bool?
+    /// Non-nil when this image was created by the extract-send action; identifies
+    /// the slide it was extracted from so the HUD can offer a back-navigation link.
+    public var sourceSlideID: UUID?
 
     public init(
         id: UUID = UUID(),
@@ -25,7 +28,8 @@ public struct CanvasImageObject: Identifiable, Codable, Hashable, Sendable {
         width: CGFloat,
         height: CGFloat,
         rotation: CGFloat = 0,
-        isLocked: Bool? = nil
+        isLocked: Bool? = nil,
+        sourceSlideID: UUID? = nil
     ) {
         self.id = id
         self.imageFileName = imageFileName
@@ -35,6 +39,7 @@ public struct CanvasImageObject: Identifiable, Codable, Hashable, Sendable {
         self.height = height
         self.rotation = rotation
         self.isLocked = isLocked
+        self.sourceSlideID = sourceSlideID
     }
 
     public var frame: CGRect {
@@ -67,7 +72,7 @@ public struct CanvasImageObject: Identifiable, Codable, Hashable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, imageFileName, x, y, width, height, rotation, isLocked
+        case id, imageFileName, x, y, width, height, rotation, isLocked, sourceSlideID
     }
 
     public init(from decoder: Decoder) throws {
@@ -80,6 +85,7 @@ public struct CanvasImageObject: Identifiable, Codable, Hashable, Sendable {
         height = try container.decode(CGFloat.self, forKey: .height)
         rotation = try container.decodeIfPresent(CGFloat.self, forKey: .rotation) ?? 0
         isLocked = try container.decodeIfPresent(Bool.self, forKey: .isLocked)
+        sourceSlideID = try container.decodeIfPresent(UUID.self, forKey: .sourceSlideID)
     }
 
     public static func sidecarURL(forDrawingURL drawingURL: URL) -> URL {

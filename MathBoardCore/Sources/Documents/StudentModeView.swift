@@ -1590,9 +1590,11 @@ struct StudentAssignedLessonLiveProgressBuilder {
 
     func updates(
         activeWidgetIDs: Set<UUID>,
+        widgetSummaries: [AssignedWidgetSummary]? = nil,
         submittedAt: Date = Date()
     ) -> [StudentAssignedLessonLiveProgressUpdate] {
-        assignmentPacket.widgetSummaries.filter { $0.maxScore > 0 }.map { widget in
+        let summaries = widgetSummaries ?? assignmentPacket.widgetSummaries
+        return summaries.filter(\.isScoreableForLiveProgress).map { widget in
             let isActive = activeWidgetIDs.contains(widget.widgetID)
             let fallbackStatus: WidgetActivityScoreStatus = submittedWidgetIDs.contains(widget.widgetID) ? .complete : .inProgress
             let scoreRecord = scoreRecord(for: widget, fallbackStatus: fallbackStatus)
@@ -1783,7 +1785,7 @@ private struct StudentAssignedLessonView: View {
                 isWidgetSubmitted: { widgetID in localSubmittedWidgetIDs.contains(widgetID) },
                 isWidgetReset: { widgetID in everSubmittedWidgetIDs.contains(widgetID) && !localSubmittedWidgetIDs.contains(widgetID) },
                 onSubmitWidget: { widgetID in
-                    guard let summary = destination.assignmentPacket.widgetSummaries.first(where: { $0.widgetID == widgetID }),
+                    guard let summary = widgetSummary(for: widgetID),
                           var record = scoreRecordsByWidgetID[widgetID] else { return }
                     record.id = widgetID.uuidString
                     record.title = summary.title
@@ -2115,15 +2117,13 @@ private struct StudentAssignedLessonView: View {
     private func runLiveProgressLoop() async {
         while !Task.isCancelled {
             publishLessonPresence()
-            // When the student has navigated away, fall back to the last known widget IDs
-            // so the loop continues doing fresh disk reads even after leaving the slide.
-            // This ensures a score saved by the debounce after navigation is picked up.
-            let idsForRefresh = activeWidgetIDs.isEmpty ? lastKnownNonEmptyActiveWidgetIDs : activeWidgetIDs
-            let refreshedActiveWidgets = refreshedWidgets(forActiveWidgetIDs: idsForRefresh)
-            publishLiveProgress(
-                forActiveWidgetIDs: activeWidgetIDs,
-                activeWidgets: refreshedActiveWidgets.isEmpty ? activeWidgets : refreshedActiveWidgets
-            )
+            if !activeWidgetIDs.isEmpty {
+                let refreshedActiveWidgets = refreshedWidgets(forActiveWidgetIDs: activeWidgetIDs)
+                publishLiveProgress(
+                    forActiveWidgetIDs: activeWidgetIDs,
+                    activeWidgets: refreshedActiveWidgets.isEmpty ? activeWidgets : refreshedActiveWidgets
+                )
+            }
             try? await Task.sleep(for: .seconds(2))
         }
     }
@@ -2188,6 +2188,8 @@ private struct StudentAssignedLessonView: View {
         // from publishing a stale 0/N record that would overwrite a real submission.
         guard hasLoadedDurableTeacherState else { return }
         let mergedScoreRecords = mergeScoreRecords(from: activeWidgets)
+        let visibleWidgetSummaries = activeWidgets.compactMap(AssignedWidgetSummary.init(scoreableWidget:))
+        guard !visibleWidgetSummaries.isEmpty else { return }
         let builder = StudentAssignedLessonLiveProgressBuilder(
             assignmentPacket: destination.assignmentPacket,
             studentIdentifier: destination.studentIdentifier,
@@ -2196,7 +2198,7 @@ private struct StudentAssignedLessonView: View {
             scoreRecordsByWidgetID: mergedScoreRecords
         )
 
-        for update in builder.updates(activeWidgetIDs: activeWidgetIDs) {
+        for update in builder.updates(activeWidgetIDs: activeWidgetIDs, widgetSummaries: visibleWidgetSummaries) {
             guard let widgetID = UUID(uuidString: update.submission.widgetScoreRecord.id) else { continue }
             // Skip widgets that are currently locked in submitted state (their score is already in Firebase).
             guard !localSubmittedWidgetIDs.contains(widgetID) else { continue }
@@ -2250,6 +2252,13 @@ private struct StudentAssignedLessonView: View {
             studentIdentifier: destination.studentIdentifier
         )
         return updatedScoreRecords
+    }
+
+    private func widgetSummary(for widgetID: UUID) -> AssignedWidgetSummary? {
+        destination.assignmentPacket.widgetSummaries.first { $0.widgetID == widgetID }
+            ?? activeWidgets
+                .compactMap(AssignedWidgetSummary.init(scoreableWidget:))
+                .first { $0.widgetID == widgetID }
     }
 
     private func submitWidgetScore(_ scoreRecord: WidgetActivityScoreRecord) {

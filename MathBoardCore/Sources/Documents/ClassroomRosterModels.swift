@@ -378,6 +378,28 @@ public final class ClassroomRosterStore {
         try save()
     }
 
+    func generateAlternateID(forStudentID studentID: UUID, in classroomID: UUID) throws {
+        guard let classroomIndex = classrooms.firstIndex(where: { $0.id == classroomID }) else {
+            throw ClassroomRosterStoreError.classroomNotFound
+        }
+        guard let studentIndex = classrooms[classroomIndex].students.firstIndex(where: { $0.id == studentID }) else {
+            throw ClassroomRosterStoreError.studentNotFound
+        }
+
+        let prefix = try validatedAlternateIDPrefix(classrooms[classroomIndex].alternateIDPrefix)
+        let usedSuffixes = Set(
+            classrooms[classroomIndex].students.compactMap { s -> String? in
+                let id = s.alternateStudentID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+                guard id.hasPrefix(prefix + "-") else { return nil }
+                return String(id.dropFirst(prefix.count + 1))
+            }
+        )
+        let suffix = Self.uniqueRandomSuffix(avoiding: usedSuffixes)
+        classrooms[classroomIndex].students[studentIndex].alternateStudentID = "\(prefix)-\(suffix)"
+        classrooms[classroomIndex].modifiedAt = Date()
+        try save()
+    }
+
     func previewCSV(at sourceURL: URL) throws -> RosterCSVPreview {
         // Try common encodings in priority order. Many SIS exports are UTF-8;
         // Excel on Windows often produces UTF-16 or Latin-1.

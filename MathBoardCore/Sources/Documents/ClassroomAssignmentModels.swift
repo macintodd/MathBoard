@@ -28,6 +28,25 @@ public struct AssignedWidgetSummary: Identifiable, Codable, Hashable {
     }
 }
 
+extension AssignedWidgetSummary {
+    init?(scoreableWidget widget: WidgetObject) {
+        guard let scoreRecord = widget.activityScoreRecord else { return nil }
+        self.init(
+            widgetID: widget.id,
+            title: scoreRecord.title.isEmpty ? widget.displayTitle : scoreRecord.title,
+            maxScore: Double(scoreRecord.pointsPossible),
+            builtInKind: widget.builtInInteractiveKind
+        )
+    }
+
+    var isScoreableForLiveProgress: Bool {
+        if let builtInKind {
+            return builtInKind.isScoreable
+        }
+        return maxScore > 0
+    }
+}
+
 public enum WidgetScoreMode: String, Codable, Hashable {
     case percentAverage
 }
@@ -439,20 +458,52 @@ public final class ClassroomAssignmentStore {
         return updated
     }
 
+    @discardableResult
+    func mergeWidgetSummaries(
+        _ widgetSummaries: [AssignedWidgetSummary],
+        for assignmentID: UUID
+    ) throws -> ClassroomAssignment {
+        guard let index = assignments.firstIndex(where: { $0.id == assignmentID }) else {
+            throw ClassroomAssignmentStoreError.assignmentNotFound
+        }
+
+        var updated = assignments[index]
+        var summariesByWidgetID = updated.widgetSummaries.reduce(into: [UUID: AssignedWidgetSummary]()) { result, summary in
+            result[summary.widgetID] = result[summary.widgetID] ?? summary
+        }
+        var didChange = false
+
+        for summary in widgetSummaries where summary.isScoreableForLiveProgress {
+            if var existing = summariesByWidgetID[summary.widgetID] {
+                var normalizedSummary = summary
+                normalizedSummary.id = existing.id
+                if existing != normalizedSummary {
+                    existing.title = normalizedSummary.title
+                    existing.maxScore = normalizedSummary.maxScore
+                    existing.scoreMode = normalizedSummary.scoreMode
+                    existing.builtInKind = normalizedSummary.builtInKind
+                    summariesByWidgetID[summary.widgetID] = existing
+                    didChange = true
+                }
+            } else {
+                updated.widgetSummaries.append(summary)
+                summariesByWidgetID[summary.widgetID] = summary
+                didChange = true
+            }
+        }
+
+        guard didChange else { return updated }
+        assignments[index] = updated
+        save()
+        return updated
+    }
+
     func widgetSummaries(for lesson: Lesson) -> [AssignedWidgetSummary] {
         let slideStore = SlideStore(lessonURL: lesson.url)
         return slideStore.slides.flatMap { slide in
             let drawingURL = slideStore.drawingURL(for: slide)
             return WidgetObject.load(from: WidgetObject.sidecarURL(forDrawingURL: drawingURL))
-                .map { widget in
-                    let scoreRecord = widget.activityScoreRecord
-                    return AssignedWidgetSummary(
-                        widgetID: widget.id,
-                        title: scoreRecord?.title ?? widget.displayTitle,
-                        maxScore: Double(scoreRecord?.pointsPossible ?? 0),
-                        builtInKind: widget.builtInInteractiveKind
-                    )
-                }
+                .compactMap(AssignedWidgetSummary.init(scoreableWidget:))
         }
     }
 

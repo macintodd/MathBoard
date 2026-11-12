@@ -51,6 +51,8 @@ struct SlideNavigatorView: View {
     let onMoveSlides: ([Int], Int) -> Void
     /// Request deletion of the given slide indices (host confirms first).
     let onDeleteSlides: ([Int]) -> Void
+    /// Duplicate each of the given slide indices, inserting the copies immediately after.
+    let onDuplicateSlides: ([Int]) -> Void
     let allowsEditing: Bool
 
     /// Filmstrip multi-selection, tracked by ID so it survives reorders.
@@ -66,6 +68,7 @@ struct SlideNavigatorView: View {
         onAdd: @escaping () -> Void,
         onMoveSlides: @escaping ([Int], Int) -> Void,
         onDeleteSlides: @escaping ([Int]) -> Void,
+        onDuplicateSlides: @escaping ([Int]) -> Void,
         allowsEditing: Bool = true
     ) {
         self.slides = slides
@@ -78,6 +81,7 @@ struct SlideNavigatorView: View {
         self.onAdd = onAdd
         self.onMoveSlides = onMoveSlides
         self.onDeleteSlides = onDeleteSlides
+        self.onDuplicateSlides = onDuplicateSlides
         self.allowsEditing = allowsEditing
     }
 
@@ -113,6 +117,11 @@ struct SlideNavigatorView: View {
         slides.indices.contains(currentIndex) ? slides[currentIndex] : nil
     }
 
+    private var currentSlideLabel: String {
+        guard let slide = currentSlide else { return "\(currentIndex + 1)" }
+        return SlideStore.slideLabel(for: slide, in: slides)
+    }
+
     private var canGoPrevious: Bool { currentIndex > 0 }
     private var canGoNext: Bool { currentIndex < slides.count - 1 }
 
@@ -144,6 +153,10 @@ struct SlideNavigatorView: View {
     private var canDeleteActionSlides: Bool {
         let count = actionIndices.count
         return count > 0 && count < slides.count
+    }
+
+    private var canDuplicateActionSlides: Bool {
+        !actionIndices.isEmpty
     }
 
     /// Filmstrip tap: in normal browsing a tap navigates; while a selection
@@ -206,7 +219,7 @@ struct SlideNavigatorView: View {
                     .foregroundStyle(SlideNavigatorColors.accent)
 
                 HStack(spacing: 3) {
-                    Text("\(currentIndex + 1)")
+                    Text(currentSlideLabel)
                         .font(.subheadline.monospacedDigit().weight(.bold))
                         .foregroundStyle(SlideNavigatorColors.ink)
                     Text("of \(slides.count)")
@@ -337,6 +350,13 @@ struct SlideNavigatorView: View {
                 onMoveSlides(actionIndices, 1)
             }
             headerActionButton(
+                systemName: "doc.on.doc",
+                enabled: allowsEditing && canDuplicateActionSlides,
+                label: hasSelection ? "Duplicate selected slides" : "Duplicate slide"
+            ) {
+                onDuplicateSlides(actionIndices)
+            }
+            headerActionButton(
                 systemName: "trash",
                 enabled: allowsEditing && canDeleteActionSlides,
                 label: hasSelection ? "Delete selected slides" : "Delete slide",
@@ -391,7 +411,7 @@ struct SlideNavigatorView: View {
                         SlideNavigatorThumbnailTile(
                             // Skip thumbnail work entirely while hidden.
                             thumbnail: isFilmstripOpen ? thumbnail(slide) : .placeholder,
-                            index: index,
+                            displayLabel: SlideStore.slideLabel(for: slide, in: slides),
                             isCurrent: index == currentIndex,
                             isSelected: selectedIDs.contains(slide.id),
                             onTap: { handleTap(at: index) },
@@ -439,7 +459,7 @@ struct SlideNavigatorView: View {
 
 private struct SlideNavigatorThumbnailTile: View {
     let thumbnail: SlideNavigatorThumbnail
-    let index: Int
+    let displayLabel: String
     let isCurrent: Bool
     let isSelected: Bool
     /// Quick tap: navigate (or toggle selection while selection mode is active).
@@ -497,7 +517,7 @@ private struct SlideNavigatorThumbnailTile: View {
                 }
             }
 
-            Text("\(index + 1)")
+            Text(displayLabel)
                 .font(.caption2.monospacedDigit().weight(.bold))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 6)
@@ -523,7 +543,7 @@ private struct SlideNavigatorThumbnailTile: View {
             isPressing = pressing
         }
         .sensoryFeedback(.selection, trigger: isSelected)
-        .accessibilityLabel("Slide \(index + 1)")
+        .accessibilityLabel("Slide \(displayLabel)")
         .accessibilityValue(accessibilityValue)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction(named: isSelected ? "Deselect" : "Select", onToggleSelect)
@@ -674,7 +694,8 @@ private extension View {
             onNext: {},
             onAdd: {},
             onMoveSlides: { _, _ in },
-            onDeleteSlides: { _ in }
+            onDeleteSlides: { _ in },
+            onDuplicateSlides: { _ in }
         )
         .padding(24)
     }

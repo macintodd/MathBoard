@@ -155,7 +155,7 @@ public enum CalculatorKeypadLayout {
             ],
             [
                 .digit("0"), .digit("."),
-                CalculatorKey(label: "(−)", action: .insert("-"), style: .operator),
+                CalculatorKey(label: "(−)", action: .insert("−"), style: .operator),
                 .op("+"),
                 CalculatorKey(label: "=", action: .evaluate, style: .action)
             ]
@@ -196,7 +196,7 @@ public enum GraphKeypadLayout {
         ],
         [.digit("7"), .digit("8"), .digit("9"), CalculatorKey(label: "⌫", action: .deleteBackward, style: .action)],
         [.digit("4"), .digit("5"), .digit("6"), CalculatorKey(label: "C", action: .clear, style: .action)],
-        [.digit("1"), .digit("2"), .digit("3"), CalculatorKey(id: "neg", label: "(−)", action: .insert("-"), style: .operator)],
+        [.digit("1"), .digit("2"), .digit("3"), CalculatorKey(id: "neg", label: "(−)", action: .insert("−"), style: .operator)],
         [.digit("0"), .digit(".")]
     ]
 

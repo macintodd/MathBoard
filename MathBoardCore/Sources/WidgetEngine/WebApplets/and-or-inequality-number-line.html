@@ -156,6 +156,11 @@
   function renderTest(){var box=$('testReadout'),x=state.testValue,a=sat(state.opA,x,state.valA),b=sat(state.opB,x,state.valB),and=a&&b,or=a||b;if(!state.test){box.innerHTML='';$('testStatus').textContent='';return;}$('testStatus').textContent='Testing x = '+x;box.innerHTML='<span>Satisfies Condition A:</span><span>'+(a?'Yes':'No')+'</span><span>Satisfies Condition B:</span><span>'+(b?'Yes':'No')+'</span><span>Included with AND:</span><span>'+(and?'Yes':'No')+'</span><span>Included with OR:</span><span>'+(or?'Yes':'No')+'</span><span>Current '+state.mode+' result:</span><span>'+((state.mode==='AND'?and:or)?'Yes':'No')+'</span>';}
   window.mathBoardAppletSetState=function(next){if(!next||typeof next!=='object')return;applyingState=true;try{state=Object.assign(state,next);if(!state.graphs)clearGraphs(false);render();}finally{applyingState=false;}};
   setup();
+  // Safety net: if PencilKit intercepts the pointer before pointerup/cancel
+  // reaches the svg, drag stays set — blocking future drags and handwriting.
+  window.addEventListener('pointerup',function(e){if(drag)pointerUp(e);});
+  window.addEventListener('pointercancel',function(e){if(drag)pointerUp(e);});
+  document.addEventListener('visibilitychange',function(){if(document.hidden&&drag){drag=null;render();}});
 })();
 </script>
 </body>

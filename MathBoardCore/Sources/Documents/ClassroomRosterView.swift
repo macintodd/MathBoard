@@ -396,6 +396,9 @@ struct ClassroomRosterView: View {
                                 },
                                 onDelete: {
                                     studentToDelete = PendingRosterStudentDeletion(student: student, classroomID: classroom.id)
+                                },
+                                onGenerateID: {
+                                    generateAlternateID(forStudentID: student.id, in: classroom.id)
                                 }
                             )
                             Divider()
@@ -735,6 +738,14 @@ struct ClassroomRosterView: View {
         }
     }
 
+    private func generateAlternateID(forStudentID studentID: UUID, in classroomID: UUID) {
+        do {
+            try rosterStore.generateAlternateID(forStudentID: studentID, in: classroomID)
+        } catch {
+            actionErrorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
     private func deleteClass(_ classroomID: UUID) {
         do {
             try rosterStore.deleteClassroom(classroomID)
@@ -755,6 +766,7 @@ private struct EditableRosterStudentRow: View {
     var onCommit: (RosterStudent) -> Void
     var onMove: (UUID) -> Void
     var onDelete: () -> Void
+    var onGenerateID: (() -> Void)?
 
     @State private var draft: RosterStudent
 
@@ -767,7 +779,8 @@ private struct EditableRosterStudentRow: View {
         onSelectionChanged: @escaping (Bool) -> Void,
         onCommit: @escaping (RosterStudent) -> Void,
         onMove: @escaping (UUID) -> Void,
-        onDelete: @escaping () -> Void
+        onDelete: @escaping () -> Void,
+        onGenerateID: (() -> Void)? = nil
     ) {
         self.student = student
         self.isSelected = isSelected
@@ -778,6 +791,7 @@ private struct EditableRosterStudentRow: View {
         self.onCommit = onCommit
         self.onMove = onMove
         self.onDelete = onDelete
+        self.onGenerateID = onGenerateID
         _draft = State(initialValue: student)
     }
 
@@ -801,11 +815,7 @@ private struct EditableRosterStudentRow: View {
                 text: $draft.officialStudentID,
                 isDuplicate: duplicateOfficialIDs.contains(Self.normalizedID(draft.officialStudentID))
             )
-            rosterTextField(
-                "Alternate ID",
-                text: $draft.alternateStudentID,
-                isDuplicate: duplicateAlternateIDs.contains(Self.normalizedID(draft.alternateStudentID))
-            )
+            alternateIDCell
             rowActions
         }
         .padding(.horizontal, 12)
@@ -826,6 +836,31 @@ private struct EditableRosterStudentRow: View {
                 RoundedRectangle(cornerRadius: 6)
                     .stroke(isDuplicate ? .red : .clear, lineWidth: 2)
             )
+    }
+
+    private var alternateIDCell: some View {
+        let isDuplicate = duplicateAlternateIDs.contains(Self.normalizedID(draft.alternateStudentID))
+        let isEmpty = draft.alternateStudentID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return HStack(spacing: 4) {
+            TextField("Alternate ID", text: $draft.alternateStudentID)
+                .textFieldStyle(.roundedBorder)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(isDuplicate ? .red : .clear, lineWidth: 2)
+                )
+            if isEmpty, let onGenerateID {
+                Button {
+                    commit()
+                    onGenerateID()
+                } label: {
+                    Image(systemName: "number")
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityLabel("Generate Alternate ID")
+            }
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private var rowActions: some View {

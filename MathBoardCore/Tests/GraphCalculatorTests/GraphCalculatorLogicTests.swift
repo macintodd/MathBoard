@@ -133,6 +133,44 @@ final class GraphCalculatorLogicTests: XCTestCase {
         XCTAssertEqual(rows[1].displayValue, "7")
     }
 
+    func testBraceNotationRestrictsFunctionDomain() {
+        let rows = GraphCalculatorExpressionResolver.resolveRows(
+            expressions: [
+                GraphEquation(expression: "y=x+1{0<x<6}")
+            ],
+            engine: CalculatorEngine()
+        )
+
+        guard case .yRelation(let source, .equal, let restrictions)? = rows[0].plot else {
+            XCTFail("Expected a restricted y= function")
+            return
+        }
+
+        XCTAssertEqual(source, "x+1")
+        XCTAssertTrue(restrictions.allows(x: 3, y: 4))
+        XCTAssertFalse(restrictions.allows(x: 0, y: 1))
+        XCTAssertFalse(restrictions.allows(x: 6, y: 7))
+    }
+
+    func testStackedBraceNotationRestrictsDomainAndRange() {
+        let rows = GraphCalculatorExpressionResolver.resolveRows(
+            expressions: [
+                GraphEquation(expression: "y=x+4{x>0}{y≤10}")
+            ],
+            engine: CalculatorEngine()
+        )
+
+        guard case .yRelation(let source, .equal, let restrictions)? = rows[0].plot else {
+            XCTFail("Expected a restricted y= function")
+            return
+        }
+
+        XCTAssertEqual(source, "x+4")
+        XCTAssertTrue(restrictions.allows(x: 2, y: 6))
+        XCTAssertFalse(restrictions.allows(x: -1, y: 3))
+        XCTAssertFalse(restrictions.allows(x: 7, y: 11))
+    }
+
     func testFunctionEvaluationRowsResolveToValuesAndNestedFunctionsStillGraph() {
         let rows = [
             GraphEquation(expression: "f(x)=4x+5"),

@@ -14,17 +14,44 @@ public struct SlideMetadata: Identifiable, Codable, Hashable, Sendable {
     public let createdAt: Date
     public var viewport: SlideViewportState?
     public var background: SlideBackground?
+    /// Non-nil for supplementary slides added during a class session (not from the master lesson).
+    /// `nil` means this is a master-derived slide.
+    public var anchor: SlideAnchor?
 
     public init(
         id: UUID = UUID(),
         createdAt: Date = Date(),
         viewport: SlideViewportState? = nil,
-        background: SlideBackground? = nil
+        background: SlideBackground? = nil,
+        anchor: SlideAnchor? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
         self.viewport = viewport
         self.background = background
+        self.anchor = anchor
+    }
+}
+
+/// Placement metadata for a slide added during a class session (not a master slide).
+/// Stores who added it and which master slide it lives after, so merge can restore position
+/// even when master slides are added or removed.
+public struct SlideAnchor: Codable, Hashable, Sendable {
+    public enum Kind: String, Codable, Sendable {
+        case teacher = "T"
+        case student = "S"
+    }
+
+    public var kind: Kind
+    /// ID of the master slide this is anchored after. `nil` = before all master slides.
+    public var masterSlideID: UUID?
+    /// 1-based rank among same-kind anchored slides after the same master, used for stable ordering.
+    public var sequenceNumber: Int
+
+    public init(kind: Kind, masterSlideID: UUID?, sequenceNumber: Int) {
+        self.kind = kind
+        self.masterSlideID = masterSlideID
+        self.sequenceNumber = sequenceNumber
     }
 }
 

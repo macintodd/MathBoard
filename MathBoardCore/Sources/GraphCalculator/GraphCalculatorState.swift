@@ -317,6 +317,10 @@ public final class GraphCalculatorState {
     /// captured once at drag start and then translated by metadata during the drag.
     public var activeDragPresentation: GraphCalculatorDragPresentation?
 
+    /// The expression-list row index the teacher has most recently scrolled to.
+    /// Published by the iPad side; the external display uses it to follow scroll.
+    public var equationListScrollTarget: Int?
+
     public init(expressions: [GraphEquation] = [GraphEquation(expression: "", colorIndex: 0)]) {
         self.expressions = expressions.isEmpty ? [GraphEquation(expression: "", colorIndex: 0)] : expressions
     }

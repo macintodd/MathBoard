@@ -136,6 +136,9 @@ public struct SlidesView: View {
     @State private var slideErrorMessage: String?
     @State private var isShowingPDFImporter = false
     @State private var isShowingPDFExporter = false
+    /// Bumped whenever a new forward-link sidecar is written for the current source slide,
+    /// so PresentingCanvasView reloads the chip overlay immediately without a slide round-trip.
+    @State private var slideLinkReloadToken = UUID()
     @State private var isShowingFilmstrip = false
     @State private var isTextEditingOnCanvas = false
     @State private var pendingPDFImport: PendingPDFImport?
@@ -249,10 +252,6 @@ public struct SlidesView: View {
         ZStack(alignment: .bottomTrailing) {
             activeCanvasLayer
 
-            liveTeacherInkOverlay
-
-            studentCoverMaskOverlay
-
             slideNavigatorLayer
         }
         // Grabbing a tool (or any tool-palette interaction) closes the
@@ -347,6 +346,7 @@ public struct SlidesView: View {
                 receivedTeacherPencilHover = hover
             }
             liveTeacherInkCoordinator.configure(liveClassroomConfiguration)
+            materializeTeacherInkDrawingSnapshots(initialTeacherInkDrawingSnapshots)
             liveTeacherInkCoordinator.seedInitialInkDrawingSnapshots(initialTeacherInkDrawingSnapshots)
             publishTeacherSlideManifestSnapshot()
         }
@@ -388,6 +388,10 @@ public struct SlidesView: View {
         .onChange(of: activeSlide?.id) { _, _ in
             publishActiveWidgetIDs()
             publishTeacherSlideManifestSnapshot()
+            MBDiagnosticLogger.emit("Slide", "changed", extra: [
+                "index": "\(activeIndex)",
+                "total": "\(store.slides.count)"
+            ])
         }
         .onChange(of: isFollowMeEnabled) { _, _ in
             publishTeacherSlideManifestSnapshot()
@@ -492,9 +496,92 @@ public struct SlidesView: View {
             showsTeacherDemoWebApplets: true,
             showsCatalogInLibraryDrawer: classroomMode != .student,
             hidesStudentInk: hidesStudentInk,
-            isEditingLocked: isEditingLocked
+            isEditingLocked: isEditingLocked,
+            canvasOverlay: studentCanvasOverlay(for: slide),
+            onNavigateToLinkedImage: { imageObjectID in
+                navigateToSlideContaining(imageObjectID: imageObjectID)
+            },
+            onNavigateToSourceSlide: { slideID in
+                navigateToSlide(id: slideID)
+            },
+            onImageWithLinkDeleted: { imageObjectID, sourceSlideID in
+                removeSlideLink(imageObjectID: imageObjectID, sourceSlideID: sourceSlideID)
+            },
+            slideLinkReloadToken: slideLinkReloadToken
         )
         .id(canvasViewIdentity(for: slide))
+    }
+
+    /// Combines teacher-ink and cover-mask overlays into a single AnyView for injection
+    /// into PresentingCanvasView's canvasStack, where it sits below the tool palette.
+    /// Returns nil when not in student mode or when there is nothing to show.
+    private func studentCanvasOverlay(for slide: SlideMetadata) -> AnyView? {
+        guard liveClassroomConfiguration?.role == .student else { return nil }
+
+        let snapshot = showsTeacherInkOverlay
+            ? liveTeacherInkCoordinator.latestInkDrawingSnapshotsBySlideID[slide.id]
+            : nil
+        let strokes: [CanvasLiveStroke] = showsTeacherInkOverlay
+            ? liveTeacherInkCoordinator.receivedStrokes(for: slide.id)
+            : []
+        let hoverState: CanvasPencilHover? = showsTeacherInkOverlay
+            ? receivedTeacherPencilHover
+            : nil
+        let covers = CanvasCoverObject.load(
+            from: CanvasCoverObject.sidecarURL(forDrawingURL: canvasDrawingURL(for: slide))
+        ).filter { !$0.isRevealed }
+
+        guard snapshot != nil || !strokes.isEmpty || hoverState != nil || !covers.isEmpty else {
+            return nil
+        }
+
+        let sourceRect = currentViewportSourceRect
+        return AnyView(
+            GeometryReader { proxy in
+                ZStack {
+                    #if os(iOS)
+                    if let snapshot {
+                        LiveTeacherInkDrawingSnapshotOverlay(
+                            snapshot: snapshot,
+                            viewportSourceRect: sourceRect,
+                            fallbackSourceSize: CanvasBoardMetrics.defaultUsableSize,
+                            fittedSize: proxy.size
+                        )
+                    }
+                    #endif
+
+                    if !strokes.isEmpty {
+                        LiveTeacherInkOverlay(
+                            strokes: strokes,
+                            viewportSourceRect: sourceRect,
+                            fallbackSourceSize: CanvasBoardMetrics.defaultUsableSize,
+                            fittedSize: proxy.size
+                        )
+                    }
+
+                    if let hoverState {
+                        PencilHoverIndicatorOverlay(
+                            hoverState: hoverState,
+                            viewportSourceRect: sourceRect,
+                            fallbackSourceSize: CanvasBoardMetrics.defaultUsableSize,
+                            fittedSize: proxy.size
+                        )
+                    }
+
+                    if !covers.isEmpty {
+                        StudentCoverMaskOverlay(
+                            coverObjects: covers,
+                            viewportSourceRect: sourceRect,
+                            fallbackSourceSize: CanvasBoardMetrics.defaultUsableSize,
+                            fittedSize: proxy.size
+                        )
+                    }
+                }
+                .frame(width: proxy.size.width, height: proxy.size.height)
+            }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+        )
     }
 
     @ViewBuilder
@@ -511,6 +598,7 @@ public struct SlidesView: View {
                 onAdd: addSlide,
                 onMoveSlides: moveSlides(at:by:),
                 onDeleteSlides: requestDeleteSlides(at:),
+                onDuplicateSlides: duplicateSlides(at:),
                 allowsEditing: !isEditingLocked
             )
             .padding(.trailing, 16)
@@ -637,78 +725,6 @@ public struct SlidesView: View {
         objectStateReloadCommand = CanvasObjectCommand(.reloadObjectState)
         inkDrawingSnapshotRevisionsBySlideID = [:]
         objectSnapshotRevisionsBySlideID = [:]
-    }
-
-    @ViewBuilder
-    private var liveTeacherInkOverlay: some View {
-        if showsTeacherInkOverlay,
-           liveClassroomConfiguration?.role == .student,
-           let activeSlide {
-            let snapshot = liveTeacherInkCoordinator.latestInkDrawingSnapshotsBySlideID[activeSlide.id]
-            let strokes = liveTeacherInkCoordinator.receivedStrokes(for: activeSlide.id)
-            let hoverState = receivedTeacherPencilHover
-            if snapshot != nil || !strokes.isEmpty || hoverState != nil {
-                GeometryReader { proxy in
-                    ZStack {
-                        #if os(iOS)
-                        if let snapshot {
-                            LiveTeacherInkDrawingSnapshotOverlay(
-                                snapshot: snapshot,
-                                viewportSourceRect: currentViewportSourceRect,
-                                fallbackSourceSize: CanvasBoardMetrics.defaultUsableSize,
-                                fittedSize: proxy.size
-                            )
-                        }
-                        #endif
-
-                        if !strokes.isEmpty {
-                            LiveTeacherInkOverlay(
-                                strokes: strokes,
-                                viewportSourceRect: currentViewportSourceRect,
-                                fallbackSourceSize: CanvasBoardMetrics.defaultUsableSize,
-                                fittedSize: proxy.size
-                            )
-                        }
-
-                        if let hoverState {
-                            PencilHoverIndicatorOverlay(
-                                hoverState: hoverState,
-                                viewportSourceRect: currentViewportSourceRect,
-                                fallbackSourceSize: CanvasBoardMetrics.defaultUsableSize,
-                                fittedSize: proxy.size
-                            )
-                        }
-                    }
-                    .frame(width: proxy.size.width, height: proxy.size.height)
-                }
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
-                .zIndex(0.5)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var studentCoverMaskOverlay: some View {
-        if liveClassroomConfiguration?.role == .student,
-           let activeSlide {
-            let covers = CanvasCoverObject.load(
-                from: CanvasCoverObject.sidecarURL(forDrawingURL: canvasDrawingURL(for: activeSlide))
-            ).filter { !$0.isRevealed }
-            if !covers.isEmpty {
-                GeometryReader { proxy in
-                    StudentCoverMaskOverlay(
-                        coverObjects: covers,
-                        viewportSourceRect: currentViewportSourceRect,
-                        fallbackSourceSize: CanvasBoardMetrics.defaultUsableSize,
-                        fittedSize: proxy.size
-                    )
-                }
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
-                .zIndex(0.6)
-            }
-        }
     }
 
     private func publishActiveWidgetIDs() {
@@ -1119,8 +1135,49 @@ public struct SlidesView: View {
         guard liveClassroomConfiguration?.role == .student else { return }
         _ = snapshot
         // The coordinator already keeps the latest teacher snapshot for the
-        // overlay. Persisting it into the local slide drawing would overwrite
-        // student-owned annotations on reopen.
+        // overlay. Persisting it into the local slide drawing at this point
+        // (after the canvas has loaded) would be ignored by the already-loaded canvas.
+        // Initial seeding is handled by materializeTeacherInkDrawingSnapshots in onAppear.
+    }
+
+    /// Writes teacher ink drawing snapshots to the student's local PKCanvas files before the canvas
+    /// loads, so that master lesson ink changes (including erasures) are visible to students.
+    ///
+    /// Only writes when the snapshot revision is higher than the last applied revision, to avoid
+    /// overwriting student annotations when the teacher hasn't changed their drawing.
+    ///
+    /// This MUST be called synchronously in .onAppear, before the canvas's .task(id: drawingURL)
+    /// body starts, so the canvas reads the updated file.
+    private func materializeTeacherInkDrawingSnapshots(_ snapshots: [TeacherInkDrawingSnapshot]) {
+        guard liveClassroomConfiguration?.role == .student, !snapshots.isEmpty else { return }
+
+        let revisionFileURL = lessonURL
+            .appendingPathComponent(".teacher-ink-revisions.json", isDirectory: false)
+        var appliedRevisions: [String: Int]
+        if let data = try? Data(contentsOf: revisionFileURL),
+           let decoded = try? JSONDecoder().decode([String: Int].self, from: data) {
+            appliedRevisions = decoded
+        } else {
+            appliedRevisions = [:]
+        }
+
+        var didUpdate = false
+        for snapshot in snapshots {
+            let key = snapshot.slideID.uuidString
+            guard snapshot.revision > (appliedRevisions[key] ?? 0),
+                  let drawingData = Data(base64Encoded: snapshot.drawingDataBase64),
+                  let slide = store.slides.first(where: { $0.id == snapshot.slideID }) else { continue }
+            #if os(iOS)
+            writeTeacherInkSnapshotDataToFile(drawingData, url: canvasDrawingURL(for: slide))
+            #endif
+            appliedRevisions[key] = snapshot.revision
+            didUpdate = true
+            print("[Slides] materialized teacher ink for slide=\(slide.id) revision=\(snapshot.revision)")
+        }
+
+        if didUpdate, let encoded = try? JSONEncoder().encode(appliedRevisions) {
+            try? encoded.write(to: revisionFileURL, options: .atomic)
+        }
     }
 
     private func applyTeacherObjectSnapshot(_ snapshot: TeacherObjectSnapshot) {
@@ -1247,16 +1304,48 @@ public struct SlidesView: View {
         }
     }
 
+    /// Duplicates each slide at the given indices, inserting each copy immediately
+    /// after its original, then navigates to the first duplicate.
+    private func duplicateSlides(at indices: [Int]) {
+        guard !isEditingLocked else { return }
+        guard !indices.isEmpty else { return }
+        flushPendingViewportSave()
+        let sortedIndices = indices.sorted()
+        do {
+            var offset = 0
+            for index in sortedIndices {
+                try store.duplicateSlide(at: index + offset)
+                offset += 1
+            }
+            // Navigate to the copy of the first duplicated slide.
+            let targetIndex = sortedIndices[0] + 1
+            if store.slides.indices.contains(targetIndex) {
+                activeIndex = targetIndex
+            }
+            publishTeacherSlideManifestSnapshot()
+            notifyLessonContentChanged()
+        } catch {
+            slideErrorMessage = error.localizedDescription
+        }
+    }
+
     /// Inserts a blank slide directly after the current one and makes it the
     /// active slide (matches the SlideNav prototype behavior).
     private func addSlide() {
         guard !isEditingLocked else { return }
         flushPendingViewportSave()
         do {
-            let insertedSlides = try store.insertSlides(count: 1, afterSlideAt: activeIndex)
+            let insertedSlide: SlideMetadata
+            if classroomMode == .teacher, classroomSessionCode != nil {
+                insertedSlide = try store.insertAnchoredSlide(kind: .teacher, afterSlideAt: activeIndex)
+            } else {
+                let insertedSlides = try store.insertSlides(count: 1, afterSlideAt: activeIndex)
+                guard let first = insertedSlides.first else { return }
+                insertedSlide = first
+            }
             activeIndex += 1
             publishTeacherSlideManifestSnapshot()
-            notifyLessonContentChanged(slideID: insertedSlides.first?.id)
+            notifyLessonContentChanged(slideID: insertedSlide.id)
         } catch {
             slideErrorMessage = error.localizedDescription
         }
@@ -1276,7 +1365,7 @@ public struct SlidesView: View {
                 publishTeacherSlideManifestSnapshot()
                 notifyLessonContentChanged(slideID: targetSlide.id)
             }
-            try placeExtractedRegion(region, on: targetSlide)
+            try placeExtractedRegion(region, on: targetSlide, sourceSlide: activeSlide)
         } catch {
             slideErrorMessage = error.localizedDescription
         }
@@ -1294,7 +1383,11 @@ public struct SlidesView: View {
         return textObjects.isEmpty && imageObjects.isEmpty && geometryObjects.isEmpty
     }
 
-    private func placeExtractedRegion(_ region: PresentationExtractedRegion, on slide: SlideMetadata) throws {
+    private func placeExtractedRegion(
+        _ region: PresentationExtractedRegion,
+        on slide: SlideMetadata,
+        sourceSlide: SlideMetadata? = nil
+    ) throws {
         let drawingURL = canvasDrawingURL(for: slide)
         let assetDirectoryURL = PresentationCanvasImageObject.assetDirectoryURL(forDrawingURL: drawingURL)
         try FileManager.default.createDirectory(at: assetDirectoryURL, withIntermediateDirectories: true)
@@ -1304,17 +1397,32 @@ public struct SlidesView: View {
         try region.pngData.write(to: assetURL, options: .atomic)
 
         var imageObjects = PresentationCanvasImageObject.load(from: PresentationCanvasImageObject.sidecarURL(forDrawingURL: drawingURL))
-        imageObjects.append(PresentationCanvasImageObject(
+        let newImageObject = PresentationCanvasImageObject(
             imageFileName: fileName,
             x: region.sourceBounds.minX,
             y: region.sourceBounds.minY,
             width: region.sourceBounds.width,
-            height: region.sourceBounds.height
-        ))
+            height: region.sourceBounds.height,
+            sourceSlideID: sourceSlide?.id
+        )
+        imageObjects.append(newImageObject)
         try PresentationCanvasImageObject.save(
             imageObjects,
             to: PresentationCanvasImageObject.sidecarURL(forDrawingURL: drawingURL)
         )
+
+        // Write the forward link on the source slide so it can show a chip.
+        if let sourceSlide {
+            let sourceDrawingURL = canvasDrawingURL(for: sourceSlide)
+            var links = CanvasSlideLink.load(from: CanvasSlideLink.sidecarURL(forDrawingURL: sourceDrawingURL))
+            links.append(CanvasSlideLink(
+                imageObjectID: newImageObject.id,
+                sourceRect: region.sourceBounds
+            ))
+            try? CanvasSlideLink.save(links, to: CanvasSlideLink.sidecarURL(forDrawingURL: sourceDrawingURL))
+            slideLinkReloadToken = UUID()
+        }
+
         _ = try? LibraryRecentStore.record(
             title: Self.libraryRecentTitle("Extracted sticker"),
             kind: .extractedInk,
@@ -1323,6 +1431,41 @@ public struct SlidesView: View {
         )
         scheduleTeacherObjectSnapshotPublish(for: slide)
         notifyLessonContentChanged(slideID: slide.id)
+    }
+
+    /// Navigates to the slide that currently hosts `imageObjectID`, scanning
+    /// all slides' image-object sidecars. Called when a link chip is tapped.
+    private func navigateToSlideContaining(imageObjectID: UUID) {
+        for (index, slide) in store.slides.enumerated() {
+            let drawingURL = canvasDrawingURL(for: slide)
+            let objects = PresentationCanvasImageObject.load(
+                from: PresentationCanvasImageObject.sidecarURL(forDrawingURL: drawingURL)
+            )
+            if objects.contains(where: { $0.id == imageObjectID }) {
+                flushPendingViewportSave()
+                activeIndex = index
+                return
+            }
+        }
+    }
+
+    /// Navigates to the slide with the given ID. Called from the image HUD
+    /// back-link button on a destination slide.
+    private func navigateToSlide(id slideID: UUID) {
+        guard let index = store.slides.firstIndex(where: { $0.id == slideID }) else { return }
+        flushPendingViewportSave()
+        activeIndex = index
+    }
+
+    /// Cleans up the forward link on the source slide when a linked image is
+    /// deleted from its destination slide.
+    private func removeSlideLink(imageObjectID: UUID, sourceSlideID: UUID) {
+        guard let sourceSlide = store.slides.first(where: { $0.id == sourceSlideID }) else { return }
+        let sourceDrawingURL = canvasDrawingURL(for: sourceSlide)
+        let linksURL = CanvasSlideLink.sidecarURL(forDrawingURL: sourceDrawingURL)
+        var links = CanvasSlideLink.load(from: linksURL)
+        links.removeAll { $0.imageObjectID == imageObjectID }
+        try? CanvasSlideLink.save(links, to: linksURL)
     }
 
     private static func libraryRecentTitle(_ baseTitle: String, date: Date = Date()) -> String {
