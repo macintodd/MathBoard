@@ -264,6 +264,12 @@ public struct WidgetContainerView: View {
                 if !isExternalDisplay {
                     header
                         .zIndex(2)
+                } else {
+                    // Invisible spacer matching the drag-bar height so content
+                    // aligns with the iPad view — keeps laser/ink in sync.
+                    Color.clear
+                        .frame(height: headerHeight)
+                        .zIndex(2)
                 }
                 renderedContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
