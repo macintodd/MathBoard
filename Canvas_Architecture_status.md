@@ -2,7 +2,7 @@
 
 > This document tracks an in-progress architectural refactor of the widget overlay and canvas rendering pipeline. It is written for **AI continuity** — a new session should read Section 0 first, then read only the sections relevant to the current task.
 
-**Last updated:** 2026-11-13 — Branch created; two web-applet bug fixes committed to `main` before branching; architecture problems catalogued; no structural code changes yet.
+**Last updated:** 2026-11-13 — P1, P3-lite, P2, P4, and widget drag-bar spacer fix all committed to `architecture/widget-overlay-improvements`. See Section 3 for details.
 
 ---
 
@@ -173,24 +173,75 @@ publishImageFromModel()
 
 ## 2. Fix Priority Order
 
-| Priority | Problem | Risk | Effort |
-|---|---|---|---|
-| 1 | P1 — `addChild` for UIHostingController | Medium (view controller lifecycle change) | Low (3–5 lines) |
-| 2 | P2 — dirty-flag on `publishWidgetObjects` | Low | Low (5–10 lines) |
-| 3 | P3 — `rootView` replacement → Observable model | High (refactor) | Medium (new model type + wiring) |
-| 4 | P4 — `sourceBinding` double-scan | Low | Low (5 lines) |
-| 5 | P5 — `displayBinding` closure allocation | Low | Low (refactor ForEach) |
-| 6 — defer | P6 — `publishImageFromModel` throttle | Medium (rasterization path) | Medium |
-| 7 — defer | P7 — `PresentingCanvasView` state explosion | High (many call sites) | High |
-| 8 — defer | P8 — frame timing unification | Low | Medium |
-| 9 — cleanup | P9 — MainActor warnings | None | Low |
+| Priority | Problem | Status | Risk | Effort |
+|---|---|---|---|---|
+| ~~1~~ | ~~P1 — `addChild` for UIHostingController~~ | **Done** `47ad7d5` | Medium | Low |
+| ~~2~~ | ~~P3-lite — stable `widgetDisplayFrameCallback`~~ | **Done** `47ad7d5` | Low | Low |
+| ~~3~~ | ~~P2 — dirty-flag on `publishWidgetObjects`~~ | **Done** `07fd289` | Low | Low |
+| ~~4~~ | ~~P4 — `sourceBinding` double-scan~~ | **Done** `07fd289` | Low | Low |
+| 5 | P5 — `displayBinding` closure allocation | Deferred (needs P3 first) | Low | Low |
+| 6 — defer | P3 — full `rootView` → Observable model refactor | Pending | High | Medium |
+| 7 — defer | P6 — `publishImageFromModel` throttle | Pending | Medium | Medium |
+| 8 — defer | P7 — `PresentingCanvasView` state explosion | Pending | High | High |
+| 9 — defer | P8 — frame timing unification | Pending | Low | Medium |
+| 10 — cleanup | P9 — MainActor warnings | Pending | None | Low |
 
 ---
 
 ## 3. Changes Applied on This Branch
 
-### 3.1 — None yet (branch created 2026-11-13)
-No structural changes have been made on `architecture/widget-overlay-improvements` yet. The branch starts from the two bug-fix commits on `main`.
+### 3.1 — P3-lite: Stable `widgetDisplayFrameCallback` (commit `47ad7d5`, 2026-11-13)
+
+**File:** `Canvas/PencilKitCanvas.swift`  
+**What changed:**
+- Added `private lazy var widgetDisplayFrameCallback: (WidgetObject.ID, CGRect?) -> Void` to `PencilKitCanvasHostView`. Initialized once; captures `[weak self]`.
+- Replaced the two inline `{ [weak self] id, frame in self?.updateActiveWidgetDisplayFrame(...) }` closures in `updateWidgetObjects` (line ~1527) and `updateWidgetObjectFrame` (line ~1576) with `widgetDisplayFrameCallback`.
+
+**Why this matters:**  
+`updateWidgetObjectFrame` runs on every scroll/zoom frame via `scrollViewDidScroll`/`scrollViewDidZoom`. Each call was allocating a new closure on the heap. Since `((WidgetObject.ID, CGRect?) -> Void)?` is not `Equatable`, SwiftUI treated each new closure as "changed" and re-rendered all `WidgetContainerView` instances at 60fps even when widget positions hadn't moved. This eliminated ~60 unnecessary heap allocations/second and the spurious re-renders they triggered.
+
+**Build status:** Clean (6 pre-existing warnings, no new errors).
+
+---
+
+### 3.3 — P2: `publishWidgetObjects` dirty flag (commit `07fd289`, 2026-11-13)
+
+**File:** `Canvas/PencilKitCanvas.swift` — `Coordinator` class  
+**What changed:**
+- Added `private var lastPublishedWidgetViewport: WidgetCanvasViewport?` and `private var lastPublishedWidgetCount: Int = -1` to `Coordinator`.
+- In `publishWidgetObjects`, guard: skip `onWidgetObjectsChange` when `viewport == lastPublishedWidgetViewport && widgetCount == lastPublishedWidgetCount`.
+
+**Why:** `publishWidgetObjects` is called from `updateUIView` on every SwiftUI render of the representable — including tool switches, overlay state changes, and other non-widget events. Each call was updating `DisplayBroker.shared`, which notified `ExternalCanvasView` observers and triggered a re-render on the external display even when nothing visual changed. Scroll/zoom frames always pass through because viewport changes every frame.
+
+---
+
+### 3.4 — P4: Index-based `sourceBinding` (commit `07fd289`, 2026-11-13)
+
+**File:** `WidgetEngine/WidgetCanvasOverlayView.swift`  
+**What changed:** `sourceBinding(for:)` now calls `firstIndex(where:)` once at binding-creation time and captures the index. Getter and setter use O(1) subscript access with an identity guard (`indices.contains(index) && widgets[index].id == id`). Falls back to O(n) scan only if the array was mutated and the index went stale (rare).
+
+**Why:** The original getter called `first(where:)` and the setter called `firstIndex(where:)` — two O(n) scans per widget per render. In a `ForEach` over n widgets, this was O(n²) per SwiftUI update of the overlay.
+
+---
+
+### 3.5 — Drag-bar spacer on external display (commit `0cf7eeb`, 2026-11-13)
+
+**File:** `WidgetEngine/WidgetContainerView.swift`  
+**What changed:** When `isExternalDisplay == true`, instead of hiding the header entirely, renders a `Color.clear` spacer of `headerHeight` (34pt). This keeps widget content at the same vertical offset as on the iPad, so the teacher's laser pointer and handwriting align correctly with widget UI elements on the TV.
+
+---
+
+### 3.2 — P1: `addChild` for widget overlay `UIHostingController` (commit `47ad7d5`, 2026-11-13)
+
+**File:** `Canvas/PencilKitCanvas.swift`  
+**What changed:**
+- Added `override func didMoveToWindow()` to `PencilKitCanvasHostView`. When the view enters a window and `widgetOverlayController` has no parent, walks the responder chain via `nearestViewController()` to find the nearest `UIViewController`, then calls `parentVC.addChild(controller)` + `controller.didMove(toParent: parentVC)`.
+- Added private `nearestViewController()` helper using `sequence(first:next:)` over the responder chain.
+
+**Why deferred to `didMoveToWindow` (not setup):**  
+`updateWidgetObjects` is first called from `makeUIView`, when the view is not yet in the window. The responder chain doesn't have a parent view controller at that point, so `addChild` must be called once the view is attached. `didMoveToWindow` is the standard UIKit hook for this.
+
+**Build status:** Clean.
 
 ---
 
