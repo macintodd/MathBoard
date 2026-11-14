@@ -71,6 +71,8 @@ private struct RemoteWebAppletWebView {
         webView.allowsBackForwardNavigationGestures = false
 #if os(iOS)
         webView.scrollView.bounces = false
+        webView.scrollView.isScrollEnabled = false
+        webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
@@ -84,6 +86,11 @@ private struct RemoteWebAppletWebView {
         if coordinator.loadedURL != url {
             coordinator.loadedURL = url
             coordinator.appliedRevision = -1
+            // Stash current state so didFinish can restore it after the page reloads
+            // (covers both teacher returning to a slide and external display reconnecting)
+            if stateJSON != "{}" {
+                coordinator.pendingStateJSON = stateJSON
+            }
             webView.load(URLRequest(url: url))
             return
         }
@@ -155,7 +162,7 @@ private struct RemoteWebAppletWebView {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            guard isExternalDisplay, let pendingStateJSON else { return }
+            guard let pendingStateJSON else { return }
             let escapedState = RemoteWebAppletWebView.javascriptStringLiteral(pendingStateJSON)
             webView.evaluateJavaScript("window.MathBoardApplet && window.MathBoardApplet.applyState(JSON.parse(\(escapedState)));")
             self.pendingStateJSON = nil

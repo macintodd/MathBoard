@@ -260,6 +260,7 @@ private struct WebAppletWebView {
         #if os(iOS)
         webView.scrollView.bounces = false
         webView.scrollView.isScrollEnabled = false
+        webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
