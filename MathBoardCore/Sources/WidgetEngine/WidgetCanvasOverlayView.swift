@@ -153,12 +153,17 @@ public struct WidgetCanvasOverlayView: View {
     }
 
     private func sourceBinding(for id: WidgetObject.ID) -> Binding<WidgetObject>? {
-        guard let currentWidget = widgets.first(where: { $0.id == id }) else { return nil }
+        guard let index = widgets.firstIndex(where: { $0.id == id }) else { return nil }
+        let snapshot = widgets[index]
         return Binding {
-            widgets.first(where: { $0.id == id }) ?? currentWidget
+            // Fast path: index still valid and identity matches.
+            guard self.widgets.indices.contains(index), self.widgets[index].id == id else {
+                return self.widgets.first(where: { $0.id == id }) ?? snapshot
+            }
+            return self.widgets[index]
         } set: { updatedWidget in
-            guard let index = widgets.firstIndex(where: { $0.id == id }) else { return }
-            widgets[index] = updatedWidget
+            guard self.widgets.indices.contains(index), self.widgets[index].id == id else { return }
+            self.widgets[index] = updatedWidget
         }
     }
 

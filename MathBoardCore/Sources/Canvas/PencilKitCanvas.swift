@@ -4049,6 +4049,8 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
         private var publishedPresentationMode: CanvasPresentationMode
         private var publishedTextObjects: [CanvasTextObject]
         private var publishedAnimationPlaybackState: CanvasAnimationPlaybackState
+        private var lastPublishedWidgetViewport: WidgetCanvasViewport?
+        private var lastPublishedWidgetCount: Int = -1
 
         private static let targetAspect: CGFloat = 16.0 / 9.0
         private static let publishScale: CGFloat = 2
@@ -10507,6 +10509,10 @@ private struct PencilKitCanvasRepresentable: UIViewRepresentable {
                 contentOffset: canvas.contentOffset,
                 canvasOrigin: PencilKitCanvasGeometry.drawingOriginOffset
             )
+            let currentCount = parent.widgetObjects.count
+            guard viewport != lastPublishedWidgetViewport || currentCount != lastPublishedWidgetCount else { return }
+            lastPublishedWidgetViewport = viewport
+            lastPublishedWidgetCount = currentCount
             onWidgetObjectsChange(
                 parent.widgetObjects,
                 viewport,
