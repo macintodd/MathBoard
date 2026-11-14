@@ -1197,6 +1197,11 @@ private final class PencilKitCanvasHostView: UIView {
     private var usableCanvasSize: CGSize?
     private var widgetOverlayController: UIHostingController<WidgetCanvasOverlayView>?
     private var widgetObjectsBinding: Binding<[WidgetObject]>?
+    // Stable closure — never recreated, so SwiftUI does not see a changed value
+    // on every scroll/zoom frame and spuriously re-render WidgetContainerView.
+    private lazy var widgetDisplayFrameCallback: (WidgetObject.ID, CGRect?) -> Void = { [weak self] id, frame in
+        self?.updateActiveWidgetDisplayFrame(id: id, frame: frame)
+    }
     private var widgetScoreSheet = WidgetActivityScoreSheet(records: [])
     private var widgetAssetBaseURL: URL?
     private var widgetInteractiveFrames: [CGRect] = []
@@ -1285,6 +1290,25 @@ private final class PencilKitCanvasHostView: UIView {
         updateTextObjectFrame(using: canvas)
         updateWidgetObjectFrame(using: canvas)
         updateCoverObjectFrame(using: canvas)
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        // Properly embed the widget overlay UIHostingController as a child so UIKit
+        // propagates trait collections and safe areas through the view controller
+        // hierarchy. Called here (not at creation time) because the parent view
+        // controller is not in the responder chain until the view is in a window.
+        guard window != nil,
+              let controller = widgetOverlayController,
+              controller.parent == nil,
+              let parentVC = nearestViewController() else { return }
+        parentVC.addChild(controller)
+        controller.didMove(toParent: parentVC)
+    }
+
+    private func nearestViewController() -> UIViewController? {
+        sequence(first: self as UIResponder, next: { $0.next })
+            .first(where: { $0 is UIViewController }) as? UIViewController
     }
 
     func updateBackground(_ background: CanvasBackground?, using canvas: PKCanvasView) {
@@ -1524,9 +1548,7 @@ private final class PencilKitCanvasHostView: UIView {
             onEditWidget: onEditWidget,
             allowsWidgetAuthoring: allowsWidgetAuthoring,
             onWidgetInteractionChanged: onWidgetInteractionChanged,
-            onWidgetDisplayFrameChanged: { [weak self] id, frame in
-                self?.updateActiveWidgetDisplayFrame(id: id, frame: frame)
-            },
+            onWidgetDisplayFrameChanged: widgetDisplayFrameCallback,
             onMathInputRequested: onWidgetMathInputRequested,
             onImageInsertionRequested: onWidgetImageInsertionRequested,
             showsTeacherDemoWebApplets: showsTeacherDemoWebApplets
@@ -1573,9 +1595,7 @@ private final class PencilKitCanvasHostView: UIView {
             onEditWidget: onEditWidget,
             allowsWidgetAuthoring: allowsWidgetAuthoring,
             onWidgetInteractionChanged: onWidgetInteractionChanged,
-            onWidgetDisplayFrameChanged: { [weak self] id, frame in
-                self?.updateActiveWidgetDisplayFrame(id: id, frame: frame)
-            },
+            onWidgetDisplayFrameChanged: widgetDisplayFrameCallback,
             onMathInputRequested: onWidgetMathInputRequested,
             onImageInsertionRequested: onWidgetImageInsertionRequested,
             showsTeacherDemoWebApplets: showsTeacherDemoWebApplets
